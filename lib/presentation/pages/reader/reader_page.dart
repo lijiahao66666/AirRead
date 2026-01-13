@@ -7,10 +7,20 @@ import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../../widgets/ai_hud.dart';
+import '../../widgets/glass_panel.dart';
 import '../../providers/books_provider.dart';
+import '../../providers/translation_provider.dart';
 import '../../../data/services/book_parser.dart';
 import '../../../data/models/book.dart';
+import 'widgets/reader_paragraph.dart';
+import 'widgets/translation_sheet.dart';
+import 'widgets/ai_settings_sheet.dart';
+import 'widgets/summary_sheet.dart';
+import '../../../ai/translation/translation_types.dart';
+
+
 
 class _MeasureSize extends StatefulWidget {
   final Widget child;
@@ -85,6 +95,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   final Map<int, List<TextRange>> _chapterPageRanges = {};
   final Map<int, String> _chapterPageRangeKeys = {};
   final Map<int, int> _chapterTitleLength = {};
+  final Map<int, List<ReaderParagraph>> _chapterParagraphsCache = {};
+
   // For Horizontal Mode, we use a PageController with a large initial index to simulate infinite scrolling
   // But strictly mapping pages is better.
   // Let's use a PageController that we reset when changing chapters?
@@ -521,58 +533,64 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   void _showTableOfContents() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: _panelBgColor,
+      backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppTokens.radiusLg),
+        ),
+      ),
       builder: (context) {
-        return Container(
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                child: Text('目录',
-                    style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: _panelTextColor)),
-              ),
-              Divider(color: _panelTextColor.withOpacity(0.1)),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: _chapters.length,
-                  itemBuilder: (context, index) {
-                    final chapter = _chapters[index];
-                    return ListTile(
-                      title: Text(
-                        chapter.Title ?? 'Chapter ${index + 1}',
-                        style: TextStyle(
-                          color: index == _currentChapterIndex
-                              ? AppColors.techBlue
-                              : _panelTextColor,
-                          fontWeight: index == _currentChapterIndex
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                        ),
-                      ),
-                      onTap: () {
-                        setState(() {
-                          _currentChapterIndex = index;
-                          _currentPageInChapter = 0;
-                        });
-                        if (_pageController.hasClients) {
-                          _pageController.jumpToPage(1000);
-                        }
-                        _hideControls();
-                        Navigator.pop(context);
-                      },
-                    );
-                  },
+        return GlassPanel.sheet(
+          surfaceColor: _panelBgColor,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  child: Text('目录',
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: _panelTextColor)),
                 ),
-              ),
-            ],
+                Divider(color: _panelTextColor.withOpacity(0.1)),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _chapters.length,
+                    itemBuilder: (context, index) {
+                      final chapter = _chapters[index];
+                      return ListTile(
+                        title: Text(
+                          chapter.Title ?? 'Chapter ${index + 1}',
+                          style: TextStyle(
+                            color: index == _currentChapterIndex
+                                ? AppColors.techBlue
+                                : _panelTextColor,
+                            fontWeight: index == _currentChapterIndex
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
+                        onTap: () {
+                          setState(() {
+                            _currentChapterIndex = index;
+                            _currentPageInChapter = 0;
+                          });
+                          if (_pageController.hasClients) {
+                            _pageController.jumpToPage(1000);
+                          }
+                          _hideControls();
+                          Navigator.pop(context);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -584,107 +602,113 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   void _showSettings() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: _panelBgColor,
+      backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppTokens.radiusLg),
+        ),
+      ),
       builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return Container(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('阅读设置',
-                      style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: _panelTextColor)),
-                  const SizedBox(height: 24),
+        return GlassPanel.sheet(
+          surfaceColor: _panelBgColor,
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              return Container(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('阅读设置',
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: _panelTextColor)),
+                    const SizedBox(height: 24),
 
-                  // Font Size
-                  Row(
-                    children: [
-                      Icon(Icons.format_size,
-                          color: _panelTextColor.withOpacity(0.5)),
-                      const SizedBox(width: 16),
-                      Text('A-',
-                          style:
-                              TextStyle(fontSize: 16, color: _panelTextColor)),
-                      Expanded(
-                        child: Slider(
-                          value: _fontSize,
-                          min: 12,
-                          max: 32,
-                          divisions: 10,
-                          activeColor: AppColors.techBlue,
-                          onChanged: (val) {
-                            setSheetState(() {});
-                            setState(() {
-                              _fontSize = val;
-                              _invalidatePagination();
-                            });
-                          },
+                    // Font Size
+                    Row(
+                      children: [
+                        Icon(Icons.format_size,
+                            color: _panelTextColor.withOpacity(0.5)),
+                        const SizedBox(width: 16),
+                        Text('A-',
+                            style: TextStyle(
+                                fontSize: 16, color: _panelTextColor)),
+                        Expanded(
+                          child: Slider(
+                            value: _fontSize,
+                            min: 12,
+                            max: 32,
+                            divisions: 10,
+                            activeColor: AppColors.techBlue,
+                            onChanged: (val) {
+                              setSheetState(() {});
+                              setState(() {
+                                _fontSize = val;
+                                _invalidatePagination();
+                              });
+                            },
+                          ),
                         ),
-                      ),
-                      Text('A+',
-                          style:
-                              TextStyle(fontSize: 20, color: _panelTextColor)),
-                    ],
-                  ),
+                        Text('A+',
+                            style: TextStyle(
+                                fontSize: 20, color: _panelTextColor)),
+                      ],
+                    ),
 
-                  const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                  // Line Height
-                  Row(
-                    children: [
-                      Icon(Icons.format_line_spacing,
-                          color: _panelTextColor.withOpacity(0.5)),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Slider(
-                          value: _lineHeight,
-                          min: 1.0,
-                          max: 3.0,
-                          divisions: 4,
-                          activeColor: AppColors.techBlue,
-                          onChanged: (val) {
-                            setSheetState(() {});
-                            setState(() {
-                              _lineHeight = val;
-                              _invalidatePagination();
-                            });
-                          },
+                    // Line Height
+                    Row(
+                      children: [
+                        Icon(Icons.format_line_spacing,
+                            color: _panelTextColor.withOpacity(0.5)),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Slider(
+                            value: _lineHeight,
+                            min: 1.0,
+                            max: 3.0,
+                            divisions: 4,
+                            activeColor: AppColors.techBlue,
+                            onChanged: (val) {
+                              setSheetState(() {});
+                              setState(() {
+                                _lineHeight = val;
+                                _invalidatePagination();
+                              });
+                            },
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
 
-                  const SizedBox(height: 24),
+                    const SizedBox(height: 24),
 
-                  // Background Theme
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildThemeOption(const Color(0xFFF5F9FA),
-                          const Color(0xFF2C3E50), '日间'),
-                      _buildThemeOption(const Color(0xFFF5EDC0),
-                          const Color(0xFF3E2723), '护眼'),
-                      _buildThemeOption(
-                          const Color(0xFF121212),
-                          const Color(0xFFEEEEEE),
-                          '夜间'), // Light text for dark theme
-                    ],
-                  ),
+                    // Background Theme
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildThemeOption(const Color(0xFFF5F9FA),
+                            const Color(0xFF2C3E50), '日间'),
+                        _buildThemeOption(const Color(0xFFF5EDC0),
+                            const Color(0xFF3E2723), '护眼'),
+                        _buildThemeOption(
+                            const Color(0xFF121212),
+                            const Color(0xFFEEEEEE),
+                            '夜间'), // Light text for dark theme
+                      ],
+                    ),
 
-                  const SizedBox(height: 24),
+                    const SizedBox(height: 24),
 
-                  const SizedBox(height: 20),
-                ],
-              ),
-            );
-          },
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              );
+            },
+          ),
         );
       },
     ).then((_) {
@@ -833,7 +857,15 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
             });
             _saveProgressDebounced();
 
+            final translationProvider =
+                Provider.of<TranslationProvider>(context, listen: false);
+            if (translationProvider.applyToReader) {
+              translationProvider
+                  .prefetchParagraphs(_nextParagraphsForPrefetch(count: 5));
+            }
+
             // Force jump back to center to allow infinite scroll
+
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (_pageController.hasClients) {
                 _pageController.jumpToPage(1000);
@@ -950,7 +982,15 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                 alignment: Alignment.topCenter,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text.rich(span),
+                  child: _buildPageBody(
+                    chapterIndex: chapterIndex,
+                    range: range,
+                    end: end,
+                    plainText: plainText,
+                    bodySpan: span,
+                    bodyStyle: effectiveTextStyle,
+                  ),
+
                 ),
               ),
             ),
@@ -999,8 +1039,303 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildPageBody({
+    required int chapterIndex,
+    required TextRange range,
+    required int end,
+    required String plainText,
+    required TextSpan bodySpan,
+    required TextStyle bodyStyle,
+  }) {
+    final translationProvider = Provider.of<TranslationProvider>(context);
+    if (!translationProvider.applyToReader) {
+      return Text.rich(bodySpan);
+    }
+
+    final paragraphsByIndex = _paragraphsByIndexForRange(
+      chapterIndex: chapterIndex,
+      plainText: plainText,
+      start: range.start,
+      end: end,
+    );
+
+    if (paragraphsByIndex.isEmpty) {
+      return Text.rich(bodySpan);
+    }
+
+    return FutureBuilder<Map<int, String>>(
+      future: translationProvider.translateParagraphsByIndex(paragraphsByIndex),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text.rich(bodySpan),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 8),
+                  Text('正在翻译…', style: bodyStyle.copyWith(fontSize: 12, color: _textColor.withOpacity(0.6))),
+                ],
+              ),
+            ],
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text.rich(bodySpan),
+              const SizedBox(height: 12),
+              Text(
+                '翻译失败：${snapshot.error}',
+                style: bodyStyle.copyWith(fontSize: 12, color: Colors.redAccent),
+              ),
+            ],
+          );
+        }
+
+        final results = snapshot.data ?? const {};
+        final cfg = translationProvider.config;
+        final ordered = paragraphsByIndex.keys.toList()..sort();
+
+        if (cfg.displayMode == TranslationDisplayMode.translationOnly) {
+          final buffer = StringBuffer();
+          for (final idx in ordered) {
+            final t = results[idx];
+            if (t == null || t.trim().isEmpty) continue;
+            buffer.writeln(t);
+            buffer.writeln();
+          }
+
+          return SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: Text(
+              buffer.toString().trimRight(),
+              style: bodyStyle,
+            ),
+          );
+        }
+
+        return SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final idx in ordered) ...[
+                Text(paragraphsByIndex[idx] ?? '', style: bodyStyle),
+                const SizedBox(height: 8),
+                Text(
+                  results[idx] ?? '…',
+                  style: bodyStyle.copyWith(
+                    fontSize: (bodyStyle.fontSize ?? 18) - 2,
+                    color: _textColor.withOpacity(0.75),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ]
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Map<int, String> _paragraphsByIndexForRange({
+    required int chapterIndex,
+    required String plainText,
+    required int start,
+    required int end,
+  }) {
+    final paras = _getParagraphsForChapter(chapterIndex, plainText);
+    final Map<int, String> out = {};
+    for (final p in paras) {
+      if (p.end <= start) continue;
+      if (p.start >= end) break;
+      if (p.start < end && p.end > start) {
+        out[p.index] = p.text;
+      }
+    }
+    return out;
+  }
+
+  List<ReaderParagraph> _getParagraphsForChapter(int chapterIndex, String plainText) {
+    final cached = _chapterParagraphsCache[chapterIndex];
+    if (cached != null) return cached;
+
+    final List<ReaderParagraph> out = [];
+    final matches = RegExp(r'\n{2,}').allMatches(plainText).toList();
+
+    int start = 0;
+    int idx = 0;
+
+    for (final m in matches) {
+      final end = m.start;
+      final raw = plainText.substring(start, end);
+      final cleaned = raw.replaceAll(RegExp(r'^\n+'), '').replaceAll(RegExp(r'\n+$'), '');
+      if (cleaned.trim().isNotEmpty) {
+        out.add(ReaderParagraph(index: idx, start: start, end: end, text: cleaned));
+        idx++;
+      }
+      start = m.end;
+    }
+
+    if (start < plainText.length) {
+      final raw = plainText.substring(start);
+      final cleaned = raw.replaceAll(RegExp(r'^\n+'), '').replaceAll(RegExp(r'\n+$'), '');
+      if (cleaned.trim().isNotEmpty) {
+        out.add(ReaderParagraph(index: idx, start: start, end: plainText.length, text: cleaned));
+      }
+    }
+
+    _chapterParagraphsCache[chapterIndex] = out;
+    return out;
+  }
+
+  Map<int, String> _currentPageParagraphsByIndex() {
+    final ranges = _chapterPageRanges[_currentChapterIndex];
+    if (ranges == null || ranges.isEmpty) return {};
+
+    final plainText = _getPlainTextForChapter(_currentChapterIndex);
+    if (plainText.isEmpty) return {};
+
+    final safeIndex = _currentPageInChapter.clamp(0, ranges.length - 1);
+    final range = ranges[safeIndex];
+    final end = range.end.clamp(0, plainText.length);
+
+    return _paragraphsByIndexForRange(
+      chapterIndex: _currentChapterIndex,
+      plainText: plainText,
+      start: range.start,
+      end: end,
+    );
+  }
+
+  List<String> _nextParagraphsForPrefetch({required int count}) {
+    final current = _currentPageParagraphsByIndex();
+    if (current.isEmpty) return const [];
+
+    final maxIdx = (current.keys.toList()..sort()).last;
+    final paras = _getParagraphsForChapter(_currentChapterIndex, _getPlainTextForChapter(_currentChapterIndex));
+
+    final out = <String>[];
+    for (int i = maxIdx + 1; i < paras.length && out.length < count; i++) {
+      out.add(paras[i].text);
+    }
+    return out;
+  }
+
+  void _openTranslationSheet() {
+    final paragraphsByIndex = _currentPageParagraphsByIndex();
+    if (paragraphsByIndex.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('当前页暂无可翻译内容')));
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppTokens.radiusLg),
+        ),
+      ),
+      builder: (_) => TranslationSheet(
+        bgColor: _panelBgColor,
+        textColor: _panelTextColor,
+        paragraphsByIndex: paragraphsByIndex,
+      ),
+    ).then((_) {
+      if (mounted) _hideControls();
+    });
+  }
+
+  String _aiSummaryInputText({int maxChars = 12000}) {
+
+    final plainText = _getPlainTextForChapter(_currentChapterIndex);
+    if (plainText.isEmpty) return '';
+
+    final ranges = _chapterPageRanges[_currentChapterIndex];
+    int end = plainText.length;
+    if (ranges != null && ranges.isNotEmpty) {
+      final safeIndex = _currentPageInChapter.clamp(0, ranges.length - 1);
+      end = ranges[safeIndex].end.clamp(0, plainText.length);
+    }
+
+    if (end <= 0) return '';
+    final raw = plainText.substring(0, end);
+
+    if (raw.length <= maxChars) return raw;
+
+    // Keep both the opening context and the latest context near current reading.
+    final int headLen = 2000.clamp(0, maxChars);
+    final int tailLen = (maxChars - headLen - 40).clamp(0, maxChars);
+
+    final head = raw.substring(0, headLen);
+    final tail = raw.substring(raw.length - tailLen);
+
+    return '$head\n\n…（中间内容略）…\n\n$tail';
+  }
+
+  void _openSummarySheet() {
+    final content = _aiSummaryInputText();
+    if (content.trim().isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('当前暂无可总结内容')));
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppTokens.radiusLg),
+        ),
+      ),
+      builder: (_) => SummarySheet(
+        bgColor: _panelBgColor,
+        textColor: _panelTextColor,
+        content: content,
+      ),
+    ).then((_) {
+      if (mounted) _hideControls();
+    });
+  }
+
+  void _openAiSettingsSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppTokens.radiusLg),
+        ),
+      ),
+      builder: (_) => AiSettingsSheet(
+        bgColor: _panelBgColor,
+        textColor: _panelTextColor,
+        onOpenTranslationSettings: () => Future.microtask(_openTranslationSheet),
+      ),
+    ).then((_) {
+      if (mounted) _hideControls();
+    });
+  }
+
+
   @override
   Widget build(BuildContext context) {
+
     // IMPORTANT: Get padding from MediaQuery BEFORE removing it
     final padding = MediaQuery.of(context).padding;
     final viewPadding = MediaQuery.of(context).viewPadding;
@@ -1119,17 +1454,69 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                           onTap: () {
                             showModalBottomSheet(
                               context: context,
-                              backgroundColor:
-                                  _panelBgColor, // Use theme-aware bg
+                              backgroundColor: Colors.transparent,
                               shape: const RoundedRectangleBorder(
                                   borderRadius: BorderRadius.vertical(
-                                      top: Radius.circular(24))),
-                              builder: (context) => AiHud(
-                                bgColor: _panelBgColor,
-                                textColor: _panelTextColor,
+                                      top: Radius.circular(AppTokens.radiusLg))),
+                              builder: (sheetContext) => Consumer<TranslationProvider>(
+                                builder: (context, translationProvider, _) {
+                                  return AiHud(
+                                    bgColor: _panelBgColor,
+                                    textColor: _panelTextColor,
+                                    activeFeatures: {
+                                      if (translationProvider.applyToReader)
+                                        AiHudFeature.translate,
+                                    },
+                                    onOpenSettings: () {
+                                      Navigator.pop(sheetContext);
+                                      Future.microtask(_openAiSettingsSheet);
+                                    },
+                                    onFeatureTap: (feature) {
+                                      Navigator.pop(sheetContext);
+
+                                      switch (feature) {
+                                        case AiHudFeature.translate:
+                                          final p = Provider.of<TranslationProvider>(
+                                            context,
+                                            listen: false,
+                                          );
+                                          final next = !p.applyToReader;
+                                          p.setApplyToReader(next);
+                                          if (next) {
+                                            p.prefetchParagraphs(
+                                              _nextParagraphsForPrefetch(count: 5),
+                                            );
+                                          }
+                                          break;
+                                        case AiHudFeature.summarize:
+                                          Future.microtask(_openSummarySheet);
+                                          break;
+                                        case AiHudFeature.toImageText:
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('图文功能即将上线')),
+                                          );
+                                          break;
+                                        case AiHudFeature.readAloud:
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('朗读功能即将上线')),
+                                          );
+                                          break;
+                                        case AiHudFeature.qa:
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('问答功能即将上线')),
+                                          );
+                                          break;
+                                      }
+                                    },
+                                  );
+                                },
                               ),
-                            );
+
+                            ).then((_) {
+                              if (mounted) _hideControls();
+                            });
                           },
+
                           child: AnimatedBuilder(
                             animation: _pulseController,
                             builder: (context, child) {

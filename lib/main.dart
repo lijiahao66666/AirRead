@@ -6,6 +6,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/pages/bookshelf/bookshelf_page.dart';
 import 'presentation/providers/books_provider.dart';
+import 'presentation/providers/translation_provider.dart';
+
 
 import 'package:flutter/services.dart';
 
@@ -32,7 +34,9 @@ void main() {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => BooksProvider()),
+        ChangeNotifierProvider(create: (_) => TranslationProvider()),
       ],
+
       child: const AirReadApp(),
     ),
   );

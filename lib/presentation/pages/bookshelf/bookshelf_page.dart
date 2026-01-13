@@ -8,7 +8,9 @@ import 'package:provider/provider.dart';
 import '../../providers/books_provider.dart';
 import '../../widgets/book_card.dart';
 import '../../widgets/air_title.dart';
+import '../../widgets/glass_panel.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_tokens.dart';
 import '../reader/reader_page.dart';
 import '../../../data/models/book.dart';
 
@@ -141,37 +143,38 @@ class _BookshelfPageState extends State<BookshelfPage> {
                         children: [
                           // Search Box
                           Expanded(
-                            child: Container(
+                            child: SizedBox(
                               height: 48,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.6),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: TextField(
-                                controller: _searchController,
-                                onChanged: _onSearchChanged,
-                                style:
-                                    const TextStyle(color: AppColors.deepSpace),
-                                decoration: InputDecoration(
-                                  hintText: '搜索书名或作者',
-                                  hintStyle:
-                                      TextStyle(color: AppColors.softGrey),
-                                  prefixIcon: const Icon(Icons.search,
-                                      color: AppColors.softGrey),
-                                  border: InputBorder.none,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 12),
-                                  suffixIcon: _searchQuery.isNotEmpty
-                                      ? IconButton(
-                                          icon: const Icon(Icons.close,
-                                              size: 20,
-                                              color: AppColors.softGrey),
-                                          onPressed: () {
-                                            _searchController.clear();
-                                            _onSearchChanged('');
-                                          },
-                                        )
-                                      : null,
+                              child: GlassPanel(
+                                borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+                                surfaceColor: Colors.white,
+                                opacity: 0.60,
+                                border: Border.all(
+                                  color: AppColors.deepSpace.withOpacity(0.06),
+                                  width: AppTokens.stroke,
+                                ),
+                                child: TextField(
+                                  controller: _searchController,
+                                  onChanged: _onSearchChanged,
+                                  style: const TextStyle(color: AppColors.deepSpace),
+                                  decoration: InputDecoration(
+                                    hintText: '搜索书名或作者',
+                                    hintStyle: TextStyle(color: AppColors.softGrey),
+                                    prefixIcon: const Icon(Icons.search, color: AppColors.softGrey),
+                                    border: InputBorder.none,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 12),
+                                    suffixIcon: _searchQuery.isNotEmpty
+                                        ? IconButton(
+                                            icon: const Icon(Icons.close,
+                                                size: 20, color: AppColors.softGrey),
+                                            onPressed: () {
+                                              _searchController.clear();
+                                              _onSearchChanged('');
+                                            },
+                                          )
+                                        : null,
+                                  ),
                                 ),
                               ),
                             ),
@@ -180,6 +183,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                           const SizedBox(width: 8),
 
                           _buildActionButton(
+                            context: context,
                             icon: Icons.add,
                             onTap: () => _handleImport(context),
                             tooltip: '导入书籍',
@@ -188,6 +192,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                           const SizedBox(width: 8),
 
                           _buildActionButton(
+                            context: context,
                             icon: booksProvider.isSelectionMode
                                 ? Icons.close
                                 : Icons.checklist_rtl_rounded,
@@ -320,22 +325,23 @@ class _BookshelfPageState extends State<BookshelfPage> {
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 16, horizontal: 48),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 10,
-                          offset: const Offset(0, -2),
-                        ),
-                      ],
+                  child: GlassPanel(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(AppTokens.radiusLg),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
+                    surfaceColor: Colors.white,
+                    opacity: 0.92,
+                    boxShadow: AppTokens.shadowSoft,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        48,
+                        16,
+                        48,
+                        16 + MediaQuery.of(context).padding.bottom,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
                         // Pin Button
                         Column(
                           mainAxisSize: MainAxisSize.min,
@@ -409,7 +415,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
                     ),
                   ),
                 ),
+                ), // <- 补这一行：关闭 Positioned
             ],
+
           );
         },
       ),
@@ -418,33 +426,38 @@ class _BookshelfPageState extends State<BookshelfPage> {
 }
 
 Widget _buildActionButton({
+  required BuildContext context,
   required IconData icon,
   required VoidCallback onTap,
   required String tooltip,
   bool isActive = false,
 }) {
+  final onSurface = Theme.of(context).colorScheme.onSurface;
+
   return Material(
     color: Colors.transparent,
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
+      borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+      child: SizedBox(
         width: 48,
         height: 48,
-        decoration: BoxDecoration(
-          color: isActive
-              ? AppColors.techBlue.withOpacity(0.1)
-              : Colors.white.withOpacity(0.6),
-          borderRadius: BorderRadius.circular(12),
+        child: GlassPanel(
+          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+          surfaceColor: Colors.white,
+          opacity: isActive ? 0.72 : 0.60,
           border: Border.all(
-            color: isActive ? AppColors.techBlue : Colors.transparent,
-            width: 1.5,
+            color: (isActive ? AppColors.techBlue : onSurface)
+                .withOpacity(isActive ? 0.28 : 0.08),
+            width: AppTokens.stroke,
           ),
-        ),
-        child: Icon(
-          icon,
-          color: isActive ? AppColors.techBlue : AppColors.deepSpace,
-          size: 24,
+          child: Center(
+            child: Icon(
+              icon,
+              color: isActive ? AppColors.techBlue : AppColors.deepSpace,
+              size: 24,
+            ),
+          ),
         ),
       ),
     ),

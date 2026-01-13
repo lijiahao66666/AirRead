@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import '../../data/models/book.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 
 class BookCard extends StatefulWidget {
   final Book book;
@@ -45,17 +46,15 @@ class _BookCardState extends State<BookCard> {
             child: Container(
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
+                borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+                border: Border.all(
+                  color: AppColors.deepSpace.withOpacity(0.06),
+                  width: AppTokens.stroke,
+                ),
+                boxShadow: AppTokens.shadowTight,
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(AppTokens.radiusMd),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
