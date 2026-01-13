@@ -1,0 +1,261 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import '../../data/models/book.dart';
+import '../../data/database/database_helper.dart';
+import '../../data/database/web_database_helper.dart';
+import '../../data/services/book_importer.dart';
+
+import 'package:file_picker/file_picker.dart';
+
+class BooksProvider extends ChangeNotifier {
+  List<Book> _books = [];
+  bool _isLoading = false;
+  bool _isImporting = false;
+  String _loadingMessage = '';
+  String? _importError;
+
+  // Animation Control
+  List<String> _recentlyImportedIds = [];
+  int _importBatchId = 0;
+
+  final DatabaseHelper _dbHelper = DatabaseHelper.instance;
+  final WebDatabaseHelper _webDbHelper = WebDatabaseHelper.instance;
+  final BookImporter _importer = BookImporter();
+
+  // Selection Mode
+  bool _isSelectionMode = false;
+  final Set<String> _selectedBookIds = {};
+
+  List<Book> get books => _books;
+  bool get isLoading => _isLoading;
+  bool get isImporting => _isImporting;
+  String get loadingMessage => _loadingMessage;
+  String? get importError => _importError;
+
+  bool get isSelectionMode => _isSelectionMode;
+  Set<String> get selectedBookIds => _selectedBookIds;
+
+  List<String> get recentlyImportedIds => _recentlyImportedIds;
+  int get importBatchId => _importBatchId;
+
+  BooksProvider() {
+    loadBooks();
+  }
+
+  void toggleSelectionMode() {
+    _isSelectionMode = !_isSelectionMode;
+    if (!_isSelectionMode) {
+      _selectedBookIds.clear();
+    }
+    notifyListeners();
+  }
+
+  void toggleBookSelection(String id) {
+    if (_selectedBookIds.contains(id)) {
+      _selectedBookIds.remove(id);
+    } else {
+      _selectedBookIds.add(id);
+    }
+    notifyListeners();
+  }
+
+  void selectAll() {
+    if (_selectedBookIds.length == _books.length) {
+      _selectedBookIds.clear();
+    } else {
+      _selectedBookIds.addAll(_books.map((b) => b.id));
+    }
+    notifyListeners();
+  }
+
+  Future<void> pinSelectedBooks() async {
+    if (_selectedBookIds.isEmpty) return;
+
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final now = DateTime.now();
+      // Update import date to now (simple "Bump to top" logic)
+      final idsToPin = _selectedBookIds.toList();
+
+      for (var id in idsToPin) {
+        final index = _books.indexWhere((b) => b.id == id);
+        if (index != -1) {
+          final updatedBook = _books[index].copyWith(importDate: now);
+
+          if (kIsWeb) {
+            await _webDbHelper
+                .insertBook(updatedBook); // Insert replaces on conflict
+          } else {
+            await _dbHelper
+                .insertBook(updatedBook); // Insert replaces on conflict
+          }
+
+          _books[index] = updatedBook;
+        }
+      }
+
+      // Re-sort local list
+      _books.sort((a, b) => b.importDate.compareTo(a.importDate));
+
+      // Trigger animation
+      _importBatchId++;
+      _recentlyImportedIds = [];
+
+      // Exit selection mode
+      _isSelectionMode = false;
+      _selectedBookIds.clear();
+    } catch (e) {
+      print('Error pinning books: $e');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteSelectedBooks() async {
+    if (_selectedBookIds.isEmpty) return;
+
+    _isLoading = true; // Use loading state to prevent interaction
+    notifyListeners();
+
+    try {
+      final idsToDelete = _selectedBookIds.toList();
+
+      // Update Animation State to trigger re-layout/shift
+      _importBatchId++;
+      _recentlyImportedIds = []; // No new imports, just layout change
+
+      for (var id in idsToDelete) {
+        if (kIsWeb) {
+          await _webDbHelper.deleteBook(id);
+        } else {
+          await _dbHelper.deleteBook(id);
+        }
+      }
+
+      _books.removeWhere((b) => idsToDelete.contains(b.id));
+
+      // Exit selection mode
+      _isSelectionMode = false;
+      _selectedBookIds.clear();
+
+      print('Deleted ${idsToDelete.length} books');
+    } catch (e) {
+      print('Error deleting books: $e');
+      // Show error in UI?
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // New method for Web imports
+  Future<void> importWebFiles(FilePickerResult result) async {
+    _isImporting = true;
+    _importError = null;
+    notifyListeners();
+
+    // Small delay to allow UI to render the loading state before heavy processing
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    try {
+      final newBooks =
+          await _importer.processWebFiles(result, onProgress: (current, total) {
+        _loadingMessage = '正在导入 $current / $total';
+        notifyListeners();
+      });
+
+      if (newBooks.isNotEmpty) {
+        _loadingMessage = '正在保存...';
+
+        // Update Animation State
+        _recentlyImportedIds = newBooks.map((b) => b.id).toList();
+        _importBatchId++;
+
+        notifyListeners();
+
+        // Save to DB
+        for (var book in newBooks) {
+          await _webDbHelper.insertBook(book);
+        }
+        _books.insertAll(0, newBooks);
+      }
+    } catch (e) {
+      print('Error importing web files: $e');
+      _importError = '导入失败: $e';
+    } finally {
+      _isImporting = false;
+      _loadingMessage = '';
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadBooks() async {
+    _isLoading = true;
+    _recentlyImportedIds = []; // Clear animation state on reload
+    notifyListeners();
+
+    try {
+      if (kIsWeb) {
+        // Load from Web IndexedDB
+        _books = await _webDbHelper.getAllBooks();
+      } else {
+        _books = await _dbHelper.getAllBooks();
+      }
+    } catch (e) {
+      print('Error loading books: $e');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> importBooks() async {
+    // 1. Pick files first (don't show overlay yet)
+    final result = await _importer.pickFiles();
+
+    // 2. If files picked, start import process (show overlay)
+    if (result != null) {
+      _isImporting = true;
+      _importError = null;
+      notifyListeners();
+
+      try {
+        final newBooks = await _importer.processPickedFiles(result);
+        if (newBooks.isNotEmpty) {
+          // Update Animation State
+          _recentlyImportedIds = newBooks.map((b) => b.id).toList();
+          _importBatchId++;
+
+          _books.insertAll(0, newBooks); // Add to top
+        }
+      } catch (e) {
+        print('Error importing books: $e');
+        _importError = '导入失败: $e';
+      } finally {
+        _isImporting = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> deleteBook(String id) async {
+    if (kIsWeb) {
+      await _webDbHelper.deleteBook(id);
+    } else {
+      await _dbHelper.deleteBook(id);
+    }
+    _books.removeWhere((b) => b.id == id);
+    notifyListeners();
+  }
+
+  Future<void> saveReadingSettingsToDb({
+    required double fontSize,
+    required double lineHeight,
+  }) async {
+    if (kIsWeb) return;
+    await _dbHelper.saveReadingSettings(fontSize, lineHeight);
+  }
+}
