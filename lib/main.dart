@@ -6,21 +6,22 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/pages/bookshelf/bookshelf_page.dart';
 import 'presentation/providers/books_provider.dart';
+import 'presentation/providers/tencent_hunyuan_config_provider.dart';
 import 'presentation/providers/translation_provider.dart';
-
 
 import 'package:flutter/services.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Set global system UI mode to edge-to-edge for modern Android experience
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     systemNavigationBarColor: Colors.transparent,
     systemNavigationBarDividerColor: Colors.transparent,
     statusBarColor: Colors.transparent,
-    systemNavigationBarContrastEnforced: false, // Prevent system from enforcing contrast with scrim
+    systemNavigationBarContrastEnforced:
+        false, // Prevent system from enforcing contrast with scrim
     statusBarIconBrightness: Brightness.dark,
     systemNavigationBarIconBrightness: Brightness.dark,
   ));
@@ -29,14 +30,22 @@ void main() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
-  
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => BooksProvider()),
-        ChangeNotifierProvider(create: (_) => TranslationProvider()),
+        ChangeNotifierProvider(create: (_) => TencentHunyuanConfigProvider()),
+        ChangeNotifierProxyProvider<TencentHunyuanConfigProvider,
+            TranslationProvider>(
+          create: (_) => TranslationProvider(),
+          update: (_, cfg, provider) {
+            final p = provider ?? TranslationProvider(hunyuanConfig: cfg);
+            p.updateHunyuanConfig(cfg);
+            return p;
+          },
+        ),
       ],
-
       child: const AirReadApp(),
     ),
   );

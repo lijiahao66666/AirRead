@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:epubx/epubx.dart';
 import 'dart:async';
+import 'dart:convert';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import '../../../core/theme/app_colors.dart';
@@ -11,6 +13,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../widgets/ai_hud.dart';
 import '../../widgets/glass_panel.dart';
 import '../../providers/books_provider.dart';
+import '../../providers/tencent_hunyuan_config_provider.dart';
 import '../../providers/translation_provider.dart';
 import '../../../data/services/book_parser.dart';
 import '../../../data/models/book.dart';
@@ -19,13 +22,7 @@ import 'widgets/translation_sheet.dart';
 import 'widgets/ai_settings_sheet.dart';
 import 'widgets/summary_sheet.dart';
 import '../../../ai/translation/translation_types.dart';
-
-enum _AiQuickMenu {
-  none,
-  translate,
-  readAloud,
-  imageText,
-}
+import '../../../ai/tencent_tts/tencent_tts_client.dart';
 
 class _MeasureSize extends StatefulWidget {
   final Widget child;
@@ -84,17 +81,12 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   //
   // We split "feature enabled" vs "active" so the right-side quick actions can
   // temporarily pause/resume without fully disabling the feature.
-  bool _aiTranslateEnabled = false;
-
-  bool _aiReadAloudEnabled = false;
   bool _aiReadAloudPlaying = false;
 
-  bool _aiImageTextEnabled = false;
-  bool _aiImageTextActive = false;
-
-  _AiQuickMenu _aiQuickMenu = _AiQuickMenu.none;
-
-
+  final AudioPlayer _readAloudPlayer = AudioPlayer();
+  final Map<String, Uint8List> _readAloudAudioCache = {};
+  String _readAloudAudioKey = '';
+  final Map<String, Future<Map<int, String>>> _translationFutures = {};
 
   EpubBookRef? _epubBook;
   List<EpubChapterRef> _chapters = [];
@@ -128,6 +120,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
   final BookParser _parser = BookParser();
   late AnimationController _pulseController;
+  late AnimationController _readAloudAnimController;
   late AnimationController _controlsController; // New Controller
   late Animation<Offset> _topBarOffset; // Animation for Top Bar
   late Animation<Offset> _bottomBarOffset; // Animation for Bottom Bar
@@ -160,7 +153,18 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
+    _readAloudAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
     _startPulseTimer();
+
+    _readAloudPlayer.onPlayerComplete.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        _aiReadAloudPlaying = false;
+      });
+    });
 
     _loadSettingsAndBook();
   }
@@ -186,25 +190,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         int? textVal = _prefs?.getInt('textColor');
         if (textVal != null) _textColor = Color(textVal);
 
-        _aiTranslateEnabled = _prefs?.getBool('ai_translateEnabled') ?? false;
-
-        _aiReadAloudEnabled = _prefs?.getBool('ai_readAloudEnabled') ?? false;
         _aiReadAloudPlaying = false;
-
-        _aiImageTextEnabled = _prefs?.getBool('ai_imageTextEnabled') ?? false;
-        _aiImageTextActive = _aiImageTextEnabled;
-
-        _aiQuickMenu = _AiQuickMenu.none;
       });
-
-    }
-
-    // Ensure translation never stays active while the feature is disabled.
-    if (mounted) {
-      final tp = Provider.of<TranslationProvider>(context, listen: false);
-      if (!_aiTranslateEnabled && tp.applyToReader) {
-        await tp.setApplyToReader(false);
-      }
     }
 
     await _loadBookContent();
@@ -234,9 +221,11 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     _saveSettings();
     _saveProgress();
     _progressSaveTimer?.cancel();
+    _readAloudPlayer.dispose();
     _pageController.dispose();
     // for (var c in _chapterControllers.values) c.dispose(); // Removed
     _pulseController.dispose();
+    _readAloudAnimController.dispose();
     _controlsController.dispose();
     _pulseTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -251,10 +240,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     await prefs.setDouble('lineHeight', _lineHeight);
     await prefs.setInt('bgColor', _bgColor.value);
     await prefs.setInt('textColor', _textColor.value);
-    await prefs.setBool('ai_translateEnabled', _aiTranslateEnabled);
-    await prefs.setBool('ai_readAloudEnabled', _aiReadAloudEnabled);
-    await prefs.setBool('ai_imageTextEnabled', _aiImageTextEnabled);
-
 
     try {
       booksProvider.saveReadingSettingsToDb(
@@ -378,35 +363,18 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     _controlsController.reverse();
   }
 
-  void _toggleQuickMenu(_AiQuickMenu menu) {
-    setState(() {
-      _aiQuickMenu = _aiQuickMenu == menu ? _AiQuickMenu.none : menu;
-    });
-  }
-
   Future<void> _setAiTranslateEnabled({
     required TranslationProvider provider,
     required bool enabled,
   }) async {
     if (!mounted) return;
 
-    // Mutex: enabling translation disables image-text.
-    if (enabled && _aiImageTextEnabled) {
-      await _setAiImageTextEnabled(provider: provider, enabled: false);
-      if (!mounted) return;
+    await provider.setAiTranslateEnabled(enabled);
+
+    if (!enabled) {
+      _translationFutures.clear();
+      setState(() {});
     }
-
-    setState(() {
-      _aiTranslateEnabled = enabled;
-      if (!enabled && _aiQuickMenu == _AiQuickMenu.translate) {
-        _aiQuickMenu = _AiQuickMenu.none;
-      }
-    });
-
-    await _prefs?.setBool('ai_translateEnabled', enabled);
-
-    // When enabled toggles, default to applying translation to reader.
-    await provider.setApplyToReader(enabled);
     if (enabled) {
       provider.prefetchParagraphs(_nextParagraphsForPrefetch(count: 5));
     }
@@ -418,23 +386,16 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }) async {
     if (!mounted) return;
 
-    // Mutex: enabling read-aloud disables image-text.
-    if (enabled && _aiImageTextEnabled) {
-      await _setAiImageTextEnabled(provider: provider, enabled: false);
-      if (!mounted) return;
-    }
+    await provider.setAiReadAloudEnabled(enabled);
 
-    setState(() {
-      _aiReadAloudEnabled = enabled;
-      if (!enabled) {
+    if (!enabled) {
+      setState(() {
         _aiReadAloudPlaying = false;
-        if (_aiQuickMenu == _AiQuickMenu.readAloud) {
-          _aiQuickMenu = _AiQuickMenu.none;
-        }
-      }
-    });
-
-    await _prefs?.setBool('ai_readAloudEnabled', enabled);
+      });
+      _readAloudAnimController.stop();
+      _readAloudAnimController.reset();
+      await _stopReadAloud();
+    }
   }
 
   Future<void> _setAiImageTextEnabled({
@@ -443,243 +404,153 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }) async {
     if (!mounted) return;
 
-    // Mutex: enabling image-text disables translation & read-aloud.
     if (enabled) {
-      if (_aiTranslateEnabled) {
-        await _setAiTranslateEnabled(provider: provider, enabled: false);
-        if (!mounted) return;
-      }
-      if (_aiReadAloudEnabled) {
-        await _setAiReadAloudEnabled(provider: provider, enabled: false);
-        if (!mounted) return;
-      }
+      setState(() {
+        _aiReadAloudPlaying = false;
+      });
+      _readAloudAnimController.stop();
+      _readAloudAnimController.reset();
+      await _stopReadAloud();
     }
 
-    setState(() {
-      _aiImageTextEnabled = enabled;
-      _aiImageTextActive = enabled;
-      if (!enabled && _aiQuickMenu == _AiQuickMenu.imageText) {
-        _aiQuickMenu = _AiQuickMenu.none;
-      }
-    });
-
-    await _prefs?.setBool('ai_imageTextEnabled', enabled);
+    await provider.setAiImageTextEnabled(enabled);
   }
 
-  Widget _buildAiQuickActions(TranslationProvider provider) {
-    final bool hasAny = _aiTranslateEnabled || _aiReadAloudEnabled || _aiImageTextEnabled;
-    if (!hasAny) return const SizedBox.shrink();
+  String _readAloudTextForCurrentPage({int maxChars = 900}) {
+    final paragraphs = _currentPageParagraphsByIndex();
+    final raw = paragraphs.values.join('\n');
+    final t = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (t.isEmpty) return '';
+    return t.length > maxChars ? t.substring(0, maxChars) : t;
+  }
+
+  Future<bool> _startReadAloud() async {
+    final cfg = context.read<TencentHunyuanConfigProvider>();
+    if (!cfg.hasUsableCredentials) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未配置大模型凭证，请先在“大模型设置”中开启凭证')),
+      );
+      return false;
+    }
+    if (context.read<TranslationProvider>().aiImageTextEnabled) return false;
+
+    final text = _readAloudTextForCurrentPage();
+    if (text.isEmpty) return false;
+
+    final key = '$_currentChapterIndex|$_currentPageInChapter|${text.hashCode}';
+    try {
+      setState(() {
+        _aiReadAloudPlaying = true;
+      });
+      _readAloudAnimController.repeat(reverse: true);
+
+      if (_readAloudAudioKey != key) {
+        _readAloudAudioKey = key;
+        await _readAloudPlayer.stop();
+
+        final cached = _readAloudAudioCache[key];
+        if (cached != null) {
+          await _readAloudPlayer.play(BytesSource(cached));
+          return true;
+        }
+
+        final client = TencentTtsClient(credentials: cfg.effectiveCredentials);
+        final res = await client.textToVoice(text: text);
+        final bytes = base64Decode(res.audioBase64);
+        _readAloudAudioCache[key] = bytes;
+        await _readAloudPlayer.play(BytesSource(bytes));
+        return true;
+      }
+
+      await _readAloudPlayer.resume();
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      setState(() {
+        _aiReadAloudPlaying = false;
+      });
+      _readAloudAnimController.stop();
+      _readAloudAnimController.reset();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('朗读失败：$e')));
+      return false;
+    }
+  }
+
+  Future<void> _pauseReadAloud() async {
+    setState(() {
+      _aiReadAloudPlaying = false;
+    });
+    _readAloudAnimController.stop();
+    _readAloudAnimController.reset();
+    await _readAloudPlayer.pause();
+  }
+
+  Future<void> _stopReadAloud() async {
+    setState(() {
+      _aiReadAloudPlaying = false;
+    });
+    _readAloudAnimController.stop();
+    _readAloudAnimController.reset();
+    _readAloudAudioKey = '';
+    await _readAloudPlayer.stop();
+  }
+
+  Widget _buildReadAloudFloatingButton() {
+    if (_isLoading || _error != null) return const SizedBox.shrink();
+    if (!context.watch<TranslationProvider>().aiReadAloudEnabled)
+      return const SizedBox.shrink();
 
     final Color surface = _panelBgColor;
     final Color onSurface = _panelTextColor;
 
-    Widget pill({
-      required _AiQuickMenu menu,
-      required IconData icon,
-      required String title,
-      required bool active,
-      required String toggleLabel,
-      required VoidCallback onToggle,
-      required String closeLabel,
-      required VoidCallback onClose,
-    }) {
-      final expanded = _aiQuickMenu == menu;
-
-      return AnimatedContainer(
+    return Positioned(
+      right: 14,
+      bottom: (_contentBottomInset ?? 0) + 120,
+      child: AnimatedScale(
         duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        width: expanded ? 172 : 48,
+        scale:
+            context.watch<TranslationProvider>().aiReadAloudEnabled ? 1 : 0.9,
         child: GlassPanel(
-          borderRadius: BorderRadius.circular(expanded ? 16 : 999),
+          borderRadius: BorderRadius.circular(999),
           surfaceColor: surface,
-          opacity: 0.82,
-          border: Border.all(color: onSurface.withOpacity(0.08), width: AppTokens.stroke),
+          opacity: 0.86,
+          border: Border.all(
+              color: onSurface.withOpacity(0.08), width: AppTokens.stroke),
           child: InkWell(
-            onTap: () => _toggleQuickMenu(menu),
-            borderRadius: BorderRadius.circular(expanded ? 16 : 999),
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: expanded ? 12 : 0, vertical: 10),
-              child: expanded
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 28,
-                              height: 28,
-                              decoration: BoxDecoration(
-                                color: active
-                                    ? AppColors.techBlue.withOpacity(0.12)
-                                    : onSurface.withOpacity(0.06),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Icon(
-                                icon,
-                                size: 16,
-                                color: active ? AppColors.techBlue : onSurface.withOpacity(0.8),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                title,
-                                style: TextStyle(
-                                  color: onSurface,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: active ? AppColors.techBlue : onSurface.withOpacity(0.25),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton(
-                            onPressed: () {
-                              onToggle();
-                              setState(() {
-                                _aiQuickMenu = _AiQuickMenu.none;
-                              });
-                            },
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: onSurface,
-                              side: BorderSide(color: onSurface.withOpacity(0.14)),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: Text(toggleLabel),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
-                          child: TextButton(
-                            onPressed: () async {
-                              onClose();
-                              if (mounted) {
-                                setState(() {
-                                  _aiQuickMenu = _AiQuickMenu.none;
-                                });
-                              }
-                            },
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.redAccent,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: Text(closeLabel),
-                          ),
-                        ),
-                      ],
-                    )
-                  : Center(
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: active
-                              ? AppColors.techBlue.withOpacity(0.12)
-                              : onSurface.withOpacity(0.06),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Icon(
-                          icon,
-                          size: 20,
-                          color: active ? AppColors.techBlue : onSurface.withOpacity(0.8),
-                        ),
-                      ),
-                    ),
+            borderRadius: BorderRadius.circular(999),
+            onTap: () {
+              if (_aiReadAloudPlaying) {
+                _pauseReadAloud();
+              } else {
+                _startReadAloud();
+              }
+            },
+            child: SizedBox(
+              width: 48,
+              height: 48,
+              child: AnimatedBuilder(
+                animation: _readAloudAnimController,
+                builder: (context, child) {
+                  // Breathing effect: scale between 1.0 and 1.2
+                  final scale = 1.0 + (_readAloudAnimController.value * 0.2);
+                  return Transform.scale(
+                    scale: scale,
+                    child: child,
+                  );
+                },
+                child: Icon(
+                  Icons.volume_up_rounded,
+                  color: _aiReadAloudPlaying
+                      ? AppColors.techBlue
+                      : onSurface.withOpacity(0.5),
+                  size: 24,
+                ),
+              ),
             ),
           ),
         ),
-      );
-    }
-
-    final items = <Widget>[];
-
-    if (_aiTranslateEnabled) {
-      items.add(
-        pill(
-          menu: _AiQuickMenu.translate,
-          icon: Icons.translate,
-          title: '翻译',
-          active: provider.applyToReader,
-          toggleLabel: provider.applyToReader ? '暂停翻译' : '恢复翻译',
-          onToggle: () {
-            final next = !provider.applyToReader;
-            provider.setApplyToReader(next);
-            if (next) {
-              provider.prefetchParagraphs(_nextParagraphsForPrefetch(count: 5));
-            }
-          },
-          closeLabel: '关闭翻译',
-          onClose: () {
-            _setAiTranslateEnabled(provider: provider, enabled: false);
-          },
-        ),
-      );
-    }
-
-    if (_aiReadAloudEnabled) {
-      items.add(
-        pill(
-          menu: _AiQuickMenu.readAloud,
-          icon: Icons.volume_up,
-          title: '朗读',
-          active: _aiReadAloudPlaying,
-          toggleLabel: _aiReadAloudPlaying ? '暂停朗读' : '开始朗读',
-          onToggle: () {
-            setState(() {
-              _aiReadAloudPlaying = !_aiReadAloudPlaying;
-            });
-          },
-          closeLabel: '关闭朗读',
-          onClose: () {
-            _setAiReadAloudEnabled(provider: provider, enabled: false);
-          },
-        ),
-      );
-    }
-
-    if (_aiImageTextEnabled) {
-      items.add(
-        pill(
-          menu: _AiQuickMenu.imageText,
-          icon: Icons.image_outlined,
-          title: '图文',
-          active: _aiImageTextActive,
-          toggleLabel: _aiImageTextActive ? '隐藏图文' : '显示图文',
-          onToggle: () {
-            setState(() {
-              _aiImageTextActive = !_aiImageTextActive;
-            });
-          },
-          closeLabel: '关闭图文',
-          onClose: () {
-            _setAiImageTextEnabled(provider: provider, enabled: false);
-          },
-        ),
-      );
-    }
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (int i = 0; i < items.length; i++) ...[
-          if (i != 0) const SizedBox(height: 10),
-          items[i],
-        ],
-      ],
+      ),
     );
   }
 
@@ -690,7 +561,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     }
     return _chapterPageCounts[chapterIndex] ?? 9999;
   }
-
 
   String _getPlainTextForChapter(int chapterIndex) {
     final cached = _chapterPlainText[chapterIndex];
@@ -1283,7 +1153,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         double snap(double value) => (value * dpr).roundToDouble() / dpr;
 
         final double topMargin = snap(padding.top + 16);
-        final double bottomMargin = snap(padding.bottom + 16);
+        // Increased bottom padding to prevent text from being covered by system chin or menus
+        final double bottomMargin = snap(padding.bottom + 48);
 
         double viewportHeight =
             snap(constraints.maxHeight - topMargin - bottomMargin);
@@ -1344,7 +1215,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                     bodySpan: span,
                     bodyStyle: effectiveTextStyle,
                   ),
-
                 ),
               ),
             ),
@@ -1417,26 +1287,58 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       return Text.rich(bodySpan);
     }
 
+    final cfg = translationProvider.config;
+    final orderedForKey = paragraphsByIndex.keys.toList()..sort();
+    final paraHash = Object.hashAll(
+      orderedForKey.map((k) => paragraphsByIndex[k]),
+    );
+    final key = [
+      'c:$chapterIndex',
+      's:${range.start}',
+      'e:$end',
+      'from:${cfg.sourceLang}',
+      'to:${cfg.targetLang}',
+      'engine:${cfg.engineType.name}',
+      'mode:${cfg.displayMode.name}',
+      'gv:${translationProvider.glossaryVersion}',
+      'ph:$paraHash',
+    ].join('|');
+
+    final future = _translationFutures.putIfAbsent(
+      key,
+      () => translationProvider.translateParagraphsByIndex(paragraphsByIndex),
+    );
+
     return FutureBuilder<Map<int, String>>(
-      future: translationProvider.translateParagraphsByIndex(paragraphsByIndex),
+      future: future,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          // Show original text immediately while waiting for translation
+          // This avoids the "blank page" effect
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text.rich(bodySpan),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+              // Optional: Minimal loading indicator if needed, or nothing for seamlessness
+              if (cfg.displayMode == TranslationDisplayMode.translationOnly)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12.0),
+                  child: Row(
+                    children: [
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('正在翻译…',
+                          style: bodyStyle.copyWith(
+                              fontSize: 12,
+                              color: _textColor.withOpacity(0.5))),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Text('正在翻译…', style: bodyStyle.copyWith(fontSize: 12, color: _textColor.withOpacity(0.6))),
-                ],
-              ),
+                ),
             ],
           );
         }
@@ -1449,14 +1351,14 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
               const SizedBox(height: 12),
               Text(
                 '翻译失败：${snapshot.error}',
-                style: bodyStyle.copyWith(fontSize: 12, color: Colors.redAccent),
+                style:
+                    bodyStyle.copyWith(fontSize: 12, color: Colors.redAccent),
               ),
             ],
           );
         }
 
         final results = snapshot.data ?? const {};
-        final cfg = translationProvider.config;
         final ordered = paragraphsByIndex.keys.toList()..sort();
 
         if (cfg.displayMode == TranslationDisplayMode.translationOnly) {
@@ -1519,7 +1421,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     return out;
   }
 
-  List<ReaderParagraph> _getParagraphsForChapter(int chapterIndex, String plainText) {
+  List<ReaderParagraph> _getParagraphsForChapter(
+      int chapterIndex, String plainText) {
     final cached = _chapterParagraphsCache[chapterIndex];
     if (cached != null) return cached;
 
@@ -1532,9 +1435,11 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     for (final m in matches) {
       final end = m.start;
       final raw = plainText.substring(start, end);
-      final cleaned = raw.replaceAll(RegExp(r'^\n+'), '').replaceAll(RegExp(r'\n+$'), '');
+      final cleaned =
+          raw.replaceAll(RegExp(r'^\n+'), '').replaceAll(RegExp(r'\n+$'), '');
       if (cleaned.trim().isNotEmpty) {
-        out.add(ReaderParagraph(index: idx, start: start, end: end, text: cleaned));
+        out.add(
+            ReaderParagraph(index: idx, start: start, end: end, text: cleaned));
         idx++;
       }
       start = m.end;
@@ -1542,9 +1447,11 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
     if (start < plainText.length) {
       final raw = plainText.substring(start);
-      final cleaned = raw.replaceAll(RegExp(r'^\n+'), '').replaceAll(RegExp(r'\n+$'), '');
+      final cleaned =
+          raw.replaceAll(RegExp(r'^\n+'), '').replaceAll(RegExp(r'\n+$'), '');
       if (cleaned.trim().isNotEmpty) {
-        out.add(ReaderParagraph(index: idx, start: start, end: plainText.length, text: cleaned));
+        out.add(ReaderParagraph(
+            index: idx, start: start, end: plainText.length, text: cleaned));
       }
     }
 
@@ -1572,16 +1479,44 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }
 
   List<String> _nextParagraphsForPrefetch({required int count}) {
-    final current = _currentPageParagraphsByIndex();
-    if (current.isEmpty) return const [];
+    final List<String> out = [];
 
-    final maxIdx = (current.keys.toList()..sort()).last;
-    final paras = _getParagraphsForChapter(_currentChapterIndex, _getPlainTextForChapter(_currentChapterIndex));
+    // 1. Try fetching from current chapter
+    final currentParas = _getParagraphsForChapter(
+        _currentChapterIndex, _getPlainTextForChapter(_currentChapterIndex));
 
-    final out = <String>[];
-    for (int i = maxIdx + 1; i < paras.length && out.length < count; i++) {
-      out.add(paras[i].text);
+    // Find the last index currently visible on screen
+    final currentVisible = _currentPageParagraphsByIndex();
+    int lastVisibleIdx = -1;
+    if (currentVisible.isNotEmpty) {
+      lastVisibleIdx = (currentVisible.keys.toList()..sort()).last;
     }
+
+    // Add subsequent paragraphs from current chapter
+    for (int i = lastVisibleIdx + 1;
+        i < currentParas.length && out.length < count;
+        i++) {
+      out.add(currentParas[i].text);
+    }
+
+    // 2. If we still need more and have a next chapter, fetch from there
+    if (out.length < count && _currentChapterIndex < _chapters.length - 1) {
+      final nextChapterIdx = _currentChapterIndex + 1;
+      // Ensure content is loaded (this might be async, so we might miss it on first pass,
+      // but usually prefetch is fire-and-forget. We can only prefetch if content is in cache)
+      // If not in cache, we skip.
+      final nextText = _chapterPlainText[nextChapterIdx];
+      if (nextText != null && nextText.isNotEmpty) {
+        final nextParas = _getParagraphsForChapter(nextChapterIdx, nextText);
+        for (int i = 0; i < nextParas.length && out.length < count; i++) {
+          out.add(nextParas[i].text);
+        }
+      } else {
+        // Trigger load for next chapter so next time we can prefetch
+        _ensureChapterContentCached(nextChapterIdx);
+      }
+    }
+
     return out;
   }
 
@@ -1604,9 +1539,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     });
   }
 
-
   String _aiSummaryInputText({int maxChars = 12000}) {
-
     final plainText = _getPlainTextForChapter(_currentChapterIndex);
     if (plainText.isEmpty) return '';
 
@@ -1672,17 +1605,16 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       builder: (_) => AiSettingsSheet(
         bgColor: _panelBgColor,
         textColor: _panelTextColor,
-        onOpenTranslationSettings: () => Future.microtask(_openTranslationSheet),
+        onOpenTranslationSettings: () =>
+            Future.microtask(_openTranslationSheet),
       ),
     ).then((_) {
       if (mounted) _hideControls();
     });
   }
 
-
   @override
   Widget build(BuildContext context) {
-
     // IMPORTANT: Get padding from MediaQuery BEFORE removing it
     final padding = MediaQuery.of(context).padding;
     final viewPadding = MediaQuery.of(context).viewPadding;
@@ -1739,18 +1671,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                         style: const TextStyle(color: Colors.red)))
               else
                 readerContent,
-
-              // Right-side AI quick actions (only show in reading mode).
-              if (!_showControls && !_isLoading && _error == null)
-                Positioned(
-                  right: 12,
-                  top: padding.top + 92,
-                  child: Consumer<TranslationProvider>(
-                    builder: (context, tp, _) {
-                      return _buildAiQuickActions(tp);
-                    },
-                  ),
-                ),
 
               // Overlay to dismiss controls when clicking content
               if (_showControls)
@@ -1819,12 +1739,14 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                               enableDrag: true,
                               shape: const RoundedRectangleBorder(
                                   borderRadius: BorderRadius.vertical(
-                                      top: Radius.circular(AppTokens.radiusLg))),
+                                      top:
+                                          Radius.circular(AppTokens.radiusLg))),
                               builder: (sheetContext) {
                                 // Full-screen hit area so a single tap on the reading area can
                                 // both dismiss the AI panel and hide reader HUD.
                                 return SizedBox(
-                                  height: MediaQuery.of(sheetContext).size.height,
+                                  height:
+                                      MediaQuery.of(sheetContext).size.height,
                                   child: Stack(
                                     children: [
                                       Positioned.fill(
@@ -1834,32 +1756,42 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                                             Navigator.pop(sheetContext);
                                             if (mounted) _hideControls();
                                           },
-                                          child: Container(color: Colors.transparent),
+                                          child: Container(
+                                              color: Colors.transparent),
                                         ),
                                       ),
                                       Align(
                                         alignment: Alignment.bottomCenter,
                                         child: Consumer<TranslationProvider>(
-                                          builder: (context, translationProvider, _) {
+                                          builder: (context,
+                                              translationProvider, _) {
                                             return AiHud(
                                               bgColor: _panelBgColor,
                                               textColor: _panelTextColor,
-                                              translateEnabled: _aiTranslateEnabled,
-                                              translateActive: translationProvider.applyToReader,
+                                              translateEnabled:
+                                                  translationProvider
+                                                      .aiTranslateEnabled,
+                                              translateActive:
+                                                  translationProvider
+                                                      .applyToReader,
                                               onTranslateChanged: (v) async {
                                                 await _setAiTranslateEnabled(
                                                   provider: translationProvider,
                                                   enabled: v,
                                                 );
                                               },
-                                              readAloudEnabled: _aiReadAloudEnabled,
+                                              readAloudEnabled:
+                                                  translationProvider
+                                                      .aiReadAloudEnabled,
                                               onReadAloudChanged: (v) async {
                                                 await _setAiReadAloudEnabled(
                                                   provider: translationProvider,
                                                   enabled: v,
                                                 );
                                               },
-                                              imageTextEnabled: _aiImageTextEnabled,
+                                              imageTextEnabled:
+                                                  translationProvider
+                                                      .aiImageTextEnabled,
                                               onImageTextChanged: (v) async {
                                                 await _setAiImageTextEnabled(
                                                   provider: translationProvider,
@@ -1867,7 +1799,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                                                 );
                                               },
                                             );
-
                                           },
                                         ),
                                       ),
@@ -1875,13 +1806,10 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                                   ),
                                 );
                               },
-
                             ).then((_) {
                               if (mounted) _hideControls();
                             });
                           },
-
-
                           child: AnimatedBuilder(
                             animation: _pulseController,
                             builder: (context, child) {
@@ -1924,6 +1852,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                   ),
                 ),
               ),
+
+              _buildReadAloudFloatingButton(),
             ],
           ),
         ),

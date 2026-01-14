@@ -5,12 +5,13 @@ import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../ai/translation/engines/microsoft_translator_engine.dart';
-import '../../ai/translation/engines/volc_llm_engine.dart';
+import '../../ai/hunyuan/hunyuan_translation_engine.dart';
+import '../../ai/tencentcloud/tencent_credentials.dart';
 import '../../ai/translation/glossary.dart';
 import '../../ai/translation/translation_cache.dart';
 import '../../ai/translation/translation_service.dart';
 import '../../ai/translation/translation_types.dart';
+import 'tencent_hunyuan_config_provider.dart';
 
 class TranslationProvider extends ChangeNotifier {
   static const _kCfgEngine = 'tr_cfg_engine';
@@ -19,83 +20,81 @@ class TranslationProvider extends ChangeNotifier {
   static const _kCfgMode = 'tr_cfg_mode';
   static const _kCfgApply = 'tr_cfg_apply';
   static const _kGlossary = 'tr_glossary_terms';
+  static const _kAiTranslateEnabled = 'tr_ai_translate_enabled';
+  static const _kAiReadAloudEnabled = 'tr_ai_read_aloud_enabled';
+  static const _kAiImageTextEnabled = 'tr_ai_image_text_enabled';
 
-  final TranslationCache _cache = TranslationCache(ttl: const Duration(hours: 24));
+  final TranslationCache _cache =
+      TranslationCache(ttl: const Duration(hours: 24));
   final GlossaryManager _glossary = GlossaryManager();
 
-  late final TranslationService _service;
+  late TranslationService _service;
+  TencentHunyuanConfigProvider? _hunyuanConfig;
 
   TranslationConfig _config = const TranslationConfig(
-    engineType: TranslationEngineType.machine,
+    engineType: TranslationEngineType.ai,
     sourceLang: '',
     targetLang: 'en',
     displayMode: TranslationDisplayMode.translationOnly,
   );
 
   bool _applyToReader = false;
+  bool _aiTranslateEnabled = false;
+  bool _aiReadAloudEnabled = false;
+  bool _aiImageTextEnabled = false;
   bool _loaded = false;
 
-  TranslationProvider() {
-    final msKey = const String.fromEnvironment('MS_TRANSLATOR_KEY');
-    final msRegion = const String.fromEnvironment('MS_TRANSLATOR_REGION');
+  TranslationProvider({TencentHunyuanConfigProvider? hunyuanConfig}) {
+    _hunyuanConfig = hunyuanConfig;
+    _rebuildService();
+    _loadFromPrefs();
+  }
 
-    final volcBaseUrl = const String.fromEnvironment(
-      'VOLC_LLM_BASE_URL',
-      defaultValue: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
-    );
-    final volcApiKey = const String.fromEnvironment('VOLC_LLM_API_KEY');
-    final volcModel = const String.fromEnvironment(
-      'VOLC_LLM_MODEL',
-      defaultValue: 'doubao-pro-32k',
-    );
+  void updateHunyuanConfig(TencentHunyuanConfigProvider config) {
+    _hunyuanConfig = config;
+    _rebuildService();
+  }
+
+  void _rebuildService() {
+    final creds = _hunyuanConfig?.effectiveCredentials ??
+        const TencentCredentials(appId: '', secretId: '', secretKey: '');
+
+    final engine = HunyuanTranslationEngine(credentials: creds);
 
     _service = TranslationService(
       cache: _cache,
       glossary: _glossary,
-      machineEngine: MicrosoftTranslatorEngine(
-        subscriptionKey: msKey,
-        subscriptionRegion: msRegion,
-      ),
-      aiEngine: VolcLlmTranslatorEngine(
-        baseUrl: volcBaseUrl,
-        apiKey: volcApiKey,
-        model: volcModel,
-      ),
+      machineEngine: engine,
+      aiEngine: engine,
     );
-
-
-    _loadFromPrefs();
   }
 
   bool get loaded => _loaded;
 
   TranslationConfig get config => _config;
   bool get applyToReader => _applyToReader;
+  bool get aiTranslateEnabled => _aiTranslateEnabled;
+  bool get aiReadAloudEnabled => _aiReadAloudEnabled;
+  bool get aiImageTextEnabled => _aiImageTextEnabled;
+
   UnmodifiableListView<GlossaryTerm> get glossaryTerms => _glossary.terms;
+  int get glossaryVersion => _glossary.version;
 
-  bool get isMicrosoftConfigured {
-    final key = const String.fromEnvironment('MS_TRANSLATOR_KEY');
-    final region = const String.fromEnvironment('MS_TRANSLATOR_REGION');
-    return key.trim().isNotEmpty && region.trim().isNotEmpty;
-  }
-
-  bool get isVolcConfigured {
-    final apiKey = const String.fromEnvironment('VOLC_LLM_API_KEY');
-    return apiKey.trim().isNotEmpty;
-  }
+  bool get isHunyuanConfigured => _hunyuanConfig?.hasUsableCredentials ?? false;
 
   Future<void> _loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
 
-    final engine = prefs.getString(_kCfgEngine);
     final from = prefs.getString(_kCfgFrom);
     final to = prefs.getString(_kCfgTo);
     final mode = prefs.getString(_kCfgMode);
     final apply = prefs.getBool(_kCfgApply);
 
-    TranslationEngineType engineType = _config.engineType;
-    if (engine == 'ai') engineType = TranslationEngineType.ai;
-    if (engine == 'machine') engineType = TranslationEngineType.machine;
+    _aiTranslateEnabled = prefs.getBool(_kAiTranslateEnabled) ?? false;
+    _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
+    _aiImageTextEnabled = prefs.getBool(_kAiImageTextEnabled) ?? false;
+
+    TranslationEngineType engineType = TranslationEngineType.ai;
 
     TranslationDisplayMode displayMode = _config.displayMode;
     if (mode == 'bilingual') displayMode = TranslationDisplayMode.bilingual;
@@ -106,7 +105,8 @@ class TranslationProvider extends ChangeNotifier {
     _config = _config.copyWith(
       engineType: engineType,
       sourceLang: from ?? _config.sourceLang,
-      targetLang: (to ?? _config.targetLang).trim().isEmpty ? _config.targetLang : to,
+      targetLang:
+          (to ?? _config.targetLang).trim().isEmpty ? _config.targetLang : to,
       displayMode: displayMode,
     );
     _applyToReader = apply ?? _applyToReader;
@@ -133,23 +133,28 @@ class TranslationProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _kCfgEngine,
-      _config.engineType == TranslationEngineType.ai ? 'ai' : 'machine',
+      'ai',
     );
     await prefs.setString(_kCfgFrom, _config.sourceLang);
     await prefs.setString(_kCfgTo, _config.targetLang);
     await prefs.setString(
       _kCfgMode,
-      _config.displayMode == TranslationDisplayMode.bilingual ? 'bilingual' : 'translationOnly',
+      _config.displayMode == TranslationDisplayMode.bilingual
+          ? 'bilingual'
+          : 'translationOnly',
     );
     await prefs.setBool(_kCfgApply, _applyToReader);
     await prefs.setString(
       _kGlossary,
       jsonEncode(_glossary.terms.map((e) => e.toJson()).toList()),
     );
+    await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
+    await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
+    await prefs.setBool(_kAiImageTextEnabled, _aiImageTextEnabled);
   }
 
   Future<void> setEngineType(TranslationEngineType type) async {
-    _config = _config.copyWith(engineType: type);
+    _config = _config.copyWith(engineType: TranslationEngineType.ai);
     notifyListeners();
     await _savePrefs();
   }
@@ -178,6 +183,37 @@ class TranslationProvider extends ChangeNotifier {
     await _savePrefs();
   }
 
+  Future<void> setAiTranslateEnabled(bool value) async {
+    _aiTranslateEnabled = value;
+    if (value && _aiImageTextEnabled) {
+      _aiImageTextEnabled = false;
+    }
+    // Sync applyToReader
+    _applyToReader = value;
+    notifyListeners();
+    await _savePrefs();
+  }
+
+  Future<void> setAiReadAloudEnabled(bool value) async {
+    _aiReadAloudEnabled = value;
+    if (value && _aiImageTextEnabled) {
+      _aiImageTextEnabled = false;
+    }
+    notifyListeners();
+    await _savePrefs();
+  }
+
+  Future<void> setAiImageTextEnabled(bool value) async {
+    _aiImageTextEnabled = value;
+    if (value) {
+      _aiTranslateEnabled = false;
+      _aiReadAloudEnabled = false;
+      _applyToReader = false;
+    }
+    notifyListeners();
+    await _savePrefs();
+  }
+
   Future<void> upsertGlossaryTerm(GlossaryTerm term) async {
     _glossary.addOrUpdate(term);
     notifyListeners();
@@ -190,7 +226,8 @@ class TranslationProvider extends ChangeNotifier {
     await _savePrefs();
   }
 
-  Future<Map<int, String>> translateParagraphsByIndex(Map<int, String> paragraphsByIndex) async {
+  Future<Map<int, String>> translateParagraphsByIndex(
+      Map<int, String> paragraphsByIndex) async {
     _validateEngineConfig();
     return _service.translateParagraphs(
       config: _config,
@@ -217,17 +254,8 @@ class TranslationProvider extends ChangeNotifier {
     if (_config.targetLang.trim().isEmpty) {
       throw TranslationConfigException('请选择目标语言');
     }
-
-    if (_config.engineType == TranslationEngineType.machine && !isMicrosoftConfigured) {
-      throw TranslationConfigException(
-        '未配置微软翻译密钥。请在启动参数中传入 MS_TRANSLATOR_KEY 与 MS_TRANSLATOR_REGION。',
-      );
-    }
-
-    if (_config.engineType == TranslationEngineType.ai && !isVolcConfigured) {
-      throw TranslationConfigException(
-        '未配置火山大模型密钥。请在启动参数中传入 VOLC_LLM_API_KEY。',
-      );
+    if (!isHunyuanConfigured) {
+      throw TranslationConfigException('未配置大模型凭证。请在“大模型设置”中配置。');
     }
   }
 }

@@ -81,29 +81,6 @@ class TranslationSheet extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '翻译引擎',
-                        style: TextStyle(color: panelText, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 12,
-                        children: [
-                          _chip(
-                            label: '机器翻译',
-                            active: cfg.engineType == TranslationEngineType.machine,
-                            onTap: () => provider.setEngineType(TranslationEngineType.machine),
-                            textColor: panelText,
-                          ),
-                          _chip(
-                            label: 'AI 大模型',
-                            active: cfg.engineType == TranslationEngineType.ai,
-                            onTap: () => provider.setEngineType(TranslationEngineType.ai),
-                            textColor: panelText,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
                       Row(
                         children: [
                           Expanded(

@@ -188,7 +188,7 @@ class TranslationService {
     // Fire-and-forget: queue handles concurrency, errors are ignored.
     for (final p in nextParagraphs) {
       // ignore: unawaited_futures
-      translateParagraph(config: config, paragraphText: p).catchError((_) {});
+      translateParagraph(config: config, paragraphText: p).catchError((_) => '');
     }
   }
 
