@@ -20,7 +20,12 @@ import 'widgets/ai_settings_sheet.dart';
 import 'widgets/summary_sheet.dart';
 import '../../../ai/translation/translation_types.dart';
 
-
+enum _AiQuickMenu {
+  none,
+  translate,
+  readAloud,
+  imageText,
+}
 
 class _MeasureSize extends StatefulWidget {
   final Widget child;
@@ -74,6 +79,22 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   double _lineHeight = 1.8;
   Color _bgColor = const Color(0xFFF5F9FA); // Default (Day)
   Color _textColor = const Color(0xFF2C3E50);
+
+  // AI companion toggles (continuous features).
+  //
+  // We split "feature enabled" vs "active" so the right-side quick actions can
+  // temporarily pause/resume without fully disabling the feature.
+  bool _aiTranslateEnabled = false;
+
+  bool _aiReadAloudEnabled = false;
+  bool _aiReadAloudPlaying = false;
+
+  bool _aiImageTextEnabled = false;
+  bool _aiImageTextActive = false;
+
+  _AiQuickMenu _aiQuickMenu = _AiQuickMenu.none;
+
+
 
   EpubBookRef? _epubBook;
   List<EpubChapterRef> _chapters = [];
@@ -164,7 +185,26 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         if (colorVal != null) _bgColor = Color(colorVal);
         int? textVal = _prefs?.getInt('textColor');
         if (textVal != null) _textColor = Color(textVal);
+
+        _aiTranslateEnabled = _prefs?.getBool('ai_translateEnabled') ?? false;
+
+        _aiReadAloudEnabled = _prefs?.getBool('ai_readAloudEnabled') ?? false;
+        _aiReadAloudPlaying = false;
+
+        _aiImageTextEnabled = _prefs?.getBool('ai_imageTextEnabled') ?? false;
+        _aiImageTextActive = _aiImageTextEnabled;
+
+        _aiQuickMenu = _AiQuickMenu.none;
       });
+
+    }
+
+    // Ensure translation never stays active while the feature is disabled.
+    if (mounted) {
+      final tp = Provider.of<TranslationProvider>(context, listen: false);
+      if (!_aiTranslateEnabled && tp.applyToReader) {
+        await tp.setApplyToReader(false);
+      }
     }
 
     await _loadBookContent();
@@ -211,6 +251,11 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     await prefs.setDouble('lineHeight', _lineHeight);
     await prefs.setInt('bgColor', _bgColor.value);
     await prefs.setInt('textColor', _textColor.value);
+    await prefs.setBool('ai_translateEnabled', _aiTranslateEnabled);
+    await prefs.setBool('ai_readAloudEnabled', _aiReadAloudEnabled);
+    await prefs.setBool('ai_imageTextEnabled', _aiImageTextEnabled);
+
+
     try {
       booksProvider.saveReadingSettingsToDb(
         fontSize: _fontSize,
@@ -322,12 +367,320 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
   void _hideControls() {
     if (!_showControls) return;
-    if (_controlsController.isAnimating) return;
+
+    // Do not drop hide requests during animation; always converge to hidden state.
     setState(() {
       _showControls = false;
     });
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+    // Reverse even while animating forward; this prevents occasional "stuck visible".
     _controlsController.reverse();
+  }
+
+  void _toggleQuickMenu(_AiQuickMenu menu) {
+    setState(() {
+      _aiQuickMenu = _aiQuickMenu == menu ? _AiQuickMenu.none : menu;
+    });
+  }
+
+  Future<void> _setAiTranslateEnabled({
+    required TranslationProvider provider,
+    required bool enabled,
+  }) async {
+    if (!mounted) return;
+
+    // Mutex: enabling translation disables image-text.
+    if (enabled && _aiImageTextEnabled) {
+      await _setAiImageTextEnabled(provider: provider, enabled: false);
+      if (!mounted) return;
+    }
+
+    setState(() {
+      _aiTranslateEnabled = enabled;
+      if (!enabled && _aiQuickMenu == _AiQuickMenu.translate) {
+        _aiQuickMenu = _AiQuickMenu.none;
+      }
+    });
+
+    await _prefs?.setBool('ai_translateEnabled', enabled);
+
+    // When enabled toggles, default to applying translation to reader.
+    await provider.setApplyToReader(enabled);
+    if (enabled) {
+      provider.prefetchParagraphs(_nextParagraphsForPrefetch(count: 5));
+    }
+  }
+
+  Future<void> _setAiReadAloudEnabled({
+    required TranslationProvider provider,
+    required bool enabled,
+  }) async {
+    if (!mounted) return;
+
+    // Mutex: enabling read-aloud disables image-text.
+    if (enabled && _aiImageTextEnabled) {
+      await _setAiImageTextEnabled(provider: provider, enabled: false);
+      if (!mounted) return;
+    }
+
+    setState(() {
+      _aiReadAloudEnabled = enabled;
+      if (!enabled) {
+        _aiReadAloudPlaying = false;
+        if (_aiQuickMenu == _AiQuickMenu.readAloud) {
+          _aiQuickMenu = _AiQuickMenu.none;
+        }
+      }
+    });
+
+    await _prefs?.setBool('ai_readAloudEnabled', enabled);
+  }
+
+  Future<void> _setAiImageTextEnabled({
+    required TranslationProvider provider,
+    required bool enabled,
+  }) async {
+    if (!mounted) return;
+
+    // Mutex: enabling image-text disables translation & read-aloud.
+    if (enabled) {
+      if (_aiTranslateEnabled) {
+        await _setAiTranslateEnabled(provider: provider, enabled: false);
+        if (!mounted) return;
+      }
+      if (_aiReadAloudEnabled) {
+        await _setAiReadAloudEnabled(provider: provider, enabled: false);
+        if (!mounted) return;
+      }
+    }
+
+    setState(() {
+      _aiImageTextEnabled = enabled;
+      _aiImageTextActive = enabled;
+      if (!enabled && _aiQuickMenu == _AiQuickMenu.imageText) {
+        _aiQuickMenu = _AiQuickMenu.none;
+      }
+    });
+
+    await _prefs?.setBool('ai_imageTextEnabled', enabled);
+  }
+
+  Widget _buildAiQuickActions(TranslationProvider provider) {
+    final bool hasAny = _aiTranslateEnabled || _aiReadAloudEnabled || _aiImageTextEnabled;
+    if (!hasAny) return const SizedBox.shrink();
+
+    final Color surface = _panelBgColor;
+    final Color onSurface = _panelTextColor;
+
+    Widget pill({
+      required _AiQuickMenu menu,
+      required IconData icon,
+      required String title,
+      required bool active,
+      required String toggleLabel,
+      required VoidCallback onToggle,
+      required String closeLabel,
+      required VoidCallback onClose,
+    }) {
+      final expanded = _aiQuickMenu == menu;
+
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        width: expanded ? 172 : 48,
+        child: GlassPanel(
+          borderRadius: BorderRadius.circular(expanded ? 16 : 999),
+          surfaceColor: surface,
+          opacity: 0.82,
+          border: Border.all(color: onSurface.withOpacity(0.08), width: AppTokens.stroke),
+          child: InkWell(
+            onTap: () => _toggleQuickMenu(menu),
+            borderRadius: BorderRadius.circular(expanded ? 16 : 999),
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: expanded ? 12 : 0, vertical: 10),
+              child: expanded
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                color: active
+                                    ? AppColors.techBlue.withOpacity(0.12)
+                                    : onSurface.withOpacity(0.06),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                icon,
+                                size: 16,
+                                color: active ? AppColors.techBlue : onSurface.withOpacity(0.8),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                title,
+                                style: TextStyle(
+                                  color: onSurface,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: active ? AppColors.techBlue : onSurface.withOpacity(0.25),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton(
+                            onPressed: () {
+                              onToggle();
+                              setState(() {
+                                _aiQuickMenu = _AiQuickMenu.none;
+                              });
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: onSurface,
+                              side: BorderSide(color: onSurface.withOpacity(0.14)),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: Text(toggleLabel),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: TextButton(
+                            onPressed: () async {
+                              onClose();
+                              if (mounted) {
+                                setState(() {
+                                  _aiQuickMenu = _AiQuickMenu.none;
+                                });
+                              }
+                            },
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.redAccent,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: Text(closeLabel),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Center(
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: active
+                              ? AppColors.techBlue.withOpacity(0.12)
+                              : onSurface.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Icon(
+                          icon,
+                          size: 20,
+                          color: active ? AppColors.techBlue : onSurface.withOpacity(0.8),
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final items = <Widget>[];
+
+    if (_aiTranslateEnabled) {
+      items.add(
+        pill(
+          menu: _AiQuickMenu.translate,
+          icon: Icons.translate,
+          title: '翻译',
+          active: provider.applyToReader,
+          toggleLabel: provider.applyToReader ? '暂停翻译' : '恢复翻译',
+          onToggle: () {
+            final next = !provider.applyToReader;
+            provider.setApplyToReader(next);
+            if (next) {
+              provider.prefetchParagraphs(_nextParagraphsForPrefetch(count: 5));
+            }
+          },
+          closeLabel: '关闭翻译',
+          onClose: () {
+            _setAiTranslateEnabled(provider: provider, enabled: false);
+          },
+        ),
+      );
+    }
+
+    if (_aiReadAloudEnabled) {
+      items.add(
+        pill(
+          menu: _AiQuickMenu.readAloud,
+          icon: Icons.volume_up,
+          title: '朗读',
+          active: _aiReadAloudPlaying,
+          toggleLabel: _aiReadAloudPlaying ? '暂停朗读' : '开始朗读',
+          onToggle: () {
+            setState(() {
+              _aiReadAloudPlaying = !_aiReadAloudPlaying;
+            });
+          },
+          closeLabel: '关闭朗读',
+          onClose: () {
+            _setAiReadAloudEnabled(provider: provider, enabled: false);
+          },
+        ),
+      );
+    }
+
+    if (_aiImageTextEnabled) {
+      items.add(
+        pill(
+          menu: _AiQuickMenu.imageText,
+          icon: Icons.image_outlined,
+          title: '图文',
+          active: _aiImageTextActive,
+          toggleLabel: _aiImageTextActive ? '隐藏图文' : '显示图文',
+          onToggle: () {
+            setState(() {
+              _aiImageTextActive = !_aiImageTextActive;
+            });
+          },
+          closeLabel: '关闭图文',
+          onClose: () {
+            _setAiImageTextEnabled(provider: provider, enabled: false);
+          },
+        ),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int i = 0; i < items.length; i++) ...[
+          if (i != 0) const SizedBox(height: 10),
+          items[i],
+        ],
+      ],
+    );
   }
 
   int _pageCountForChapter(int chapterIndex) {
@@ -337,6 +690,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     }
     return _chapterPageCounts[chapterIndex] ?? 9999;
   }
+
 
   String _getPlainTextForChapter(int chapterIndex) {
     final cached = _chapterPlainText[chapterIndex];
@@ -1232,13 +1586,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }
 
   void _openTranslationSheet() {
-    final paragraphsByIndex = _currentPageParagraphsByIndex();
-    if (paragraphsByIndex.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('当前页暂无可翻译内容')));
-      return;
-    }
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1251,12 +1598,12 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       builder: (_) => TranslationSheet(
         bgColor: _panelBgColor,
         textColor: _panelTextColor,
-        paragraphsByIndex: paragraphsByIndex,
       ),
     ).then((_) {
       if (mounted) _hideControls();
     });
   }
+
 
   String _aiSummaryInputText({int maxChars = 12000}) {
 
@@ -1393,6 +1740,18 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
               else
                 readerContent,
 
+              // Right-side AI quick actions (only show in reading mode).
+              if (!_showControls && !_isLoading && _error == null)
+                Positioned(
+                  right: 12,
+                  top: padding.top + 92,
+                  child: Consumer<TranslationProvider>(
+                    builder: (context, tp, _) {
+                      return _buildAiQuickActions(tp);
+                    },
+                  ),
+                ),
+
               // Overlay to dismiss controls when clicking content
               if (_showControls)
                 Positioned.fill(
@@ -1455,67 +1814,73 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                             showModalBottomSheet(
                               context: context,
                               backgroundColor: Colors.transparent,
+                              isScrollControlled: true,
+                              isDismissible: false,
+                              enableDrag: true,
                               shape: const RoundedRectangleBorder(
                                   borderRadius: BorderRadius.vertical(
                                       top: Radius.circular(AppTokens.radiusLg))),
-                              builder: (sheetContext) => Consumer<TranslationProvider>(
-                                builder: (context, translationProvider, _) {
-                                  return AiHud(
-                                    bgColor: _panelBgColor,
-                                    textColor: _panelTextColor,
-                                    activeFeatures: {
-                                      if (translationProvider.applyToReader)
-                                        AiHudFeature.translate,
-                                    },
-                                    onOpenSettings: () {
-                                      Navigator.pop(sheetContext);
-                                      Future.microtask(_openAiSettingsSheet);
-                                    },
-                                    onFeatureTap: (feature) {
-                                      Navigator.pop(sheetContext);
-
-                                      switch (feature) {
-                                        case AiHudFeature.translate:
-                                          final p = Provider.of<TranslationProvider>(
-                                            context,
-                                            listen: false,
-                                          );
-                                          final next = !p.applyToReader;
-                                          p.setApplyToReader(next);
-                                          if (next) {
-                                            p.prefetchParagraphs(
-                                              _nextParagraphsForPrefetch(count: 5),
+                              builder: (sheetContext) {
+                                // Full-screen hit area so a single tap on the reading area can
+                                // both dismiss the AI panel and hide reader HUD.
+                                return SizedBox(
+                                  height: MediaQuery.of(sheetContext).size.height,
+                                  child: Stack(
+                                    children: [
+                                      Positioned.fill(
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTap: () {
+                                            Navigator.pop(sheetContext);
+                                            if (mounted) _hideControls();
+                                          },
+                                          child: Container(color: Colors.transparent),
+                                        ),
+                                      ),
+                                      Align(
+                                        alignment: Alignment.bottomCenter,
+                                        child: Consumer<TranslationProvider>(
+                                          builder: (context, translationProvider, _) {
+                                            return AiHud(
+                                              bgColor: _panelBgColor,
+                                              textColor: _panelTextColor,
+                                              translateEnabled: _aiTranslateEnabled,
+                                              translateActive: translationProvider.applyToReader,
+                                              onTranslateChanged: (v) async {
+                                                await _setAiTranslateEnabled(
+                                                  provider: translationProvider,
+                                                  enabled: v,
+                                                );
+                                              },
+                                              readAloudEnabled: _aiReadAloudEnabled,
+                                              onReadAloudChanged: (v) async {
+                                                await _setAiReadAloudEnabled(
+                                                  provider: translationProvider,
+                                                  enabled: v,
+                                                );
+                                              },
+                                              imageTextEnabled: _aiImageTextEnabled,
+                                              onImageTextChanged: (v) async {
+                                                await _setAiImageTextEnabled(
+                                                  provider: translationProvider,
+                                                  enabled: v,
+                                                );
+                                              },
                                             );
-                                          }
-                                          break;
-                                        case AiHudFeature.summarize:
-                                          Future.microtask(_openSummarySheet);
-                                          break;
-                                        case AiHudFeature.toImageText:
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('图文功能即将上线')),
-                                          );
-                                          break;
-                                        case AiHudFeature.readAloud:
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('朗读功能即将上线')),
-                                          );
-                                          break;
-                                        case AiHudFeature.qa:
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('问答功能即将上线')),
-                                          );
-                                          break;
-                                      }
-                                    },
-                                  );
-                                },
-                              ),
+
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
 
                             ).then((_) {
                               if (mounted) _hideControls();
                             });
                           },
+
 
                           child: AnimatedBuilder(
                             animation: _pulseController,

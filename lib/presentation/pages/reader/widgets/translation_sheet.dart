@@ -8,28 +8,19 @@ import '../../../providers/translation_provider.dart';
 import '../../../../ai/translation/glossary.dart';
 import '../../../../ai/translation/translation_types.dart';
 
-class TranslationSheet extends StatefulWidget {
+/// Translation settings sheet.
+///
+/// Note: In this app the "apply translation to reader" switch is controlled from
+/// the AI companion main panel. This sheet focuses on configuration + glossary.
+class TranslationSheet extends StatelessWidget {
   final Color bgColor;
   final Color textColor;
-
-  /// Paragraphs to translate for current page: paragraphIndex -> text.
-  final Map<int, String> paragraphsByIndex;
 
   const TranslationSheet({
     super.key,
     required this.bgColor,
     required this.textColor,
-    required this.paragraphsByIndex,
   });
-
-  @override
-  State<TranslationSheet> createState() => _TranslationSheetState();
-}
-
-class _TranslationSheetState extends State<TranslationSheet> {
-  Map<int, String>? _results;
-  String? _error;
-  bool _isTranslating = false;
 
   static const _langs = <String, String>{
     '': '自动',
@@ -48,8 +39,8 @@ class _TranslationSheetState extends State<TranslationSheet> {
     final provider = context.watch<TranslationProvider>();
     final cfg = provider.config;
 
-    final panelBg = widget.bgColor;
-    final panelText = widget.textColor;
+    final panelBg = bgColor;
+    final panelText = textColor;
 
     return GlassPanel.sheet(
       surfaceColor: panelBg,
@@ -57,11 +48,10 @@ class _TranslationSheetState extends State<TranslationSheet> {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.78,
+          height: MediaQuery.of(context).size.height * 0.72,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
             child: Column(
-              mainAxisSize: MainAxisSize.max,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
@@ -69,7 +59,7 @@ class _TranslationSheetState extends State<TranslationSheet> {
                     const Icon(Icons.translate, color: AppColors.techBlue),
                     const SizedBox(width: 8),
                     Text(
-                      '翻译',
+                      '翻译设置',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -84,8 +74,10 @@ class _TranslationSheetState extends State<TranslationSheet> {
                   ],
                 ),
                 const SizedBox(height: 12),
+
                 _buildCard(
-                  color: panelBg,
+                  panelBg: panelBg,
+                  panelText: panelText,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -159,80 +151,26 @@ class _TranslationSheetState extends State<TranslationSheet> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '在阅读正文中显示',
-                              style: TextStyle(color: panelText.withOpacity(0.85)),
-                            ),
-                          ),
-                          Switch(
-                            value: provider.applyToReader,
-                            activeColor: AppColors.techBlue,
-                            onChanged: (v) => provider.setApplyToReader(v),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => _openGlossaryEditor(context, provider),
-                              icon: const Icon(Icons.auto_fix_high, size: 18),
-                              label: const Text('术语表'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _isTranslating ? null : () => _translateNow(provider),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.techBlue,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                              ),
-                              icon: _isTranslating
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(Icons.play_arrow, size: 18),
-                              label: Text(_isTranslating ? '翻译中…' : '翻译当前页'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (_error != null) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          _error!,
-                          style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                      Text(
+                        '提示：翻译是否在正文中生效，请在“AI伴读”主面板开启/关闭。',
+                        style: TextStyle(
+                          color: panelText.withOpacity(0.65),
+                          fontSize: 12,
+                          height: 1.4,
                         ),
-                      ],
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _openGlossaryEditor(context),
+                          icon: const Icon(Icons.auto_fix_high, size: 18),
+                          label: const Text('术语表'),
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                if (_results != null) ...[
-                  Expanded(
-                    child: _buildResults(panelBg: panelBg, panelText: panelText, cfg: cfg),
-                  ),
-                ] else ...[
-                  Expanded(
-                    child: Center(
-                      child: Text(
-                        '点击“翻译当前页”生成结果',
-                        style: TextStyle(color: panelText.withOpacity(0.5)),
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -241,88 +179,24 @@ class _TranslationSheetState extends State<TranslationSheet> {
     );
   }
 
-  Widget _buildResults({
+  static Widget _buildCard({
     required Color panelBg,
     required Color panelText,
-    required TranslationConfig cfg,
+    required Widget child,
   }) {
-    final results = _results!;
-    final orderedKeys = results.keys.toList()..sort();
-
-    return _buildCard(
-      color: panelBg,
-      child: ListView.separated(
-        itemCount: orderedKeys.length,
-        separatorBuilder: (_, __) => Divider(color: panelText.withOpacity(0.08)),
-        itemBuilder: (context, i) {
-          final idx = orderedKeys[i];
-          final src = widget.paragraphsByIndex[idx] ?? '';
-          final dst = results[idx] ?? '';
-
-          if (cfg.displayMode == TranslationDisplayMode.translationOnly) {
-            return Text(dst, style: TextStyle(color: panelText, height: 1.7));
-          }
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(src, style: TextStyle(color: panelText, height: 1.7)),
-              const SizedBox(height: 8),
-              Text(
-                dst,
-                style: TextStyle(
-                  color: panelText.withOpacity(0.75),
-                  height: 1.7,
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _translateNow(TranslationProvider provider) async {
-    setState(() {
-      _error = null;
-      _isTranslating = true;
-    });
-
-    try {
-      final res = await provider.translateParagraphsByIndex(widget.paragraphsByIndex);
-      if (!mounted) return;
-      setState(() {
-        _results = res;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.toString();
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isTranslating = false;
-        });
-      }
-    }
-  }
-
-  Widget _buildCard({required Color color, required Widget child}) {
-    final isDark = color.computeLuminance() < 0.5;
+    final isDark = panelBg.computeLuminance() < 0.5;
     return Container(
       decoration: BoxDecoration(
         color: isDark ? Colors.white.withOpacity(0.06) : AppColors.mistWhite,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black.withOpacity(0.03)),
+        border: Border.all(color: panelText.withOpacity(0.06), width: AppTokens.stroke),
       ),
       padding: const EdgeInsets.all(16),
       child: child,
     );
   }
 
-  Widget _chip({
+  static Widget _chip({
     required String label,
     required bool active,
     required VoidCallback onTap,
@@ -338,6 +212,7 @@ class _TranslationSheetState extends State<TranslationSheet> {
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
             color: active ? AppColors.techBlue : textColor.withOpacity(0.18),
+            width: AppTokens.stroke,
           ),
         ),
         child: Text(
@@ -352,7 +227,7 @@ class _TranslationSheetState extends State<TranslationSheet> {
     );
   }
 
-  Widget _dropdown({
+  static Widget _dropdown({
     required String label,
     required String value,
     required Map<String, String> items,
@@ -387,7 +262,7 @@ class _TranslationSheetState extends State<TranslationSheet> {
     );
   }
 
-  Future<void> _openGlossaryEditor(BuildContext context, TranslationProvider provider) async {
+  Future<void> _openGlossaryEditor(BuildContext context) async {
     await showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -398,14 +273,14 @@ class _TranslationSheetState extends State<TranslationSheet> {
         ),
       ),
       builder: (_) => _GlossaryEditor(
-        bgColor: widget.bgColor,
-        textColor: widget.textColor,
+        bgColor: bgColor,
+        textColor: textColor,
       ),
     );
   }
 }
 
-class _GlossaryEditor extends StatelessWidget {
+class _GlossaryEditor extends StatefulWidget {
   final Color bgColor;
   final Color textColor;
 
@@ -415,12 +290,73 @@ class _GlossaryEditor extends StatelessWidget {
   });
 
   @override
+  State<_GlossaryEditor> createState() => _GlossaryEditorState();
+}
+
+class _GlossaryEditorState extends State<_GlossaryEditor> {
+  final TextEditingController _searchCtl = TextEditingController();
+  final TextEditingController _srcCtl = TextEditingController();
+  final TextEditingController _dstCtl = TextEditingController();
+
+  GlossaryTerm? _editing;
+
+  @override
+  void dispose() {
+    _searchCtl.dispose();
+    _srcCtl.dispose();
+    _dstCtl.dispose();
+    super.dispose();
+  }
+
+  void _startAdd() {
+    setState(() {
+      _editing = null;
+      _srcCtl.text = '';
+      _dstCtl.text = '';
+    });
+  }
+
+  void _startEdit(GlossaryTerm term) {
+    setState(() {
+      _editing = term;
+      _srcCtl.text = term.source;
+      _dstCtl.text = term.target;
+    });
+  }
+
+  void _cancelEdit() {
+    setState(() {
+      _editing = null;
+      _srcCtl.text = '';
+      _dstCtl.text = '';
+    });
+  }
+
+  Future<void> _save(TranslationProvider provider) async {
+    final src = _srcCtl.text.trim();
+    final dst = _dstCtl.text.trim();
+    if (src.isEmpty || dst.isEmpty) return;
+
+    await provider.upsertGlossaryTerm(GlossaryTerm(source: src, target: dst));
+    if (!mounted) return;
+    _cancelEdit();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final provider = context.watch<TranslationProvider>();
     final terms = provider.glossaryTerms;
 
+    final query = _searchCtl.text.trim().toLowerCase();
+    final filtered = query.isEmpty
+        ? terms
+        : terms
+            .where((t) =>
+                t.source.toLowerCase().contains(query) || t.target.toLowerCase().contains(query))
+            .toList();
+
     return GlassPanel.sheet(
-      surfaceColor: bgColor,
+      surfaceColor: widget.bgColor,
       opacity: AppTokens.glassOpacityDense,
       child: SafeArea(
         top: false,
@@ -429,7 +365,6 @@ class _GlossaryEditor extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
             child: Column(
-              mainAxisSize: MainAxisSize.max,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
@@ -441,12 +376,12 @@ class _GlossaryEditor extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: textColor,
+                        color: widget.textColor,
                       ),
                     ),
                     const Spacer(),
                     IconButton(
-                      icon: Icon(Icons.close, color: textColor.withOpacity(0.7)),
+                      icon: Icon(Icons.close, color: widget.textColor.withOpacity(0.7)),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
@@ -456,9 +391,9 @@ class _GlossaryEditor extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        '为保证术语一致性，建议添加专有名词映射（源术语 -> 目标术语）。',
+                        '为保证术语一致性，建议添加专有名词映射（源术语 → 目标术语）。',
                         style: TextStyle(
-                          color: textColor.withOpacity(0.65),
+                          color: widget.textColor.withOpacity(0.65),
                           fontSize: 12,
                           height: 1.4,
                         ),
@@ -466,7 +401,7 @@ class _GlossaryEditor extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     ElevatedButton.icon(
-                      onPressed: () => _addOrEdit(context, provider, null),
+                      onPressed: _startAdd,
                       icon: const Icon(Icons.add, size: 18),
                       label: const Text('新增'),
                       style: ElevatedButton.styleFrom(
@@ -477,30 +412,59 @@ class _GlossaryEditor extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
+                TextField(
+                  controller: _searchCtl,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    filled: true,
+                    fillColor: Colors.white,
+                    prefixIcon: const Icon(Icons.search, size: 18),
+                    hintText: '搜索源术语 / 目标术语',
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                if (_editing != null || _srcCtl.text.isNotEmpty || _dstCtl.text.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  _editor(provider),
+                ],
+                const SizedBox(height: 12),
                 if (terms.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 24),
+                  Expanded(
                     child: Center(
-                      child: Text('暂无术语', style: TextStyle(color: textColor.withOpacity(0.5))),
+                      child: Text('暂无术语', style: TextStyle(color: widget.textColor.withOpacity(0.5))),
+                    ),
+                  )
+                else if (filtered.isEmpty)
+                  Expanded(
+                    child: Center(
+                      child: Text('未找到匹配项', style: TextStyle(color: widget.textColor.withOpacity(0.5))),
                     ),
                   )
                 else
-                  Flexible(
+                  Expanded(
                     child: ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: terms.length,
-                      separatorBuilder: (_, __) => Divider(color: textColor.withOpacity(0.08)),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => Divider(color: widget.textColor.withOpacity(0.08)),
                       itemBuilder: (context, i) {
-                        final t = terms[i];
+                        final t = filtered[i];
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
-                          title: Text('${t.source}  →  ${t.target}', style: TextStyle(color: textColor)),
+                          title: Text(
+                            t.source,
+                            style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            t.target,
+                            style: TextStyle(color: widget.textColor.withOpacity(0.7), height: 1.3),
+                          ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                icon: Icon(Icons.edit, color: textColor.withOpacity(0.7)),
-                                onPressed: () => _addOrEdit(context, provider, t),
+                                icon: Icon(Icons.edit, color: widget.textColor.withOpacity(0.7)),
+                                onPressed: () => _startEdit(t),
                               ),
                               IconButton(
                                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
@@ -520,54 +484,67 @@ class _GlossaryEditor extends StatelessWidget {
     );
   }
 
-  Future<void> _addOrEdit(
-    BuildContext context,
-    TranslationProvider provider,
-    GlossaryTerm? existing,
-  ) async {
-    final srcCtl = TextEditingController(text: existing?.source ?? '');
-    final dstCtl = TextEditingController(text: existing?.target ?? '');
+  Widget _editor(TranslationProvider provider) {
+    final isEditing = _editing != null;
 
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(existing == null ? '新增术语' : '编辑术语'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: widget.textColor.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isEditing ? '编辑术语' : '新增术语',
+            style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _srcCtl,
+            decoration: const InputDecoration(
+              isDense: true,
+              labelText: '源术语',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _dstCtl,
+            decoration: const InputDecoration(
+              isDense: true,
+              labelText: '目标术语',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
             children: [
-              TextField(
-                controller: srcCtl,
-                decoration: const InputDecoration(labelText: '源术语'),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _cancelEdit,
+                  child: const Text('取消'),
+                ),
               ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: dstCtl,
-                decoration: const InputDecoration(labelText: '目标术语'),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => _save(provider),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.techBlue,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
+                  child: const Text('保存'),
+                ),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('保存'),
-            ),
-          ],
-        );
-      },
+        ],
+      ),
     );
-
-    if (ok == true) {
-      final src = srcCtl.text.trim();
-      final dst = dstCtl.text.trim();
-      if (src.isEmpty || dst.isEmpty) return;
-      await provider.upsertGlossaryTerm(GlossaryTerm(source: src, target: dst));
-    }
   }
 }
-
 

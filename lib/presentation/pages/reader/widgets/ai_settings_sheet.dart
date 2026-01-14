@@ -75,16 +75,13 @@ class AiSettingsSheet extends StatelessWidget {
                   context,
                   title: '翻译设置',
                   subtitle: subtitle,
-                  trailing: Switch(
-                    value: provider.applyToReader,
-                    activeColor: AppColors.techBlue,
-                    onChanged: (v) => provider.setApplyToReader(v),
-                  ),
+                  trailing: Icon(Icons.chevron_right, color: textColor.withOpacity(0.6)),
                   onTap: () {
                     Navigator.pop(context);
                     onOpenTranslationSettings();
                   },
                 ),
+
 
                 const SizedBox(height: 16),
                 _sectionTitle('总结'),
@@ -116,26 +113,11 @@ class AiSettingsSheet extends StatelessWidget {
                 ),
 
                 const Spacer(),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      onOpenTranslationSettings();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.techBlue,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-                      ),
-                      elevation: 0,
-                    ),
-                    icon: const Icon(Icons.translate, size: 18),
-                    label: const Text('打开翻译设置'),
-                  ),
+                Text(
+                  '提示：翻译开关请在 AI 伴读主面板控制。',
+                  style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 12),
                 )
+
               ],
             ),
           ),
