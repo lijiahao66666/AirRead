@@ -58,18 +58,22 @@ class AiHud extends StatefulWidget {
   State<AiHud> createState() => _AiHudState();
 }
 
-class _AiHudState extends State<AiHud> {
-  _AiHudRoute _route = _AiHudRoute.main;
+class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
+  final List<_AiHudRoute> _stack = [_AiHudRoute.main];
+
+  _AiHudRoute get _route => _stack.isEmpty ? _AiHudRoute.main : _stack.last;
 
   void _push(_AiHudRoute next) {
+    if (next == _route) return;
     setState(() {
-      _route = next;
+      _stack.add(next);
     });
   }
 
   void _pop() {
+    if (_stack.length <= 1) return;
     setState(() {
-      _route = _AiHudRoute.main;
+      _stack.removeLast();
     });
   }
 
@@ -77,43 +81,92 @@ class _AiHudState extends State<AiHud> {
   Widget build(BuildContext context) {
     final bool isDark = widget.bgColor.computeLuminance() < 0.5;
 
-    return GlassPanel.sheet(
-      surfaceColor: widget.bgColor,
-      opacity: AppTokens.glassOpacityDense,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _header(),
-              const SizedBox(height: 12),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                switchInCurve: Curves.easeOut,
-                switchOutCurve: Curves.easeIn,
-                transitionBuilder: (child, anim) {
-                  return FadeTransition(
-                    opacity: anim,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0.04, 0),
-                        end: Offset.zero,
-                      ).animate(anim),
-                      child: child,
-                    ),
-                  );
-                },
-                child: _buildBody(isDark: isDark),
+    return PopScope(
+      canPop: _stack.length <= 1,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        if (_stack.length > 1) _pop();
+      },
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final media = MediaQuery.of(context);
+          final mediaH = media.size.height;
+          final availableH = constraints.maxHeight.isFinite ? constraints.maxHeight : mediaH;
+
+          final bool reduceMotion = (media.disableAnimations) || media.accessibleNavigation;
+          final bool isQa = _route == _AiHudRoute.qa;
+
+          // QA keeps the existing fixed tier: ~72% of screen height with clamp.
+          final qaHeight = (availableH * 0.72).clamp(420.0, availableH);
+
+          // Non-QA adapts to content, but should not grow beyond this cap.
+          final nonQaMaxHeight = (availableH * 0.72).clamp(320.0, availableH);
+
+          final body = AnimatedSwitcher(
+            duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 200),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, anim) {
+              return FadeTransition(
+                opacity: anim,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.04, 0),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: child,
+                ),
+              );
+            },
+            child: _buildBody(isDark: isDark),
+          );
+
+          final panel = GlassPanel.sheet(
+            surfaceColor: widget.bgColor,
+            opacity: AppTokens.glassOpacityDense,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+                child: Column(
+                  mainAxisSize: isQa ? MainAxisSize.max : MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _header(),
+                    const SizedBox(height: 12),
+                    if (isQa)
+                      Expanded(child: body)
+                    else
+                      Flexible(
+                        fit: FlexFit.loose,
+                        child: body,
+                      ),
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+
+          final sizedPanel = isQa
+              ? SizedBox(height: qaHeight, child: panel)
+              : ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: nonQaMaxHeight),
+                  child: panel,
+                );
+
+          return ClipRect(
+            child: AnimatedSize(
+              duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.bottomCenter,
+              child: sizedPanel,
+            ),
+          );
+        },
       ),
     );
   }
+
 
   Widget _header() {
     final title = switch (_route) {
@@ -202,6 +255,7 @@ class _AiHudState extends State<AiHud> {
   }
 }
 
+
 class _MainPanel extends StatelessWidget {
   final bool isDark;
   final Color bgColor;
@@ -258,62 +312,66 @@ class _MainPanel extends StatelessWidget {
         ? '已开启（与翻译/朗读互斥）'
         : '开启后，以图文方式展示（与翻译/朗读互斥）';
 
-    return Column(
-      key: key,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _featureRow(
-          icon: Icons.translate,
-          title: '翻译',
-          subtitle: translateSubtitle,
-          value: translateEnabled,
-          onOpen: onOpenTranslation,
-          onChanged: onTranslateChanged == null
-              ? null
-              : (v) {
-                  if (v) {
-                    setIfNeeded(imageTextEnabled, onImageTextChanged, false);
-                  }
-                  onTranslateChanged?.call(v);
-                },
-        ),
-        const SizedBox(height: 10),
-        _featureRow(
-          icon: Icons.volume_up,
-          title: '朗读',
-          subtitle: readAloudSubtitle,
-          value: readAloudEnabled,
-          onOpen: onOpenReadAloud,
-          onChanged: onReadAloudChanged == null
-              ? null
-              : (v) {
-                  if (v) {
-                    setIfNeeded(imageTextEnabled, onImageTextChanged, false);
-                  }
-                  onReadAloudChanged?.call(v);
-                },
-        ),
-        const SizedBox(height: 10),
-        _featureRow(
-          icon: Icons.image_outlined,
-          title: '图文',
-          subtitle: imageTextSubtitle,
-          value: imageTextEnabled,
-          onOpen: onOpenImageText,
-          onChanged: onImageTextChanged == null
-              ? null
-              : (v) {
-                  if (v) {
-                    setIfNeeded(translateEnabled, onTranslateChanged, false);
-                    setIfNeeded(readAloudEnabled, onReadAloudChanged, false);
-                  }
-                  onImageTextChanged?.call(v);
-                },
-        ),
-        const SizedBox(height: 14),
-        _qaEntry(onTap: onOpenQa),
-      ],
+    return SingleChildScrollView(
+      key: const PageStorageKey('ai_hud_main_scroll'),
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _featureRow(
+            icon: Icons.translate,
+            title: '翻译',
+            subtitle: translateSubtitle,
+            value: translateEnabled,
+            onOpen: onOpenTranslation,
+            onChanged: onTranslateChanged == null
+                ? null
+                : (v) {
+                    if (v) {
+                      setIfNeeded(imageTextEnabled, onImageTextChanged, false);
+                    }
+                    onTranslateChanged?.call(v);
+                  },
+          ),
+          const SizedBox(height: 10),
+          _featureRow(
+            icon: Icons.volume_up,
+            title: '朗读',
+            subtitle: readAloudSubtitle,
+            value: readAloudEnabled,
+            onOpen: onOpenReadAloud,
+            onChanged: onReadAloudChanged == null
+                ? null
+                : (v) {
+                    if (v) {
+                      setIfNeeded(imageTextEnabled, onImageTextChanged, false);
+                    }
+                    onReadAloudChanged?.call(v);
+                  },
+          ),
+          const SizedBox(height: 10),
+          _featureRow(
+            icon: Icons.image_outlined,
+            title: '图文',
+            subtitle: imageTextSubtitle,
+            value: imageTextEnabled,
+            onOpen: onOpenImageText,
+            onChanged: onImageTextChanged == null
+                ? null
+                : (v) {
+                    if (v) {
+                      setIfNeeded(translateEnabled, onTranslateChanged, false);
+                      setIfNeeded(readAloudEnabled, onReadAloudChanged, false);
+                    }
+                    onImageTextChanged?.call(v);
+                  },
+          ),
+          const SizedBox(height: 14),
+          _qaEntry(onTap: onOpenQa),
+        ],
+      ),
     );
+
   }
 
   Widget _featureRow({
@@ -502,97 +560,101 @@ class _TranslationSettingsPanel extends StatelessWidget {
 
     final Color cardBg = isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
 
-    return Column(
-      key: key,
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: cardBg,
-            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-            border: Border.all(color: textColor.withOpacity(0.08), width: AppTokens.stroke),
-          ),
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('翻译引擎', style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 12,
-                children: [
-                  _chip(
-                    label: '机器翻译',
-                    active: cfg.engineType == TranslationEngineType.machine,
-                    onTap: () => provider.setEngineType(TranslationEngineType.machine),
-                  ),
-                  _chip(
-                    label: 'AI 大模型',
-                    active: cfg.engineType == TranslationEngineType.ai,
-                    onTap: () => provider.setEngineType(TranslationEngineType.ai),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _dropdown(
-                      label: '源语言（可选）',
-                      value: cfg.sourceLang,
-                      items: _langs,
-                      onChanged: (v) => provider.setSourceLang(v ?? ''),
+    return SingleChildScrollView(
+      key: const PageStorageKey('ai_hud_translation_scroll'),
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+              border: Border.all(color: textColor.withOpacity(0.08), width: AppTokens.stroke),
+            ),
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('翻译引擎', style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  children: [
+                    _chip(
+                      label: '机器翻译',
+                      active: cfg.engineType == TranslationEngineType.machine,
+                      onTap: () => provider.setEngineType(TranslationEngineType.machine),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _dropdown(
-                      label: '目标语言（必选）',
-                      value: cfg.targetLang,
-                      items: Map<String, String>.from(_langs)..remove(''),
-                      onChanged: (v) => provider.setTargetLang(v ?? 'en'),
+                    _chip(
+                      label: 'AI 大模型',
+                      active: cfg.engineType == TranslationEngineType.ai,
+                      onTap: () => provider.setEngineType(TranslationEngineType.ai),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text('显示模式', style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 12,
-                children: [
-                  _chip(
-                    label: '仅显示译文',
-                    active: cfg.displayMode == TranslationDisplayMode.translationOnly,
-                    onTap: () => provider.setDisplayMode(TranslationDisplayMode.translationOnly),
-                  ),
-                  _chip(
-                    label: '双语对照',
-                    active: cfg.displayMode == TranslationDisplayMode.bilingual,
-                    onTap: () => provider.setDisplayMode(TranslationDisplayMode.bilingual),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Text(
-                '提示：翻译显示可在阅读页右侧快捷栏随时暂停/恢复。',
-                style: TextStyle(color: textColor.withOpacity(0.65), fontSize: 12, height: 1.35),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onOpenGlossary,
-                  icon: const Icon(Icons.auto_fix_high, size: 18),
-                  label: const Text('编辑术语表'),
+                  ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _dropdown(
+                        label: '源语言（可选）',
+                        value: cfg.sourceLang,
+                        items: _langs,
+                        onChanged: (v) => provider.setSourceLang(v ?? ''),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _dropdown(
+                        label: '目标语言（必选）',
+                        value: cfg.targetLang,
+                        items: Map<String, String>.from(_langs)..remove(''),
+                        onChanged: (v) => provider.setTargetLang(v ?? 'en'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text('显示模式', style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  children: [
+                    _chip(
+                      label: '仅显示译文',
+                      active: cfg.displayMode == TranslationDisplayMode.translationOnly,
+                      onTap: () => provider.setDisplayMode(TranslationDisplayMode.translationOnly),
+                    ),
+                    _chip(
+                      label: '双语对照',
+                      active: cfg.displayMode == TranslationDisplayMode.bilingual,
+                      onTap: () => provider.setDisplayMode(TranslationDisplayMode.bilingual),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  '提示：翻译显示可在阅读页右侧快捷栏随时暂停/恢复。',
+                  style: TextStyle(color: textColor.withOpacity(0.65), fontSize: 12, height: 1.35),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: onOpenGlossary,
+                    icon: const Icon(Icons.auto_fix_high, size: 18),
+                    label: const Text('编辑术语表'),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
+
   }
 
   Widget _chip({
@@ -684,54 +746,58 @@ class _ReadAloudSettingsPanelState extends State<_ReadAloudSettingsPanel> {
   Widget build(BuildContext context) {
     final Color cardBg = widget.isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
 
-    return Column(
-      key: widget.key,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: cardBg,
-            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-            border: Border.all(color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+    return SingleChildScrollView(
+      key: const PageStorageKey('ai_hud_read_aloud_scroll'),
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+              border: Border.all(color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+            ),
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('朗读行为', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text('进入章节自动开始', style: TextStyle(color: widget.textColor.withOpacity(0.8))),
+                    ),
+                    Switch(
+                      value: _autoStart,
+                      activeColor: AppColors.techBlue,
+                      onChanged: (v) => setState(() => _autoStart = v),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text('语速', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w700)),
+                Slider(
+                  value: _rate,
+                  min: 0.6,
+                  max: 1.6,
+                  divisions: 10,
+                  activeColor: AppColors.techBlue,
+                  label: _rate.toStringAsFixed(1),
+                  onChanged: (v) => setState(() => _rate = v),
+                ),
+                Text(
+                  '提示：开启朗读后，可在阅读页右侧快捷栏暂停/继续或关闭。',
+                  style: TextStyle(color: widget.textColor.withOpacity(0.6), fontSize: 12, height: 1.35),
+                ),
+              ],
+            ),
           ),
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('朗读行为', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text('进入章节自动开始', style: TextStyle(color: widget.textColor.withOpacity(0.8))),
-                  ),
-                  Switch(
-                    value: _autoStart,
-                    activeColor: AppColors.techBlue,
-                    onChanged: (v) => setState(() => _autoStart = v),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text('语速', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w700)),
-              Slider(
-                value: _rate,
-                min: 0.6,
-                max: 1.6,
-                divisions: 10,
-                activeColor: AppColors.techBlue,
-                label: _rate.toStringAsFixed(1),
-                onChanged: (v) => setState(() => _rate = v),
-              ),
-              Text(
-                '提示：开启朗读后，可在阅读页右侧快捷栏暂停/继续或关闭。',
-                style: TextStyle(color: widget.textColor.withOpacity(0.6), fontSize: 12, height: 1.35),
-              ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
+
   }
 }
 
@@ -759,54 +825,59 @@ class _ImageTextSettingsPanelState extends State<_ImageTextSettingsPanel> {
   Widget build(BuildContext context) {
     final Color cardBg = widget.isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
 
-    return Column(
-      key: widget.key,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: cardBg,
-            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-            border: Border.all(color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+    return SingleChildScrollView(
+      key: const PageStorageKey('ai_hud_image_text_scroll'),
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+              border: Border.all(color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+            ),
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('图文展示', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w800)),
+
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text('显示图注/说明', style: TextStyle(color: widget.textColor.withOpacity(0.8))),
+                    ),
+                    Switch(
+                      value: _showCaptions,
+                      activeColor: AppColors.techBlue,
+                      onChanged: (v) => setState(() => _showCaptions = v),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text('图文密度', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w700)),
+                Slider(
+                  value: _density,
+                  min: 0,
+                  max: 1,
+                  divisions: 5,
+                  activeColor: AppColors.techBlue,
+                  label: _density.toStringAsFixed(1),
+                  onChanged: (v) => setState(() => _density = v),
+                ),
+                Text(
+                  '提示：图文与翻译/朗读互斥，可在主面板一键切换。',
+                  style: TextStyle(color: widget.textColor.withOpacity(0.6), fontSize: 12, height: 1.35),
+                ),
+              ],
+            ),
           ),
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('图文展示', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text('显示图注/说明', style: TextStyle(color: widget.textColor.withOpacity(0.8))),
-                  ),
-                  Switch(
-                    value: _showCaptions,
-                    activeColor: AppColors.techBlue,
-                    onChanged: (v) => setState(() => _showCaptions = v),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text('图文密度', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w700)),
-              Slider(
-                value: _density,
-                min: 0,
-                max: 1,
-                divisions: 5,
-                activeColor: AppColors.techBlue,
-                label: _density.toStringAsFixed(1),
-                onChanged: (v) => setState(() => _density = v),
-              ),
-              Text(
-                '提示：图文与翻译/朗读互斥，可在主面板一键切换。',
-                style: TextStyle(color: widget.textColor.withOpacity(0.6), fontSize: 12, height: 1.35),
-              ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
+
   }
 }
 
@@ -890,7 +961,68 @@ class _GlossaryPanelState extends State<_GlossaryPanel> {
                 t.source.toLowerCase().contains(query) || t.target.toLowerCase().contains(query))
             .toList();
 
-    final maxListHeight = (MediaQuery.of(context).size.height * 0.38).clamp(200.0, 360.0);
+    Widget listBody;
+    if (terms.isEmpty) {
+      listBody = Center(
+        child: Text(
+          '暂无术语，建议从人物/地名/组织名开始添加。',
+          style: TextStyle(color: widget.textColor.withOpacity(0.55)),
+        ),
+      );
+    } else if (filtered.isEmpty) {
+      listBody = Center(
+        child: Text(
+          '未找到匹配项',
+          style: TextStyle(color: widget.textColor.withOpacity(0.55)),
+        ),
+      );
+    } else {
+      listBody = ListView.separated(
+        key: const PageStorageKey('ai_hud_glossary_list'),
+        shrinkWrap: true,
+        itemCount: filtered.length,
+        separatorBuilder: (_, __) => Divider(color: widget.textColor.withOpacity(0.08)),
+
+        itemBuilder: (context, i) {
+          final t = filtered[i];
+          return ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              t.source,
+              style: TextStyle(
+                color: widget.textColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            subtitle: Text(
+              t.target,
+              style: TextStyle(
+                color: widget.textColor.withOpacity(0.7),
+                height: 1.3,
+              ),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: '编辑',
+                  icon: Icon(Icons.edit, color: widget.textColor.withOpacity(0.75)),
+                  onPressed: () => _startEdit(t),
+                ),
+                IconButton(
+                  tooltip: '删除',
+                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                  onPressed: () => provider.removeGlossaryTerm(t.source),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+
+    final maxListHeight = (MediaQuery.of(context).size.height * 0.38).clamp(180.0, 360.0);
 
     return Column(
       key: widget.key,
@@ -948,6 +1080,7 @@ class _GlossaryPanelState extends State<_GlossaryPanel> {
           ),
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: _searchCtl,
@@ -967,76 +1100,17 @@ class _GlossaryPanelState extends State<_GlossaryPanel> {
                 _editor(provider),
               ],
               const SizedBox(height: 10),
-              if (terms.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  child: Center(
-                    child: Text(
-                      '暂无术语，建议从人物/地名/组织名开始添加。',
-                      style: TextStyle(color: widget.textColor.withOpacity(0.55)),
-                    ),
-                  ),
-                )
-              else if (filtered.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  child: Center(
-                    child: Text(
-                      '未找到匹配项',
-                      style: TextStyle(color: widget.textColor.withOpacity(0.55)),
-                    ),
-                  ),
-                )
-              else
-                ConstrainedBox(
-                  constraints: BoxConstraints(maxHeight: maxListHeight),
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, __) => Divider(color: widget.textColor.withOpacity(0.08)),
-                    itemBuilder: (context, i) {
-                      final t = filtered[i];
-                      return ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                          t.source,
-                          style: TextStyle(
-                            color: widget.textColor,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        subtitle: Text(
-                          t.target,
-                          style: TextStyle(
-                            color: widget.textColor.withOpacity(0.7),
-                            height: 1.3,
-                          ),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: '编辑',
-                              icon: Icon(Icons.edit, color: widget.textColor.withOpacity(0.75)),
-                              onPressed: () => _startEdit(t),
-                            ),
-                            IconButton(
-                              tooltip: '删除',
-                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                              onPressed: () => provider.removeGlossaryTerm(t.source),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxListHeight),
+                child: listBody,
+              ),
             ],
           ),
         ),
       ],
     );
+
+
   }
 
   Widget _editor(TranslationProvider provider) {
@@ -1205,118 +1279,115 @@ class _QaPanelState extends State<_QaPanel> {
       );
     }
 
-    final maxChatHeight = (MediaQuery.of(context).size.height * 0.34).clamp(180.0, 320.0);
-
-    return Column(
+    return SizedBox.expand(
       key: widget.key,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: cardBg,
-            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-            border: Border.all(color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
-          ),
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '快捷语',
-                style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  chip('总结', '请总结我正在阅读的内容，用要点列出：\n1) 核心情节\n2) 关键人物\n3) 伏笔/线索'),
-                  chip('解释这段', '请用通俗易懂的方式解释这段内容，并指出可能的隐含含义。'),
-                  chip('提取要点', '请把这段内容的要点提炼成 5 条以内。'),
-                  chip('人物关系', '请整理本段出现的人物以及他们之间的关系，用列表输出。'),
-                ],
-              ),
-              const SizedBox(height: 12),
-              ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxChatHeight),
-                child: ListView.builder(
-                  controller: _scrollCtl,
-                  itemCount: _messages.length,
-                  itemBuilder: (context, i) {
-                    final m = _messages[i];
-                    final bool isUser = m.role == _QaRole.user;
-                    final Color bubbleBg = isUser
-                        ? AppColors.techBlue.withOpacity(0.18)
-                        : widget.textColor.withOpacity(0.06);
-                    final Alignment align = isUser ? Alignment.centerRight : Alignment.centerLeft;
-
-                    return Align(
-                      alignment: align,
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 6),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        constraints: const BoxConstraints(maxWidth: 340),
-                        decoration: BoxDecoration(
-                          color: bubbleBg,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: widget.textColor.withOpacity(0.08),
-                            width: AppTokens.stroke,
-                          ),
-                        ),
-                        child: Text(
-                          m.text,
-                          style: TextStyle(
-                            color: widget.textColor,
-                            height: 1.35,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _inputCtl,
-                      minLines: 1,
-                      maxLines: 4,
-                      decoration: InputDecoration(
-                        isDense: true,
-                        filled: true,
-                        fillColor: Colors.white,
-                        hintText: '输入你的问题…',
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onSubmitted: (_) => _send(),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton(
-                    onPressed: _send,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.techBlue,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Text('发送'),
-                  ),
-                ],
-              ),
-            ],
-          ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+          border: Border.all(color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
         ),
-      ],
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '快捷语',
+              style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                chip('总结', '请总结我正在阅读的内容，用要点列出：\n1) 核心情节\n2) 关键人物\n3) 伏笔/线索'),
+                chip('解释这段', '请用通俗易懂的方式解释这段内容，并指出可能的隐含含义。'),
+                chip('提取要点', '请把这段内容的要点提炼成 5 条以内。'),
+                chip('人物关系', '请整理本段出现的人物以及他们之间的关系，用列表输出。'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView.builder(
+                key: const PageStorageKey('ai_hud_qa_list'),
+                controller: _scrollCtl,
+                itemCount: _messages.length,
+
+                itemBuilder: (context, i) {
+                  final m = _messages[i];
+                  final bool isUser = m.role == _QaRole.user;
+                  final Color bubbleBg = isUser
+                      ? AppColors.techBlue.withOpacity(0.18)
+                      : widget.textColor.withOpacity(0.06);
+                  final Alignment align = isUser ? Alignment.centerRight : Alignment.centerLeft;
+
+                  return Align(
+                    alignment: align,
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      constraints: const BoxConstraints(maxWidth: 340),
+                      decoration: BoxDecoration(
+                        color: bubbleBg,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: widget.textColor.withOpacity(0.08),
+                          width: AppTokens.stroke,
+                        ),
+                      ),
+                      child: Text(
+                        m.text,
+                        style: TextStyle(
+                          color: widget.textColor,
+                          height: 1.35,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _inputCtl,
+                    minLines: 1,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      filled: true,
+                      fillColor: Colors.white,
+                      hintText: '输入你的问题…',
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onSubmitted: (_) => _send(),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  onPressed: _send,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.techBlue,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('发送'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
+
   }
 }
 
