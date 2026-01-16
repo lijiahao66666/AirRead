@@ -694,6 +694,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       final p = paragraphs[i];
       final trans = tp.getCachedTranslation(p.text);
       final pending = tp.isTranslationPending(p.text);
+      final failed = tp.isTranslationFailed(p.text);
 
       // Add indentation if not title
       final bool isTitle = i == 0;
@@ -717,6 +718,19 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
           buffer.write(p.text);
           buffer.write('\n');
           buffer.write(indent + 'AI 正在翻译…');
+        } else {
+          buffer.write(p.text);
+        }
+      } else if (failed) {
+        // 翻译失败，显示原文和失败提示
+        if (isTransOnly) {
+          buffer.write(p.text);
+          buffer.write('\n');
+          buffer.write(indent + '翻译失败');
+        } else if (isBilingual) {
+          buffer.write(p.text);
+          buffer.write('\n');
+          buffer.write(indent + '翻译失败');
         } else {
           buffer.write(p.text);
         }
@@ -1931,6 +1945,10 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                                                   enabled: v,
                                                 );
                                               },
+                                              chapterContentCache: _chapterContentCache,
+                                              currentChapterIndex: _currentChapterIndex,
+                                              currentPageInChapter: _currentPageInChapter,
+                                              chapterPageRanges: _chapterPageRanges,
                                             );
                                           },
                                         ),

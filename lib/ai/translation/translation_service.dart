@@ -16,7 +16,7 @@ class TranslationService {
   final void Function(String message, Object? error, StackTrace? st)? logger;
 
   final TranslationTaskQueue _machineQueue =
-      TranslationTaskQueue(maxConcurrent: 6);
+      TranslationTaskQueue(maxConcurrent: 3); // 保守设置，避免触发限流
   final TranslationTaskQueue _aiQueue = TranslationTaskQueue(maxConcurrent: 2);
 
   final Map<String, Future<String>> _inFlight = {};

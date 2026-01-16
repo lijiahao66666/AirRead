@@ -285,11 +285,28 @@ class TranslationProvider extends ChangeNotifier {
   /// Request translation for specific paragraphs.
   /// Results will be cached and listeners notified as they complete.
   final Set<String> _pendingKeys = {};
+  final Set<String> _failedKeys = {}; // 记录翻译失败的key
 
   bool isTranslationPending(String paragraphText) {
     final key =
         _service.buildCacheKey(config: _config, paragraphText: paragraphText);
     return _pendingKeys.contains(key);
+  }
+  
+  bool isTranslationFailed(String paragraphText) {
+    final key =
+        _service.buildCacheKey(config: _config, paragraphText: paragraphText);
+    return _failedKeys.contains(key);
+  }
+  
+  void retryTranslation(String paragraphText) {
+    final key =
+        _service.buildCacheKey(config: _config, paragraphText: paragraphText);
+    _failedKeys.remove(key); // 清除失败标记
+    _pendingKeys.remove(key); // 清除pending标记
+    
+    // 重新请求翻译
+    requestTranslationForParagraphs({0: paragraphText});
   }
 
   void requestTranslationForParagraphs(Map<int, String> paragraphsByIndex) {
@@ -311,11 +328,12 @@ class TranslationProvider extends ChangeNotifier {
             .translateParagraph(config: _config, paragraphText: entry.value)
             .then((result) {
           _pendingKeys.remove(cacheKey);
+          _failedKeys.remove(cacheKey); // 清除失败标记
           notifyListeners();
         }).catchError((e) {
           debugPrint('Translation failed for para ${entry.key}: $e');
-          final fallback = _service.normalizeParagraphText(entry.value);
-          _cache.set(cacheKey, fallback).then((_) {});
+          // 不缓存原文，只标记为失败
+          _failedKeys.add(cacheKey);
           _pendingKeys.remove(cacheKey);
           notifyListeners();
         });

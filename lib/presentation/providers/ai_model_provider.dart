@@ -15,8 +15,16 @@ enum AiModelSource {
   online,
 }
 
+// QA内容范围设置
+enum QAContentScope {
+  currentPage, // 仅当前页面
+  currentChapterToPage, // 当前章节开始到当前页面
+  slidingWindow, // 滑动窗口（当前页面前后5页）
+}
+
 class AiModelProvider extends ChangeNotifier {
   static const _kModelSource = 'ai_model_source';
+  static const _kQAContentScope = 'qa_content_scope';
 
   static const String localModelDownloadUrl =
       'https://www.modelscope.cn/models/Tencent-Hunyuan/Hunyuan-0.5B-Instruct-AWQ-Int4/resolve/master/model.safetensors';
@@ -36,10 +44,14 @@ class AiModelProvider extends ChangeNotifier {
   http.Client? _downloadClient;
   StreamSubscription<List<int>>? _downloadSub;
   IOSink? _downloadSink;
+  
+  QAContentScope _qaContentScope = QAContentScope.slidingWindow; // 默认滑动窗口
 
   AiModelProvider() {
     _load();
   }
+  
+  QAContentScope get qaContentScope => _qaContentScope;
 
   bool get loaded => _loaded;
   AiModelSource get source => _source;
@@ -74,6 +86,14 @@ class AiModelProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kModelSource, value.name);
   }
+  
+  Future<void> setQAContentScope(QAContentScope value) async {
+    if (_qaContentScope == value) return;
+    _qaContentScope = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kQAContentScope, value.name);
+  }
 
   Future<File> getLocalModelFile() async {
     if (kIsWeb) {
@@ -82,9 +102,13 @@ class AiModelProvider extends ChangeNotifier {
       // Or better, logic using this should check kIsWeb first.
       throw UnsupportedError('Local model not supported on Web');
     }
-    final dir = await getApplicationDocumentsDirectory();
-    final modelDir = Directory(p.join(dir.path, 'models', 'hunyuan'));
-    return File(p.join(modelDir.path, 'model.mnn'));
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final modelDir = Directory(p.join(dir.path, 'models', 'hunyuan'));
+      return File(p.join(modelDir.path, 'model.mnn'));
+    } catch (e) {
+      throw Exception('无法获取本地模型路径: $e');
+    }
   }
 
   Future<File> getLocalModelPartialFile() async {
@@ -293,6 +317,13 @@ class AiModelProvider extends ChangeNotifier {
       (e) => e.name == raw,
       orElse: () => AiModelSource.none,
     );
+    
+    final scopeRaw = prefs.getString(_kQAContentScope);
+    _qaContentScope = QAContentScope.values.firstWhere(
+      (e) => e.name == scopeRaw,
+      orElse: () => QAContentScope.slidingWindow,
+    );
+    
     _loaded = true;
     await refreshLocalModelStatus();
     await refreshLocalRuntimeStatus();

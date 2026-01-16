@@ -1,10 +1,14 @@
+import 'dart:async';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 
-import '../../ai/hunyuan/hunyuan_text_client.dart';
-import '../../ai/local_llm/local_llm_client.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
+import '../../ai/reading/reading_context_service.dart';
+import '../../ai/reading/qa_service.dart';
+export '../../ai/reading/qa_service.dart' show QAStreamChunk, QAType;
 import '../../ai/translation/glossary.dart';
 import '../../ai/translation/translation_types.dart';
 import '../../core/theme/app_colors.dart';
@@ -19,6 +23,8 @@ enum _AiHudRoute {
   qa,
   tencentSettings,
 }
+
+
 
 /// AI companion bottom sheet with in-panel navigation.
 ///
@@ -44,6 +50,12 @@ class AiHud extends StatefulWidget {
   final bool imageTextEnabled;
   final ValueChanged<bool>? onImageTextChanged;
 
+  /// Reading context for AI QA
+  final Map<int, String> chapterContentCache;
+  final int currentChapterIndex;
+  final int currentPageInChapter;
+  final Map<int, List<TextRange>> chapterPageRanges;
+
   const AiHud({
     super.key,
     this.bgColor = Colors.white,
@@ -55,6 +67,10 @@ class AiHud extends StatefulWidget {
     this.onReadAloudChanged,
     required this.imageTextEnabled,
     this.onImageTextChanged,
+    required this.chapterContentCache,
+    required this.currentChapterIndex,
+    required this.currentPageInChapter,
+    required this.chapterPageRanges,
   });
 
   @override
@@ -252,6 +268,10 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           isDark: isDark,
           bgColor: widget.bgColor,
           textColor: widget.textColor,
+          chapterContentCache: widget.chapterContentCache,
+          currentChapterIndex: widget.currentChapterIndex,
+          currentPageInChapter: widget.currentPageInChapter,
+          chapterPageRanges: widget.chapterPageRanges,
         ),
       _AiHudRoute.tencentSettings => _TencentHunyuanSettingsPanel(
           key: const ValueKey('tencentSettings'),
@@ -600,6 +620,100 @@ class _TencentHunyuanSettingsPanelState
     );
   }
 
+  Widget _qaContentScopeSettings({
+    required Color cardBg,
+  }) {
+    return Consumer<AiModelProvider>(
+      builder: (context, aiModel, child) {
+        return Container(
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+            border: Border.all(
+                color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+          ),
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '问答内容范围',
+                style: TextStyle(
+                  color: widget.textColor,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 10),
+              _scopeChip(
+                label: '仅当前页面',
+                value: QAContentScope.currentPage,
+                groupValue: aiModel.qaContentScope,
+                onChanged: (scope) => aiModel.setQAContentScope(scope),
+              ),
+              const SizedBox(height: 8),
+              _scopeChip(
+                label: '当前章节到当前页',
+                value: QAContentScope.currentChapterToPage,
+                groupValue: aiModel.qaContentScope,
+                onChanged: (scope) => aiModel.setQAContentScope(scope),
+              ),
+              const SizedBox(height: 8),
+              _scopeChip(
+                label: '前5页+当前页+后5页',
+                value: QAContentScope.slidingWindow,
+                groupValue: aiModel.qaContentScope,
+                onChanged: (scope) => aiModel.setQAContentScope(scope),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _scopeChip({
+    required String label,
+    required QAContentScope value,
+    required QAContentScope groupValue,
+    required ValueChanged<QAContentScope> onChanged,
+  }) {
+    final bool active = value == groupValue;
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: () => onChanged(value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? AppColors.techBlue.withOpacity(0.12) : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: active ? AppColors.techBlue : widget.textColor.withOpacity(0.18),
+            width: AppTokens.stroke,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              active ? Icons.check_circle : Icons.circle_outlined,
+              size: 16,
+              color: active ? AppColors.techBlue : widget.textColor.withOpacity(0.6),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: active ? AppColors.techBlue : widget.textColor.withOpacity(0.75),
+                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _modelCard(
     BuildContext context, {
     required Color cardBg,
@@ -661,79 +775,85 @@ class _TencentHunyuanSettingsPanelState
       return '';
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-        border: Border.all(
-            color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '大模型',
-                  style: TextStyle(
-                    color: widget.textColor,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              Switch(
-                value: enabled,
-                activeColor: AppColors.techBlue,
-                onChanged: (v) => setEnabled(v),
-              ),
-            ],
+    return Column(
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+            border: Border.all(
+                color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
           ),
-          if (enabled) ...[
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                chip('本地', AiModelSource.local),
-                chip('在线', AiModelSource.online),
-              ],
-            ),
-          ],
-          const SizedBox(height: 10),
-          if (statusText().isNotEmpty)
-            Text(
-              statusText(),
-              style: TextStyle(
-                color: widget.textColor.withOpacity(0.7),
-                fontSize: 12,
-                height: 1.35,
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '大模型',
+                      style: TextStyle(
+                        color: widget.textColor,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  Switch(
+                    value: enabled,
+                    activeColor: AppColors.techBlue,
+                    onChanged: (v) => setEnabled(v),
+                  ),
+                ],
               ),
-            ),
-          if (enabled && source == AiModelSource.local) ...[
-            const SizedBox(height: 10),
-            _localModelStatusRow(aiModel),
-            if (!aiModel.localModelDownloading &&
-                !aiModel.localModelExists) ...[
-              if (aiModel.localModelError.isNotEmpty) ...[
-                const SizedBox(height: 10),
+              if (enabled) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    chip('本地', AiModelSource.local),
+                    chip('在线', AiModelSource.online),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 10),
+              if (statusText().isNotEmpty)
                 Text(
-                  aiModel.localModelError,
-                  style: const TextStyle(
-                    color: Colors.redAccent,
+                  statusText(),
+                  style: TextStyle(
+                    color: widget.textColor.withOpacity(0.7),
                     fontSize: 12,
                     height: 1.35,
                   ),
                 ),
+              if (enabled && source == AiModelSource.local) ...[
+                const SizedBox(height: 10),
+                _localModelStatusRow(aiModel),
+                if (!aiModel.localModelDownloading &&
+                    !aiModel.localModelExists) ...[
+                  if (aiModel.localModelError.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      aiModel.localModelError,
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ],
+              ],
+              if (enabled && source == AiModelSource.online && kIsWeb) ...[
+                const SizedBox(height: 10),
               ],
             ],
-          ],
-          if (enabled && source == AiModelSource.online && kIsWeb) ...[
-            const SizedBox(height: 10),
-          ],
-        ],
-      ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        _qaContentScopeSettings(cardBg: cardBg),
+      ],
     );
   }
 
@@ -1033,7 +1153,7 @@ class _MainPanel extends StatelessWidget {
             child: InkWell(
               onTap: () {
                 if (disabled) return;
-                onChanged!(!value);
+                onChanged(!value);
               },
               borderRadius: BorderRadius.circular(AppTokens.radiusMd),
               child: Padding(
@@ -1826,19 +1946,28 @@ enum _QaRole { user, assistant }
 class _QaMsg {
   final _QaRole role;
   final String text;
-  const _QaMsg(this.role, this.text);
+  final String? reasoningText;
+  const _QaMsg(this.role, this.text, [this.reasoningText]);
 }
 
 class _QaPanel extends StatefulWidget {
   final bool isDark;
   final Color bgColor;
   final Color textColor;
+  final Map<int, String> chapterContentCache;
+  final int currentChapterIndex;
+  final int currentPageInChapter;
+  final Map<int, List<TextRange>> chapterPageRanges;
 
   const _QaPanel({
     super.key,
     required this.isDark,
     required this.bgColor,
     required this.textColor,
+    required this.chapterContentCache,
+    required this.currentChapterIndex,
+    required this.currentPageInChapter,
+    required this.chapterPageRanges,
   });
 
   @override
@@ -1848,18 +1977,44 @@ class _QaPanel extends StatefulWidget {
 class _QaPanelState extends State<_QaPanel> {
   final TextEditingController _inputCtl = TextEditingController();
   final ScrollController _scrollCtl = ScrollController();
+  final List<_QaMsg> _messages = [];
+  bool _isStreaming = false;
+  StreamSubscription<QAStreamChunk>? _streamSub;
 
-  final List<_QaMsg> _messages = [
-    const _QaMsg(
+  @override
+  void initState() {
+    super.initState();
+    _messages.add(const _QaMsg(
       _QaRole.assistant,
-      '你可以直接输入问题并发送。',
-    ),
-  ];
+      '欢迎使用AI伴读！我可以帮你：\n• 总结当前章节\n• 提取关键要点\n• 解释不懂的内容\n• 回答基于当前章节的问题',
+    ));
+  }
+
+  /// 更新消息列表，在 Web 平台强制触发下一帧
+  void _updateMessage(int index, _QaMsg message) {
+    if (!mounted) return;
+    
+    if (kIsWeb) {
+      // Web 平台需要 addPostFrameCallback 来确保实时更新
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _messages[index] = message;
+        });
+      });
+    } else {
+      // 原生平台直接更新
+      setState(() {
+        _messages[index] = message;
+      });
+    }
+  }
 
   @override
   void dispose() {
     _inputCtl.dispose();
     _scrollCtl.dispose();
+    _streamSub?.cancel();
     super.dispose();
   }
 
@@ -1872,17 +2027,219 @@ class _QaPanelState extends State<_QaPanel> {
     });
   }
 
+  void _sendQuickAction(QAType qaType) async {
+    if (_isStreaming) return;
+
+    final String quickText;
+    switch (qaType) {
+      case QAType.summary:
+        quickText = '总结当前章节';
+        break;
+      case QAType.keyPoints:
+        quickText = '提取本章要点';
+        break;
+      default:
+        return;
+    }
+
+    setState(() {
+      _messages.add(_QaMsg(_QaRole.user, quickText));
+      _isStreaming = true;
+    });
+
+    final replyIndex = _messages.length;
+    
+    setState(() {
+      _messages.add(const _QaMsg(_QaRole.assistant, ''));
+    });
+
+    _scrollToBottom();
+
+    String reasoningBuffer = '';
+
+    try {
+      final aiModel = context.read<AiModelProvider>();
+      if (aiModel.source == AiModelSource.none) {
+        throw Exception('请先选择本地或在线大模型');
+      }
+
+      final contextService = ReadingContextService(
+        chapterContentCache: widget.chapterContentCache,
+        currentChapterIndex: widget.currentChapterIndex,
+        currentPageInChapter: widget.currentPageInChapter,
+        chapterPageRanges: widget.chapterPageRanges,
+      );
+
+      final qaService = QAService(
+        contextService: contextService,
+        credentials: getEmbeddedPublicHunyuanCredentials(),
+        contentScope: aiModel.qaContentScope,
+      );
+
+      final stream = qaService.askQuestion(
+        question: quickText,
+        isLocalModel: aiModel.source == AiModelSource.local,
+        qaType: qaType,
+      );
+
+      // 取消之前的订阅（如果有）
+      _streamSub?.cancel();
+
+      _streamSub = stream.listen(
+        (QAStreamChunk chunk) {
+          if (!mounted) return;
+
+          if (chunk.isReasoning && chunk.reasoningContent != null) {
+            reasoningBuffer += chunk.reasoningContent!;
+
+            final current = _messages[replyIndex];
+            _updateMessage(replyIndex, _QaMsg(
+              _QaRole.assistant,
+              current.text,
+              reasoningBuffer,
+            ));
+          } else if (chunk.content.isNotEmpty) {
+            final current = _messages[replyIndex];
+            _updateMessage(replyIndex, _QaMsg(
+              _QaRole.assistant,
+              current.text + chunk.content,
+              current.reasoningText,
+            ));
+          }
+
+          _scrollToBottom();
+        },
+        onError: (error) {
+          if (!mounted) return;
+          setState(() {
+            _messages[replyIndex] = _QaMsg(
+              _QaRole.assistant,
+              '错误: ${error.toString()}',
+            );
+            _isStreaming = false;
+          });
+        },
+        onDone: () {
+          if (!mounted) return;
+          setState(() {
+            _isStreaming = false;
+          });
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _messages[replyIndex] = _QaMsg(
+          _QaRole.assistant,
+          '错误: ${e.toString()}',
+        );
+        _isStreaming = false;
+      });
+    }
+  }
+
   Future<void> _send() async {
     final text = _inputCtl.text.trim();
-    if (text.isEmpty) return;
-    final aiModel = context.read<AiModelProvider>();
+    if (text.isEmpty || _isStreaming) return;
 
     setState(() {
       _messages.add(_QaMsg(_QaRole.user, text));
-      _messages.add(const _QaMsg(_QaRole.assistant, '思考中…'));
+      _isStreaming = true;
       _inputCtl.text = '';
     });
 
+    final replyIndex = _messages.length;
+    
+    setState(() {
+      _messages.add(const _QaMsg(_QaRole.assistant, ''));
+    });
+
+    _scrollToBottom();
+
+    String reasoningBuffer = '';
+
+    try {
+      final aiModel = context.read<AiModelProvider>();
+      if (aiModel.source == AiModelSource.none) {
+        throw Exception('请先选择本地或在线大模型');
+      }
+
+      final contextService = ReadingContextService(
+        chapterContentCache: widget.chapterContentCache,
+        currentChapterIndex: widget.currentChapterIndex,
+        currentPageInChapter: widget.currentPageInChapter,
+        chapterPageRanges: widget.chapterPageRanges,
+      );
+
+      final qaService = QAService(
+        contextService: contextService,
+        credentials: getEmbeddedPublicHunyuanCredentials(),
+        contentScope: aiModel.qaContentScope,
+      );
+
+      final stream = qaService.askQuestion(
+        question: text,
+        isLocalModel: aiModel.source == AiModelSource.local,
+        qaType: QAType.general,
+      );
+
+      // 取消之前的订阅（如果有）
+      _streamSub?.cancel();
+
+      _streamSub = stream.listen(
+        (QAStreamChunk chunk) {
+          if (!mounted) return;
+
+          if (chunk.isReasoning && chunk.reasoningContent != null) {
+            reasoningBuffer += chunk.reasoningContent!;
+
+            final current = _messages[replyIndex];
+            _updateMessage(replyIndex, _QaMsg(
+              _QaRole.assistant,
+              current.text,
+              reasoningBuffer,
+            ));
+          } else if (chunk.content.isNotEmpty) {
+            final current = _messages[replyIndex];
+            _updateMessage(replyIndex, _QaMsg(
+              _QaRole.assistant,
+              current.text + chunk.content,
+              current.reasoningText,
+            ));
+          }
+
+          _scrollToBottom();
+        },
+        onError: (error) {
+          if (!mounted) return;
+          setState(() {
+            _messages[replyIndex] = _QaMsg(
+              _QaRole.assistant,
+              '错误: ${error.toString()}',
+            );
+            _isStreaming = false;
+          });
+        },
+        onDone: () {
+          if (!mounted) return;
+          setState(() {
+            _isStreaming = false;
+          });
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _messages[replyIndex] = _QaMsg(
+          _QaRole.assistant,
+          '错误: ${e.toString()}',
+        );
+        _isStreaming = false;
+      });
+    }
+  }
+
+  void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollCtl.hasClients) return;
       _scrollCtl.animateTo(
@@ -1891,71 +2248,6 @@ class _QaPanelState extends State<_QaPanel> {
         curve: Curves.easeOut,
       );
     });
-
-    final replyIndex = _messages.length - 1;
-    try {
-      if (aiModel.source == AiModelSource.none) {
-        if (!mounted) return;
-        setState(() {
-          _messages[replyIndex] =
-              const _QaMsg(_QaRole.assistant, '请先选择本地或在线大模型');
-        });
-        return;
-      }
-
-      if (aiModel.source == AiModelSource.local) {
-        if (!aiModel.isLocalModelReady) {
-          if (!mounted) return;
-          String msg = '本地模型未就绪';
-          if (aiModel.localModelDownloading) msg = '本地模型下载中…';
-          if (!aiModel.localModelExists) msg = '本地模型未下载';
-          if (!aiModel.localRuntimeAvailable) msg = '本地推理后端未就绪（需集成本地推理）';
-          setState(() {
-            _messages[replyIndex] = _QaMsg(_QaRole.assistant, msg);
-          });
-          return;
-        }
-        final client = LocalLlmClient();
-        final out = await client.chatOnce(userText: text);
-        if (!mounted) return;
-        setState(() {
-          _messages[replyIndex] = _QaMsg(
-            _QaRole.assistant,
-            out.trim().isEmpty ? '（返回为空）' : out.trim(),
-          );
-        });
-        return;
-      }
-
-      if (kIsWeb) {
-        if (!mounted) return;
-        setState(() {
-          _messages[replyIndex] = const _QaMsg(
-            _QaRole.assistant,
-            '浏览器环境受跨域限制，无法直连腾讯云 API，请用 Windows/Android/iOS 调试',
-          );
-        });
-        return;
-      }
-      final client = HunyuanTextClient(
-        credentials: getEmbeddedPublicHunyuanCredentials(),
-      );
-      final out = await client.chatOnce(userText: text);
-      if (!mounted) return;
-      setState(() {
-        _messages[replyIndex] = _QaMsg(
-          _QaRole.assistant,
-          out.trim().isEmpty ? '（返回为空）' : out.trim(),
-        );
-      });
-    } catch (e) {
-      if (!mounted) return;
-      final raw = '$e';
-      final cleaned = raw.startsWith('Exception: ') ? raw.substring(11) : raw;
-      setState(() {
-        _messages[replyIndex] = _QaMsg(_QaRole.assistant, cleaned);
-      });
-    }
   }
 
   @override
@@ -1963,27 +2255,51 @@ class _QaPanelState extends State<_QaPanel> {
     final Color cardBg =
         widget.isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
 
-    Widget chip(String label, String prompt) {
+    Widget _actionChip({
+      required String label,
+      required IconData icon,
+      required VoidCallback? onTap,
+    }) {
+      final bool disabled = onTap == null;
       return InkWell(
-        onTap: () => _fillPrompt(prompt),
+        onTap: onTap,
         borderRadius: BorderRadius.circular(999),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: AppColors.techBlue.withOpacity(0.12),
+            color: disabled 
+                ? AppColors.techBlue.withOpacity(0.05)
+                : AppColors.techBlue.withOpacity(0.12),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: AppColors.techBlue.withOpacity(0.35),
+              color: disabled
+                  ? AppColors.techBlue.withOpacity(0.2)
+                  : AppColors.techBlue.withOpacity(0.35),
               width: AppTokens.stroke,
             ),
           ),
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.techBlue,
-              fontWeight: FontWeight.w600,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: disabled
+                    ? AppColors.techBlue.withOpacity(0.4)
+                    : AppColors.techBlue,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: disabled
+                      ? AppColors.techBlue.withOpacity(0.4)
+                      : AppColors.techBlue,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -2004,7 +2320,7 @@ class _QaPanelState extends State<_QaPanel> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '快捷语',
+              '快捷操作',
               style: TextStyle(
                   color: widget.textColor, fontWeight: FontWeight.w700),
             ),
@@ -2013,10 +2329,16 @@ class _QaPanelState extends State<_QaPanel> {
               spacing: 10,
               runSpacing: 10,
               children: [
-                chip('总结', '请总结我正在阅读的内容，用要点列出：\n1) 核心情节\n2) 关键人物\n3) 伏笔/线索'),
-                chip('解释这段', '请用通俗易懂的方式解释这段内容，并指出可能的隐含含义。'),
-                chip('提取要点', '请把这段内容的要点提炼成 5 条以内。'),
-                chip('人物关系', '请整理本段出现的人物以及他们之间的关系，用列表输出。'),
+                _actionChip(
+                  label: '总结本章',
+                  icon: Icons.summarize_outlined,
+                  onTap: _isStreaming ? null : () => _sendQuickAction(QAType.summary),
+                ),
+                _actionChip(
+                  label: '提取要点',
+                  icon: Icons.format_list_bulleted,
+                  onTap: _isStreaming ? null : () => _sendQuickAction(QAType.keyPoints),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -2034,7 +2356,69 @@ class _QaPanelState extends State<_QaPanel> {
                   final Alignment align =
                       isUser ? Alignment.centerRight : Alignment.centerLeft;
 
+                  // 对于助理消息，如果有思考过程，显示两个部分
+                  if (!isUser && m.reasoningText != null && m.reasoningText!.isNotEmpty) {
+                    return Align(
+                      key: ValueKey('qa_msg_${i}_${m.text.hashCode}_${m.reasoningText?.hashCode ?? 0}'),
+                      alignment: align,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 思考过程区域
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            constraints: const BoxConstraints(maxWidth: 340),
+                            decoration: BoxDecoration(
+                              color: widget.textColor.withOpacity(0.03),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: widget.textColor.withOpacity(0.06),
+                                width: AppTokens.stroke,
+                              ),
+                            ),
+                            child: Text(
+                              '🤔 AI思考过程: ${m.reasoningText!}',
+                              style: TextStyle(
+                                color: widget.textColor.withOpacity(0.75),
+                                height: 1.35,
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                          // 答案区域
+                          Container(
+                            margin: const EdgeInsets.symmetric(vertical: 0),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            constraints: const BoxConstraints(maxWidth: 340),
+                            decoration: BoxDecoration(
+                              color: bubbleBg,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: widget.textColor.withOpacity(0.08),
+                                width: AppTokens.stroke,
+                              ),
+                            ),
+                            child: Text(
+                              m.text,
+                              style: TextStyle(
+                                color: widget.textColor,
+                                height: 1.35,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  // 默认气泡（用户消息或没有思考过程的助理消息）
                   return Align(
+                    key: ValueKey('qa_msg_${i}_${m.text.hashCode}_${m.reasoningText?.hashCode ?? 0}'),
                     alignment: align,
                     child: Container(
                       margin: const EdgeInsets.symmetric(vertical: 6),

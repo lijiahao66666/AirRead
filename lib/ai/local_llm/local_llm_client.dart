@@ -58,6 +58,9 @@ class LocalLlmClient {
   }
 
   Future<String> _resolveModelPath() async {
+    if (kIsWeb) {
+      throw UnsupportedError('本地模型不支持在 Web 平台上运行');
+    }
     final dir = await getApplicationDocumentsDirectory();
     final modelPath = p.join(dir.path, 'models', 'hunyuan', 'model.mnn');
     final file = File(modelPath);

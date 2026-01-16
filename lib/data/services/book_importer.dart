@@ -8,6 +8,25 @@ import '../models/book.dart';
 import '../database/database_helper.dart';
 import 'book_parser.dart';
 
+// Web 平台的内存存储路径（仅用于保持接口兼容）
+class _WebMemoryPath {
+  final String _path;
+  const _WebMemoryPath(this._path);
+  String get path => _path;
+}
+
+/// 安全地获取应用文档目录
+Future<Directory> getApplicationDocumentsDirectorySafe() async {
+  if (kIsWeb) {
+    throw UnsupportedError('Application directory is not available on Web');
+  }
+  try {
+    return await getApplicationDocumentsDirectory();
+  } catch (e) {
+    throw Exception('无法获取应用文档目录: $e');
+  }
+}
+
 class BookImporter {
   final BookParser _parser = BookParser();
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
@@ -112,9 +131,13 @@ class BookImporter {
   }
 
   Future<Book?> importFile(String sourcePath) async {
+    if (kIsWeb) {
+      throw UnsupportedError('importFile is not supported on Web. Use processWebFiles instead.');
+    }
+    
     try {
       // 1. Get Application Directory
-      final appDir = await getApplicationDocumentsDirectory();
+      final appDir = await getApplicationDocumentsDirectorySafe();
       final booksDir = Directory(p.join(appDir.path, 'books'));
       if (!await booksDir.exists()) {
         await booksDir.create(recursive: true);

@@ -1,5 +1,21 @@
+import 'package:flutter/foundation.dart';
 import '../tencentcloud/tencent_api_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
+
+/// 流式输出返回的数据结构
+class ChatStreamChunk {
+  final String content;
+  final String? reasoningContent;
+  final bool isReasoning;
+  final bool isComplete;
+  
+  ChatStreamChunk({
+    required this.content,
+    this.reasoningContent,
+    this.isReasoning = false,
+    this.isComplete = false,
+  });
+}
 
 class HunyuanTextClient {
   static const String _host = 'hunyuan.tencentcloudapi.com';
@@ -16,9 +32,10 @@ class HunyuanTextClient {
   })  : _api = api ?? TencentApiClient(),
         _credentials = credentials;
 
+  @Deprecated('Use chatStream for better UX')
   Future<String> chatOnce({
     required String userText,
-    String model = 'hunyuan-turbos-latest',
+    String model = 'hunyuan-2.0-thinking-20251109',
   }) async {
     final resp = await _api.postJson(
       host: _host,
@@ -48,5 +65,41 @@ class HunyuanTextClient {
       }
     }
     return '';
+  }
+  
+  Stream<ChatStreamChunk> chatStream({
+    required String userText,
+    String model = 'hunyuan-2.0-thinking-20251109',
+    List<Map<String, String>>? messages,
+    bool enableSearch = true,  // 新增：是否启用联网搜索
+  }) async* {
+    final stream = _api.postStream(
+      host: _host,
+      service: _service,
+      action: 'ChatCompletions',
+      version: _version,
+      region: _region,
+      secretId: _credentials.secretId,
+      secretKey: _credentials.secretKey,
+      timeout: null,
+      payload: {
+        'Model': model,
+        'Stream': true,
+        'Messages': messages ??
+            [
+              {'Role': 'user', 'Content': userText},
+            ],
+        if (enableSearch) 'ForceSearchEnhancement': true,  // 启用强制搜索增强
+      },
+    );
+
+    await for (final chunk in stream) {
+      yield ChatStreamChunk(
+        content: chunk.content,
+        reasoningContent: chunk.reasoningContent,
+        isReasoning: chunk.isReasoning,
+        isComplete: chunk.isComplete,
+      );
+    }
   }
 }
