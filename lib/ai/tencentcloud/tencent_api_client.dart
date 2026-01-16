@@ -4,6 +4,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'http_client_factory.dart'
+    if (dart.library.js_interop) 'http_client_factory_web.dart';
+
 import 'tc3_signer.dart';
 import 'tencent_cloud_exception.dart';
 
@@ -13,7 +16,7 @@ class StreamChunk {
   final String? reasoningContent; // 思考过程内容
   final bool isReasoning; // 是否是思考过程
   final bool isComplete; // 是否完成
-  
+
   StreamChunk({
     required this.content,
     this.reasoningContent,
@@ -25,7 +28,8 @@ class StreamChunk {
 class TencentApiClient {
   final http.Client _client;
 
-  TencentApiClient({http.Client? client}) : _client = client ?? http.Client();
+  TencentApiClient({http.Client? client})
+      : _client = client ?? createStreamingHttpClient();
 
   Future<Map<String, dynamic>> postJson({
     required String host,
@@ -40,7 +44,7 @@ class TencentApiClient {
     int maxRetries = 5,
   }) async {
     int retryCount = 0;
-    
+
     while (true) {
       try {
         final now = DateTime.now().toUtc();
@@ -88,7 +92,8 @@ class TencentApiClient {
         if (decoded is! Map) {
           debugPrint('TencentApiClient Error: Invalid JSON response');
           throw TencentCloudException(
-              code: 'InvalidResponse', message: 'Response is not a JSON object');
+              code: 'InvalidResponse',
+              message: 'Response is not a JSON object');
         }
 
         final response = decoded['Response'];
@@ -103,18 +108,19 @@ class TencentApiClient {
           final code = err['Code']?.toString() ?? 'TencentCloudError';
           final msg = err['Message']?.toString() ?? 'Unknown error';
           final rid = response['RequestId']?.toString();
-          
+
           // 检查是否需要重试的错误码
           if (_shouldRetry(code) && retryCount < maxRetries) {
             retryCount++;
-            debugPrint('TencentApiClient retry $retryCount/$maxRetries for error: $code - $msg');
-            
+            debugPrint(
+                'TencentApiClient retry $retryCount/$maxRetries for error: $code - $msg');
+
             // 指数退避延迟
             final delay = Duration(milliseconds: 200 * (1 << retryCount));
             await Future.delayed(delay);
             continue;
           }
-          
+
           debugPrint('TencentApiClient API Error: $code - $msg (ReqId: $rid)');
           throw TencentCloudException(code: code, message: msg, requestId: rid);
         }
@@ -124,31 +130,32 @@ class TencentApiClient {
         if (e is TencentCloudException) {
           rethrow;
         }
-        
+
         // 网络错误等也需要重试
         if (retryCount < maxRetries) {
           retryCount++;
-          debugPrint('TencentApiClient retry $retryCount/$maxRetries for exception: $e');
-          
+          debugPrint(
+              'TencentApiClient retry $retryCount/$maxRetries for exception: $e');
+
           final delay = Duration(milliseconds: 200 * (1 << retryCount));
           await Future.delayed(delay);
           continue;
         }
-        
+
         debugPrint('TencentApiClient Exception: $e\n$st');
         rethrow;
       }
     }
   }
-  
+
   bool _shouldRetry(String errorCode) {
     // 需要重试的错误码
     final retryableCodes = {
       'RequestLimitExceeded', // 请求频率超限
-      'RateLimitExceeded',    // 频率限制
-      'InternalError',        // 内部错误
-      'ServiceUnavailable',   // 服务不可用
-      'RequestTimeout',       // 请求超时
+      'RateLimitExceeded', // 频率限制
+      'InternalError', // 内部错误
+      'ServiceUnavailable', // 服务不可用
+      'RequestTimeout', // 请求超时
     };
     return retryableCodes.contains(errorCode);
   }
@@ -196,7 +203,7 @@ class TencentApiClient {
     request.headers.addAll(headers);
     request.body = payloadJson;
 
-    final streamedResponse = timeout != null 
+    final streamedResponse = timeout != null
         ? await _client.send(request).timeout(timeout)
         : await _client.send(request);
 
@@ -219,15 +226,15 @@ class TencentApiClient {
 
     await for (final chunk in streamedResponse.stream.transform(transformer)) {
       buffer += chunk;
-      
+
       // 处理buffer中的所有完整行
       while (true) {
         final lineIndex = buffer.indexOf('\n');
         if (lineIndex == -1) break;
-        
+
         final line = buffer.substring(0, lineIndex).trim();
         buffer = buffer.substring(lineIndex + 1);
-        
+
         if (line.startsWith('data: ')) {
           chunkCount++;
           final jsonStr = line.substring(6);
@@ -250,7 +257,8 @@ class TencentApiClient {
                 if (delta is Map) {
                   // 检查是否有思考过程内容
                   final reasoningContent = delta['ReasoningContent'];
-                  if (reasoningContent != null && reasoningContent.toString().isNotEmpty) {
+                  if (reasoningContent != null &&
+                      reasoningContent.toString().isNotEmpty) {
                     yield StreamChunk(
                       content: '',
                       reasoningContent: reasoningContent.toString(),
@@ -277,7 +285,7 @@ class TencentApiClient {
         }
       }
     }
-    
+
     // 连接关闭，检查是否有剩余数据
     if (buffer.trim().isNotEmpty) {
       // 处理剩余数据

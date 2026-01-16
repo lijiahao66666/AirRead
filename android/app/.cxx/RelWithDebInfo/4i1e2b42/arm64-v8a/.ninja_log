@@ -1,7 +1,6 @@
 # ninja log v5
-1	2052	7901907973828365	CMakeFiles/mnn_bridge.dir/mnn_bridge.cpp.o	272ccb5a84e379ee
-2	493	7901909523424548	CMakeFiles/mnn_bridge.dir/mnn_bridge.cpp.o	272ccb5a84e379ee
-494	569	7901909524185334	C:/Users/28679/traeProjects/AirRead/build/app/intermediates/cxx/RelWithDebInfo/4i1e2b42/obj/arm64-v8a/libmnn_bridge.so	9c225788ffebb939
-2	660	7901912915679498	CMakeFiles/mnn_bridge.dir/mnn_bridge.cpp.o	272ccb5a84e379ee
-660	776	7901912916816498	C:/Users/28679/traeProjects/AirRead/build/app/intermediates/cxx/RelWithDebInfo/4i1e2b42/obj/arm64-v8a/libmnn_bridge.so	9c225788ffebb939
 2	162	7901913899959048	C:/Users/28679/traeProjects/AirRead/build/app/intermediates/cxx/RelWithDebInfo/4i1e2b42/obj/arm64-v8a/libmnn_bridge.so	9c225788ffebb939
+2	660	7901912915679498	CMakeFiles/mnn_bridge.dir/mnn_bridge.cpp.o	272ccb5a84e379ee
+2	483	7902793894969512	CMakeFiles/mnn_bridge.dir/mnn_bridge.cpp.o	272ccb5a84e379ee
+484	576	7902793895894910	C:/Users/28679/traeProjects/AirRead/build/app/intermediates/cxx/RelWithDebInfo/4i1e2b42/obj/arm64-v8a/libmnn_bridge.so	9c225788ffebb939
+3	94	7902829274858848	C:/Users/28679/traeProjects/AirRead/build/app/intermediates/cxx/RelWithDebInfo/4i1e2b42/obj/arm64-v8a/libmnn_bridge.so	9c225788ffebb939

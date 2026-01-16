@@ -68,13 +68,13 @@ class TranslationSheet extends StatelessWidget {
                     ),
                     const Spacer(),
                     IconButton(
-                      icon: Icon(Icons.close, color: panelText.withOpacity(0.7)),
+                      icon:
+                          Icon(Icons.close, color: panelText.withOpacity(0.7)),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
-
                 _buildCard(
                   panelBg: panelBg,
                   panelText: panelText,
@@ -90,6 +90,7 @@ class TranslationSheet extends StatelessWidget {
                               items: _langs,
                               onChanged: (v) => provider.setSourceLang(v ?? ''),
                               textColor: panelText,
+                              dropdownColor: panelBg,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -97,9 +98,12 @@ class TranslationSheet extends StatelessWidget {
                             child: _dropdown(
                               label: '目标语言（必选）',
                               value: cfg.targetLang,
-                              items: Map<String, String>.from(_langs)..remove(''),
-                              onChanged: (v) => provider.setTargetLang(v ?? 'en'),
+                              items: Map<String, String>.from(_langs)
+                                ..remove(''),
+                              onChanged: (v) =>
+                                  provider.setTargetLang(v ?? 'en'),
                               textColor: panelText,
+                              dropdownColor: panelBg,
                             ),
                           ),
                         ],
@@ -107,7 +111,8 @@ class TranslationSheet extends StatelessWidget {
                       const SizedBox(height: 16),
                       Text(
                         '显示模式',
-                        style: TextStyle(color: panelText, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                            color: panelText, fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 8),
                       Wrap(
@@ -115,14 +120,18 @@ class TranslationSheet extends StatelessWidget {
                         children: [
                           _chip(
                             label: '仅显示译文',
-                            active: cfg.displayMode == TranslationDisplayMode.translationOnly,
-                            onTap: () => provider.setDisplayMode(TranslationDisplayMode.translationOnly),
+                            active: cfg.displayMode ==
+                                TranslationDisplayMode.translationOnly,
+                            onTap: () => provider.setDisplayMode(
+                                TranslationDisplayMode.translationOnly),
                             textColor: panelText,
                           ),
                           _chip(
                             label: '双语对照',
-                            active: cfg.displayMode == TranslationDisplayMode.bilingual,
-                            onTap: () => provider.setDisplayMode(TranslationDisplayMode.bilingual),
+                            active: cfg.displayMode ==
+                                TranslationDisplayMode.bilingual,
+                            onTap: () => provider.setDisplayMode(
+                                TranslationDisplayMode.bilingual),
                             textColor: panelText,
                           ),
                         ],
@@ -166,7 +175,8 @@ class TranslationSheet extends StatelessWidget {
       decoration: BoxDecoration(
         color: isDark ? Colors.white.withOpacity(0.06) : AppColors.mistWhite,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: panelText.withOpacity(0.06), width: AppTokens.stroke),
+        border: Border.all(
+            color: panelText.withOpacity(0.06), width: AppTokens.stroke),
       ),
       padding: const EdgeInsets.all(16),
       child: child,
@@ -185,7 +195,9 @@ class TranslationSheet extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: active ? AppColors.techBlue.withOpacity(0.12) : Colors.transparent,
+          color: active
+              ? AppColors.techBlue.withOpacity(0.12)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
             color: active ? AppColors.techBlue : textColor.withOpacity(0.18),
@@ -210,30 +222,38 @@ class TranslationSheet extends StatelessWidget {
     required Map<String, String> items,
     required ValueChanged<String?> onChanged,
     required Color textColor,
+    required Color dropdownColor,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
+        Text(label,
+            style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: items.containsKey(value) ? value : items.keys.first,
-          decoration: InputDecoration(
-            isDense: true,
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        SizedBox(
+          height: 48,
+          child: DropdownButtonFormField<String>(
+            value: items.containsKey(value) ? value : items.keys.first,
+            dropdownColor: dropdownColor,
+            decoration: InputDecoration(
+              isDense: true,
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            items: items.entries
+                .map(
+                  (e) => DropdownMenuItem<String>(
+                    value: e.key,
+                    child: Text(e.value, style: const TextStyle(fontSize: 13)),
+                  ),
+                )
+                .toList(),
+            onChanged: onChanged,
           ),
-          items: items.entries
-              .map(
-                (e) => DropdownMenuItem<String>(
-                  value: e.key,
-                  child: Text(e.value, style: const TextStyle(fontSize: 13)),
-                ),
-              )
-              .toList(),
-          onChanged: onChanged,
         ),
       ],
     );
@@ -329,7 +349,8 @@ class _GlossaryEditorState extends State<_GlossaryEditor> {
         ? terms
         : terms
             .where((t) =>
-                t.source.toLowerCase().contains(query) || t.target.toLowerCase().contains(query))
+                t.source.toLowerCase().contains(query) ||
+                t.target.toLowerCase().contains(query))
             .toList();
 
     return GlassPanel.sheet(
@@ -358,7 +379,8 @@ class _GlossaryEditorState extends State<_GlossaryEditor> {
                     ),
                     const Spacer(),
                     IconButton(
-                      icon: Icon(Icons.close, color: widget.textColor.withOpacity(0.7)),
+                      icon: Icon(Icons.close,
+                          color: widget.textColor.withOpacity(0.7)),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
@@ -398,11 +420,15 @@ class _GlossaryEditorState extends State<_GlossaryEditor> {
                     fillColor: Colors.white,
                     prefixIcon: const Icon(Icons.search, size: 18),
                     hintText: '搜索源术语 / 目标术语',
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 12),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
-                if (_editing != null || _srcCtl.text.isNotEmpty || _dstCtl.text.isNotEmpty) ...[
+                if (_editing != null ||
+                    _srcCtl.text.isNotEmpty ||
+                    _dstCtl.text.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   _editor(provider),
                 ],
@@ -410,42 +436,54 @@ class _GlossaryEditorState extends State<_GlossaryEditor> {
                 if (terms.isEmpty)
                   Expanded(
                     child: Center(
-                      child: Text('暂无术语', style: TextStyle(color: widget.textColor.withOpacity(0.5))),
+                      child: Text('暂无术语',
+                          style: TextStyle(
+                              color: widget.textColor.withOpacity(0.5))),
                     ),
                   )
                 else if (filtered.isEmpty)
                   Expanded(
                     child: Center(
-                      child: Text('未找到匹配项', style: TextStyle(color: widget.textColor.withOpacity(0.5))),
+                      child: Text('未找到匹配项',
+                          style: TextStyle(
+                              color: widget.textColor.withOpacity(0.5))),
                     ),
                   )
                 else
                   Expanded(
                     child: ListView.separated(
                       itemCount: filtered.length,
-                      separatorBuilder: (_, __) => Divider(color: widget.textColor.withOpacity(0.08)),
+                      separatorBuilder: (_, __) =>
+                          Divider(color: widget.textColor.withOpacity(0.08)),
                       itemBuilder: (context, i) {
                         final t = filtered[i];
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(
                             t.source,
-                            style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w700),
+                            style: TextStyle(
+                                color: widget.textColor,
+                                fontWeight: FontWeight.w700),
                           ),
                           subtitle: Text(
                             t.target,
-                            style: TextStyle(color: widget.textColor.withOpacity(0.7), height: 1.3),
+                            style: TextStyle(
+                                color: widget.textColor.withOpacity(0.7),
+                                height: 1.3),
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                icon: Icon(Icons.edit, color: widget.textColor.withOpacity(0.7)),
+                                icon: Icon(Icons.edit,
+                                    color: widget.textColor.withOpacity(0.7)),
                                 onPressed: () => _startEdit(t),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                onPressed: () => provider.removeGlossaryTerm(t.source),
+                                icon: const Icon(Icons.delete_outline,
+                                    color: Colors.redAccent),
+                                onPressed: () =>
+                                    provider.removeGlossaryTerm(t.source),
                               ),
                             ],
                           ),
@@ -469,14 +507,16 @@ class _GlossaryEditorState extends State<_GlossaryEditor> {
       decoration: BoxDecoration(
         color: widget.textColor.withOpacity(0.04),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+        border: Border.all(
+            color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             isEditing ? '编辑术语' : '新增术语',
-            style: TextStyle(color: widget.textColor, fontWeight: FontWeight.w700),
+            style:
+                TextStyle(color: widget.textColor, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 10),
           TextField(
@@ -524,4 +564,3 @@ class _GlossaryEditorState extends State<_GlossaryEditor> {
     );
   }
 }
-

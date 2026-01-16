@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/reading/reading_context_service.dart';
 import '../../ai/reading/qa_service.dart';
@@ -27,8 +26,6 @@ enum _AiHudRoute {
   qa,
   tencentSettings,
 }
-
-
 
 /// AI companion bottom sheet with in-panel navigation.
 ///
@@ -80,7 +77,6 @@ class AiHud extends StatefulWidget {
     required this.currentPageInChapter,
     required this.chapterPageRanges,
   });
-
 
   @override
   State<AiHud> createState() => _AiHudState();
@@ -168,13 +164,13 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
             child: SafeArea(
               top: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
                 child: Column(
                   mainAxisSize: isQa ? MainAxisSize.max : MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _header(),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 2),
                     if (isQa)
                       Expanded(child: body)
                     else
@@ -215,7 +211,6 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
       _AiHudRoute.main => 'AI伴读',
       _AiHudRoute.glossary => '术语表',
       _AiHudRoute.qa => '问答',
-
       _AiHudRoute.tencentSettings => 'AI设置',
     };
 
@@ -284,7 +279,6 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           currentPageInChapter: widget.currentPageInChapter,
           chapterPageRanges: widget.chapterPageRanges,
         ),
-
       _AiHudRoute.tencentSettings => _TencentHunyuanSettingsPanel(
           key: const ValueKey('tencentSettings'),
           isDark: isDark,
@@ -339,7 +333,6 @@ class _TencentHunyuanSettingsPanelState
           _readAloudSettings(cardBg: cardBg),
           const SizedBox(height: 10),
           _qaContentScopeSettings(cardBg: cardBg),
-
         ],
       ),
     );
@@ -365,6 +358,7 @@ class _TencentHunyuanSettingsPanelState
     final cfg = provider.config;
 
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: BorderRadius.circular(AppTokens.radiusMd),
@@ -380,6 +374,7 @@ class _TencentHunyuanSettingsPanelState
             style: TextStyle(
               color: widget.textColor,
               fontWeight: FontWeight.w900,
+              fontSize: 14,
             ),
           ),
           const SizedBox(height: 12),
@@ -392,6 +387,7 @@ class _TencentHunyuanSettingsPanelState
                   items: _langs,
                   onChanged: (v) => provider.setSourceLang(v ?? ''),
                   textColor: widget.textColor,
+                  dropdownColor: cardBg,
                 ),
               ),
               const SizedBox(width: 12),
@@ -402,6 +398,7 @@ class _TencentHunyuanSettingsPanelState
                   items: Map<String, String>.from(_langs)..remove(''),
                   onChanged: (v) => provider.setTargetLang(v ?? 'en'),
                   textColor: widget.textColor,
+                  dropdownColor: cardBg,
                 ),
               ),
             ],
@@ -411,7 +408,8 @@ class _TencentHunyuanSettingsPanelState
             '显示模式',
             style: TextStyle(
               color: widget.textColor,
-              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              fontWeight: FontWeight.normal,
             ),
           ),
           const SizedBox(height: 10),
@@ -436,12 +434,33 @@ class _TencentHunyuanSettingsPanelState
             ],
           ),
           const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '自动术语提取',
+                  style: TextStyle(
+                      color: widget.textColor.withOpacity(0.8), fontSize: 13),
+                ),
+              ),
+              Transform.scale(
+                scale: 0.75,
+                child: Switch(
+                  value: provider.autoGlossaryExtractionEnabled,
+                  activeColor: AppColors.techBlue,
+                  onChanged: (v) =>
+                      provider.setAutoGlossaryExtractionEnabled(v),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: widget.onOpenGlossary,
               icon: const Icon(Icons.auto_fix_high, size: 18),
-              label: const Text('编辑术语表'),
+              label: const Text('编辑术语表', style: TextStyle(fontSize: 14)),
             ),
           ),
         ],
@@ -451,6 +470,7 @@ class _TencentHunyuanSettingsPanelState
 
   Widget _readAloudSettings({required Color cardBg}) {
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: BorderRadius.circular(AppTokens.radiusMd),
@@ -466,6 +486,7 @@ class _TencentHunyuanSettingsPanelState
             style: TextStyle(
               color: widget.textColor,
               fontWeight: FontWeight.w900,
+              fontSize: 15,
             ),
           ),
           const SizedBox(height: 12),
@@ -474,13 +495,19 @@ class _TencentHunyuanSettingsPanelState
               Expanded(
                 child: Text(
                   '进入章节自动开始',
-                  style: TextStyle(color: widget.textColor.withOpacity(0.8)),
+                  style: TextStyle(
+                    color: widget.textColor.withOpacity(0.8),
+                    fontSize: 14,
+                  ),
                 ),
               ),
-              Switch(
-                value: _autoStart,
-                activeColor: AppColors.techBlue,
-                onChanged: (v) => setState(() => _autoStart = v),
+              Transform.scale(
+                scale: 0.75,
+                child: Switch(
+                  value: _autoStart,
+                  activeColor: AppColors.techBlue,
+                  onChanged: (v) => setState(() => _autoStart = v),
+                ),
               ),
             ],
           ),
@@ -489,7 +516,8 @@ class _TencentHunyuanSettingsPanelState
             '语速',
             style: TextStyle(
               color: widget.textColor,
-              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              fontWeight: FontWeight.normal,
             ),
           ),
           Slider(
@@ -508,6 +536,7 @@ class _TencentHunyuanSettingsPanelState
 
   Widget _imageTextSettings({required Color cardBg}) {
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: BorderRadius.circular(AppTokens.radiusMd),
@@ -523,6 +552,7 @@ class _TencentHunyuanSettingsPanelState
             style: TextStyle(
               color: widget.textColor,
               fontWeight: FontWeight.w900,
+              fontSize: 12,
             ),
           ),
           const SizedBox(height: 12),
@@ -531,13 +561,19 @@ class _TencentHunyuanSettingsPanelState
               Expanded(
                 child: Text(
                   '显示图注/说明',
-                  style: TextStyle(color: widget.textColor.withOpacity(0.8)),
+                  style: TextStyle(
+                    color: widget.textColor.withOpacity(0.8),
+                    fontSize: 12,
+                  ),
                 ),
               ),
-              Switch(
-                value: _showCaptions,
-                activeColor: AppColors.techBlue,
-                onChanged: (v) => setState(() => _showCaptions = v),
+              Transform.scale(
+                scale: 0.75,
+                child: Switch(
+                  value: _showCaptions,
+                  activeColor: AppColors.techBlue,
+                  onChanged: (v) => setState(() => _showCaptions = v),
+                ),
               ),
             ],
           ),
@@ -546,7 +582,8 @@ class _TencentHunyuanSettingsPanelState
             '图文密度',
             style: TextStyle(
               color: widget.textColor,
-              fontWeight: FontWeight.w700,
+              fontSize: 12,
+              fontWeight: FontWeight.normal,
             ),
           ),
           Slider(
@@ -573,7 +610,8 @@ class _TencentHunyuanSettingsPanelState
       borderRadius: BorderRadius.circular(999),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        height: 28,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: active
               ? AppColors.techBlue.withOpacity(0.12)
@@ -584,13 +622,20 @@ class _TencentHunyuanSettingsPanelState
             width: AppTokens.stroke,
           ),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: active ? AppColors.techBlue : textColor.withOpacity(0.75),
-            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-          ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                color:
+                    active ? AppColors.techBlue : textColor.withOpacity(0.75),
+                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                height: 1.2,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -602,32 +647,53 @@ class _TencentHunyuanSettingsPanelState
     required Map<String, String> items,
     required ValueChanged<String?> onChanged,
     required Color textColor,
+    required Color dropdownColor,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
+            style: TextStyle(
+                color: textColor, fontWeight: FontWeight.normal, fontSize: 13)),
         const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: items.containsKey(value) ? value : items.keys.first,
-          decoration: InputDecoration(
-            isDense: true,
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          items: items.entries
-              .map(
-                (e) => DropdownMenuItem<String>(
-                  value: e.key,
-                  child: Text(e.value, style: const TextStyle(fontSize: 13)),
+        SizedBox(
+          height: 44,
+          child: DropdownButtonFormField<String>(
+            value: items.containsKey(value) ? value : items.keys.first,
+            dropdownColor: dropdownColor,
+            decoration: InputDecoration(
+              isDense: true,
+              filled: true,
+              fillColor: dropdownColor,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: textColor.withOpacity(0.18),
+                  width: AppTokens.stroke,
                 ),
-              )
-              .toList(),
-          onChanged: onChanged,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: textColor.withOpacity(0.18),
+                  width: AppTokens.stroke,
+                ),
+              ),
+            ),
+            items: items.entries
+                .map(
+                  (e) => DropdownMenuItem<String>(
+                    value: e.key,
+                    child: Text(e.value, style: const TextStyle(fontSize: 13)),
+                  ),
+                )
+                .toList(),
+            onChanged: onChanged,
+          ),
         ),
       ],
     );
@@ -639,11 +705,13 @@ class _TencentHunyuanSettingsPanelState
     return Consumer2<AiModelProvider, TranslationProvider>(
       builder: (context, aiModel, tp, child) {
         return Container(
+          width: double.infinity,
           decoration: BoxDecoration(
             color: cardBg,
             borderRadius: BorderRadius.circular(AppTokens.radiusMd),
             border: Border.all(
-                color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+                color: widget.textColor.withOpacity(0.08),
+                width: AppTokens.stroke),
           ),
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -654,30 +722,16 @@ class _TencentHunyuanSettingsPanelState
                 style: TextStyle(
                   color: widget.textColor,
                   fontWeight: FontWeight.w900,
+                  fontSize: 14,
                 ),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '自动术语提取',
-                      style: TextStyle(color: widget.textColor.withOpacity(0.8)),
-                    ),
-                  ),
-                  Switch(
-                    value: tp.autoGlossaryExtractionEnabled,
-                    activeColor: AppColors.techBlue,
-                    onChanged: (v) => tp.setAutoGlossaryExtractionEnabled(v),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
               Text(
                 '问答内容范围',
                 style: TextStyle(
                   color: widget.textColor,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  fontWeight: FontWeight.normal,
                 ),
               ),
               const SizedBox(height: 10),
@@ -712,7 +766,6 @@ class _TencentHunyuanSettingsPanelState
     );
   }
 
-
   Widget _scopeChip({
     required String label,
     required QAContentScope value,
@@ -724,30 +777,32 @@ class _TencentHunyuanSettingsPanelState
       borderRadius: BorderRadius.circular(999),
       onTap: () => onChanged(value),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        height: 28,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: active ? AppColors.techBlue.withOpacity(0.12) : Colors.transparent,
+          color: active
+              ? AppColors.techBlue.withOpacity(0.12)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: active ? AppColors.techBlue : widget.textColor.withOpacity(0.18),
+            color: active
+                ? AppColors.techBlue
+                : widget.textColor.withOpacity(0.18),
             width: AppTokens.stroke,
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              active ? Icons.check_circle : Icons.circle_outlined,
-              size: 16,
-              color: active ? AppColors.techBlue : widget.textColor.withOpacity(0.6),
-            ),
-            const SizedBox(width: 6),
             Text(
               label,
               style: TextStyle(
-                fontSize: 12,
-                color: active ? AppColors.techBlue : widget.textColor.withOpacity(0.75),
+                fontSize: 13,
+                color: active
+                    ? AppColors.techBlue
+                    : widget.textColor.withOpacity(0.75),
                 fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                height: 1.2,
               ),
             ),
           ],
@@ -785,9 +840,12 @@ class _TencentHunyuanSettingsPanelState
         borderRadius: BorderRadius.circular(999),
         onTap: enabled ? () => setSource(value) : null,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          height: 28,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            color: active ? AppColors.techBlue.withOpacity(0.12) : cardBg,
+            color: active
+                ? AppColors.techBlue.withOpacity(0.12)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
               color: active
@@ -796,15 +854,22 @@ class _TencentHunyuanSettingsPanelState
               width: AppTokens.stroke,
             ),
           ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: active
-                  ? AppColors.techBlue
-                  : widget.textColor.withOpacity(0.8),
-              fontWeight: active ? FontWeight.w700 : FontWeight.w600,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: active
+                      ? AppColors.techBlue
+                      : widget.textColor.withOpacity(0.8),
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  height: 1.2,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -820,11 +885,13 @@ class _TencentHunyuanSettingsPanelState
     return Column(
       children: [
         Container(
+          width: double.infinity,
           decoration: BoxDecoration(
             color: cardBg,
             borderRadius: BorderRadius.circular(AppTokens.radiusMd),
             border: Border.all(
-                color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+                color: widget.textColor.withOpacity(0.08),
+                width: AppTokens.stroke),
           ),
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -838,13 +905,20 @@ class _TencentHunyuanSettingsPanelState
                       style: TextStyle(
                         color: widget.textColor,
                         fontWeight: FontWeight.w900,
+                        fontSize: 14,
                       ),
                     ),
                   ),
-                  Switch(
-                    value: enabled,
-                    activeColor: AppColors.techBlue,
-                    onChanged: (v) => setEnabled(v),
+                  SizedBox(
+                    height: 24,
+                    child: Transform.scale(
+                      scale: 0.75,
+                      child: Switch(
+                        value: enabled,
+                        activeColor: AppColors.techBlue,
+                        onChanged: (v) => setEnabled(v),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -865,7 +939,7 @@ class _TencentHunyuanSettingsPanelState
                   statusText(),
                   style: TextStyle(
                     color: widget.textColor.withOpacity(0.7),
-                    fontSize: 12,
+                    fontSize: 13,
                     height: 1.35,
                   ),
                 ),
@@ -880,7 +954,7 @@ class _TencentHunyuanSettingsPanelState
                       aiModel.localModelError,
                       style: const TextStyle(
                         color: Colors.redAccent,
-                        fontSize: 12,
+                        fontSize: 13,
                         height: 1.35,
                       ),
                     ),
@@ -894,7 +968,6 @@ class _TencentHunyuanSettingsPanelState
           ),
         ),
         const SizedBox(height: 10),
-        _qaContentScopeSettings(cardBg: cardBg),
       ],
     );
   }
@@ -1008,7 +1081,7 @@ class _TencentHunyuanSettingsPanelState
               text,
               style: TextStyle(
                 color: widget.textColor.withOpacity(0.65),
-                fontSize: 12,
+                fontSize: 13,
                 height: 1.35,
               ),
             ),
@@ -1125,7 +1198,6 @@ class _MainPanel extends StatelessWidget {
       ),
     );
   }
-
 
   Widget _disabledHint() {
     final Color cardBg =
@@ -1301,7 +1373,6 @@ class _MainPanel extends StatelessWidget {
                     children: [
                       Text(
                         '问答',
-
                         style: TextStyle(
                           color: textColor,
                           fontWeight: FontWeight.w700,
@@ -1388,6 +1459,7 @@ class _TranslationSettingsPanel extends StatelessWidget {
                         value: cfg.sourceLang,
                         items: _langs,
                         onChanged: (v) => provider.setSourceLang(v ?? ''),
+                        dropdownColor: cardBg,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1397,6 +1469,7 @@ class _TranslationSettingsPanel extends StatelessWidget {
                         value: cfg.targetLang,
                         items: Map<String, String>.from(_langs)..remove(''),
                         onChanged: (v) => provider.setTargetLang(v ?? 'en'),
+                        dropdownColor: cardBg,
                       ),
                     ),
                   ],
@@ -1480,6 +1553,7 @@ class _TranslationSettingsPanel extends StatelessWidget {
     required String value,
     required Map<String, String> items,
     required ValueChanged<String?> onChanged,
+    required Color dropdownColor,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1487,25 +1561,44 @@ class _TranslationSettingsPanel extends StatelessWidget {
         Text(label,
             style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: items.containsKey(value) ? value : items.keys.first,
-          decoration: InputDecoration(
-            isDense: true,
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          items: items.entries
-              .map(
-                (e) => DropdownMenuItem<String>(
-                  value: e.key,
-                  child: Text(e.value, style: const TextStyle(fontSize: 13)),
+        SizedBox(
+          height: 48,
+          child: DropdownButtonFormField<String>(
+            value: items.containsKey(value) ? value : items.keys.first,
+            dropdownColor: dropdownColor,
+            decoration: InputDecoration(
+              isDense: true,
+              filled: true,
+              fillColor: dropdownColor,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: textColor.withOpacity(0.18),
+                  width: AppTokens.stroke,
                 ),
-              )
-              .toList(),
-          onChanged: onChanged,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: textColor.withOpacity(0.18),
+                  width: AppTokens.stroke,
+                ),
+              ),
+            ),
+            items: items.entries
+                .map(
+                  (e) => DropdownMenuItem<String>(
+                    value: e.key,
+                    child: Text(e.value, style: const TextStyle(fontSize: 13)),
+                  ),
+                )
+                .toList(),
+            onChanged: onChanged,
+          ),
         ),
       ],
     );
@@ -1988,7 +2081,7 @@ class _GlossaryPanelState extends State<_GlossaryPanel> {
   }
 }
 
-enum _QaRole { user, assistant }
+enum _QaRole { user, assistant, divider }
 
 class _QaMsg {
   final _QaRole role;
@@ -2015,8 +2108,6 @@ class _QaMsg {
     );
   }
 }
-
-
 
 enum _MessageState {
   idle,
@@ -2047,14 +2138,13 @@ class _QaPanel extends StatefulWidget {
     required this.chapterPageRanges,
   });
 
-
   @override
   State<_QaPanel> createState() => _QaPanelState();
 }
 
 class _QaPanelState extends State<_QaPanel> {
   static const String _kWelcomeMessage =
-      '你好，我是Air！你的AI伴读助手，我可以回答基于当前阅读内容的问题，来问我吧';
+      '你好，我是Air！你的AI伴读助手。\n我可以帮你总结章节要点、解释复杂概念，或者回答任何关于这本书的问题。\n快来问我吧！';
   final TextEditingController _inputCtl = TextEditingController();
   final ScrollController _scrollCtl = ScrollController();
   final List<_QaMsg> _messages = [];
@@ -2119,9 +2209,17 @@ class _QaPanelState extends State<_QaPanel> {
   }
 
   String _buildHistoryText({int maxTurns = 6}) {
+    final int lastDividerIndex =
+        _messages.lastIndexWhere((m) => m.role == _QaRole.divider);
+
     final items = _messages
+        .asMap()
+        .entries
+        .where((e) => e.key > lastDividerIndex)
+        .map((e) => e.value)
         .where((m) => m.text.trim().isNotEmpty && !_isWelcomeMessage(m))
         .toList();
+
     if (items.isEmpty) return '';
     final start = (items.length - maxTurns).clamp(0, items.length);
     final recent = items.sublist(start);
@@ -2136,18 +2234,16 @@ class _QaPanelState extends State<_QaPanel> {
   void _startNewTopic() {
     if (_messageState != _MessageState.idle) return;
     setState(() {
-      _messages
-        ..clear()
-        ..add(const _QaMsg(
-          _QaRole.assistant,
-          _kWelcomeMessage,
-        ));
-      _collapsedReasoning.clear();
+      _messages.add(const _QaMsg(
+        _QaRole.divider,
+        '已开启新话题',
+      ));
       _messageState = _MessageState.idle;
       _activeReplyIndex = null;
     });
     _streamSub?.cancel();
     _schedulePersist();
+    _scrollToBottom();
   }
 
   void _throttledUpdate() {
@@ -2172,7 +2268,7 @@ class _QaPanelState extends State<_QaPanel> {
     if (kIsWeb) {
       if (_updateTimer == null || !_updateTimer!.isActive) {
         _updateTimer =
-            Timer(const Duration(milliseconds: 100), _throttledUpdate);
+            Timer(const Duration(milliseconds: 30), _throttledUpdate);
       }
     } else {
       _throttledUpdate();
@@ -2226,6 +2322,17 @@ class _QaPanelState extends State<_QaPanel> {
     final text = _inputCtl.text.trim();
     if (text.isEmpty || _messageState != _MessageState.idle) return;
 
+    if (text == '总结本章') {
+      _inputCtl.clear();
+      _sendQuickAction(QAType.summary);
+      return;
+    }
+    if (text == '提取要点') {
+      _inputCtl.clear();
+      _sendQuickAction(QAType.keyPoints);
+      return;
+    }
+
     final historyText = _buildHistoryText();
 
     setState(() {
@@ -2276,7 +2383,14 @@ class _QaPanelState extends State<_QaPanel> {
           if (!mounted) return;
 
           if (_activeReplyIndex == null) {
-            // First chunk, add assistant message
+            // Ignore empty chunks to maintain "Thinking..." state until content arrives
+            if (chunk.content.isEmpty &&
+                (chunk.reasoningContent == null ||
+                    chunk.reasoningContent!.isEmpty)) {
+              return;
+            }
+
+            // First valid chunk, add assistant message
             setState(() {
               _messages.add(const _QaMsg(_QaRole.assistant, ''));
               _activeReplyIndex = _messages.length - 1;
@@ -2292,12 +2406,13 @@ class _QaPanelState extends State<_QaPanel> {
           if (chunk.isReasoning && chunk.reasoningContent != null) {
             reasoningBuffer += chunk.reasoningContent!;
             final current = _messages[replyIndex];
-            _updateMessage(
-                replyIndex, _QaMsg(current.role, current.text, reasoningBuffer));
+            _updateMessage(replyIndex,
+                _QaMsg(current.role, current.text, reasoningBuffer));
           } else if (chunk.content.isNotEmpty) {
             if (_messageState != _MessageState.answering) {
               setState(() {
                 _messageState = _MessageState.answering;
+                _collapsedReasoning.add(replyIndex);
               });
             }
             final current = _messages[replyIndex];
@@ -2393,7 +2508,8 @@ class _QaPanelState extends State<_QaPanel> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(999),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          height: 28,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             color: disabled
                 ? AppColors.techBlue.withOpacity(0.05)
@@ -2406,15 +2522,21 @@ class _QaPanelState extends State<_QaPanel> {
               width: AppTokens.stroke,
             ),
           ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: disabled
-                  ? AppColors.techBlue.withOpacity(0.4)
-                  : AppColors.techBlue,
-              fontWeight: FontWeight.w600,
-            ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: disabled
+                      ? AppColors.techBlue.withOpacity(0.4)
+                      : AppColors.techBlue,
+                  fontWeight: FontWeight.w600,
+                  height: 1.2,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -2441,6 +2563,33 @@ class _QaPanelState extends State<_QaPanel> {
                 itemCount: _messages.length,
                 itemBuilder: (context, i) {
                   final m = _messages[i];
+
+                  if (m.role == _QaRole.divider) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Row(
+                        children: [
+                          Expanded(
+                              child: Divider(
+                                  color: widget.textColor.withOpacity(0.1))),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              m.text,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: widget.textColor.withOpacity(0.4),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                              child: Divider(
+                                  color: widget.textColor.withOpacity(0.1))),
+                        ],
+                      ),
+                    );
+                  }
+
                   final bool isUser = m.role == _QaRole.user;
                   final Color bubbleBg = isUser
                       ? AppColors.techBlue.withOpacity(0.18)
@@ -2454,8 +2603,7 @@ class _QaPanelState extends State<_QaPanel> {
                           (_activeReplyIndex == i &&
                               _messageState == _MessageState.reasoning))) {
                     final bool isActive = _activeReplyIndex == i;
-                    final bool collapsed =
-                        !isActive && _collapsedReasoning.contains(i);
+                    final bool collapsed = _collapsedReasoning.contains(i);
                     final reasoningText = m.reasoningText ?? '';
 
                     Widget reasoningBox = const SizedBox.shrink();
@@ -2483,14 +2631,14 @@ class _QaPanelState extends State<_QaPanel> {
                                 Text(
                                   '深度思考',
                                   style: TextStyle(
-                                    color: widget.textColor
-                                        .withOpacity(0.75),
-                                    fontSize: 12,
+                                    color: widget.textColor.withOpacity(0.75),
+                                    fontSize: 15,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
                                 const Spacer(),
-                                if (!isActive)
+                                if (!isActive ||
+                                    _messageState != _MessageState.reasoning)
                                   InkWell(
                                     onTap: () {
                                       setState(() {
@@ -2505,7 +2653,7 @@ class _QaPanelState extends State<_QaPanel> {
                                       collapsed ? '展开' : '收起',
                                       style: TextStyle(
                                         color: AppColors.techBlue,
-                                        fontSize: 12,
+                                        fontSize: 15,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -2518,7 +2666,7 @@ class _QaPanelState extends State<_QaPanel> {
                                 '已折叠',
                                 style: TextStyle(
                                   color: widget.textColor.withOpacity(0.55),
-                                  fontSize: 12,
+                                  fontSize: 15,
                                 ),
                               )
                             else
@@ -2529,10 +2677,9 @@ class _QaPanelState extends State<_QaPanel> {
                                   child: Text(
                                     reasoningText,
                                     style: TextStyle(
-                                      color: widget.textColor
-                                          .withOpacity(0.75),
+                                      color: widget.textColor.withOpacity(0.75),
                                       height: 1.35,
-                                      fontSize: 12,
+                                      fontSize: 14,
                                     ),
                                   ),
                                 ),
@@ -2564,7 +2711,7 @@ class _QaPanelState extends State<_QaPanel> {
                           style: TextStyle(
                             color: widget.textColor,
                             height: 1.35,
-                            fontSize: 13,
+                            fontSize: 15,
                           ),
                         ),
                       );
@@ -2609,7 +2756,7 @@ class _QaPanelState extends State<_QaPanel> {
                         style: TextStyle(
                           color: widget.textColor,
                           height: 1.35,
-                          fontSize: 13,
+                          fontSize: 15,
                         ),
                       ),
                     ),
@@ -2625,7 +2772,7 @@ class _QaPanelState extends State<_QaPanel> {
                   child: Text('深度思考中...',
                       style: TextStyle(
                           color: widget.textColor.withOpacity(0.6),
-                          fontSize: 13)),
+                          fontSize: 15)),
                 ),
               ),
             const SizedBox(height: 8),
@@ -2661,11 +2808,9 @@ class _QaPanelState extends State<_QaPanel> {
                     onKeyEvent: (node, event) {
                       if (event is KeyDownEvent &&
                           event.logicalKey == LogicalKeyboardKey.enter &&
-                          !ServicesBinding
-                              .instance.keyboard.logicalKeysPressed
+                          !ServicesBinding.instance.keyboard.logicalKeysPressed
                               .contains(LogicalKeyboardKey.shiftLeft) &&
-                          !ServicesBinding
-                              .instance.keyboard.logicalKeysPressed
+                          !ServicesBinding.instance.keyboard.logicalKeysPressed
                               .contains(LogicalKeyboardKey.shiftRight)) {
                         _send();
                         return KeyEventResult.handled;
@@ -2677,6 +2822,7 @@ class _QaPanelState extends State<_QaPanel> {
                       minLines: 1,
                       maxLines: 4,
                       textInputAction: TextInputAction.send,
+                      style: const TextStyle(fontSize: 14),
                       decoration: InputDecoration(
                         isDense: true,
                         filled: true,
@@ -2713,10 +2859,10 @@ class _QaPanelState extends State<_QaPanel> {
       ),
     );
 
-    return Scaffold(
-      resizeToAvoidBottomInset: true,
-      backgroundColor: Colors.transparent,
-      body: panelContent,
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: panelContent,
     );
   }
 }

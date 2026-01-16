@@ -55,6 +55,7 @@ dependencies:
   http: ^1.2.2
   crypto: ^3.0.3
   audioplayers: ^6.1.0
+  fetch_client: ^1.1.4
 
 
 dev_dependencies:
