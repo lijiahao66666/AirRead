@@ -1,4 +1,5 @@
 import '../translation/engines/translation_engine.dart';
+import '../translation/translation_types.dart';
 import 'local_llm_client.dart';
 
 class LocalTranslationEngine extends TranslationEngine {
@@ -17,8 +18,10 @@ class LocalTranslationEngine extends TranslationEngine {
     required String targetLang,
     required List<String> contextSources,
     required Map<String, String> glossaryPlaceholders,
+    required List<TranslationReference> references,
   }) {
     return _client.translate(
+
       text: text,
       sourceLang: sourceLang,
       targetLang: targetLang,

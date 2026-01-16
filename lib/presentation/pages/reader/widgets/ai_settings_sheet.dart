@@ -95,15 +95,8 @@ class AiSettingsSheet extends StatelessWidget {
                 ),
 
                 const SizedBox(height: 16),
-                _sectionTitle('图文 / 朗读 / 问答'),
+                _sectionTitle('朗读'),
                 const SizedBox(height: 8),
-                _tile(
-                  context,
-                  title: '图文设置',
-                  subtitle: '占位版：先做结构与样式，后续接入生图',
-                  trailing: Icon(Icons.lock_outline, color: textColor.withOpacity(0.35)),
-                  onTap: null,
-                ),
                 _tile(
                   context,
                   title: '朗读设置',
@@ -111,6 +104,7 @@ class AiSettingsSheet extends StatelessWidget {
                   trailing: Icon(Icons.lock_outline, color: textColor.withOpacity(0.35)),
                   onTap: null,
                 ),
+
 
                 const Spacer(),
                 Text(

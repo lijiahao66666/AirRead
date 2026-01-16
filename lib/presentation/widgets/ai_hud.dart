@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/reading/reading_context_service.dart';
@@ -50,8 +54,11 @@ class AiHud extends StatefulWidget {
   final bool imageTextEnabled;
   final ValueChanged<bool>? onImageTextChanged;
 
-  /// Reading context for AI QA
-  final Map<int, String> chapterContentCache;
+  /// QA scope data (per-book)
+  final String bookId;
+
+  /// Reading context for AI QA (use effective/plain text, not raw HTML)
+  final Map<int, String> chapterTextCache;
   final int currentChapterIndex;
   final int currentPageInChapter;
   final Map<int, List<TextRange>> chapterPageRanges;
@@ -67,11 +74,13 @@ class AiHud extends StatefulWidget {
     this.onReadAloudChanged,
     required this.imageTextEnabled,
     this.onImageTextChanged,
-    required this.chapterContentCache,
+    required this.bookId,
+    required this.chapterTextCache,
     required this.currentChapterIndex,
     required this.currentPageInChapter,
     required this.chapterPageRanges,
   });
+
 
   @override
   State<AiHud> createState() => _AiHudState();
@@ -205,7 +214,8 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
     final title = switch (_route) {
       _AiHudRoute.main => 'AI伴读',
       _AiHudRoute.glossary => '术语表',
-      _AiHudRoute.qa => 'AI问答',
+      _AiHudRoute.qa => '问答',
+
       _AiHudRoute.tencentSettings => 'AI设置',
     };
 
@@ -268,11 +278,13 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           isDark: isDark,
           bgColor: widget.bgColor,
           textColor: widget.textColor,
-          chapterContentCache: widget.chapterContentCache,
+          bookId: widget.bookId,
+          chapterTextCache: widget.chapterTextCache,
           currentChapterIndex: widget.currentChapterIndex,
           currentPageInChapter: widget.currentPageInChapter,
           chapterPageRanges: widget.chapterPageRanges,
         ),
+
       _AiHudRoute.tencentSettings => _TencentHunyuanSettingsPanel(
           key: const ValueKey('tencentSettings'),
           isDark: isDark,
@@ -326,7 +338,8 @@ class _TencentHunyuanSettingsPanelState
           const SizedBox(height: 10),
           _readAloudSettings(cardBg: cardBg),
           const SizedBox(height: 10),
-          _imageTextSettings(cardBg: cardBg),
+          _qaContentScopeSettings(cardBg: cardBg),
+
         ],
       ),
     );
@@ -623,8 +636,8 @@ class _TencentHunyuanSettingsPanelState
   Widget _qaContentScopeSettings({
     required Color cardBg,
   }) {
-    return Consumer<AiModelProvider>(
-      builder: (context, aiModel, child) {
+    return Consumer2<AiModelProvider, TranslationProvider>(
+      builder: (context, aiModel, tp, child) {
         return Container(
           decoration: BoxDecoration(
             color: cardBg,
@@ -637,32 +650,60 @@ class _TencentHunyuanSettingsPanelState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '问答内容范围',
+                '问答设置',
                 style: TextStyle(
                   color: widget.textColor,
                   fontWeight: FontWeight.w900,
                 ),
               ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '自动术语提取',
+                      style: TextStyle(color: widget.textColor.withOpacity(0.8)),
+                    ),
+                  ),
+                  Switch(
+                    value: tp.autoGlossaryExtractionEnabled,
+                    activeColor: AppColors.techBlue,
+                    onChanged: (v) => tp.setAutoGlossaryExtractionEnabled(v),
+                  ),
+                ],
+              ),
               const SizedBox(height: 10),
-              _scopeChip(
-                label: '仅当前页面',
-                value: QAContentScope.currentPage,
-                groupValue: aiModel.qaContentScope,
-                onChanged: (scope) => aiModel.setQAContentScope(scope),
+              Text(
+                '问答内容范围',
+                style: TextStyle(
+                  color: widget.textColor,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-              const SizedBox(height: 8),
-              _scopeChip(
-                label: '当前章节到当前页',
-                value: QAContentScope.currentChapterToPage,
-                groupValue: aiModel.qaContentScope,
-                onChanged: (scope) => aiModel.setQAContentScope(scope),
-              ),
-              const SizedBox(height: 8),
-              _scopeChip(
-                label: '前5页+当前页+后5页',
-                value: QAContentScope.slidingWindow,
-                groupValue: aiModel.qaContentScope,
-                onChanged: (scope) => aiModel.setQAContentScope(scope),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _scopeChip(
+                    label: '当前页',
+                    value: QAContentScope.currentPage,
+                    groupValue: aiModel.qaContentScope,
+                    onChanged: (scope) => aiModel.setQAContentScope(scope),
+                  ),
+                  _scopeChip(
+                    label: '本章至当前',
+                    value: QAContentScope.currentChapterToPage,
+                    groupValue: aiModel.qaContentScope,
+                    onChanged: (scope) => aiModel.setQAContentScope(scope),
+                  ),
+                  _scopeChip(
+                    label: '前后5页',
+                    value: QAContentScope.slidingWindow,
+                    groupValue: aiModel.qaContentScope,
+                    onChanged: (scope) => aiModel.setQAContentScope(scope),
+                  ),
+                ],
               ),
             ],
           ),
@@ -670,6 +711,7 @@ class _TencentHunyuanSettingsPanelState
       },
     );
   }
+
 
   Widget _scopeChip({
     required String label,
@@ -743,7 +785,7 @@ class _TencentHunyuanSettingsPanelState
         borderRadius: BorderRadius.circular(999),
         onTap: enabled ? () => setSource(value) : null,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             color: active ? AppColors.techBlue.withOpacity(0.12) : cardBg,
             borderRadius: BorderRadius.circular(999),
@@ -1020,6 +1062,7 @@ class _MainPanel extends StatelessWidget {
     final source = aiModel.source;
 
     final bool modelEnabled = source != AiModelSource.none;
+    const bool showImageTextFeature = false;
 
     final translateSubtitle = !modelEnabled
         ? '请先在 AI设置 中启用大模型'
@@ -1062,15 +1105,17 @@ class _MainPanel extends StatelessWidget {
             value: readAloudEnabled,
             onChanged: modelEnabled ? onReadAloudChanged : null,
           ),
-          const SizedBox(height: 10),
-          _featureRow(
-            context,
-            icon: Icons.image_outlined,
-            title: '图文',
-            subtitle: imageTextSubtitle,
-            value: imageTextEnabled,
-            onChanged: modelEnabled ? onImageTextChanged : null,
-          ),
+          if (showImageTextFeature) ...[
+            const SizedBox(height: 10),
+            _featureRow(
+              context,
+              icon: Icons.image_outlined,
+              title: '图文',
+              subtitle: imageTextSubtitle,
+              value: imageTextEnabled,
+              onChanged: modelEnabled ? onImageTextChanged : null,
+            ),
+          ],
           const SizedBox(height: 14),
           _qaEntry(
             enabled: modelEnabled,
@@ -1080,6 +1125,7 @@ class _MainPanel extends StatelessWidget {
       ),
     );
   }
+
 
   Widget _disabledHint() {
     final Color cardBg =
@@ -1254,7 +1300,8 @@ class _MainPanel extends StatelessWidget {
                   Row(
                     children: [
                       Text(
-                        'AI问答',
+                        '问答',
+
                         style: TextStyle(
                           color: textColor,
                           fontWeight: FontWeight.w700,
@@ -1948,13 +1995,42 @@ class _QaMsg {
   final String text;
   final String? reasoningText;
   const _QaMsg(this.role, this.text, [this.reasoningText]);
+
+  Map<String, dynamic> toJson() => {
+        'role': role.name,
+        'text': text,
+        'reasoningText': reasoningText,
+      };
+
+  static _QaMsg fromJson(Map<String, dynamic> json) {
+    final rawRole = (json['role'] ?? '').toString();
+    final role = _QaRole.values.firstWhere(
+      (e) => e.name == rawRole,
+      orElse: () => _QaRole.assistant,
+    );
+    return _QaMsg(
+      role,
+      (json['text'] ?? '').toString(),
+      json['reasoningText']?.toString(),
+    );
+  }
+}
+
+
+
+enum _MessageState {
+  idle,
+  thinking,
+  reasoning,
+  answering,
 }
 
 class _QaPanel extends StatefulWidget {
   final bool isDark;
   final Color bgColor;
   final Color textColor;
-  final Map<int, String> chapterContentCache;
+  final String bookId;
+  final Map<int, String> chapterTextCache;
   final int currentChapterIndex;
   final int currentPageInChapter;
   final Map<int, List<TextRange>> chapterPageRanges;
@@ -1964,54 +2040,148 @@ class _QaPanel extends StatefulWidget {
     required this.isDark,
     required this.bgColor,
     required this.textColor,
-    required this.chapterContentCache,
+    required this.bookId,
+    required this.chapterTextCache,
     required this.currentChapterIndex,
     required this.currentPageInChapter,
     required this.chapterPageRanges,
   });
+
 
   @override
   State<_QaPanel> createState() => _QaPanelState();
 }
 
 class _QaPanelState extends State<_QaPanel> {
+  static const String _kWelcomeMessage =
+      '你好，我是Air！你的AI伴读助手，我可以回答基于当前阅读内容的问题，来问我吧';
   final TextEditingController _inputCtl = TextEditingController();
   final ScrollController _scrollCtl = ScrollController();
   final List<_QaMsg> _messages = [];
-  bool _isStreaming = false;
+  final Set<int> _collapsedReasoning = {};
+  Timer? _persistTimer;
+  int? _activeReplyIndex;
+  _MessageState _messageState = _MessageState.idle;
   StreamSubscription<QAStreamChunk>? _streamSub;
+
+  // Throttling for web setState
+  Timer? _updateTimer;
+  bool _needsUiUpdate = false;
+  bool _shouldScrollToBottom = false;
+
+  String get _historyKey => 'qa_history_${widget.bookId}';
 
   @override
   void initState() {
     super.initState();
-    _messages.add(const _QaMsg(
-      _QaRole.assistant,
-      '欢迎使用AI伴读！我可以帮你：\n• 总结当前章节\n• 提取关键要点\n• 解释不懂的内容\n• 回答基于当前章节的问题',
-    ));
+    _loadHistory();
   }
 
-  /// 更新消息列表，在 Web 平台强制触发下一帧
+  Future<void> _loadHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_historyKey) ?? '';
+    if (raw.trim().isNotEmpty) {
+      final decoded = await Future.value(raw)
+          .then((v) => jsonDecode(v))
+          .catchError((_) => null);
+      if (decoded is List) {
+        _messages
+          ..clear()
+          ..addAll(decoded
+              .whereType<Map>()
+              .map((e) => _QaMsg.fromJson(e.cast<String, dynamic>())));
+      }
+    }
+
+    if (_messages.isEmpty) {
+      _messages.add(const _QaMsg(
+        _QaRole.assistant,
+        _kWelcomeMessage,
+      ));
+    }
+
+    if (mounted) setState(() {});
+  }
+
+  void _schedulePersist() {
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(milliseconds: 400), _persistNow);
+  }
+
+  Future<void> _persistNow() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = jsonEncode(_messages.map((e) => e.toJson()).toList());
+    await prefs.setString(_historyKey, raw);
+  }
+
+  bool _isWelcomeMessage(_QaMsg msg) {
+    return msg.role == _QaRole.assistant && msg.text.startsWith('你好，我是Air！');
+  }
+
+  String _buildHistoryText({int maxTurns = 6}) {
+    final items = _messages
+        .where((m) => m.text.trim().isNotEmpty && !_isWelcomeMessage(m))
+        .toList();
+    if (items.isEmpty) return '';
+    final start = (items.length - maxTurns).clamp(0, items.length);
+    final recent = items.sublist(start);
+    final buffer = StringBuffer();
+    for (final m in recent) {
+      final prefix = m.role == _QaRole.user ? '用户' : '助手';
+      buffer.writeln('$prefix: ${m.text.trim()}');
+    }
+    return buffer.toString().trim();
+  }
+
+  void _startNewTopic() {
+    if (_messageState != _MessageState.idle) return;
+    setState(() {
+      _messages
+        ..clear()
+        ..add(const _QaMsg(
+          _QaRole.assistant,
+          _kWelcomeMessage,
+        ));
+      _collapsedReasoning.clear();
+      _messageState = _MessageState.idle;
+      _activeReplyIndex = null;
+    });
+    _streamSub?.cancel();
+    _schedulePersist();
+  }
+
+  void _throttledUpdate() {
+    if (!mounted) return;
+    if (_needsUiUpdate) {
+      setState(() {});
+      _needsUiUpdate = false;
+    }
+    if (_shouldScrollToBottom) {
+      _scrollToBottom();
+      _shouldScrollToBottom = false;
+    }
+  }
+
+  /// 更新消息列表
   void _updateMessage(int index, _QaMsg message) {
     if (!mounted) return;
-    
+    _messages[index] = message;
+    _needsUiUpdate = true;
+    _shouldScrollToBottom = true;
+
     if (kIsWeb) {
-      // Web 平台需要 addPostFrameCallback 来确保实时更新
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        setState(() {
-          _messages[index] = message;
-        });
-      });
+      if (_updateTimer == null || !_updateTimer!.isActive) {
+        _updateTimer =
+            Timer(const Duration(milliseconds: 100), _throttledUpdate);
+      }
     } else {
-      // 原生平台直接更新
-      setState(() {
-        _messages[index] = message;
-      });
+      _throttledUpdate();
     }
   }
 
   @override
   void dispose() {
+    _persistTimer?.cancel();
     _inputCtl.dispose();
     _scrollCtl.dispose();
     _streamSub?.cancel();
@@ -2028,7 +2198,7 @@ class _QaPanelState extends State<_QaPanel> {
   }
 
   void _sendQuickAction(QAType qaType) async {
-    if (_isStreaming) return;
+    if (_messageState != _MessageState.idle) return;
 
     final String quickText;
     switch (qaType) {
@@ -2044,118 +2214,33 @@ class _QaPanelState extends State<_QaPanel> {
 
     setState(() {
       _messages.add(_QaMsg(_QaRole.user, quickText));
-      _isStreaming = true;
+      _messageState = _MessageState.thinking;
     });
-
-    final replyIndex = _messages.length;
-    
-    setState(() {
-      _messages.add(const _QaMsg(_QaRole.assistant, ''));
-    });
-
+    _schedulePersist();
     _scrollToBottom();
 
-    String reasoningBuffer = '';
-
-    try {
-      final aiModel = context.read<AiModelProvider>();
-      if (aiModel.source == AiModelSource.none) {
-        throw Exception('请先选择本地或在线大模型');
-      }
-
-      final contextService = ReadingContextService(
-        chapterContentCache: widget.chapterContentCache,
-        currentChapterIndex: widget.currentChapterIndex,
-        currentPageInChapter: widget.currentPageInChapter,
-        chapterPageRanges: widget.chapterPageRanges,
-      );
-
-      final qaService = QAService(
-        contextService: contextService,
-        credentials: getEmbeddedPublicHunyuanCredentials(),
-        contentScope: aiModel.qaContentScope,
-      );
-
-      final stream = qaService.askQuestion(
-        question: quickText,
-        isLocalModel: aiModel.source == AiModelSource.local,
-        qaType: qaType,
-      );
-
-      // 取消之前的订阅（如果有）
-      _streamSub?.cancel();
-
-      _streamSub = stream.listen(
-        (QAStreamChunk chunk) {
-          if (!mounted) return;
-
-          if (chunk.isReasoning && chunk.reasoningContent != null) {
-            reasoningBuffer += chunk.reasoningContent!;
-
-            final current = _messages[replyIndex];
-            _updateMessage(replyIndex, _QaMsg(
-              _QaRole.assistant,
-              current.text,
-              reasoningBuffer,
-            ));
-          } else if (chunk.content.isNotEmpty) {
-            final current = _messages[replyIndex];
-            _updateMessage(replyIndex, _QaMsg(
-              _QaRole.assistant,
-              current.text + chunk.content,
-              current.reasoningText,
-            ));
-          }
-
-          _scrollToBottom();
-        },
-        onError: (error) {
-          if (!mounted) return;
-          setState(() {
-            _messages[replyIndex] = _QaMsg(
-              _QaRole.assistant,
-              '错误: ${error.toString()}',
-            );
-            _isStreaming = false;
-          });
-        },
-        onDone: () {
-          if (!mounted) return;
-          setState(() {
-            _isStreaming = false;
-          });
-        },
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _messages[replyIndex] = _QaMsg(
-          _QaRole.assistant,
-          '错误: ${e.toString()}',
-        );
-        _isStreaming = false;
-      });
-    }
+    _performQa(quickText, qaType, '');
   }
 
   Future<void> _send() async {
     final text = _inputCtl.text.trim();
-    if (text.isEmpty || _isStreaming) return;
+    if (text.isEmpty || _messageState != _MessageState.idle) return;
+
+    final historyText = _buildHistoryText();
 
     setState(() {
       _messages.add(_QaMsg(_QaRole.user, text));
-      _isStreaming = true;
+      _messageState = _MessageState.thinking;
       _inputCtl.text = '';
     });
-
-    final replyIndex = _messages.length;
-    
-    setState(() {
-      _messages.add(const _QaMsg(_QaRole.assistant, ''));
-    });
-
+    _schedulePersist();
     _scrollToBottom();
 
+    _performQa(text, QAType.general, historyText);
+  }
+
+  Future<void> _performQa(
+      String question, QAType qaType, String history) async {
     String reasoningBuffer = '';
 
     try {
@@ -2165,7 +2250,7 @@ class _QaPanelState extends State<_QaPanel> {
       }
 
       final contextService = ReadingContextService(
-        chapterContentCache: widget.chapterContentCache,
+        chapterContentCache: widget.chapterTextCache,
         currentChapterIndex: widget.currentChapterIndex,
         currentPageInChapter: widget.currentPageInChapter,
         chapterPageRanges: widget.chapterPageRanges,
@@ -2178,64 +2263,108 @@ class _QaPanelState extends State<_QaPanel> {
       );
 
       final stream = qaService.askQuestion(
-        question: text,
+        question: question,
         isLocalModel: aiModel.source == AiModelSource.local,
-        qaType: QAType.general,
+        qaType: qaType,
+        history: history,
       );
 
-      // 取消之前的订阅（如果有）
       _streamSub?.cancel();
 
       _streamSub = stream.listen(
         (QAStreamChunk chunk) {
           if (!mounted) return;
 
+          if (_activeReplyIndex == null) {
+            // First chunk, add assistant message
+            setState(() {
+              _messages.add(const _QaMsg(_QaRole.assistant, ''));
+              _activeReplyIndex = _messages.length - 1;
+              if (chunk.isReasoning) {
+                _messageState = _MessageState.reasoning;
+              } else {
+                _messageState = _MessageState.answering;
+              }
+            });
+          }
+          final replyIndex = _activeReplyIndex!;
+
           if (chunk.isReasoning && chunk.reasoningContent != null) {
             reasoningBuffer += chunk.reasoningContent!;
-
             final current = _messages[replyIndex];
-            _updateMessage(replyIndex, _QaMsg(
-              _QaRole.assistant,
-              current.text,
-              reasoningBuffer,
-            ));
+            _updateMessage(
+                replyIndex, _QaMsg(current.role, current.text, reasoningBuffer));
           } else if (chunk.content.isNotEmpty) {
+            if (_messageState != _MessageState.answering) {
+              setState(() {
+                _messageState = _MessageState.answering;
+              });
+            }
             final current = _messages[replyIndex];
-            _updateMessage(replyIndex, _QaMsg(
-              _QaRole.assistant,
-              current.text + chunk.content,
-              current.reasoningText,
-            ));
+            _updateMessage(
+                replyIndex,
+                _QaMsg(current.role, current.text + chunk.content,
+                    current.reasoningText));
           }
-
-          _scrollToBottom();
         },
         onError: (error) {
+          _updateTimer?.cancel();
+          _throttledUpdate();
           if (!mounted) return;
+
+          final int errorIndex = _activeReplyIndex ?? _messages.length;
+          final errorMessage = _QaMsg(
+            _QaRole.assistant,
+            '错误: ${error.toString()}',
+          );
+
           setState(() {
-            _messages[replyIndex] = _QaMsg(
-              _QaRole.assistant,
-              '错误: ${error.toString()}',
-            );
-            _isStreaming = false;
+            if (_activeReplyIndex == null) {
+              _messages.add(errorMessage);
+            } else {
+              _messages[errorIndex] = errorMessage;
+            }
+            _messageState = _MessageState.idle;
+            _activeReplyIndex = null;
           });
+          _schedulePersist();
         },
         onDone: () {
+          _updateTimer?.cancel();
+          _throttledUpdate();
           if (!mounted) return;
+
+          final replyIndex = _activeReplyIndex;
           setState(() {
-            _isStreaming = false;
+            _messageState = _MessageState.idle;
+            _activeReplyIndex = null;
+            if (replyIndex != null && reasoningBuffer.trim().isNotEmpty) {
+              _collapsedReasoning.add(replyIndex);
+            }
           });
+          _schedulePersist();
         },
       );
     } catch (e) {
+      _updateTimer?.cancel();
+      _throttledUpdate();
       if (!mounted) return;
+
+      final int errorIndex = _activeReplyIndex ?? _messages.length;
+      final errorMessage = _QaMsg(
+        _QaRole.assistant,
+        '错误: ${e.toString()}',
+      );
       setState(() {
-        _messages[replyIndex] = _QaMsg(
-          _QaRole.assistant,
-          '错误: ${e.toString()}',
-        );
-        _isStreaming = false;
+        if (_activeReplyIndex == null) {
+          _messages.add(errorMessage);
+        } else {
+          _messages[errorIndex] = errorMessage;
+        }
+        _messageState = _MessageState.idle;
+        _activeReplyIndex = null;
       });
+      _schedulePersist();
     }
   }
 
@@ -2257,7 +2386,6 @@ class _QaPanelState extends State<_QaPanel> {
 
     Widget _actionChip({
       required String label,
-      required IconData icon,
       required VoidCallback? onTap,
     }) {
       final bool disabled = onTap == null;
@@ -2265,9 +2393,9 @@ class _QaPanelState extends State<_QaPanel> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(999),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: disabled 
+            color: disabled
                 ? AppColors.techBlue.withOpacity(0.05)
                 : AppColors.techBlue.withOpacity(0.12),
             borderRadius: BorderRadius.circular(999),
@@ -2278,34 +2406,21 @@ class _QaPanelState extends State<_QaPanel> {
               width: AppTokens.stroke,
             ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: disabled
-                    ? AppColors.techBlue.withOpacity(0.4)
-                    : AppColors.techBlue,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: disabled
-                      ? AppColors.techBlue.withOpacity(0.4)
-                      : AppColors.techBlue,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: disabled
+                  ? AppColors.techBlue.withOpacity(0.4)
+                  : AppColors.techBlue,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
     }
 
-    return SizedBox.expand(
+    final panelContent = SizedBox.expand(
       key: widget.key,
       child: Container(
         decoration: BoxDecoration(
@@ -2319,29 +2434,6 @@ class _QaPanelState extends State<_QaPanel> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '快捷操作',
-              style: TextStyle(
-                  color: widget.textColor, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _actionChip(
-                  label: '总结本章',
-                  icon: Icons.summarize_outlined,
-                  onTap: _isStreaming ? null : () => _sendQuickAction(QAType.summary),
-                ),
-                _actionChip(
-                  label: '提取要点',
-                  icon: Icons.format_list_bulleted,
-                  onTap: _isStreaming ? null : () => _sendQuickAction(QAType.keyPoints),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
             Expanded(
               child: ListView.builder(
                 key: const PageStorageKey('ai_hud_qa_list'),
@@ -2356,69 +2448,146 @@ class _QaPanelState extends State<_QaPanel> {
                   final Alignment align =
                       isUser ? Alignment.centerRight : Alignment.centerLeft;
 
-                  // 对于助理消息，如果有思考过程，显示两个部分
-                  if (!isUser && m.reasoningText != null && m.reasoningText!.isNotEmpty) {
+                  if (!isUser &&
+                      ((m.reasoningText != null &&
+                              m.reasoningText!.isNotEmpty) ||
+                          (_activeReplyIndex == i &&
+                              _messageState == _MessageState.reasoning))) {
+                    final bool isActive = _activeReplyIndex == i;
+                    final bool collapsed =
+                        !isActive && _collapsedReasoning.contains(i);
+                    final reasoningText = m.reasoningText ?? '';
+
+                    Widget reasoningBox = const SizedBox.shrink();
+                    if (reasoningText.isNotEmpty ||
+                        (isActive &&
+                            _messageState == _MessageState.reasoning)) {
+                      reasoningBox = Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        constraints: const BoxConstraints(maxWidth: 340),
+                        decoration: BoxDecoration(
+                          color: widget.textColor.withOpacity(0.03),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: widget.textColor.withOpacity(0.06),
+                            width: AppTokens.stroke,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  '深度思考',
+                                  style: TextStyle(
+                                    color: widget.textColor
+                                        .withOpacity(0.75),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const Spacer(),
+                                if (!isActive)
+                                  InkWell(
+                                    onTap: () {
+                                      setState(() {
+                                        if (collapsed) {
+                                          _collapsedReasoning.remove(i);
+                                        } else {
+                                          _collapsedReasoning.add(i);
+                                        }
+                                      });
+                                    },
+                                    child: Text(
+                                      collapsed ? '展开' : '收起',
+                                      style: TextStyle(
+                                        color: AppColors.techBlue,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            if (collapsed)
+                              Text(
+                                '已折叠',
+                                style: TextStyle(
+                                  color: widget.textColor.withOpacity(0.55),
+                                  fontSize: 12,
+                                ),
+                              )
+                            else
+                              ConstrainedBox(
+                                constraints:
+                                    const BoxConstraints(maxHeight: 120),
+                                child: SingleChildScrollView(
+                                  child: Text(
+                                    reasoningText,
+                                    style: TextStyle(
+                                      color: widget.textColor
+                                          .withOpacity(0.75),
+                                      height: 1.35,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    Widget answerBox = const SizedBox.shrink();
+                    if (m.text.isNotEmpty ||
+                        (_activeReplyIndex == i &&
+                            _messageState == _MessageState.answering)) {
+                      answerBox = Container(
+                        margin: const EdgeInsets.symmetric(vertical: 0),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        constraints: const BoxConstraints(maxWidth: 340),
+                        decoration: BoxDecoration(
+                          color: bubbleBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: widget.textColor.withOpacity(0.08),
+                            width: AppTokens.stroke,
+                          ),
+                        ),
+                        child: Text(
+                          m.text.isEmpty ? '...' : m.text,
+                          style: TextStyle(
+                            color: widget.textColor,
+                            height: 1.35,
+                            fontSize: 13,
+                          ),
+                        ),
+                      );
+                    }
+
                     return Align(
-                      key: ValueKey('qa_msg_${i}_${m.text.hashCode}_${m.reasoningText?.hashCode ?? 0}'),
+                      key: ValueKey(
+                          'qa_msg_${i}_${m.text.hashCode}_${m.reasoningText?.hashCode ?? 0}'),
                       alignment: align,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // 思考过程区域
-                          Container(
-                            margin: const EdgeInsets.only(bottom: 4),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                            constraints: const BoxConstraints(maxWidth: 340),
-                            decoration: BoxDecoration(
-                              color: widget.textColor.withOpacity(0.03),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: widget.textColor.withOpacity(0.06),
-                                width: AppTokens.stroke,
-                              ),
-                            ),
-                            child: Text(
-                              '🤔 AI思考过程: ${m.reasoningText!}',
-                              style: TextStyle(
-                                color: widget.textColor.withOpacity(0.75),
-                                height: 1.35,
-                                fontSize: 12,
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                          ),
-                          // 答案区域
-                          Container(
-                            margin: const EdgeInsets.symmetric(vertical: 0),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
-                            constraints: const BoxConstraints(maxWidth: 340),
-                            decoration: BoxDecoration(
-                              color: bubbleBg,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: widget.textColor.withOpacity(0.08),
-                                width: AppTokens.stroke,
-                              ),
-                            ),
-                            child: Text(
-                              m.text,
-                              style: TextStyle(
-                                color: widget.textColor,
-                                height: 1.35,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
+                          reasoningBox,
+                          answerBox,
                         ],
                       ),
                     );
                   }
 
-                  // 默认气泡（用户消息或没有思考过程的助理消息）
+                  // Default bubble (user messages or assistant messages without reasoning)
                   return Align(
-                    key: ValueKey('qa_msg_${i}_${m.text.hashCode}_${m.reasoningText?.hashCode ?? 0}'),
+                    key: ValueKey(
+                        'qa_msg_${i}_${m.text.hashCode}_${m.reasoningText?.hashCode ?? 0}'),
                     alignment: align,
                     child: Container(
                       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -2434,7 +2603,9 @@ class _QaPanelState extends State<_QaPanel> {
                         ),
                       ),
                       child: Text(
-                        m.text,
+                        m.text.isEmpty && _activeReplyIndex == i
+                            ? '...'
+                            : m.text,
                         style: TextStyle(
                           color: widget.textColor,
                           height: 1.35,
@@ -2446,25 +2617,78 @@ class _QaPanelState extends State<_QaPanel> {
                 },
               ),
             ),
+            if (_messageState == _MessageState.thinking)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  child: Text('深度思考中...',
+                      style: TextStyle(
+                          color: widget.textColor.withOpacity(0.6),
+                          fontSize: 13)),
+                ),
+              ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _actionChip(
+                  label: '新话题',
+                  onTap: _messageState != _MessageState.idle
+                      ? null
+                      : _startNewTopic,
+                ),
+                _actionChip(
+                  label: '总结本章',
+                  onTap: _messageState != _MessageState.idle
+                      ? null
+                      : () => _sendQuickAction(QAType.summary),
+                ),
+                _actionChip(
+                  label: '提取要点',
+                  onTap: _messageState != _MessageState.idle
+                      ? null
+                      : () => _sendQuickAction(QAType.keyPoints),
+                ),
+              ],
+            ),
             const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _inputCtl,
-                    minLines: 1,
-                    maxLines: 4,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      filled: true,
-                      fillColor: Colors.white,
-                      hintText: '输入你的问题…',
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 12),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                  child: Focus(
+                    onKeyEvent: (node, event) {
+                      if (event is KeyDownEvent &&
+                          event.logicalKey == LogicalKeyboardKey.enter &&
+                          !ServicesBinding
+                              .instance.keyboard.logicalKeysPressed
+                              .contains(LogicalKeyboardKey.shiftLeft) &&
+                          !ServicesBinding
+                              .instance.keyboard.logicalKeysPressed
+                              .contains(LogicalKeyboardKey.shiftRight)) {
+                        _send();
+                        return KeyEventResult.handled;
+                      }
+                      return KeyEventResult.ignored;
+                    },
+                    child: TextField(
+                      controller: _inputCtl,
+                      minLines: 1,
+                      maxLines: 4,
+                      textInputAction: TextInputAction.send,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        filled: true,
+                        fillColor: Colors.white,
+                        hintText: '输入你的问题…',
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 12),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onSubmitted: (_) => _send(),
                     ),
-                    onSubmitted: (_) => _send(),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -2487,6 +2711,12 @@ class _QaPanelState extends State<_QaPanel> {
           ],
         ),
       ),
+    );
+
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      backgroundColor: Colors.transparent,
+      body: panelContent,
     );
   }
 }

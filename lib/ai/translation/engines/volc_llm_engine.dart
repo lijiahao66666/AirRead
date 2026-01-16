@@ -5,7 +5,10 @@ import 'package:http/http.dart' as http;
 
 import 'translation_engine.dart';
 
+import '../translation_types.dart';
+
 /// Volcengine LLM translator.
+
 /// Default implementation targets Ark (OpenAI-compatible) endpoint.
 class VolcLlmTranslatorEngine extends TranslationEngine {
 
@@ -33,6 +36,7 @@ class VolcLlmTranslatorEngine extends TranslationEngine {
     required String targetLang,
     required List<String> contextSources,
     required Map<String, String> glossaryPlaceholders,
+    required List<TranslationReference> references,
   }) async {
     final uri = Uri.parse(baseUrl);
 
@@ -41,6 +45,12 @@ class VolcLlmTranslatorEngine extends TranslationEngine {
         : glossaryPlaceholders.entries
             .map((e) => '${e.key} -> ${e.value}')
             .join('\n');
+
+    final referencesHint = references.isEmpty
+        ? '无'
+        : references
+            .map((e) => '源文：${e.text}\n译文：${e.translation}')
+            .join('\n\n');
 
     final ctx = contextSources.isEmpty
         ? '无'
@@ -51,8 +61,10 @@ class VolcLlmTranslatorEngine extends TranslationEngine {
 1) 只输出译文，不要解释。
 2) 必须保持术语一致性：以下占位符必须原样保留在译文中，且最终会被替换为固定术语：\n$glossaryHint
 3) 保持上下文连贯：参考最近的原文上下文。\n上下文：\n$ctx
+4) 参考以下翻译实例，保持风格和用词一致：\n$referencesHint
 
 待翻译文本（源语言：${sourceLang.isEmpty ? '自动' : sourceLang}，目标语言：$targetLang）：\n$text''';
+
 
     final payload = {
       'model': model,

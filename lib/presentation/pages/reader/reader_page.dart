@@ -179,7 +179,13 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     });
 
     _loadSettingsAndBook();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<TranslationProvider>().setCurrentBookId(widget.bookId);
+    });
   }
+
 
   void _startPulseTimer() {
     _pulseTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
@@ -229,7 +235,19 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }
 
   @override
+  void didUpdateWidget(covariant ReaderPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.bookId != widget.bookId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        context.read<TranslationProvider>().setCurrentBookId(widget.bookId);
+      });
+    }
+  }
+
+  @override
   void dispose() {
+
     _saveSettings();
     _saveProgress();
     _progressSaveTimer?.cancel();
@@ -1912,6 +1930,11 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                                         child: Consumer<TranslationProvider>(
                                           builder: (context,
                                               translationProvider, _) {
+                                            final qaTextCache = <int, String>{
+                                              ..._chapterPlainText,
+                                              ..._chapterEffectiveText,
+                                            };
+
                                             return AiHud(
                                               bgColor: _panelBgColor,
                                               textColor: _panelTextColor,
@@ -1945,11 +1968,13 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                                                   enabled: v,
                                                 );
                                               },
-                                              chapterContentCache: _chapterContentCache,
+                                              bookId: widget.bookId,
+                                              chapterTextCache: qaTextCache,
                                               currentChapterIndex: _currentChapterIndex,
                                               currentPageInChapter: _currentPageInChapter,
                                               chapterPageRanges: _chapterPageRanges,
                                             );
+
                                           },
                                         ),
                                       ),

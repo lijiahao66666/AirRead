@@ -1,4 +1,4 @@
-import 'dart:math';
+
 import 'dart:ui';
 import '../../presentation/providers/ai_model_provider.dart';
 
@@ -181,24 +181,24 @@ class ReadingContextService {
   
   /// 获取从章节开始到当前页面的内容
   String getChapterToCurrentPageContent() {
-    final chapterContent = getCurrentChapterContent();
-    if (chapterContent.isEmpty) return '';
-    
+    final rawContent = _chapterContentCache[_currentChapterIndex] ?? '';
+    if (rawContent.isEmpty) return '';
+
     final pageRanges = _chapterPageRanges[_currentChapterIndex];
     if (pageRanges == null || _currentPageInChapter >= pageRanges.length) {
-      return chapterContent;
+      return _cleanContent(rawContent);
     }
-    
+
     // 计算当前页面的结束位置
     final currentRange = pageRanges[_currentPageInChapter];
-    final endPosition = currentRange.end;
-    
+    final endPosition = currentRange.end.clamp(0, rawContent.length);
+    if (endPosition <= 0) return '';
+
     // 返回从开始到当前页面的内容
-    if (endPosition >= chapterContent.length) {
-      return chapterContent;
-    }
-    return chapterContent.substring(0, endPosition);
+    final sliced = rawContent.substring(0, endPosition);
+    return _cleanContent(sliced);
   }
+
   
   /// 获取仅当前页面的内容
   String getCurrentPageContent() {
@@ -220,11 +220,9 @@ class ReadingContextService {
   
   /// 清理内容中的XML标签
   String _cleanContent(String content) {
-    if (XmlContentCleaner.isXmlContent(content)) {
-      return XmlContentCleaner.cleanXmlContent(content);
-    }
-    return content;
+    return XmlContentCleaner.cleanXmlContent(content);
   }
+
 
   /// 提取关键信息：人物、地点、重要事件
   Map<String, dynamic> extractKeyInformation() {
@@ -273,35 +271,42 @@ class ReadingContextService {
         '每条要点请用一句话概括。';
   }
 
-  /// 生成一般问答的提示词（带滑动窗口上下文）
-  String generateQAPrompt(String userQuestion, QAContentScope scope) {
-    final content = getContentByScope(scope);
-    final keyInfo = extractKeyInformation();
-    
-    // 临时调试：检查内容是否清理干净
-    final hasXmlTags = RegExp(r'<[^>]+>').hasMatch(content);
-    
-    final prompt = '你正在协助用户阅读小说，请基于以下内容回答问题：\n\n'
-        '【当前阅读内容】\n'
-        '$content\n\n'
-        '【关键信息】\n'
-        '人物：${keyInfo['characters'].join('、')}\n'
-        '地点：${keyInfo['locations'].join('、')}\n\n'
-        '用户问题：$userQuestion\n\n'
-        '请根据以上内容给出准确、有帮助的回答。如果问题超出当前阅读范围，请说明。';
-    
-    // 临时打印用于调试
-    print('[QA Debug] 内容长度: ${content.length}, 包含XML: $hasXmlTags');
-    print('[QA Debug] Scope: $scope');
-    if (content.length > 200) {
-      print('[QA Debug] 内容预览: ${content.substring(0, 200)}...');
-    } else {
-      print('[QA Debug] 内容: $content');
+  /// 生成一般问答的提示词（包含阅读内容与历史上下文）
+  String generateQAPrompt(
+    String userQuestion,
+    QAContentScope scope, {
+    String? history,
+  }) {
+    final content = getContentByScope(scope).trim();
+    final historyText = (history ?? '').trim();
+
+    final buffer = StringBuffer()
+      ..writeln('你是用户的阅读助手。请结合当前阅读内容与历史问答上下文作答。')
+      ..writeln('要求：')
+      ..writeln('1) 优先依据当前阅读内容。')
+      ..writeln('2) 可结合历史问答补充，但不要凭空编造。')
+      ..writeln('3) 若问题超出当前阅读内容范围，请明确说明。')
+      ..writeln()
+      ..writeln('【当前阅读内容】')
+      ..writeln(content.isEmpty ? '（当前阅读内容为空）' : content)
+      ..writeln();
+
+    if (historyText.isNotEmpty) {
+      buffer
+        ..writeln('【历史问答（最近对话）】')
+        ..writeln(historyText)
+        ..writeln();
     }
-    print('[QA Debug] Prompt前200字符: ${prompt.substring(0, prompt.length > 200 ? 200 : prompt.length)}');
-    
-    return prompt;
+
+    buffer
+      ..writeln('【用户问题】')
+      ..writeln(userQuestion)
+      ..writeln()
+      ..writeln('请给出清晰、准确的回答。');
+
+    return buffer.toString().trim();
   }
+
 
   /// 生成解释选中内容的提示词
   String generateExplainPrompt(String selectedText, QAContentScope scope) {

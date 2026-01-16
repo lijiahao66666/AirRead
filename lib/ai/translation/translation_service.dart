@@ -1,9 +1,15 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
+import '../hunyuan/hunyuan_text_client.dart';
+
+
 import 'engines/translation_engine.dart';
+
 
 import 'glossary.dart';
 import 'translation_cache.dart';
@@ -23,8 +29,10 @@ class TranslationService {
 
   final TranslationEngine machineEngine;
   final TranslationEngine aiEngine;
+  final HunyuanTextClient? chatClient;
 
   /// AI context cache: keep last 3 source paragraphs per (targetLang).
+
   final Map<String, ListQueue<String>> _aiContextSources = {};
 
   TranslationService({
@@ -33,7 +41,9 @@ class TranslationService {
     this.logger,
     required this.machineEngine,
     required this.aiEngine,
+    this.chatClient,
   });
+
 
   TranslationEngine _engineFor(TranslationEngineType type) {
     switch (type) {
@@ -101,12 +111,17 @@ class TranslationService {
     final future = _queueFor(config.engineType).submit(() async {
       final translated = await _withRetry(() async {
         final context = _getAiContext(config);
+        final references = glossary.terms
+            .map((t) => TranslationReference(
+                type: 'glossary', text: t.source, translation: t.target))
+            .toList();
         return engine.translate(
           text: glossaryApplied.textWithPlaceholders,
           sourceLang: config.sourceLang,
           targetLang: config.targetLang,
           contextSources: context,
           glossaryPlaceholders: glossaryApplied.placeholderToTarget,
+          references: references,
         );
       });
 
@@ -114,7 +129,12 @@ class TranslationService {
       final finalText = glossary.applyToTranslatedText(
           translated, glossaryApplied.placeholderToTarget);
 
-      _onAiTranslated(config: config, sourceParagraph: normalized);
+      _onAiTranslated(
+        config: config,
+        sourceParagraph: normalized,
+        translatedParagraph: finalText,
+      );
+
 
       return finalText;
     });
@@ -158,6 +178,14 @@ class TranslationService {
       }
 
       if (toTranslateTexts.isNotEmpty) {
+        final references = glossary.terms
+            .map((t) => TranslationReference(
+                  type: 'glossary',
+                  text: t.source,
+                  translation: t.target,
+                ))
+            .toList();
+
         final results = await _queueFor(config.engineType).submit(() async {
           final list = await _withRetry(() async {
             return engine.translateBatch(
@@ -165,10 +193,12 @@ class TranslationService {
               sourceLang: config.sourceLang,
               targetLang: config.targetLang,
               glossaryPlaceholders: const {},
+              references: references,
             );
           });
           return list;
         });
+
 
         for (int j = 0; j < results.length; j++) {
           final originalIdx = toTranslateIdxs[j];
@@ -224,15 +254,61 @@ class TranslationService {
   void _onAiTranslated({
     required TranslationConfig config,
     required String sourceParagraph,
+    required String translatedParagraph,
   }) {
-    if (config.engineType != TranslationEngineType.ai) return;
-    final key = 'to:${config.targetLang}|from:${config.sourceLang}';
-    final q = _aiContextSources.putIfAbsent(key, () => ListQueue());
-    q.addLast(sourceParagraph);
-    while (q.length > 3) {
-      q.removeFirst();
+    if (config.engineType == TranslationEngineType.ai) {
+      final key = 'to:${config.targetLang}|from:${config.sourceLang}';
+      final q = _aiContextSources.putIfAbsent(key, () => ListQueue());
+      q.addLast(sourceParagraph);
+      while (q.length > 3) {
+        q.removeFirst();
+      }
+    }
+
+    if (config.autoExtractGlossary &&
+        config.engineType == TranslationEngineType.ai &&
+        chatClient != null) {
+      _autoExtractGlossary(
+        source: sourceParagraph,
+        translation: translatedParagraph,
+      );
     }
   }
+
+  void _autoExtractGlossary({
+    required String source,
+    required String translation,
+  }) async {
+    final prompt =
+        '从以下「原文」和「译文」中，提取专有名词或术语，以JSON数组格式返回，每项包含"source"和"target"两个key。最多返回3个。\n\n「原文」：$source\n「译文」：$translation\n\nJSON数组：';
+    try {
+      final result = await chatClient!.chatOnce(userText: prompt);
+      final jsonStart = result.indexOf('[');
+      final jsonEnd = result.lastIndexOf(']');
+      if (jsonStart != -1 && jsonEnd != -1) {
+        final jsonStr = result.substring(jsonStart, jsonEnd + 1);
+        final decoded = jsonDecode(jsonStr);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map &&
+                item.containsKey('source') &&
+                item.containsKey('target')) {
+              final term = GlossaryTerm(
+                source: item['source'].toString(),
+                target: item['target'].toString(),
+              );
+              if (term.source.isNotEmpty && term.target.isNotEmpty) {
+                glossary.addOrUpdate(term, overwrite: false);
+              }
+            }
+          }
+        }
+      }
+    } catch (e, st) {
+      logger?.call('auto-glossary-extract failed', e, st);
+    }
+  }
+
 
   Future<T> _withRetry<T>(Future<T> Function() task) async {
     const int maxRetries = 3;

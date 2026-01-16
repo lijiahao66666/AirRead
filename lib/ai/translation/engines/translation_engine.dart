@@ -1,4 +1,7 @@
+import '../translation_types.dart';
+
 abstract class TranslationEngine {
+
   String get id;
 
   /// Translate a single paragraph/text.
@@ -8,7 +11,9 @@ abstract class TranslationEngine {
     required String targetLang,
     required List<String> contextSources,
     required Map<String, String> glossaryPlaceholders,
+    required List<TranslationReference> references,
   });
+
 
   /// Optional batch translation for speed.
   Future<List<String>> translateBatch({
@@ -16,6 +21,7 @@ abstract class TranslationEngine {
     required String sourceLang,
     required String targetLang,
     required Map<String, String> glossaryPlaceholders,
+    required List<TranslationReference> references,
   }) async {
     final out = <String>[];
     for (final t in texts) {
@@ -25,8 +31,10 @@ abstract class TranslationEngine {
         targetLang: targetLang,
         contextSources: const [],
         glossaryPlaceholders: glossaryPlaceholders,
+        references: references,
       ));
     }
     return out;
   }
+
 }

@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../ai/hunyuan/hunyuan_text_client.dart';
+
 import '../../ai/local_llm/local_translation_engine.dart';
 import '../../ai/hunyuan/hunyuan_translation_engine.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
@@ -19,10 +21,10 @@ class TranslationProvider extends ChangeNotifier {
   static const _kCfgTo = 'tr_cfg_to';
   static const _kCfgMode = 'tr_cfg_mode';
   static const _kCfgApply = 'tr_cfg_apply';
-  static const _kGlossary = 'tr_glossary_terms';
   static const _kAiTranslateEnabled = 'tr_ai_translate_enabled';
   static const _kAiReadAloudEnabled = 'tr_ai_read_aloud_enabled';
   static const _kAiImageTextEnabled = 'tr_ai_image_text_enabled';
+  static const _kAutoGlossary = 'tr_auto_glossary';
 
   final TranslationCache _cache =
       TranslationCache(ttl: const Duration(hours: 24));
@@ -32,16 +34,20 @@ class TranslationProvider extends ChangeNotifier {
   AiModelProvider? _aiModel;
   VoidCallback? _aiModelListener;
 
+  String _currentBookId = '';
+
   TranslationConfig _config = const TranslationConfig(
     sourceLang: '',
     targetLang: 'en',
     displayMode: TranslationDisplayMode.bilingual,
+    autoExtractGlossary: true,
   );
 
   bool _applyToReader = false;
   bool _aiTranslateEnabled = false;
   bool _aiReadAloudEnabled = false;
   bool _aiImageTextEnabled = false;
+  bool _autoGlossaryExtractionEnabled = true;
   bool _loaded = false;
 
   TranslationProvider({
@@ -128,6 +134,7 @@ class TranslationProvider extends ChangeNotifier {
       glossary: _glossary,
       machineEngine: engine,
       aiEngine: engine,
+      chatClient: HunyuanTextClient(credentials: creds),
     );
   }
 
@@ -138,9 +145,19 @@ class TranslationProvider extends ChangeNotifier {
   bool get aiTranslateEnabled => _aiTranslateEnabled;
   bool get aiReadAloudEnabled => _aiReadAloudEnabled;
   bool get aiImageTextEnabled => _aiImageTextEnabled;
+  bool get autoGlossaryExtractionEnabled => _autoGlossaryExtractionEnabled;
+
+  String get _glossaryKey => 'tr_glossary_terms_$_currentBookId';
 
   UnmodifiableListView<GlossaryTerm> get glossaryTerms => _glossary.terms;
   int get glossaryVersion => _glossary.version;
+
+  Future<void> setCurrentBookId(String bookId) async {
+    if (_currentBookId == bookId) return;
+    await _savePrefs();
+    _currentBookId = bookId;
+    await _loadFromPrefs();
+  }
 
   Future<void> _loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
@@ -153,6 +170,8 @@ class TranslationProvider extends ChangeNotifier {
     _aiTranslateEnabled = prefs.getBool(_kAiTranslateEnabled) ?? false;
     _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
     _aiImageTextEnabled = prefs.getBool(_kAiImageTextEnabled) ?? false;
+    _autoGlossaryExtractionEnabled =
+        prefs.getBool(_kAutoGlossary) ?? _autoGlossaryExtractionEnabled;
 
     TranslationDisplayMode displayMode = _config.displayMode;
     if (mode == 'bilingual') displayMode = TranslationDisplayMode.bilingual;
@@ -165,24 +184,35 @@ class TranslationProvider extends ChangeNotifier {
       targetLang:
           (to ?? _config.targetLang).trim().isEmpty ? _config.targetLang : to,
       displayMode: displayMode,
+      autoExtractGlossary: _autoGlossaryExtractionEnabled,
     );
     _applyToReader = apply ?? _applyToReader;
 
-    final glossaryRaw = prefs.getString(_kGlossary);
-    if (glossaryRaw != null && glossaryRaw.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(glossaryRaw);
-        if (decoded is List) {
-          final terms = decoded
-              .whereType<Map>()
-              .map((m) => GlossaryTerm.fromJson(m.cast<String, dynamic>()))
-              .toList();
-          _glossary.replaceAll(terms);
+    if (_currentBookId.isNotEmpty) {
+      final glossaryRaw = prefs.getString(_glossaryKey);
+      if (glossaryRaw != null && glossaryRaw.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(glossaryRaw);
+          if (decoded is List) {
+            final terms = decoded
+                .whereType<Map>()
+                .map((m) => GlossaryTerm.fromJson(m.cast<String, dynamic>()))
+                .toList();
+            _glossary.replaceAll(terms);
+          }
+        } catch (_) {
+          _glossary.clear();
         }
-      } catch (_) {}
+      } else {
+        _glossary.clear();
+      }
+    } else {
+      _glossary.clear();
     }
 
-    _loaded = true;
+    if (!_loaded) {
+      _loaded = true;
+    }
     notifyListeners();
   }
 
@@ -197,13 +227,16 @@ class TranslationProvider extends ChangeNotifier {
           : 'translationOnly',
     );
     await prefs.setBool(_kCfgApply, _applyToReader);
-    await prefs.setString(
-      _kGlossary,
-      jsonEncode(_glossary.terms.map((e) => e.toJson()).toList()),
-    );
+    if (_currentBookId.isNotEmpty) {
+      await prefs.setString(
+        _glossaryKey,
+        jsonEncode(_glossary.terms.map((e) => e.toJson()).toList()),
+      );
+    }
     await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
     await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
     await prefs.setBool(_kAiImageTextEnabled, _aiImageTextEnabled);
+    await prefs.setBool(_kAutoGlossary, _autoGlossaryExtractionEnabled);
   }
 
   Future<void> setSourceLang(String lang) async {
@@ -213,6 +246,7 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   Future<void> setTargetLang(String lang) async {
+    if (lang.trim().isEmpty) return;
     _config = _config.copyWith(targetLang: lang);
     notifyListeners();
     await _savePrefs();
@@ -261,7 +295,15 @@ class TranslationProvider extends ChangeNotifier {
     await _savePrefs();
   }
 
+  Future<void> setAutoGlossaryExtractionEnabled(bool enabled) async {
+    _autoGlossaryExtractionEnabled = enabled;
+    _config = _config.copyWith(autoExtractGlossary: enabled);
+    notifyListeners();
+    await _savePrefs();
+  }
+
   Future<void> upsertGlossaryTerm(GlossaryTerm term) async {
+
     _glossary.addOrUpdate(term);
     notifyListeners();
     await _savePrefs();
@@ -272,6 +314,7 @@ class TranslationProvider extends ChangeNotifier {
     notifyListeners();
     await _savePrefs();
   }
+
 
   Future<Map<int, String>> translateParagraphsByIndex(
       Map<int, String> paragraphsByIndex) async {

@@ -43,15 +43,25 @@ class GlossaryManager {
     _bumpVersion();
   }
 
-  void addOrUpdate(GlossaryTerm term) {
-    final idx = _terms.indexWhere((t) => t.source == term.source);
+  void addOrUpdate(GlossaryTerm term, {bool overwrite = true}) {
+    final idx = _terms.indexWhere(
+        (t) => t.source.trim().toLowerCase() == term.source.trim().toLowerCase());
     if (idx >= 0) {
-      _terms[idx] = term;
+      if (overwrite) {
+        _terms[idx] = term;
+        _bumpVersion();
+      }
     } else {
       _terms.add(term);
+      _bumpVersion();
     }
+  }
+
+  void clear() {
+    _terms.clear();
     _bumpVersion();
   }
+
 
   void removeBySource(String source) {
     _terms.removeWhere((t) => t.source == source);
