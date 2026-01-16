@@ -5,16 +5,16 @@ import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../ai/local_llm/local_translation_engine.dart';
 import '../../ai/hunyuan/hunyuan_translation_engine.dart';
-import '../../ai/tencentcloud/tencent_credentials.dart';
+import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/translation/glossary.dart';
 import '../../ai/translation/translation_cache.dart';
 import '../../ai/translation/translation_service.dart';
 import '../../ai/translation/translation_types.dart';
-import 'tencent_hunyuan_config_provider.dart';
+import 'ai_model_provider.dart';
 
 class TranslationProvider extends ChangeNotifier {
-  static const _kCfgEngine = 'tr_cfg_engine';
   static const _kCfgFrom = 'tr_cfg_from';
   static const _kCfgTo = 'tr_cfg_to';
   static const _kCfgMode = 'tr_cfg_mode';
@@ -29,13 +29,13 @@ class TranslationProvider extends ChangeNotifier {
   final GlossaryManager _glossary = GlossaryManager();
 
   late TranslationService _service;
-  TencentHunyuanConfigProvider? _hunyuanConfig;
+  AiModelProvider? _aiModel;
+  VoidCallback? _aiModelListener;
 
   TranslationConfig _config = const TranslationConfig(
-    engineType: TranslationEngineType.ai,
     sourceLang: '',
     targetLang: 'en',
-    displayMode: TranslationDisplayMode.translationOnly,
+    displayMode: TranslationDisplayMode.bilingual,
   );
 
   bool _applyToReader = false;
@@ -44,22 +44,84 @@ class TranslationProvider extends ChangeNotifier {
   bool _aiImageTextEnabled = false;
   bool _loaded = false;
 
-  TranslationProvider({TencentHunyuanConfigProvider? hunyuanConfig}) {
-    _hunyuanConfig = hunyuanConfig;
-    _rebuildService();
+  TranslationProvider({
+    AiModelProvider? aiModel,
+  }) {
+    if (aiModel != null) {
+      updateAiModel(aiModel);
+    } else {
+      _rebuildService();
+    }
     _loadFromPrefs();
   }
 
-  void updateHunyuanConfig(TencentHunyuanConfigProvider config) {
-    _hunyuanConfig = config;
+  void updateAiModel(AiModelProvider model) {
+    if (identical(_aiModel, model)) return;
+    if (_aiModelListener != null) {
+      _aiModel?.removeListener(_aiModelListener!);
+    }
+    _aiModel = model;
+    _aiModelListener = _onAiModelChanged;
+    _aiModel?.addListener(_aiModelListener!);
     _rebuildService();
+    _syncFeatureFlagsToModel();
+    notifyListeners();
+  }
+
+  void _onAiModelChanged() {
+    _rebuildService();
+    _syncFeatureFlagsToModel();
+    notifyListeners();
+  }
+
+  void _syncFeatureFlagsToModel() {
+    final source = _aiModel?.source ?? AiModelSource.none;
+    bool changed = false;
+
+    if (source == AiModelSource.none) {
+      if (_aiTranslateEnabled) {
+        _aiTranslateEnabled = false;
+        changed = true;
+      }
+      if (_aiReadAloudEnabled) {
+        _aiReadAloudEnabled = false;
+        changed = true;
+      }
+      if (_aiImageTextEnabled) {
+        _aiImageTextEnabled = false;
+        changed = true;
+      }
+      if (_applyToReader) {
+        _applyToReader = false;
+        changed = true;
+      }
+    }
+
+    if (source == AiModelSource.local) {
+      if (_aiReadAloudEnabled) {
+        _aiReadAloudEnabled = false;
+        changed = true;
+      }
+      if (_aiImageTextEnabled) {
+        _aiImageTextEnabled = false;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      _savePrefs().then((_) {});
+    }
   }
 
   void _rebuildService() {
-    final creds = _hunyuanConfig?.effectiveCredentials ??
-        const TencentCredentials(appId: '', secretId: '', secretKey: '');
+    final source = _aiModel?.source ?? AiModelSource.none;
+    final creds = getEmbeddedPublicHunyuanCredentials();
 
-    final engine = HunyuanTranslationEngine(credentials: creds);
+    final engine = switch (source) {
+      AiModelSource.local => LocalTranslationEngine(),
+      AiModelSource.online => HunyuanTranslationEngine(credentials: creds),
+      AiModelSource.none => HunyuanTranslationEngine(credentials: creds),
+    };
 
     _service = TranslationService(
       cache: _cache,
@@ -80,8 +142,6 @@ class TranslationProvider extends ChangeNotifier {
   UnmodifiableListView<GlossaryTerm> get glossaryTerms => _glossary.terms;
   int get glossaryVersion => _glossary.version;
 
-  bool get isHunyuanConfigured => _hunyuanConfig?.hasUsableCredentials ?? false;
-
   Future<void> _loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -94,8 +154,6 @@ class TranslationProvider extends ChangeNotifier {
     _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
     _aiImageTextEnabled = prefs.getBool(_kAiImageTextEnabled) ?? false;
 
-    TranslationEngineType engineType = TranslationEngineType.ai;
-
     TranslationDisplayMode displayMode = _config.displayMode;
     if (mode == 'bilingual') displayMode = TranslationDisplayMode.bilingual;
     if (mode == 'translationOnly') {
@@ -103,7 +161,6 @@ class TranslationProvider extends ChangeNotifier {
     }
 
     _config = _config.copyWith(
-      engineType: engineType,
       sourceLang: from ?? _config.sourceLang,
       targetLang:
           (to ?? _config.targetLang).trim().isEmpty ? _config.targetLang : to,
@@ -131,10 +188,6 @@ class TranslationProvider extends ChangeNotifier {
 
   Future<void> _savePrefs() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _kCfgEngine,
-      'ai',
-    );
     await prefs.setString(_kCfgFrom, _config.sourceLang);
     await prefs.setString(_kCfgTo, _config.targetLang);
     await prefs.setString(
@@ -151,12 +204,6 @@ class TranslationProvider extends ChangeNotifier {
     await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
     await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
     await prefs.setBool(_kAiImageTextEnabled, _aiImageTextEnabled);
-  }
-
-  Future<void> setEngineType(TranslationEngineType type) async {
-    _config = _config.copyWith(engineType: TranslationEngineType.ai);
-    notifyListeners();
-    await _savePrefs();
   }
 
   Future<void> setSourceLang(String lang) async {
@@ -235,6 +282,61 @@ class TranslationProvider extends ChangeNotifier {
     );
   }
 
+  /// Request translation for specific paragraphs.
+  /// Results will be cached and listeners notified as they complete.
+  final Set<String> _pendingKeys = {};
+
+  bool isTranslationPending(String paragraphText) {
+    final key =
+        _service.buildCacheKey(config: _config, paragraphText: paragraphText);
+    return _pendingKeys.contains(key);
+  }
+
+  void requestTranslationForParagraphs(Map<int, String> paragraphsByIndex) {
+    if (paragraphsByIndex.isEmpty) return;
+    try {
+      _validateEngineConfig();
+      bool pendingChanged = false;
+
+      for (final entry in paragraphsByIndex.entries) {
+        final cacheKey =
+            _service.buildCacheKey(config: _config, paragraphText: entry.value);
+        final existing = _cache.getSynchronous(cacheKey);
+        if (existing != null) continue;
+        if (_pendingKeys.add(cacheKey)) {
+          pendingChanged = true;
+        }
+
+        _service
+            .translateParagraph(config: _config, paragraphText: entry.value)
+            .then((result) {
+          _pendingKeys.remove(cacheKey);
+          notifyListeners();
+        }).catchError((e) {
+          debugPrint('Translation failed for para ${entry.key}: $e');
+          final fallback = _service.normalizeParagraphText(entry.value);
+          _cache.set(cacheKey, fallback).then((_) {});
+          _pendingKeys.remove(cacheKey);
+          notifyListeners();
+        });
+      }
+      if (pendingChanged) {
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  /// Check if we have a cached translation for a given paragraph text
+  String? getCachedTranslation(String text) {
+    final normalized = _service.normalizeParagraphText(text);
+    final applied = _glossary.applyToSourceText(normalized);
+    final key =
+        _service.buildCacheKey(config: _config, paragraphText: normalized);
+    final cached = _cache.getSynchronous(key);
+    if (cached == null) return null;
+    return _glossary.applyToTranslatedText(cached, applied.placeholderToTarget);
+  }
+
   Future<void> prefetchParagraphs(List<String> nextParagraphs) async {
     if (nextParagraphs.isEmpty) return;
     if (!_canPrefetch()) return;
@@ -254,8 +356,31 @@ class TranslationProvider extends ChangeNotifier {
     if (_config.targetLang.trim().isEmpty) {
       throw TranslationConfigException('请选择目标语言');
     }
-    if (!isHunyuanConfigured) {
-      throw TranslationConfigException('未配置大模型凭证。请在“大模型设置”中配置。');
+    final source = _aiModel?.source ?? AiModelSource.none;
+    if (source == AiModelSource.none) {
+      throw TranslationConfigException('请先在 AI伴读面板选择本地或在线大模型');
+    }
+    if (source == AiModelSource.online &&
+        !getEmbeddedPublicHunyuanCredentials().isUsable) {
+      throw TranslationConfigException('在线大模型暂不可用');
+    }
+    if (source == AiModelSource.local) {
+      final model = _aiModel;
+      if (model == null) {
+        throw TranslationConfigException('本地模型未就绪');
+      }
+      if (model.localModelDownloading) {
+        throw TranslationConfigException('本地模型下载中…');
+      }
+      if (!model.localModelExists) {
+        throw TranslationConfigException('本地模型未下载');
+      }
+      if (!model.localRuntimeAvailable) {
+        throw TranslationConfigException('本地推理后端未就绪');
+      }
+      if (!model.isLocalModelReady) {
+        throw TranslationConfigException('本地模型未就绪');
+      }
     }
   }
 }

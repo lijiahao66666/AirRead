@@ -13,7 +13,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../widgets/ai_hud.dart';
 import '../../widgets/glass_panel.dart';
 import '../../providers/books_provider.dart';
-import '../../providers/tencent_hunyuan_config_provider.dart';
+import '../../providers/ai_model_provider.dart';
 import '../../providers/translation_provider.dart';
 import '../../../data/services/book_parser.dart';
 import '../../../data/models/book.dart';
@@ -22,6 +22,7 @@ import 'widgets/translation_sheet.dart';
 import 'widgets/ai_settings_sheet.dart';
 import 'widgets/summary_sheet.dart';
 import '../../../ai/translation/translation_types.dart';
+import '../../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../../ai/tencent_tts/tencent_tts_client.dart';
 
 class _MeasureSize extends StatefulWidget {
@@ -105,10 +106,19 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   // Content Cache
   final Map<int, String> _chapterContentCache = {};
   final Map<int, String> _chapterPlainText = {};
+  // Caches "effective" text used for pagination (includes translations)
+  final Map<int, String> _chapterEffectiveText = {};
   final Map<int, List<TextRange>> _chapterPageRanges = {};
   final Map<int, String> _chapterPageRangeKeys = {};
   final Map<int, int> _chapterTitleLength = {};
   final Map<int, List<ReaderParagraph>> _chapterParagraphsCache = {};
+  final Map<int, String> _chapterTranslationHash =
+      {}; // To detect translation changes
+
+  double _currentPageProgressInChapter = 0;
+  bool? _lastTranslationApplyToReader;
+  TranslationDisplayMode? _lastTranslationDisplayMode;
+  bool _relocateAfterTranslationChangeScheduled = false;
 
   // For Horizontal Mode, we use a PageController with a large initial index to simulate infinite scrolling
   // But strictly mapping pages is better.
@@ -117,6 +127,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   // We use a single PageController for the CURRENT CHAPTER's pages.
   // When we reach end, we switch to next chapter.
   late PageController _pageController;
+  int _pageViewCenterIndex = 1000;
 
   final BookParser _parser = BookParser();
   late AnimationController _pulseController;
@@ -130,7 +141,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    _pageController = PageController(initialPage: 1000);
+    _pageViewCenterIndex = 1000;
     // Hide System UI immediately on entry
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
@@ -425,10 +437,10 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }
 
   Future<bool> _startReadAloud() async {
-    final cfg = context.read<TencentHunyuanConfigProvider>();
-    if (!cfg.hasUsableCredentials) {
+    final source = context.read<AiModelProvider>().source;
+    if (source != AiModelSource.online) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('未配置大模型凭证，请先在“大模型设置”中开启凭证')),
+        const SnackBar(content: Text('朗读仅支持在线模式')),
       );
       return false;
     }
@@ -454,7 +466,9 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
           return true;
         }
 
-        final client = TencentTtsClient(credentials: cfg.effectiveCredentials);
+        final client = TencentTtsClient(
+          credentials: getEmbeddedPublicHunyuanCredentials(),
+        );
         final res = await client.textToVoice(text: text);
         final bytes = base64Decode(res.audioBase64);
         _readAloudAudioCache[key] = bytes;
@@ -654,32 +668,145 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     return TextSpan(children: children, style: bodyStyle);
   }
 
+  // Helper to construct the text to be rendered/measured based on available translations
+  String _getEffectiveTextForChapter(int chapterIndex, TranslationProvider tp) {
+    final plainText = _getPlainTextForChapter(chapterIndex);
+    if (!tp.applyToReader) return plainText;
+
+    // Generate a hash of current translation state for this chapter
+    // This is an optimization to avoid rebuilding the string if nothing changed
+    // Ideally we track which paragraphs have translations.
+    // Since we don't have a cheap way to know "version" of translations,
+    // we construct the string and cache it if same.
+
+    // We only include translations that are CACHED.
+    // If not cached, we use original text.
+
+    final paragraphs = _getParagraphsForChapter(chapterIndex, plainText);
+    final buffer = StringBuffer();
+    final bool isBilingual =
+        tp.config.displayMode == TranslationDisplayMode.bilingual;
+    final bool isTransOnly =
+        tp.config.displayMode == TranslationDisplayMode.translationOnly;
+
+    // Use string buffer
+    for (int i = 0; i < paragraphs.length; i++) {
+      final p = paragraphs[i];
+      final trans = tp.getCachedTranslation(p.text);
+      final pending = tp.isTranslationPending(p.text);
+
+      // Add indentation if not title
+      final bool isTitle = i == 0;
+      final String indent = isTitle ? '' : '　　';
+
+      if (trans != null && trans.isNotEmpty) {
+        if (isTransOnly) {
+          buffer.write(indent + trans);
+        } else {
+          // Bilingual
+          buffer.write(p.text); // Original already has indent
+          buffer.write('\n');
+          buffer.write(indent + trans);
+        }
+      } else if (pending) {
+        if (isTransOnly) {
+          buffer.write(p.text);
+          buffer.write('\n');
+          buffer.write(indent + 'AI 正在翻译…');
+        } else if (isBilingual) {
+          buffer.write(p.text);
+          buffer.write('\n');
+          buffer.write(indent + 'AI 正在翻译…');
+        } else {
+          buffer.write(p.text);
+        }
+      } else {
+        // No translation yet
+        buffer.write(p.text); // Original already has indent
+      }
+
+      if (i < paragraphs.length - 1) {
+        buffer.write('\n\n');
+      }
+    }
+
+    return buffer.toString();
+  }
+
+  TextSpan _buildPendingAwareSpan({
+    required String text,
+    required TextStyle bodyStyle,
+  }) {
+    const marker = 'AI 正在翻译…';
+    final int markerLen = marker.length;
+    final List<InlineSpan> children = [];
+
+    final placeholderStyle = bodyStyle.copyWith(
+      fontStyle: FontStyle.italic,
+      fontSize: bodyStyle.fontSize == null ? null : bodyStyle.fontSize! * 0.92,
+      color: (bodyStyle.color ?? _textColor).withOpacity(0.55),
+    );
+
+    int i = 0;
+    while (i < text.length) {
+      final idx = text.indexOf(marker, i);
+      if (idx < 0) {
+        children.add(TextSpan(text: text.substring(i), style: bodyStyle));
+        break;
+      }
+      if (idx > i) {
+        children.add(TextSpan(text: text.substring(i, idx), style: bodyStyle));
+      }
+      final end = (idx + markerLen).clamp(0, text.length);
+      children.add(
+          TextSpan(text: text.substring(idx, end), style: placeholderStyle));
+      i = end;
+    }
+
+    return TextSpan(children: children, style: bodyStyle);
+  }
+
   void _ensureTextPaginationForChapter({
     required int chapterIndex,
     required double viewportHeight,
     required double contentWidth,
   }) {
-    final text = _getPlainTextForChapter(chapterIndex);
-    if (text.isEmpty) {
+    // 1. Get Base Text (Original)
+    final plainText = _getPlainTextForChapter(chapterIndex);
+    if (plainText.isEmpty) {
       _chapterPageRanges[chapterIndex] = [const TextRange(start: 0, end: 0)];
-      _chapterPageRangeKeys[chapterIndex] = '';
       _chapterPageCounts[chapterIndex] = 1;
-      if (chapterIndex == _currentChapterIndex) {
-        _totalPagesInCurrentChapter = 1;
-        _currentPageInChapter = 0;
-      }
       return;
     }
 
+    // 2. Determine "Effective" Text (Mixed with Translation)
+    final tp = Provider.of<TranslationProvider>(context, listen: false);
+    String effectiveText = plainText;
+
+    // If translation is active, we need to construct the mixed text
+    // We check if we need to update our cached effective text
+    // A simple heuristic: check if we have any new translations for this chapter?
+    // Or just re-construct it every time we paginate (pagination is expensive anyway)
+
+    if (tp.applyToReader) {
+      effectiveText = _getEffectiveTextForChapter(chapterIndex, tp);
+    }
+
+    _chapterEffectiveText[chapterIndex] = effectiveText;
+
     final dpr = MediaQuery.of(context).devicePixelRatio;
     String snapKey(double v) => (v * dpr).roundToDouble().toStringAsFixed(0);
+    // Key includes effective text length to invalidate on translation updates
     final String paginationKey =
-        '${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|${MediaQuery.of(context).textScaler.scale(1).toStringAsFixed(3)}';
+        '${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|${effectiveText.length}';
 
     if (_chapterPageRangeKeys[chapterIndex] == paginationKey &&
         _chapterPageRanges[chapterIndex] != null) {
       return;
     }
+
+    // ... (rest of logic uses effectiveText instead of text)
+    final text = effectiveText; // Use effective text
 
     final TextStyle effectiveTextStyle =
         (Theme.of(context).textTheme.bodyLarge ?? const TextStyle()).copyWith(
@@ -703,8 +830,16 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
       while (low <= high) {
         final int mid = (low + high) >> 1;
-        textPainter.text = _buildStyledSpanForRange(
-            chapterIndex, text, start, mid, effectiveTextStyle);
+        // _buildStyledSpanForRange needs to handle mixed text too?
+        // Actually, since we constructed effectiveText, we just style it uniformly?
+        // Wait, Title logic relies on _chapterTitleLength of ORIGINAL text.
+        // If effective text has changed, title length might be different (if title translated).
+        // For simplicity, let's treat title styling as "First N chars of effective text if first paragraph".
+        // Or simpler: Just style the whole thing as body for now, or detect first newline.
+
+        textPainter.text = TextSpan(
+            text: text.substring(start, mid), style: effectiveTextStyle);
+
         textPainter.layout(minWidth: 0, maxWidth: contentWidth);
         if (textPainter.height <= viewportHeight) {
           best = mid;
@@ -741,8 +876,69 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     _chapterPageCounts.clear();
     _chapterPageRanges.clear();
     _chapterPageRangeKeys.clear();
-    _totalPagesInCurrentChapter = 1;
-    _currentPageInChapter = 0;
+  }
+
+  void _relocateCurrentPageToProgress(double progress) {
+    final ranges = _chapterPageRanges[_currentChapterIndex];
+    if (ranges == null || ranges.isEmpty) return;
+
+    final effectiveText = _chapterEffectiveText[_currentChapterIndex] ??
+        _getPlainTextForChapter(_currentChapterIndex);
+    final len = effectiveText.length;
+    if (len <= 0) return;
+
+    final int target = (progress.clamp(0.0, 1.0) * len).round().clamp(0, len);
+
+    int low = 0;
+    int high = ranges.length - 1;
+    int best = 0;
+    while (low <= high) {
+      final mid = (low + high) >> 1;
+      final r = ranges[mid];
+      if (target < r.start) {
+        high = mid - 1;
+      } else if (target >= r.end) {
+        low = mid + 1;
+        best = mid;
+      } else {
+        best = mid;
+        break;
+      }
+    }
+
+    _currentPageInChapter = best.clamp(0, ranges.length - 1);
+  }
+
+  void _scheduleRelocateAfterTranslationChange(TranslationProvider tp) {
+    final apply = tp.applyToReader;
+    final mode = tp.config.displayMode;
+    if (_lastTranslationApplyToReader == null ||
+        _lastTranslationDisplayMode == null) {
+      _lastTranslationApplyToReader = apply;
+      _lastTranslationDisplayMode = mode;
+      return;
+    }
+
+    final changed = _lastTranslationApplyToReader != apply ||
+        _lastTranslationDisplayMode != mode;
+    _lastTranslationApplyToReader = apply;
+    _lastTranslationDisplayMode = mode;
+    if (!changed) return;
+    if (_relocateAfterTranslationChangeScheduled) return;
+
+    final anchor = _currentPageProgressInChapter;
+    _relocateAfterTranslationChangeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _relocateCurrentPageToProgress(anchor);
+        _pageViewCenterIndex = 1000;
+      });
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(1000);
+      }
+      _relocateAfterTranslationChangeScheduled = false;
+    });
   }
 
   Future<void> _ensureChapterContentCached(int chapterIndex) async {
@@ -802,6 +998,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                           setState(() {
                             _currentChapterIndex = index;
                             _currentPageInChapter = 0;
+                            _pageViewCenterIndex = 1000;
                           });
                           if (_pageController.hasClients) {
                             _pageController.jumpToPage(1000);
@@ -1032,49 +1229,37 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
           controller: _pageController,
           padEnds: false,
           onPageChanged: (index) {
-            // Determine direction
-            int diff = index - 1000;
+            final int diff = index - _pageViewCenterIndex;
             if (diff == 0) return;
             setState(() {
-              if (diff > 0) {
-                // Next Page
-                _currentPageInChapter++;
-                // Check if we exceeded current chapter pages
-                int total = _pageCountForChapter(_currentChapterIndex);
+              _pageViewCenterIndex = index;
 
-                if (_currentPageInChapter >= total) {
-                  // Next Chapter
-                  if (_currentChapterIndex < _chapters.length - 1) {
-                    _currentChapterIndex++;
-                    _currentPageInChapter = 0;
-                    // Reset page count for new chapter
-                    _totalPagesInCurrentChapter = 1;
-                  } else {
-                    // End of book, revert
-                    _currentPageInChapter--;
+              final int steps = diff.abs();
+              for (int s = 0; s < steps; s++) {
+                if (diff > 0) {
+                  _currentPageInChapter++;
+                  int total = _pageCountForChapter(_currentChapterIndex);
+                  if (_currentPageInChapter >= total) {
+                    if (_currentChapterIndex < _chapters.length - 1) {
+                      _currentChapterIndex++;
+                      _currentPageInChapter = 0;
+                      _totalPagesInCurrentChapter = 1;
+                    } else {
+                      _currentPageInChapter--;
+                    }
                   }
-                }
-              } else {
-                // Prev Page
-                _currentPageInChapter--;
-                if (_currentPageInChapter < 0) {
-                  // Prev Chapter
-                  if (_currentChapterIndex > 0) {
-                    _currentChapterIndex--;
-                    // We need to know pages of prev chapter to set to last page
-                    // If not cached, we default to 0 and let it load/correct itself?
-                    // If we set to 0, user sees first page of prev chapter.
-                    // Ideally we want last page.
-                    // We can set it to a high number (e.g. 9999) and let the layout logic clamp it?
-                    // No, our layout logic below needs exact index.
-                    // If we don't know, we set to 0 (start of chapter) is safer than empty end.
-                    // BUT user expects to go to END of prev chapter.
-                    int prevCount = _pageCountForChapter(_currentChapterIndex);
-                    _currentPageInChapter = prevCount - 1;
-                    _totalPagesInCurrentChapter = prevCount;
-                  } else {
-                    // Start of book, revert
-                    _currentPageInChapter++;
+                } else {
+                  _currentPageInChapter--;
+                  if (_currentPageInChapter < 0) {
+                    if (_currentChapterIndex > 0) {
+                      _currentChapterIndex--;
+                      int prevCount =
+                          _pageCountForChapter(_currentChapterIndex);
+                      _currentPageInChapter = prevCount - 1;
+                      _totalPagesInCurrentChapter = prevCount;
+                    } else {
+                      _currentPageInChapter++;
+                    }
                   }
                 }
               }
@@ -1092,17 +1277,22 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (_pageController.hasClients) {
+                if (mounted && _pageViewCenterIndex != 1000) {
+                  setState(() {
+                    _pageViewCenterIndex = 1000;
+                  });
+                }
                 _pageController.jumpToPage(1000);
               }
             });
           },
           itemBuilder: (context, index) {
-            if (index == 1000) {
+            if (index == _pageViewCenterIndex) {
               return _buildSinglePage(
                   _currentChapterIndex, _currentPageInChapter, padding);
             }
 
-            int diff = index - 1000;
+            final int diff = index - _pageViewCenterIndex;
 
             int targetChapter = _currentChapterIndex;
             int targetPage = _currentPageInChapter + diff;
@@ -1153,8 +1343,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         double snap(double value) => (value * dpr).roundToDouble() / dpr;
 
         final double topMargin = snap(padding.top + 16);
-        // Increased bottom padding to prevent text from being covered by system chin or menus
-        final double bottomMargin = snap(padding.bottom + 48);
+        final double bottomMargin = snap(padding.bottom + 16);
 
         double viewportHeight =
             snap(constraints.maxHeight - topMargin - bottomMargin);
@@ -1183,17 +1372,26 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         }
         final int safeIndex = pageIndex.clamp(0, ranges.length - 1);
         final range = ranges[safeIndex];
-        final String plainText = _getPlainTextForChapter(chapterIndex);
-        if (range.start >= plainText.length) {
+
+        // Use EFFECTIVE TEXT, not plain text
+        final String effectiveText = _chapterEffectiveText[chapterIndex] ??
+            _getPlainTextForChapter(chapterIndex);
+
+        if (chapterIndex == _currentChapterIndex &&
+            pageIndex == _currentPageInChapter) {
+          final len = effectiveText.length;
+          _currentPageProgressInChapter = len > 0 ? range.start / len : 0;
+        }
+
+        if (range.start >= effectiveText.length) {
           return const SizedBox.shrink();
         }
-        final int end = range.end.clamp(0, plainText.length);
-        final TextSpan span = _buildStyledSpanForRange(
-          chapterIndex,
-          plainText,
-          range.start,
-          end,
-          effectiveTextStyle,
+        final int end = range.end.clamp(0, effectiveText.length);
+
+        // For mixed text, we just style it as body, title logic is too complex to preserve for now
+        final TextSpan span = _buildPendingAwareSpan(
+          text: effectiveText.substring(range.start, end),
+          bodyStyle: effectiveTextStyle,
         );
 
         return Stack(
@@ -1211,7 +1409,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                     chapterIndex: chapterIndex,
                     range: range,
                     end: end,
-                    plainText: plainText,
+                    effectiveText: effectiveText,
                     bodySpan: span,
                     bodyStyle: effectiveTextStyle,
                   ),
@@ -1267,140 +1465,70 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     required int chapterIndex,
     required TextRange range,
     required int end,
-    required String plainText,
+    required String effectiveText, // Now using effective text
     required TextSpan bodySpan,
     required TextStyle bodyStyle,
   }) {
     final translationProvider = Provider.of<TranslationProvider>(context);
-    if (!translationProvider.applyToReader) {
-      return Text.rich(bodySpan);
-    }
 
-    final paragraphsByIndex = _paragraphsByIndexForRange(
-      chapterIndex: chapterIndex,
-      plainText: plainText,
-      start: range.start,
-      end: end,
-    );
+    // If we are in translation mode, we trigger translation requests for *visible* paragraphs.
+    // But we RENDER what we have in effectiveText (which includes Cached Translations).
 
-    if (paragraphsByIndex.isEmpty) {
-      return Text.rich(bodySpan);
-    }
+    if (translationProvider.applyToReader) {
+      final plainText = _getPlainTextForChapter(chapterIndex);
+      final allParas = _getParagraphsForChapter(chapterIndex, plainText);
 
-    final cfg = translationProvider.config;
-    final orderedForKey = paragraphsByIndex.keys.toList()..sort();
-    final paraHash = Object.hashAll(
-      orderedForKey.map((k) => paragraphsByIndex[k]),
-    );
-    final key = [
-      'c:$chapterIndex',
-      's:${range.start}',
-      'e:$end',
-      'from:${cfg.sourceLang}',
-      'to:${cfg.targetLang}',
-      'engine:${cfg.engineType.name}',
-      'mode:${cfg.displayMode.name}',
-      'gv:${translationProvider.glossaryVersion}',
-      'ph:$paraHash',
-    ].join('|');
+      if (allParas.isNotEmpty) {
+        // Estimate current paragraph index
+        final effectiveLen = effectiveText.length;
+        final double progress =
+            effectiveLen > 0 ? range.start / effectiveLen : 0;
+        int estimatedIdx = (progress * allParas.length).floor();
+        estimatedIdx = estimatedIdx.clamp(0, allParas.length - 1);
 
-    final future = _translationFutures.putIfAbsent(
-      key,
-      () => translationProvider.translateParagraphsByIndex(paragraphsByIndex),
-    );
-
-    return FutureBuilder<Map<int, String>>(
-      future: future,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            !snapshot.hasData) {
-          // Show original text immediately while waiting for translation
-          // This avoids the "blank page" effect
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text.rich(bodySpan),
-              // Optional: Minimal loading indicator if needed, or nothing for seamlessness
-              if (cfg.displayMode == TranslationDisplayMode.translationOnly)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12.0),
-                  child: Row(
-                    children: [
-                      const SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(width: 8),
-                      Text('正在翻译…',
-                          style: bodyStyle.copyWith(
-                              fontSize: 12,
-                              color: _textColor.withOpacity(0.5))),
-                    ],
-                  ),
-                ),
-            ],
-          );
-        }
-
-        if (snapshot.hasError) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text.rich(bodySpan),
-              const SizedBox(height: 12),
-              Text(
-                '翻译失败：${snapshot.error}',
-                style:
-                    bodyStyle.copyWith(fontSize: 12, color: Colors.redAccent),
-              ),
-            ],
-          );
-        }
-
-        final results = snapshot.data ?? const {};
-        final ordered = paragraphsByIndex.keys.toList()..sort();
-
-        if (cfg.displayMode == TranslationDisplayMode.translationOnly) {
-          final buffer = StringBuffer();
-          for (final idx in ordered) {
-            final t = results[idx];
-            if (t == null || t.trim().isEmpty) continue;
-            buffer.writeln(t);
-            buffer.writeln();
+        // Trigger the request here.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final Map<int, String> toRequest = {};
+          final int start = (estimatedIdx - 3).clamp(0, allParas.length);
+          final int endIdx = (start + 18).clamp(0, allParas.length);
+          for (int i = start; i < endIdx; i++) {
+            final t = allParas[i].text;
+            if (translationProvider.getCachedTranslation(t) != null) continue;
+            if (translationProvider.isTranslationPending(t)) continue;
+            toRequest[i] = t;
           }
 
-          return SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: Text(
-              buffer.toString().trimRight(),
-              style: bodyStyle,
-            ),
-          );
-        }
+          if (toRequest.length < 18 &&
+              chapterIndex < _chapters.length - 1 &&
+              estimatedIdx >= allParas.length - 3) {
+            final nextChapterIdx = chapterIndex + 1;
+            final nextText = _chapterPlainText[nextChapterIdx];
+            if (nextText != null && nextText.isNotEmpty) {
+              final nextParas =
+                  _getParagraphsForChapter(nextChapterIdx, nextText);
+              for (int i = 0;
+                  i < nextParas.length && toRequest.length < 18;
+                  i++) {
+                final t = nextParas[i].text;
+                if (translationProvider.getCachedTranslation(t) != null) {
+                  continue;
+                }
+                if (translationProvider.isTranslationPending(t)) continue;
+                toRequest[100000 + i] = t;
+              }
+            } else {
+              _ensureChapterContentCached(nextChapterIdx);
+            }
+          }
 
-        return SingleChildScrollView(
-          physics: const ClampingScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final idx in ordered) ...[
-                Text(paragraphsByIndex[idx] ?? '', style: bodyStyle),
-                const SizedBox(height: 8),
-                Text(
-                  results[idx] ?? '…',
-                  style: bodyStyle.copyWith(
-                    fontSize: (bodyStyle.fontSize ?? 18) - 2,
-                    color: _textColor.withOpacity(0.75),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ]
-            ],
-          ),
-        );
-      },
-    );
+          if (toRequest.isNotEmpty) {
+            translationProvider.requestTranslationForParagraphs(toRequest);
+          }
+        });
+      }
+    }
+
+    return SizedBox(width: double.infinity, child: Text.rich(bodySpan));
   }
 
   Map<int, String> _paragraphsByIndexForRange({
@@ -1615,6 +1743,9 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final tp = context.watch<TranslationProvider>();
+    _scheduleRelocateAfterTranslationChange(tp);
+
     // IMPORTANT: Get padding from MediaQuery BEFORE removing it
     final padding = MediaQuery.of(context).padding;
     final viewPadding = MediaQuery.of(context).viewPadding;
@@ -1634,9 +1765,11 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     try {
       if (!_pageController.hasClients) {
         _pageController = PageController(initialPage: 1000);
+        _pageViewCenterIndex = 1000;
       }
     } catch (e) {
       _pageController = PageController(initialPage: 1000);
+      _pageViewCenterIndex = 1000;
     }
     readerContent = _buildHorizontalMode(
       EdgeInsets.only(

@@ -65,6 +65,15 @@ class TranslationCache {
     return '$_keyPrefix$hash';
   }
 
+  String? getSynchronous(String key) {
+    final mem = _mem[key];
+    if (mem != null && !mem.isExpired(ttl)) {
+      _touchKey(key);
+      return mem.value;
+    }
+    return null;
+  }
+
   Future<String?> get(String key) async {
     final mem = _mem[key];
     if (mem != null && !mem.isExpired(ttl)) {

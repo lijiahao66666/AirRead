@@ -1,42 +1,42 @@
 import 'package:flutter/foundation.dart';
 
-enum TranslationEngineType {
-  machine,
-  ai,
-}
-
 enum TranslationDisplayMode {
   translationOnly,
   bilingual,
 }
 
+enum TranslationEngineType {
+  machine,
+  ai,
+}
+
 @immutable
 class TranslationConfig {
-  final TranslationEngineType engineType;
   /// Empty means auto-detect (if supported by engine).
   final String sourceLang;
   /// Required.
   final String targetLang;
   final TranslationDisplayMode displayMode;
+  final TranslationEngineType engineType;
 
   const TranslationConfig({
-    required this.engineType,
     required this.sourceLang,
     required this.targetLang,
     required this.displayMode,
+    this.engineType = TranslationEngineType.machine,
   });
 
   TranslationConfig copyWith({
-    TranslationEngineType? engineType,
     String? sourceLang,
     String? targetLang,
     TranslationDisplayMode? displayMode,
+    TranslationEngineType? engineType,
   }) {
     return TranslationConfig(
-      engineType: engineType ?? this.engineType,
       sourceLang: sourceLang ?? this.sourceLang,
       targetLang: targetLang ?? this.targetLang,
       displayMode: displayMode ?? this.displayMode,
+      engineType: engineType ?? this.engineType,
     );
   }
 }

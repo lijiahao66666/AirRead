@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 
 import 'engines/translation_engine.dart';
 
-
 import 'glossary.dart';
 import 'translation_cache.dart';
 import 'translation_queue.dart';
@@ -16,8 +15,8 @@ class TranslationService {
   final GlossaryManager glossary;
   final void Function(String message, Object? error, StackTrace? st)? logger;
 
-
-  final TranslationTaskQueue _machineQueue = TranslationTaskQueue(maxConcurrent: 6);
+  final TranslationTaskQueue _machineQueue =
+      TranslationTaskQueue(maxConcurrent: 6);
   final TranslationTaskQueue _aiQueue = TranslationTaskQueue(maxConcurrent: 2);
 
   final Map<String, Future<String>> _inFlight = {};
@@ -36,8 +35,6 @@ class TranslationService {
     required this.aiEngine,
   });
 
-
-
   TranslationEngine _engineFor(TranslationEngineType type) {
     switch (type) {
       case TranslationEngineType.machine:
@@ -46,7 +43,6 @@ class TranslationService {
         return aiEngine;
     }
   }
-
 
   TranslationTaskQueue _queueFor(TranslationEngineType type) {
     switch (type) {
@@ -57,13 +53,33 @@ class TranslationService {
     }
   }
 
+  String normalizeParagraphText(String text) {
+    return text.trim();
+  }
+
+  String buildCacheKey({
+    required TranslationConfig config,
+    required String paragraphText,
+  }) {
+    final engine = _engineFor(config.engineType);
+    final normalized = normalizeParagraphText(paragraphText);
+    final glossaryApplied = glossary.applyToSourceText(normalized);
+    return cache.buildKey(
+      engineId: engine.id,
+      sourceLang: config.sourceLang,
+      targetLang: config.targetLang,
+      glossaryVersion: glossary.version,
+      text: glossaryApplied.textWithPlaceholders,
+    );
+  }
+
   Future<String> translateParagraph({
     required TranslationConfig config,
     required String paragraphText,
   }) async {
     final engine = _engineFor(config.engineType);
-
-    final glossaryApplied = glossary.applyToSourceText(paragraphText);
+    final normalized = normalizeParagraphText(paragraphText);
+    final glossaryApplied = glossary.applyToSourceText(normalized);
 
     final cacheKey = cache.buildKey(
       engineId: engine.id,
@@ -75,7 +91,8 @@ class TranslationService {
 
     final cached = await cache.get(cacheKey);
     if (cached != null) {
-      return glossary.applyToTranslatedText(cached, glossaryApplied.placeholderToTarget);
+      return glossary.applyToTranslatedText(
+          cached, glossaryApplied.placeholderToTarget);
     }
 
     final existing = _inFlight[cacheKey];
@@ -94,9 +111,10 @@ class TranslationService {
       });
 
       await cache.set(cacheKey, translated);
-      final finalText = glossary.applyToTranslatedText(translated, glossaryApplied.placeholderToTarget);
+      final finalText = glossary.applyToTranslatedText(
+          translated, glossaryApplied.placeholderToTarget);
 
-      _onAiTranslated(config: config, sourceParagraph: paragraphText);
+      _onAiTranslated(config: config, sourceParagraph: normalized);
 
       return finalText;
     });
@@ -117,7 +135,8 @@ class TranslationService {
       final ordered = paragraphsByIndex.entries.toList()
         ..sort((a, b) => a.key.compareTo(b.key));
 
-      final applied = ordered.map((e) => glossary.applyToSourceText(e.value)).toList();
+      final applied =
+          ordered.map((e) => glossary.applyToSourceText(e.value)).toList();
 
       final keys = <String>[];
       final toTranslateTexts = <String>[];
@@ -161,7 +180,8 @@ class TranslationService {
       for (int i = 0; i < ordered.length; i++) {
         final raw = await cache.get(keys[i]);
         final translated = raw ?? '';
-        out[ordered[i].key] = glossary.applyToTranslatedText(translated, applied[i].placeholderToTarget);
+        out[ordered[i].key] = glossary.applyToTranslatedText(
+            translated, applied[i].placeholderToTarget);
       }
       return out;
     }
@@ -172,7 +192,8 @@ class TranslationService {
 
     for (final e in paragraphsByIndex.entries) {
       futures.add(() async {
-        final t = await translateParagraph(config: config, paragraphText: e.value);
+        final t =
+            await translateParagraph(config: config, paragraphText: e.value);
         out[e.key] = t;
       }());
     }
@@ -188,7 +209,7 @@ class TranslationService {
     // Fire-and-forget: queue handles concurrency, errors are ignored.
     for (final p in nextParagraphs) {
       // ignore: unawaited_futures
-      translateParagraph(config: config, paragraphText: p).catchError((_) => '');
+      translateParagraph(config: config, paragraphText: p).catchError((_) {});
     }
   }
 
@@ -233,4 +254,3 @@ class TranslationService {
     }
   }
 }
-

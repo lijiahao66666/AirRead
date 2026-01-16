@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/pages/bookshelf/bookshelf_page.dart';
+import 'presentation/providers/ai_model_provider.dart';
 import 'presentation/providers/books_provider.dart';
-import 'presentation/providers/tencent_hunyuan_config_provider.dart';
 import 'presentation/providers/translation_provider.dart';
 
 import 'package:flutter/services.dart';
@@ -35,13 +35,12 @@ void main() {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => BooksProvider()),
-        ChangeNotifierProvider(create: (_) => TencentHunyuanConfigProvider()),
-        ChangeNotifierProxyProvider<TencentHunyuanConfigProvider,
-            TranslationProvider>(
+        ChangeNotifierProvider(create: (_) => AiModelProvider()),
+        ChangeNotifierProxyProvider<AiModelProvider, TranslationProvider>(
           create: (_) => TranslationProvider(),
-          update: (_, cfg, provider) {
-            final p = provider ?? TranslationProvider(hunyuanConfig: cfg);
-            p.updateHunyuanConfig(cfg);
+          update: (_, aiModel, provider) {
+            final p = provider ?? TranslationProvider(aiModel: aiModel);
+            p.updateAiModel(aiModel);
             return p;
           },
         ),
