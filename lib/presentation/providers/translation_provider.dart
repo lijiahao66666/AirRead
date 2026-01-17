@@ -24,7 +24,6 @@ class TranslationProvider extends ChangeNotifier {
   static const _kCfgApply = 'tr_cfg_apply';
   static const _kAiTranslateEnabled = 'tr_ai_translate_enabled';
   static const _kAiReadAloudEnabled = 'tr_ai_read_aloud_enabled';
-  static const _kAiImageTextEnabled = 'tr_ai_image_text_enabled';
   static const _kAutoGlossary = 'tr_auto_glossary';
 
   final TranslationCache _cache =
@@ -47,7 +46,6 @@ class TranslationProvider extends ChangeNotifier {
   bool _applyToReader = false;
   bool _aiTranslateEnabled = false;
   bool _aiReadAloudEnabled = false;
-  bool _aiImageTextEnabled = false;
   bool _autoGlossaryExtractionEnabled = true;
   bool _loaded = false;
 
@@ -94,10 +92,6 @@ class TranslationProvider extends ChangeNotifier {
         _aiReadAloudEnabled = false;
         changed = true;
       }
-      if (_aiImageTextEnabled) {
-        _aiImageTextEnabled = false;
-        changed = true;
-      }
       if (_applyToReader) {
         _applyToReader = false;
         changed = true;
@@ -107,10 +101,6 @@ class TranslationProvider extends ChangeNotifier {
     if (source == AiModelSource.local) {
       if (_aiReadAloudEnabled) {
         _aiReadAloudEnabled = false;
-        changed = true;
-      }
-      if (_aiImageTextEnabled) {
-        _aiImageTextEnabled = false;
         changed = true;
       }
       final ready = _aiModel?.isLocalModelReady ?? false;
@@ -140,12 +130,17 @@ class TranslationProvider extends ChangeNotifier {
       AiModelSource.online => HunyuanTranslationEngine(credentials: creds),
       AiModelSource.none => HunyuanTranslationEngine(credentials: creds),
     };
+    final backend = switch (source) {
+      AiModelSource.local => TranslationBackend.local,
+      AiModelSource.online => TranslationBackend.online,
+      AiModelSource.none => TranslationBackend.online,
+    };
 
     _service = TranslationService(
       cache: _cache,
       glossary: _glossary,
-      machineEngine: engine,
-      aiEngine: engine,
+      engine: engine,
+      backend: backend,
       chatOnce: switch (source) {
         AiModelSource.local => LocalLlmClient().chatOnce,
         AiModelSource.online => ({required String userText}) async {
@@ -170,7 +165,6 @@ class TranslationProvider extends ChangeNotifier {
   bool get applyToReader => _applyToReader;
   bool get aiTranslateEnabled => _aiTranslateEnabled;
   bool get aiReadAloudEnabled => _aiReadAloudEnabled;
-  bool get aiImageTextEnabled => _aiImageTextEnabled;
   bool get autoGlossaryExtractionEnabled => _autoGlossaryExtractionEnabled;
 
   String get _glossaryKey => 'tr_glossary_terms_$_currentBookId';
@@ -194,7 +188,6 @@ class TranslationProvider extends ChangeNotifier {
 
     _aiTranslateEnabled = prefs.getBool(_kAiTranslateEnabled) ?? false;
     _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
-    _aiImageTextEnabled = prefs.getBool(_kAiImageTextEnabled) ?? false;
     _autoGlossaryExtractionEnabled =
         prefs.getBool(_kAutoGlossary) ?? _autoGlossaryExtractionEnabled;
 
@@ -209,9 +202,6 @@ class TranslationProvider extends ChangeNotifier {
       targetLang:
           (to ?? _config.targetLang).trim().isEmpty ? _config.targetLang : to,
       displayMode: displayMode,
-      engineType: _aiTranslateEnabled
-          ? TranslationEngineType.ai
-          : TranslationEngineType.machine,
       autoExtractGlossary: _autoGlossaryExtractionEnabled,
     );
     _applyToReader = _aiTranslateEnabled;
@@ -263,7 +253,6 @@ class TranslationProvider extends ChangeNotifier {
     }
     await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
     await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
-    await prefs.setBool(_kAiImageTextEnabled, _aiImageTextEnabled);
     await prefs.setBool(_kAutoGlossary, _autoGlossaryExtractionEnabled);
   }
 
@@ -297,13 +286,6 @@ class TranslationProvider extends ChangeNotifier {
       _validateEngineConfig();
     }
     _aiTranslateEnabled = value;
-    _config = _config.copyWith(
-      engineType:
-          value ? TranslationEngineType.ai : TranslationEngineType.machine,
-    );
-    if (value && _aiImageTextEnabled) {
-      _aiImageTextEnabled = false;
-    }
     // Sync applyToReader
     _applyToReader = value;
     notifyListeners();
@@ -312,20 +294,6 @@ class TranslationProvider extends ChangeNotifier {
 
   Future<void> setAiReadAloudEnabled(bool value) async {
     _aiReadAloudEnabled = value;
-    if (value && _aiImageTextEnabled) {
-      _aiImageTextEnabled = false;
-    }
-    notifyListeners();
-    await _savePrefs();
-  }
-
-  Future<void> setAiImageTextEnabled(bool value) async {
-    _aiImageTextEnabled = value;
-    if (value) {
-      _aiTranslateEnabled = false;
-      _aiReadAloudEnabled = false;
-      _applyToReader = false;
-    }
     notifyListeners();
     await _savePrefs();
   }

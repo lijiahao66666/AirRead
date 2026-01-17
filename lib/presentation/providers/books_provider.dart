@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import '../../data/models/book.dart';
 import '../../data/database/database_helper.dart';
 import '../../data/database/web_database_helper.dart';
@@ -107,7 +106,7 @@ class BooksProvider extends ChangeNotifier {
       _isSelectionMode = false;
       _selectedBookIds.clear();
     } catch (e) {
-      print('Error pinning books: $e');
+      debugPrint('Error pinning books: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -141,9 +140,9 @@ class BooksProvider extends ChangeNotifier {
       _isSelectionMode = false;
       _selectedBookIds.clear();
 
-      print('Deleted ${idsToDelete.length} books');
+      debugPrint('Deleted ${idsToDelete.length} books');
     } catch (e) {
-      print('Error deleting books: $e');
+      debugPrint('Error deleting books: $e');
       // Show error in UI?
     } finally {
       _isLoading = false;
@@ -183,7 +182,7 @@ class BooksProvider extends ChangeNotifier {
         _books.insertAll(0, newBooks);
       }
     } catch (e) {
-      print('Error importing web files: $e');
+      debugPrint('Error importing web files: $e');
       _importError = '导入失败: $e';
     } finally {
       _isImporting = false;
@@ -205,7 +204,7 @@ class BooksProvider extends ChangeNotifier {
         _books = await _dbHelper.getAllBooks();
       }
     } catch (e) {
-      print('Error loading books: $e');
+      debugPrint('Error loading books: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -232,7 +231,7 @@ class BooksProvider extends ChangeNotifier {
           _books.insertAll(0, newBooks); // Add to top
         }
       } catch (e) {
-        print('Error importing books: $e');
+        debugPrint('Error importing books: $e');
         _importError = '导入失败: $e';
       } finally {
         _isImporting = false;

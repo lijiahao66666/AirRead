@@ -257,7 +257,7 @@ class _ThinkTagStreamParser {
           continue;
         }
 
-        final keep = _close.length - 1;
+        const keep = _close.length - 1;
         if (!force && text.length > keep) {
           final emit = _clean(text.substring(0, text.length - keep));
           if (emit.isNotEmpty) {
@@ -283,7 +283,7 @@ class _ThinkTagStreamParser {
             continue;
           }
 
-          final keep = _answerClose.length - 1;
+          const keep = _answerClose.length - 1;
           if (!force && text.length > keep) {
             final emit = _clean(text.substring(0, text.length - keep));
             if (emit.isNotEmpty) {
@@ -313,7 +313,7 @@ class _ThinkTagStreamParser {
           continue;
         }
 
-        final keep = _open.length - 1;
+        const keep = _open.length - 1;
         if (!force && text.length > keep) {
           final emit = _clean(text.substring(0, text.length - keep));
           if (emit.isNotEmpty && !_sawAnswerTag) {

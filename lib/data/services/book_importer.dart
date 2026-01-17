@@ -8,13 +8,6 @@ import '../models/book.dart';
 import '../database/database_helper.dart';
 import 'book_parser.dart';
 
-// Web 平台的内存存储路径（仅用于保持接口兼容）
-class _WebMemoryPath {
-  final String _path;
-  const _WebMemoryPath(this._path);
-  String get path => _path;
-}
-
 /// 安全地获取应用文档目录
 Future<Directory> getApplicationDocumentsDirectorySafe() async {
   if (kIsWeb) {
@@ -67,7 +60,7 @@ class BookImporter {
         allowMultiple: true,
       );
     } catch (e) {
-      print('Error picking files: $e');
+      debugPrint('Error picking files: $e');
       return null;
     }
   }
@@ -125,7 +118,7 @@ class BookImporter {
 
       return newBook;
     } catch (e) {
-      print('Error importing web file $fileName: $e');
+      debugPrint('Error importing web file $fileName: $e');
       return null;
     }
   }
@@ -185,7 +178,7 @@ class BookImporter {
 
       return newBook;
     } catch (e) {
-      print('Error importing file $sourcePath: $e');
+      debugPrint('Error importing file $sourcePath: $e');
       return null;
     }
   }

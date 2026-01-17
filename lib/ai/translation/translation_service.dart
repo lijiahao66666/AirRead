@@ -14,19 +14,25 @@ import 'translation_types.dart';
 
 typedef ChatOnceFn = Future<String> Function({required String userText});
 
+enum TranslationBackend {
+  local,
+  online,
+}
+
 class TranslationService {
   final TranslationCache cache;
   final GlossaryManager glossary;
   final void Function(String message, Object? error, StackTrace? st)? logger;
 
-  final TranslationTaskQueue _machineQueue =
-      TranslationTaskQueue(maxConcurrent: 3); // 保守设置，避免触发限流
-  final TranslationTaskQueue _aiQueue = TranslationTaskQueue(maxConcurrent: 4);
+  final TranslationTaskQueue _localQueue =
+      TranslationTaskQueue(maxConcurrent: 1);
+  final TranslationTaskQueue _onlineQueue =
+      TranslationTaskQueue(maxConcurrent: 3);
 
   final Map<String, Future<String>> _inFlight = {};
 
-  final TranslationEngine machineEngine;
-  final TranslationEngine aiEngine;
+  final TranslationEngine engine;
+  final TranslationBackend backend;
   final ChatOnceFn? chatOnce;
 
   /// AI context cache: keep last 3 source paragraphs per (targetLang).
@@ -37,26 +43,17 @@ class TranslationService {
     required this.cache,
     required this.glossary,
     this.logger,
-    required this.machineEngine,
-    required this.aiEngine,
+    required this.engine,
+    required this.backend,
     this.chatOnce,
   });
 
-  TranslationEngine _engineFor(TranslationEngineType type) {
-    switch (type) {
-      case TranslationEngineType.machine:
-        return machineEngine;
-      case TranslationEngineType.ai:
-        return aiEngine;
-    }
-  }
-
-  TranslationTaskQueue _queueFor(TranslationEngineType type) {
-    switch (type) {
-      case TranslationEngineType.machine:
-        return _machineQueue;
-      case TranslationEngineType.ai:
-        return _aiQueue;
+  TranslationTaskQueue get _queue {
+    switch (backend) {
+      case TranslationBackend.local:
+        return _localQueue;
+      case TranslationBackend.online:
+        return _onlineQueue;
     }
   }
 
@@ -68,7 +65,6 @@ class TranslationService {
     required TranslationConfig config,
     required String paragraphText,
   }) {
-    final engine = _engineFor(config.engineType);
     final normalized = normalizeParagraphText(paragraphText);
     final glossaryApplied = glossary.applyToSourceText(normalized);
     return cache.buildKey(
@@ -84,7 +80,6 @@ class TranslationService {
     required TranslationConfig config,
     required String paragraphText,
   }) async {
-    final engine = _engineFor(config.engineType);
     final normalized = normalizeParagraphText(paragraphText);
     final glossaryApplied = glossary.applyToSourceText(normalized);
 
@@ -105,7 +100,7 @@ class TranslationService {
     final existing = _inFlight[cacheKey];
     if (existing != null) return existing;
 
-    final future = _queueFor(config.engineType).submit(() async {
+    final future = _queue.submit(() async {
       final translated = await _withRetry(() async {
         final context = _getAiContext(config);
         final references = glossary.terms
@@ -145,73 +140,6 @@ class TranslationService {
     required TranslationConfig config,
     required Map<int, String> paragraphsByIndex,
   }) async {
-    // Machine translation: try batch for better speed.
-    if (config.engineType == TranslationEngineType.machine) {
-      final engine = _engineFor(config.engineType);
-      final ordered = paragraphsByIndex.entries.toList()
-        ..sort((a, b) => a.key.compareTo(b.key));
-
-      final applied =
-          ordered.map((e) => glossary.applyToSourceText(e.value)).toList();
-
-      final keys = <String>[];
-      final toTranslateTexts = <String>[];
-      final toTranslateIdxs = <int>[];
-      for (int i = 0; i < ordered.length; i++) {
-        final cacheKey = cache.buildKey(
-          engineId: engine.id,
-          sourceLang: config.sourceLang,
-          targetLang: config.targetLang,
-          glossaryVersion: glossary.version,
-          text: applied[i].textWithPlaceholders,
-        );
-        keys.add(cacheKey);
-        final cached = await cache.get(cacheKey);
-        if (cached == null) {
-          toTranslateTexts.add(applied[i].textWithPlaceholders);
-          toTranslateIdxs.add(i);
-        }
-      }
-
-      if (toTranslateTexts.isNotEmpty) {
-        final references = glossary.terms
-            .map((t) => TranslationReference(
-                  type: 'glossary',
-                  text: t.source,
-                  translation: t.target,
-                ))
-            .toList();
-
-        final results = await _queueFor(config.engineType).submit(() async {
-          final list = await _withRetry(() async {
-            return engine.translateBatch(
-              texts: toTranslateTexts,
-              sourceLang: config.sourceLang,
-              targetLang: config.targetLang,
-              glossaryPlaceholders: const {},
-              references: references,
-            );
-          });
-          return list;
-        });
-
-        for (int j = 0; j < results.length; j++) {
-          final originalIdx = toTranslateIdxs[j];
-          await cache.set(keys[originalIdx], results[j]);
-        }
-      }
-
-      final Map<int, String> out = {};
-      for (int i = 0; i < ordered.length; i++) {
-        final raw = await cache.get(keys[i]);
-        final translated = raw ?? '';
-        out[ordered[i].key] = glossary.applyToTranslatedText(
-            translated, applied[i].placeholderToTarget);
-      }
-      return out;
-    }
-
-    // AI translation: per-paragraph with context.
     final futures = <Future<void>>[];
     final Map<int, String> out = {};
 
@@ -234,12 +162,12 @@ class TranslationService {
     // Fire-and-forget: queue handles concurrency, errors are ignored.
     for (final p in nextParagraphs) {
       // ignore: unawaited_futures
-      translateParagraph(config: config, paragraphText: p).catchError((_) {});
+      translateParagraph(config: config, paragraphText: p)
+          .catchError((_) => '');
     }
   }
 
   List<String> _getAiContext(TranslationConfig config) {
-    if (config.engineType != TranslationEngineType.ai) return const [];
     final key = 'to:${config.targetLang}|from:${config.sourceLang}';
     final q = _aiContextSources[key];
     if (q == null) return const [];
@@ -251,18 +179,14 @@ class TranslationService {
     required String sourceParagraph,
     required String translatedParagraph,
   }) {
-    if (config.engineType == TranslationEngineType.ai) {
-      final key = 'to:${config.targetLang}|from:${config.sourceLang}';
-      final q = _aiContextSources.putIfAbsent(key, () => ListQueue());
-      q.addLast(sourceParagraph);
-      while (q.length > 3) {
-        q.removeFirst();
-      }
+    final key = 'to:${config.targetLang}|from:${config.sourceLang}';
+    final q = _aiContextSources.putIfAbsent(key, () => ListQueue());
+    q.addLast(sourceParagraph);
+    while (q.length > 3) {
+      q.removeFirst();
     }
 
-    if (config.autoExtractGlossary &&
-        config.engineType == TranslationEngineType.ai &&
-        chatOnce != null) {
+    if (config.autoExtractGlossary && chatOnce != null) {
       _autoExtractGlossary(
         source: sourceParagraph,
         translation: translatedParagraph,

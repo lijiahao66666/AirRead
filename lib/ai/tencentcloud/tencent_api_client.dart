@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -25,11 +26,66 @@ class StreamChunk {
   });
 }
 
+class _ConcurrencyGate {
+  final int maxConcurrent;
+  final Queue<Completer<void Function()>> _waiters = Queue();
+  int _active = 0;
+
+  _ConcurrencyGate({required this.maxConcurrent}) : assert(maxConcurrent >= 1);
+
+  Future<void Function()> acquire() {
+    if (_active < maxConcurrent) {
+      _active++;
+      return Future.value(_release);
+    }
+    final c = Completer<void Function()>();
+    _waiters.addLast(c);
+    return c.future;
+  }
+
+  void _release() {
+    if (_waiters.isNotEmpty) {
+      final next = _waiters.removeFirst();
+      next.complete(_release);
+      return;
+    }
+    _active--;
+  }
+}
+
+class _Pacer {
+  final Duration interval;
+  DateTime _nextAllowed = DateTime.fromMillisecondsSinceEpoch(0);
+  Future<void> _tail = Future<void>.value();
+
+  _Pacer({required this.interval});
+
+  Future<void> pace() {
+    _tail = _tail.then((_) async {
+      final now = DateTime.now();
+      final waitUntil = _nextAllowed.isAfter(now) ? _nextAllowed : now;
+      final wait = waitUntil.difference(now);
+      if (!wait.isNegative && wait.inMilliseconds > 0) {
+        await Future<void>.delayed(wait);
+      }
+      _nextAllowed = waitUntil.add(interval);
+    });
+    return _tail;
+  }
+}
+
 class TencentApiClient {
   final http.Client _client;
 
   TencentApiClient({http.Client? client})
       : _client = client ?? createStreamingHttpClient();
+
+  static final _ConcurrencyGate _chatTranslationsGate =
+      _ConcurrencyGate(maxConcurrent: 3);
+  static final _Pacer _chatTranslationsPacer =
+      _Pacer(interval: const Duration(milliseconds: 50));
+  static final _ConcurrencyGate _chatCompletionsGate =
+      _ConcurrencyGate(maxConcurrent: 5);
 
   Future<Map<String, dynamic>> postJson({
     required String host,
@@ -46,7 +102,15 @@ class TencentApiClient {
     int retryCount = 0;
 
     while (true) {
+      void Function()? release;
       try {
+        if (action == 'ChatTranslations') {
+          release = await _chatTranslationsGate.acquire();
+          await _chatTranslationsPacer.pace();
+        } else if (action == 'ChatCompletions') {
+          release = await _chatCompletionsGate.acquire();
+        }
+
         final now = DateTime.now().toUtc();
         final ts = now.millisecondsSinceEpoch ~/ 1000;
         final payloadJson = jsonEncode(payload);
@@ -144,6 +208,8 @@ class TencentApiClient {
 
         debugPrint('TencentApiClient Exception: $e\n$st');
         rethrow;
+      } finally {
+        release?.call();
       }
     }
   }
@@ -171,124 +237,135 @@ class TencentApiClient {
     required Map<String, dynamic> payload,
     Duration? timeout,
   }) async* {
-    final now = DateTime.now().toUtc();
-    final ts = now.millisecondsSinceEpoch ~/ 1000;
-    final payloadJson = jsonEncode(payload);
+    void Function()? release;
+    try {
+      if (action == 'ChatTranslations') {
+        release = await _chatTranslationsGate.acquire();
+        await _chatTranslationsPacer.pace();
+      } else if (action == 'ChatCompletions') {
+        release = await _chatCompletionsGate.acquire();
+      }
+      final now = DateTime.now().toUtc();
+      final ts = now.millisecondsSinceEpoch ~/ 1000;
+      final payloadJson = jsonEncode(payload);
 
-    final signer = Tc3Signer.signJson(
-      secretId: secretId,
-      secretKey: secretKey,
-      service: service,
-      host: host,
-      action: action,
-      version: version,
-      region: region,
-      timestampSeconds: ts,
-      payloadJson: payloadJson,
-    );
-
-    final headers = <String, String>{
-      'Content-Type': 'application/json; charset=utf-8',
-      if (!kIsWeb) 'Host': host,
-      'X-TC-Action': action,
-      'X-TC-Version': version,
-      'X-TC-Timestamp': ts.toString(),
-      if (region != null && region.trim().isNotEmpty)
-        'X-TC-Region': region.trim(),
-      'Authorization': signer.authorization,
-    };
-
-    final uri = Uri.https(host, '/');
-    final request = http.Request('POST', uri);
-    request.headers.addAll(headers);
-    request.body = payloadJson;
-
-    final streamedResponse = timeout != null
-        ? await _client.send(request).timeout(timeout)
-        : await _client.send(request);
-
-    if (streamedResponse.statusCode < 200 ||
-        streamedResponse.statusCode >= 300) {
-      final content = await streamedResponse.stream.toBytes();
-      final body = utf8.decode(content);
-      debugPrint(
-          'TencentApiClient Stream Error: HTTP ${streamedResponse.statusCode} - $body');
-      throw TencentCloudException(
-        code: 'HttpError',
-        message: 'HTTP ${streamedResponse.statusCode}: $body',
+      final signer = Tc3Signer.signJson(
+        secretId: secretId,
+        secretKey: secretKey,
+        service: service,
+        host: host,
+        action: action,
+        version: version,
+        region: region,
+        timestampSeconds: ts,
+        payloadJson: payloadJson,
       );
-    }
 
-    // 持续读取流式响应，直到连接关闭或收到[DONE]
-    final transformer = utf8.decoder;
-    String buffer = '';
-    int chunkCount = 0;
+      final headers = <String, String>{
+        'Content-Type': 'application/json; charset=utf-8',
+        if (!kIsWeb) 'Host': host,
+        'X-TC-Action': action,
+        'X-TC-Version': version,
+        'X-TC-Timestamp': ts.toString(),
+        if (region != null && region.trim().isNotEmpty)
+          'X-TC-Region': region.trim(),
+        'Authorization': signer.authorization,
+      };
 
-    await for (final chunk in streamedResponse.stream.transform(transformer)) {
-      buffer += chunk;
+      final uri = Uri.https(host, '/');
+      final request = http.Request('POST', uri);
+      request.headers.addAll(headers);
+      request.body = payloadJson;
 
-      // 处理buffer中的所有完整行
-      while (true) {
-        final lineIndex = buffer.indexOf('\n');
-        if (lineIndex == -1) break;
+      final streamedResponse = timeout != null
+          ? await _client.send(request).timeout(timeout)
+          : await _client.send(request);
 
-        final line = buffer.substring(0, lineIndex).trim();
-        buffer = buffer.substring(lineIndex + 1);
+      if (streamedResponse.statusCode < 200 ||
+          streamedResponse.statusCode >= 300) {
+        final content = await streamedResponse.stream.toBytes();
+        final body = utf8.decode(content);
+        debugPrint(
+            'TencentApiClient Stream Error: HTTP ${streamedResponse.statusCode} - $body');
+        throw TencentCloudException(
+          code: 'HttpError',
+          message: 'HTTP ${streamedResponse.statusCode}: $body',
+        );
+      }
 
-        if (line.startsWith('data: ')) {
-          chunkCount++;
-          final jsonStr = line.substring(6);
+      // 持续读取流式响应，直到连接关闭或收到[DONE]
+      final transformer = utf8.decoder;
+      String buffer = '';
+
+      await for (final chunk
+          in streamedResponse.stream.transform(transformer)) {
+        buffer += chunk;
+
+        while (true) {
+          final lineIndex = buffer.indexOf('\n');
+          if (lineIndex == -1) break;
+
+          final line = buffer.substring(0, lineIndex).trim();
+          buffer = buffer.substring(lineIndex + 1);
+          if (line.isEmpty) continue;
+
+          if (!line.startsWith('data: ')) continue;
+          final jsonStr = line.substring(6).trim();
 
           if (jsonStr == '[DONE]') {
-            return; // 流式响应结束
+            yield StreamChunk(content: '', isComplete: true);
+            return;
           }
 
           try {
             final json = jsonDecode(jsonStr);
+            if (json is! Map) continue;
 
-            if (json is Map) {
-              // 直接解析顶层Choices字段
-              final choices = json['Choices'];
+            final choices = json['Choices'];
+            if (choices is! List || choices.isEmpty) continue;
 
-              if (choices is List && choices.isNotEmpty) {
-                final choice = choices[0];
-                final delta = choice['Delta'];
+            final choice = choices.first;
+            if (choice is! Map) continue;
 
-                if (delta is Map) {
-                  // 检查是否有思考过程内容
-                  final reasoningContent = delta['ReasoningContent'];
-                  if (reasoningContent != null &&
-                      reasoningContent.toString().isNotEmpty) {
-                    yield StreamChunk(
-                      content: '',
-                      reasoningContent: reasoningContent.toString(),
-                      isReasoning: true,
-                      isComplete: false,
-                    );
-                  }
+            final delta = choice['Delta'];
+            if (delta is! Map) continue;
 
-                  // 检查是否有回答内容
-                  final content = delta['Content'];
-                  if (content != null && content.toString().isNotEmpty) {
-                    yield StreamChunk(
-                      content: content.toString(),
-                      isReasoning: false,
-                      isComplete: false,
-                    );
-                  }
-                }
-              }
+            final reasoningContent = delta['ReasoningContent'];
+            if (reasoningContent != null &&
+                reasoningContent.toString().isNotEmpty) {
+              yield StreamChunk(
+                content: '',
+                reasoningContent: reasoningContent.toString(),
+                isReasoning: true,
+                isComplete: false,
+              );
             }
-          } catch (e) {
-            // 继续处理下一行，不要中断流
+
+            final content = delta['Content'];
+            if (content != null && content.toString().isNotEmpty) {
+              yield StreamChunk(
+                content: content.toString(),
+                isReasoning: false,
+                isComplete: false,
+              );
+            }
+
+            final finishReason = choice['FinishReason'];
+            if (finishReason != null &&
+                finishReason.toString().isNotEmpty &&
+                finishReason.toString() != 'null') {
+              yield StreamChunk(content: '', isComplete: true);
+              return;
+            }
+          } catch (_) {
+            continue;
           }
         }
       }
-    }
 
-    // 连接关闭，检查是否有剩余数据
-    if (buffer.trim().isNotEmpty) {
-      // 处理剩余数据
+      yield StreamChunk(content: '', isComplete: true);
+    } finally {
+      release?.call();
     }
   }
 }

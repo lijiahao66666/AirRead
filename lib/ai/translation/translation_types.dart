@@ -5,26 +5,20 @@ enum TranslationDisplayMode {
   bilingual,
 }
 
-enum TranslationEngineType {
-  machine,
-  ai,
-}
-
 @immutable
 class TranslationConfig {
   /// Empty means auto-detect (if supported by engine).
   final String sourceLang;
+
   /// Required.
   final String targetLang;
   final TranslationDisplayMode displayMode;
-  final TranslationEngineType engineType;
   final bool autoExtractGlossary;
 
   const TranslationConfig({
     required this.sourceLang,
     required this.targetLang,
     required this.displayMode,
-    this.engineType = TranslationEngineType.machine,
     this.autoExtractGlossary = true,
   });
 
@@ -32,18 +26,15 @@ class TranslationConfig {
     String? sourceLang,
     String? targetLang,
     TranslationDisplayMode? displayMode,
-    TranslationEngineType? engineType,
     bool? autoExtractGlossary,
   }) {
     return TranslationConfig(
       sourceLang: sourceLang ?? this.sourceLang,
       targetLang: targetLang ?? this.targetLang,
       displayMode: displayMode ?? this.displayMode,
-      engineType: engineType ?? this.engineType,
       autoExtractGlossary: autoExtractGlossary ?? this.autoExtractGlossary,
     );
   }
-
 }
 
 @immutable
@@ -86,4 +77,3 @@ class TranslationReference {
     required this.translation,
   });
 }
-

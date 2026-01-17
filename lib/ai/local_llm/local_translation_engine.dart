@@ -135,8 +135,8 @@ class LocalTranslationEngine extends TranslationEngine {
   }
 
   String? _extractAnswerTag(String input) {
-    final open = '<answer>';
-    final close = '</answer>';
+    const open = '<answer>';
+    const close = '</answer>';
     final start = input.indexOf(open);
     if (start < 0) return null;
     final afterOpen = start + open.length;

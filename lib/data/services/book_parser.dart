@@ -1,6 +1,6 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:epubx/epubx.dart';
-import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 
 class ParsedMetadata {
@@ -49,7 +49,7 @@ class BookParser {
       try {
         coverBytes = await _extractCoverBytes(epubRef);
       } catch (e) {
-        print('Error extracting cover bytes: $e');
+        debugPrint('Error extracting cover bytes: $e');
       }
 
       return ParsedMetadata(
@@ -58,7 +58,7 @@ class BookParser {
         coverBytes: coverBytes,
       );
     } catch (e) {
-      print('Error parsing EPUB bytes: $e');
+      debugPrint('Error parsing EPUB bytes: $e');
       return ParsedMetadata(
         title: p.basenameWithoutExtension(filename),
         author: 'Unknown',
@@ -138,7 +138,7 @@ class BookParser {
       final bytes = await file.readAsBytes();
       return await EpubReader.openBook(bytes);
     } catch (e) {
-      print('Error opening book $filePath: $e');
+      debugPrint('Error opening book $filePath: $e');
       return null;
     }
   }
@@ -148,7 +148,7 @@ class BookParser {
     try {
       return await EpubReader.openBook(bytes);
     } catch (e) {
-      print('Error opening book from bytes: $e');
+      debugPrint('Error opening book from bytes: $e');
       return null;
     }
   }
@@ -175,7 +175,7 @@ class BookParser {
       final bytes = await file.readAsBytes();
       return _parseEpubBytes(bytes, filePath);
     } catch (e) {
-      print('Error parsing EPUB: $e');
+      debugPrint('Error parsing EPUB: $e');
       return ParsedMetadata(
         title: p.basenameWithoutExtension(filePath),
         author: 'Unknown',

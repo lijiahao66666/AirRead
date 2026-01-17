@@ -138,7 +138,7 @@ class _BookCardState extends State<BookCard> {
                 final String percent = (ratio * 100).clamp(0, 100).toStringAsFixed(0);
                 return Text(
                   '$percent%',
-                  style: Theme.of(context).textTheme.caption?.copyWith(
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AppColors.softGrey,
                         fontSize: 10,
                       ),

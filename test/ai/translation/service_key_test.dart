@@ -32,8 +32,8 @@ void main() {
     final service = TranslationService(
       cache: cache,
       glossary: glossary,
-      machineEngine: _FakeEngine(),
-      aiEngine: _FakeEngine(),
+      engine: _FakeEngine(),
+      backend: TranslationBackend.online,
     );
 
     const cfg = TranslationConfig(
@@ -60,8 +60,8 @@ void main() {
     final service = TranslationService(
       cache: cache,
       glossary: glossary,
-      machineEngine: _FakeEngine(),
-      aiEngine: _FakeEngine(),
+      engine: _FakeEngine(),
+      backend: TranslationBackend.online,
     );
 
     const cfg = TranslationConfig(

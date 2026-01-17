@@ -240,10 +240,7 @@ class ReadingContextService {
   /// 生成总结的提示词
   String generateSummaryPrompt() {
     final chapterContent = getCurrentChapterContent();
-    
-    // 临时调试
-    print('[QA Debug] Summary - 内容长度: ${chapterContent.length}');
-    
+
     final prompt = '请总结以下章节内容，用清晰的要点列出：\n\n'
         '$chapterContent\n\n'
         '请从以下方面进行总结：\n'
@@ -252,9 +249,7 @@ class ReadingContextService {
         '3. 重要的伏笔和线索\n'
         '4. 情感氛围和主题思想\n\n'
         '请用简洁、条理清晰的方式输出。';
-    
-    print('[QA Debug] Summary - Prompt长度: ${prompt.length}');
-    
+
     return prompt;
   }
 
@@ -410,7 +405,7 @@ class ReadingContextService {
     for (final sentence in sentences) {
       final trimmed = sentence.trim();
       if (trimmed.length > 10 && _isLikelyEvent(trimmed)) {
-        events.add(trimmed + '。');
+        events.add('$trimmed。');
       }
     }
     

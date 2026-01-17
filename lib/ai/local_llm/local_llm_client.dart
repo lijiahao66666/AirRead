@@ -145,10 +145,10 @@ class LocalLlmClient {
     final modelPath = p.join(dir.path, 'models', 'hunyuan', 'config.json');
     final file = File(modelPath);
     if (!await file.exists()) {
-      throw FileSystemException('本地模型文件不存在');
+      throw const FileSystemException('本地模型文件不存在');
     }
     if (await file.length() <= 0) {
-      throw FileSystemException('本地模型文件为空');
+      throw const FileSystemException('本地模型文件为空');
     }
     return modelPath;
   }

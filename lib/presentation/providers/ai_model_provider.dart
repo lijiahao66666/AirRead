@@ -118,7 +118,7 @@ class AiModelProvider extends ChangeNotifier {
       if (len < 22) return false;
       final raf = await file.open();
       try {
-        final maxScan = 65557;
+        const maxScan = 65557;
         final scanSize = len < maxScan ? len : maxScan;
         await raf.setPosition(len - scanSize);
         final tail = await raf.read(scanSize);
@@ -164,7 +164,7 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   Uri _buildLocalModelCosUri() {
-    final host = '$_localModelCosBucket.cos.$_localModelCosRegion.myqcloud.com';
+    const host = '$_localModelCosBucket.cos.$_localModelCosRegion.myqcloud.com';
     return Uri(
       scheme: 'https',
       host: host,
@@ -460,7 +460,7 @@ class AiModelProvider extends ChangeNotifier {
       Future<http.StreamedResponse> sendCos() async {
         final creds = getEmbeddedPublicHunyuanCredentials();
         if (!creds.isUsable) {
-          throw HttpException('缺少腾讯 COS 鉴权信息');
+          throw const HttpException('缺少腾讯 COS 鉴权信息');
         }
 
         final uri = _buildLocalModelCosUri();
@@ -511,10 +511,10 @@ class AiModelProvider extends ChangeNotifier {
 
         if (resp.statusCode != 200 && resp.statusCode != 206) {
           if (resp.statusCode == 403) {
-            throw HttpException('COS 下载无权限（HTTP 403）');
+            throw const HttpException('COS 下载无权限（HTTP 403）');
           }
           if (resp.statusCode == 401) {
-            throw HttpException('COS 下载鉴权失败（HTTP 401）');
+            throw const HttpException('COS 下载鉴权失败（HTTP 401）');
           }
           throw HttpException('COS 下载失败：HTTP ${resp.statusCode}');
         }

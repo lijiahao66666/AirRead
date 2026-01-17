@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -48,9 +46,6 @@ class AiHud extends StatefulWidget {
   final bool readAloudEnabled;
   final ValueChanged<bool>? onReadAloudChanged;
 
-  final bool imageTextEnabled;
-  final ValueChanged<bool>? onImageTextChanged;
-
   /// QA scope data (per-book)
   final String bookId;
 
@@ -69,8 +64,6 @@ class AiHud extends StatefulWidget {
     this.onTranslateChanged,
     required this.readAloudEnabled,
     this.onReadAloudChanged,
-    required this.imageTextEnabled,
-    this.onImageTextChanged,
     required this.bookId,
     required this.chapterTextCache,
     required this.currentChapterIndex,
@@ -258,8 +251,6 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           onTranslateChanged: widget.onTranslateChanged,
           readAloudEnabled: widget.readAloudEnabled,
           onReadAloudChanged: widget.onReadAloudChanged,
-          imageTextEnabled: widget.imageTextEnabled,
-          onImageTextChanged: widget.onImageTextChanged,
           onOpenQa: () => _push(_AiHudRoute.qa),
         ),
       _AiHudRoute.glossary => _GlossaryPanel(
@@ -313,8 +304,6 @@ class _TencentHunyuanSettingsPanelState
     extends State<_TencentHunyuanSettingsPanel> {
   bool _autoStart = false;
   double _rate = 1.0;
-  bool _showCaptions = true;
-  double _density = 0.5;
 
   @override
   Widget build(BuildContext context) {
@@ -530,72 +519,6 @@ class _TencentHunyuanSettingsPanelState
             activeColor: AppColors.techBlue,
             label: _rate.toStringAsFixed(1),
             onChanged: (v) => setState(() => _rate = v),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _imageTextSettings({required Color cardBg}) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-        border: Border.all(
-            color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '图文设置',
-            style: TextStyle(
-              color: widget.textColor,
-              fontWeight: FontWeight.w900,
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '显示图注/说明',
-                  style: TextStyle(
-                    color: widget.textColor.withOpacity(0.8),
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              Transform.scale(
-                scale: 0.75,
-                child: Switch(
-                  value: _showCaptions,
-                  activeColor: AppColors.techBlue,
-                  onChanged: (v) => setState(() => _showCaptions = v),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            '图文密度',
-            style: TextStyle(
-              color: widget.textColor,
-              fontSize: 12,
-              fontWeight: FontWeight.normal,
-            ),
-          ),
-          Slider(
-            value: _density,
-            min: 0,
-            max: 1,
-            divisions: 5,
-            activeColor: AppColors.techBlue,
-            label: _density.toStringAsFixed(1),
-            onChanged: (v) => setState(() => _density = v),
           ),
         ],
       ),
@@ -980,7 +903,7 @@ class _TencentHunyuanSettingsPanelState
 
     if (aiModel.localModelInstalling) {
       text = '模型安装中…';
-      action = SizedBox(
+      action = const SizedBox(
         width: 16,
         height: 16,
         child: CircularProgressIndicator(
@@ -1014,7 +937,7 @@ class _TencentHunyuanSettingsPanelState
             const SizedBox(width: 8),
             Text(
               pctText,
-              style: TextStyle(
+              style: const TextStyle(
                 color: AppColors.techBlue,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -1122,9 +1045,6 @@ class _MainPanel extends StatelessWidget {
   final bool readAloudEnabled;
   final ValueChanged<bool>? onReadAloudChanged;
 
-  final bool imageTextEnabled;
-  final ValueChanged<bool>? onImageTextChanged;
-
   final VoidCallback onOpenQa;
 
   const _MainPanel({
@@ -1137,8 +1057,6 @@ class _MainPanel extends StatelessWidget {
     required this.onTranslateChanged,
     required this.readAloudEnabled,
     required this.onReadAloudChanged,
-    required this.imageTextEnabled,
-    required this.onImageTextChanged,
     required this.onOpenQa,
   });
 
@@ -1163,7 +1081,6 @@ class _MainPanel extends StatelessWidget {
       if (!aiModel.localRuntimeAvailable) return '本地推理后端未就绪';
       return '本地模型未就绪';
     }();
-    const bool showImageTextFeature = false;
 
     final translateSubtitle = !modelEnabled
         ? '请先在 AI设置 中启用大模型'
@@ -1178,10 +1095,6 @@ class _MainPanel extends StatelessWidget {
         : source != AiModelSource.online
             ? '朗读仅支持在线模式'
             : (readAloudEnabled ? '已开启' : '开启后，可朗读当前页');
-
-    final imageTextSubtitle = !modelEnabled
-        ? '请先在 AI设置 中启用大模型'
-        : (imageTextEnabled ? '已开启' : '开启后，以图文方式展示');
 
     return SingleChildScrollView(
       key: const PageStorageKey('ai_hud_main_scroll'),
@@ -1211,17 +1124,6 @@ class _MainPanel extends StatelessWidget {
             onChanged:
                 source == AiModelSource.online ? onReadAloudChanged : null,
           ),
-          if (showImageTextFeature) ...[
-            const SizedBox(height: 10),
-            _featureRow(
-              context,
-              icon: Icons.image_outlined,
-              title: '图文',
-              subtitle: imageTextSubtitle,
-              value: imageTextEnabled,
-              onChanged: modelEnabled ? onImageTextChanged : null,
-            ),
-          ],
           const SizedBox(height: 14),
           _qaEntry(
             enabled: aiReady,
@@ -1441,377 +1343,6 @@ class _MainPanel extends StatelessWidget {
             Icon(Icons.chevron_right, color: textColor.withOpacity(0.6)),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _TranslationSettingsPanel extends StatelessWidget {
-  final bool isDark;
-  final Color bgColor;
-  final Color textColor;
-  final VoidCallback onOpenGlossary;
-
-  const _TranslationSettingsPanel({
-    super.key,
-    required this.isDark,
-    required this.bgColor,
-    required this.textColor,
-    required this.onOpenGlossary,
-  });
-
-  static const _langs = <String, String>{
-    '': '自动',
-    'zh-Hans': '中文',
-    'en': '英语',
-    'ja': '日语',
-    'ko': '韩语',
-    'fr': '法语',
-    'de': '德语',
-    'es': '西班牙语',
-    'ru': '俄语',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final provider = context.watch<TranslationProvider>();
-    final cfg = provider.config;
-
-    final Color cardBg =
-        isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
-
-    return SingleChildScrollView(
-      key: const PageStorageKey('ai_hud_translation_scroll'),
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-              border: Border.all(
-                  color: textColor.withOpacity(0.08), width: AppTokens.stroke),
-            ),
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: _dropdown(
-                        label: '源语言（可选）',
-                        value: cfg.sourceLang,
-                        items: _langs,
-                        onChanged: (v) => provider.setSourceLang(v ?? ''),
-                        dropdownColor: cardBg,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _dropdown(
-                        label: '目标语言（必选）',
-                        value: cfg.targetLang,
-                        items: Map<String, String>.from(_langs)..remove(''),
-                        onChanged: (v) => provider.setTargetLang(v ?? 'en'),
-                        dropdownColor: cardBg,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text('显示模式',
-                    style: TextStyle(
-                        color: textColor, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 12,
-                  children: [
-                    _chip(
-                      label: '仅显示译文',
-                      active: cfg.displayMode ==
-                          TranslationDisplayMode.translationOnly,
-                      onTap: () => provider.setDisplayMode(
-                          TranslationDisplayMode.translationOnly),
-                    ),
-                    _chip(
-                      label: '双语对照',
-                      active:
-                          cfg.displayMode == TranslationDisplayMode.bilingual,
-                      onTap: () => provider
-                          .setDisplayMode(TranslationDisplayMode.bilingual),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: onOpenGlossary,
-                    icon: const Icon(Icons.auto_fix_high, size: 18),
-                    label: const Text('编辑术语表'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _chip({
-    required String label,
-    required bool active,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: active
-              ? AppColors.techBlue.withOpacity(0.12)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: active ? AppColors.techBlue : textColor.withOpacity(0.18),
-            width: AppTokens.stroke,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: active ? AppColors.techBlue : textColor.withOpacity(0.75),
-            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _dropdown({
-    required String label,
-    required String value,
-    required Map<String, String> items,
-    required ValueChanged<String?> onChanged,
-    required Color dropdownColor,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
-            style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 48,
-          child: DropdownButtonFormField<String>(
-            value: items.containsKey(value) ? value : items.keys.first,
-            dropdownColor: dropdownColor,
-            decoration: InputDecoration(
-              isDense: true,
-              filled: true,
-              fillColor: dropdownColor,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: textColor.withOpacity(0.18),
-                  width: AppTokens.stroke,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: textColor.withOpacity(0.18),
-                  width: AppTokens.stroke,
-                ),
-              ),
-            ),
-            items: items.entries
-                .map(
-                  (e) => DropdownMenuItem<String>(
-                    value: e.key,
-                    child: Text(e.value, style: const TextStyle(fontSize: 13)),
-                  ),
-                )
-                .toList(),
-            onChanged: onChanged,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ReadAloudSettingsPanel extends StatefulWidget {
-  final bool isDark;
-  final Color bgColor;
-  final Color textColor;
-
-  const _ReadAloudSettingsPanel({
-    super.key,
-    required this.isDark,
-    required this.bgColor,
-    required this.textColor,
-  });
-
-  @override
-  State<_ReadAloudSettingsPanel> createState() =>
-      _ReadAloudSettingsPanelState();
-}
-
-class _ReadAloudSettingsPanelState extends State<_ReadAloudSettingsPanel> {
-  bool _autoStart = false;
-  double _rate = 1.0;
-
-  @override
-  Widget build(BuildContext context) {
-    final Color cardBg =
-        widget.isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
-
-    return SingleChildScrollView(
-      key: const PageStorageKey('ai_hud_read_aloud_scroll'),
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Column(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-              border: Border.all(
-                  color: widget.textColor.withOpacity(0.08),
-                  width: AppTokens.stroke),
-            ),
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('朗读行为',
-                    style: TextStyle(
-                        color: widget.textColor, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text('进入章节自动开始',
-                          style: TextStyle(
-                              color: widget.textColor.withOpacity(0.8))),
-                    ),
-                    Switch(
-                      value: _autoStart,
-                      activeColor: AppColors.techBlue,
-                      onChanged: (v) => setState(() => _autoStart = v),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text('语速',
-                    style: TextStyle(
-                        color: widget.textColor, fontWeight: FontWeight.w700)),
-                Slider(
-                  value: _rate,
-                  min: 0.6,
-                  max: 1.6,
-                  divisions: 10,
-                  activeColor: AppColors.techBlue,
-                  label: _rate.toStringAsFixed(1),
-                  onChanged: (v) => setState(() => _rate = v),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ImageTextSettingsPanel extends StatefulWidget {
-  final bool isDark;
-  final Color bgColor;
-  final Color textColor;
-
-  const _ImageTextSettingsPanel({
-    super.key,
-    required this.isDark,
-    required this.bgColor,
-    required this.textColor,
-  });
-
-  @override
-  State<_ImageTextSettingsPanel> createState() =>
-      _ImageTextSettingsPanelState();
-}
-
-class _ImageTextSettingsPanelState extends State<_ImageTextSettingsPanel> {
-  bool _showCaptions = true;
-  double _density = 0.5;
-
-  @override
-  Widget build(BuildContext context) {
-    final Color cardBg =
-        widget.isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
-
-    return SingleChildScrollView(
-      key: const PageStorageKey('ai_hud_image_text_scroll'),
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Column(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-              border: Border.all(
-                  color: widget.textColor.withOpacity(0.08),
-                  width: AppTokens.stroke),
-            ),
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('图文展示',
-                    style: TextStyle(
-                        color: widget.textColor, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text('显示图注/说明',
-                          style: TextStyle(
-                              color: widget.textColor.withOpacity(0.8))),
-                    ),
-                    Switch(
-                      value: _showCaptions,
-                      activeColor: AppColors.techBlue,
-                      onChanged: (v) => setState(() => _showCaptions = v),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text('图文密度',
-                    style: TextStyle(
-                        color: widget.textColor, fontWeight: FontWeight.w700)),
-                Slider(
-                  value: _density,
-                  min: 0,
-                  max: 1,
-                  divisions: 5,
-                  activeColor: AppColors.techBlue,
-                  label: _density.toStringAsFixed(1),
-                  onChanged: (v) => setState(() => _density = v),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -2330,15 +1861,6 @@ class _QaPanelState extends State<_QaPanel> {
     super.dispose();
   }
 
-  void _fillPrompt(String prompt) {
-    setState(() {
-      _inputCtl.text = prompt;
-      _inputCtl.selection = TextSelection.fromPosition(
-        TextPosition(offset: _inputCtl.text.length),
-      );
-    });
-  }
-
   void _sendQuickAction(QAType qaType) async {
     if (_messageState != _MessageState.idle) return;
 
@@ -2545,7 +2067,7 @@ class _QaPanelState extends State<_QaPanel> {
     final Color cardBg =
         widget.isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
 
-    Widget _actionChip({
+    Widget actionChip({
       required String label,
       required VoidCallback? onTap,
     }) {
@@ -2697,7 +2219,7 @@ class _QaPanelState extends State<_QaPanel> {
                                     },
                                     child: Text(
                                       collapsed ? '展开' : '收起',
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         color: AppColors.techBlue,
                                         fontSize: 15,
                                         fontWeight: FontWeight.w600,
@@ -2826,19 +2348,19 @@ class _QaPanelState extends State<_QaPanel> {
               spacing: 10,
               runSpacing: 10,
               children: [
-                _actionChip(
+                actionChip(
                   label: '新话题',
                   onTap: _messageState != _MessageState.idle
                       ? null
                       : _startNewTopic,
                 ),
-                _actionChip(
+                actionChip(
                   label: '总结本章',
                   onTap: _messageState != _MessageState.idle
                       ? null
                       : () => _sendQuickAction(QAType.summary),
                 ),
-                _actionChip(
+                actionChip(
                   label: '提取要点',
                   onTap: _messageState != _MessageState.idle
                       ? null
@@ -2911,24 +2433,4 @@ class _QaPanelState extends State<_QaPanel> {
       child: panelContent,
     );
   }
-}
-
-Widget _badge(String text) {
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    decoration: BoxDecoration(
-      color: AppColors.techBlue.withOpacity(0.12),
-      borderRadius: BorderRadius.circular(999),
-      border: Border.all(
-          color: AppColors.techBlue.withOpacity(0.35), width: AppTokens.stroke),
-    ),
-    child: Text(
-      text,
-      style: const TextStyle(
-        fontSize: 11,
-        color: AppColors.techBlue,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-  );
 }

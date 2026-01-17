@@ -7,7 +7,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../widgets/ai_hud.dart';
@@ -18,9 +17,6 @@ import '../../providers/translation_provider.dart';
 import '../../../data/services/book_parser.dart';
 import '../../../data/models/book.dart';
 import 'widgets/reader_paragraph.dart';
-import 'widgets/translation_sheet.dart';
-import 'widgets/ai_settings_sheet.dart';
-import 'widgets/summary_sheet.dart';
 import '../../../ai/translation/translation_types.dart';
 import '../../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../../ai/tencent_tts/tencent_tts_client.dart';
@@ -89,7 +85,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   String _readAloudAudioKey = '';
   final Map<String, Future<Map<int, String>>> _translationFutures = {};
 
-  EpubBookRef? _epubBook;
   List<EpubChapterRef> _chapters = [];
   int _currentChapterIndex = 0;
 
@@ -97,8 +92,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   // We track the "Page" index within the current chapter.
   // 0 means first page of chapter.
   int _currentPageInChapter = 0;
-  int _totalPagesInCurrentChapter = 1;
-  Map<int, int> _chapterPageCounts = {};
+  final Map<int, int> _chapterPageCounts = {};
   Timer? _progressSaveTimer;
   double? _contentTopInset;
   double? _contentBottomInset;
@@ -112,8 +106,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   final Map<int, String> _chapterPageRangeKeys = {};
   final Map<int, int> _chapterTitleLength = {};
   final Map<int, List<ReaderParagraph>> _chapterParagraphsCache = {};
-  final Map<int, String> _chapterTranslationHash =
-      {}; // To detect translation changes
 
   double _currentPageProgressInChapter = 0;
   bool? _lastTranslationApplyToReader;
@@ -186,7 +178,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     });
   }
 
-
   void _startPulseTimer() {
     _pulseTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       if (mounted) {
@@ -247,7 +238,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
-
     _saveSettings();
     _saveProgress();
     _progressSaveTimer?.cancel();
@@ -301,11 +291,12 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     try {
       book = booksProvider.books.firstWhere((b) => b.id == widget.bookId);
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _error = 'Book not found';
           _isLoading = false;
         });
+      }
       return;
     }
 
@@ -315,22 +306,24 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         if (book.fileBytes != null) {
           epub = await _parser.openBookFromBytes(book.fileBytes!);
         } else {
-          if (mounted)
+          if (mounted) {
             setState(() {
               _error = 'Cannot load file';
               _isLoading = false;
             });
+          }
           return;
         }
       } else {
         if (book.filePath.isNotEmpty) {
           epub = await _parser.openBook(book.filePath);
         } else {
-          if (mounted)
+          if (mounted) {
             setState(() {
               _error = 'Cannot load file';
               _isLoading = false;
             });
+          }
           return;
         }
       }
@@ -340,18 +333,18 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
         if (mounted) {
           setState(() {
-            _epubBook = epub;
             _chapters = chapters;
             _isLoading = false;
           });
         }
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _error = 'Error: $e';
           _isLoading = false;
         });
+      }
     }
   }
 
@@ -428,24 +421,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _setAiImageTextEnabled({
-    required TranslationProvider provider,
-    required bool enabled,
-  }) async {
-    if (!mounted) return;
-
-    if (enabled) {
-      setState(() {
-        _aiReadAloudPlaying = false;
-      });
-      _readAloudAnimController.stop();
-      _readAloudAnimController.reset();
-      await _stopReadAloud();
-    }
-
-    await provider.setAiImageTextEnabled(enabled);
-  }
-
   String _readAloudTextForCurrentPage({int maxChars = 900}) {
     final paragraphs = _currentPageParagraphsByIndex();
     final raw = paragraphs.values.join('\n');
@@ -462,7 +437,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       );
       return false;
     }
-    if (context.read<TranslationProvider>().aiImageTextEnabled) return false;
 
     final text = _readAloudTextForCurrentPage();
     if (text.isEmpty) return false;
@@ -530,8 +504,9 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
   Widget _buildReadAloudFloatingButton() {
     if (_isLoading || _error != null) return const SizedBox.shrink();
-    if (!context.watch<TranslationProvider>().aiReadAloudEnabled)
+    if (!context.watch<TranslationProvider>().aiReadAloudEnabled) {
       return const SizedBox.shrink();
+    }
 
     final Color surface = _panelBgColor;
     final Color onSurface = _panelTextColor;
@@ -639,53 +614,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     return result;
   }
 
-  TextSpan _buildStyledSpanForRange(
-    int chapterIndex,
-    String fullText,
-    int start,
-    int end,
-    TextStyle bodyStyle,
-  ) {
-    if (end <= start || start >= fullText.length) {
-      return TextSpan(text: '', style: bodyStyle);
-    }
-    final int safeStart = start.clamp(0, fullText.length);
-    final int safeEnd = end.clamp(0, fullText.length);
-    final int titleLen = _chapterTitleLength[chapterIndex] ?? 0;
-    final TextStyle titleStyle = bodyStyle.copyWith(
-      fontSize: _fontSize + 2,
-      fontWeight: FontWeight.bold,
-    );
-
-    if (titleLen <= 0 || safeStart >= titleLen) {
-      return TextSpan(
-        text: fullText.substring(safeStart, safeEnd),
-        style: bodyStyle,
-      );
-    }
-    if (safeEnd <= titleLen) {
-      return TextSpan(
-        text: fullText.substring(safeStart, safeEnd),
-        style: titleStyle,
-      );
-    }
-
-    final List<InlineSpan> children = [];
-    if (safeStart < titleLen) {
-      children.add(TextSpan(
-        text: fullText.substring(safeStart, titleLen),
-        style: titleStyle,
-      ));
-    }
-    if (titleLen < safeEnd) {
-      children.add(TextSpan(
-        text: fullText.substring(titleLen, safeEnd),
-        style: bodyStyle,
-      ));
-    }
-    return TextSpan(children: children, style: bodyStyle);
-  }
-
   // Helper to construct the text to be rendered/measured based on available translations
   String _getEffectiveTextForChapter(int chapterIndex, TranslationProvider tp) {
     final plainText = _getPlainTextForChapter(chapterIndex);
@@ -720,22 +648,22 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
       if (trans != null && trans.isNotEmpty) {
         if (isTransOnly) {
-          buffer.write(indent + trans);
+          buffer.write('$indent$trans');
         } else {
           // Bilingual
           buffer.write(p.text); // Original already has indent
           buffer.write('\n');
-          buffer.write(indent + trans);
+          buffer.write('$indent$trans');
         }
       } else if (pending) {
         if (isTransOnly) {
           buffer.write(p.text);
           buffer.write('\n');
-          buffer.write(indent + 'AI 正在翻译…');
+          buffer.write('${indent}AI 正在翻译…');
         } else if (isBilingual) {
           buffer.write(p.text);
           buffer.write('\n');
-          buffer.write(indent + 'AI 正在翻译…');
+          buffer.write('${indent}AI 正在翻译…');
         } else {
           buffer.write(p.text);
         }
@@ -744,11 +672,11 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         if (isTransOnly) {
           buffer.write(p.text);
           buffer.write('\n');
-          buffer.write(indent + '翻译失败');
+          buffer.write('$indent翻译失败');
         } else if (isBilingual) {
           buffer.write(p.text);
           buffer.write('\n');
-          buffer.write(indent + '翻译失败');
+          buffer.write('$indent翻译失败');
         } else {
           buffer.write(p.text);
         }
@@ -770,7 +698,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     required TextStyle bodyStyle,
   }) {
     const marker = 'AI 正在翻译…';
-    final int markerLen = marker.length;
+    const int markerLen = marker.length;
     final List<InlineSpan> children = [];
 
     final placeholderStyle = bodyStyle.copyWith(
@@ -897,7 +825,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     final int pageCount = ranges.isEmpty ? 1 : ranges.length;
     _chapterPageCounts[chapterIndex] = pageCount;
     if (chapterIndex == _currentChapterIndex) {
-      _totalPagesInCurrentChapter = pageCount;
       if (_currentPageInChapter >= pageCount) {
         _currentPageInChapter = pageCount - 1;
       }
@@ -1275,7 +1202,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                     if (_currentChapterIndex < _chapters.length - 1) {
                       _currentChapterIndex++;
                       _currentPageInChapter = 0;
-                      _totalPagesInCurrentChapter = 1;
                     } else {
                       _currentPageInChapter--;
                     }
@@ -1288,7 +1214,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                       int prevCount =
                           _pageCountForChapter(_currentChapterIndex);
                       _currentPageInChapter = prevCount - 1;
-                      _totalPagesInCurrentChapter = prevCount;
                     } else {
                       _currentPageInChapter++;
                     }
@@ -1680,99 +1605,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     return out;
   }
 
-  void _openTranslationSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppTokens.radiusLg),
-        ),
-      ),
-      builder: (_) => TranslationSheet(
-        bgColor: _panelBgColor,
-        textColor: _panelTextColor,
-      ),
-    ).then((_) {
-      if (mounted) _hideControls();
-    });
-  }
-
-  String _aiSummaryInputText({int maxChars = 12000}) {
-    final plainText = _getPlainTextForChapter(_currentChapterIndex);
-    if (plainText.isEmpty) return '';
-
-    final ranges = _chapterPageRanges[_currentChapterIndex];
-    int end = plainText.length;
-    if (ranges != null && ranges.isNotEmpty) {
-      final safeIndex = _currentPageInChapter.clamp(0, ranges.length - 1);
-      end = ranges[safeIndex].end.clamp(0, plainText.length);
-    }
-
-    if (end <= 0) return '';
-    final raw = plainText.substring(0, end);
-
-    if (raw.length <= maxChars) return raw;
-
-    // Keep both the opening context and the latest context near current reading.
-    final int headLen = 2000.clamp(0, maxChars);
-    final int tailLen = (maxChars - headLen - 40).clamp(0, maxChars);
-
-    final head = raw.substring(0, headLen);
-    final tail = raw.substring(raw.length - tailLen);
-
-    return '$head\n\n…（中间内容略）…\n\n$tail';
-  }
-
-  void _openSummarySheet() {
-    final content = _aiSummaryInputText();
-    if (content.trim().isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('当前暂无可总结内容')));
-      return;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppTokens.radiusLg),
-        ),
-      ),
-      builder: (_) => SummarySheet(
-        bgColor: _panelBgColor,
-        textColor: _panelTextColor,
-        content: content,
-      ),
-    ).then((_) {
-      if (mounted) _hideControls();
-    });
-  }
-
-  void _openAiSettingsSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppTokens.radiusLg),
-        ),
-      ),
-      builder: (_) => AiSettingsSheet(
-        bgColor: _panelBgColor,
-        textColor: _panelTextColor,
-        onOpenTranslationSettings: () =>
-            Future.microtask(_openTranslationSheet),
-      ),
-    ).then((_) {
-      if (mounted) _hideControls();
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final tp = context.watch<TranslationProvider>();
@@ -1959,22 +1791,15 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                                                   enabled: v,
                                                 );
                                               },
-                                              imageTextEnabled:
-                                                  translationProvider
-                                                      .aiImageTextEnabled,
-                                              onImageTextChanged: (v) async {
-                                                await _setAiImageTextEnabled(
-                                                  provider: translationProvider,
-                                                  enabled: v,
-                                                );
-                                              },
                                               bookId: widget.bookId,
                                               chapterTextCache: qaTextCache,
-                                              currentChapterIndex: _currentChapterIndex,
-                                              currentPageInChapter: _currentPageInChapter,
-                                              chapterPageRanges: _chapterPageRanges,
+                                              currentChapterIndex:
+                                                  _currentChapterIndex,
+                                              currentPageInChapter:
+                                                  _currentPageInChapter,
+                                              chapterPageRanges:
+                                                  _chapterPageRanges,
                                             );
-
                                           },
                                         ),
                                       ),
@@ -2034,77 +1859,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildChapterContent(int index) {
-    return FutureBuilder<String>(
-      future: _chapters[index].readHtmlContent(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData)
-          return const SizedBox(
-              height: 300, child: Center(child: CircularProgressIndicator()));
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              HtmlWidget(
-                snapshot.data!,
-                textStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      height: _lineHeight,
-                      fontSize: _fontSize,
-                      color: _textColor,
-                    ),
-                customStylesBuilder: (element) {
-                  // FIX: Reset body and html margins to prevent 8px vertical shift
-                  if (element.localName == 'body' ||
-                      element.localName == 'html') {
-                    return {
-                      'margin': '0',
-                      'padding': '0',
-                      'height': 'auto',
-                      'width': 'auto'
-                    };
-                  }
-                  // Force paragraph spacing to be exactly one line height
-                  if (element.localName == 'p') {
-                    return {
-                      'margin-top': '0',
-                      'margin-bottom': '${_lineHeight}em',
-                      'padding': '0'
-                    };
-                  }
-                  // Normalize Headers
-                  if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
-                      .contains(element.localName)) {
-                    return {
-                      'margin-top': '0',
-                      'margin-bottom': '${_lineHeight}em',
-                      'font-size': '1em',
-                      'font-weight': 'bold',
-                      'line-height': 'inherit'
-                    };
-                  }
-                  if ([
-                    'div',
-                    'section',
-                    'article',
-                    'blockquote',
-                    'ul',
-                    'ol',
-                    'li'
-                  ].contains(element.localName)) {
-                    return {'margin': '0', 'padding': '0'};
-                  }
-                  return null;
-                },
-              ),
-              const Divider(height: 64),
-            ],
-          ),
-        );
-      },
     );
   }
 }

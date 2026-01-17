@@ -52,7 +52,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           await booksProvider.importWebFiles(result);
         }
       } catch (e) {
-        print('Error picking files on web: $e');
+        debugPrint('Error picking files on web: $e');
       }
     } else {
       await booksProvider.importBooks();
@@ -146,7 +146,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                             child: SizedBox(
                               height: 48,
                               child: GlassPanel(
-                                borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+                                borderRadius:
+                                    BorderRadius.circular(AppTokens.radiusMd),
                                 surfaceColor: Colors.white,
                                 opacity: 0.60,
                                 border: Border.all(
@@ -156,18 +157,22 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                 child: TextField(
                                   controller: _searchController,
                                   onChanged: _onSearchChanged,
-                                  style: const TextStyle(color: AppColors.deepSpace),
+                                  style: const TextStyle(
+                                      color: AppColors.deepSpace),
                                   decoration: InputDecoration(
                                     hintText: '搜索书名或作者',
-                                    hintStyle: TextStyle(color: AppColors.softGrey),
-                                    prefixIcon: const Icon(Icons.search, color: AppColors.softGrey),
+                                    hintStyle: const TextStyle(
+                                        color: AppColors.softGrey),
+                                    prefixIcon: const Icon(Icons.search,
+                                        color: AppColors.softGrey),
                                     border: InputBorder.none,
                                     contentPadding: const EdgeInsets.symmetric(
                                         horizontal: 16, vertical: 12),
                                     suffixIcon: _searchQuery.isNotEmpty
                                         ? IconButton(
                                             icon: const Icon(Icons.close,
-                                                size: 20, color: AppColors.softGrey),
+                                                size: 20,
+                                                color: AppColors.softGrey),
                                             onPressed: () {
                                               _searchController.clear();
                                               _onSearchChanged('');
@@ -222,9 +227,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                         ? '未找到相关书籍'
                                         : '书架空空如也，快去导入书籍吧！',
                                     textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                        color: AppColors.softGrey,
-                                        fontSize: 16),
+                                    style: const TextStyle(
+                                      color: AppColors.softGrey,
+                                      fontSize: 16,
+                                    ),
                                   ),
                                   if (_searchQuery.isEmpty) ...[
                                     const SizedBox(height: 32),
@@ -342,82 +348,82 @@ class _BookshelfPageState extends State<BookshelfPage> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                        // Pin Button
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              onPressed: booksProvider.selectedBookIds.isEmpty
-                                  ? null
-                                  : () => booksProvider.pinSelectedBooks(),
-                              icon: const Icon(Icons.vertical_align_top_rounded,
-                                  size: 28),
-                              color: AppColors.deepSpace,
-                              disabledColor: Colors.grey[300],
-                            ),
-                            Text(
-                              '置顶',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: booksProvider.selectedBookIds.isEmpty
-                                    ? Colors.grey[300]
-                                    : AppColors.deepSpace,
+                          // Pin Button
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                onPressed: booksProvider.selectedBookIds.isEmpty
+                                    ? null
+                                    : () => booksProvider.pinSelectedBooks(),
+                                icon: const Icon(
+                                    Icons.vertical_align_top_rounded,
+                                    size: 28),
+                                color: AppColors.deepSpace,
+                                disabledColor: Colors.grey[300],
                               ),
-                            )
-                          ],
-                        ),
+                              Text(
+                                '置顶',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: booksProvider.selectedBookIds.isEmpty
+                                      ? Colors.grey[300]
+                                      : AppColors.deepSpace,
+                                ),
+                              )
+                            ],
+                          ),
 
-                        // Select All Button (Moved from AppBar)
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              onPressed: () => booksProvider.selectAll(),
-                              icon: const Icon(Icons.select_all_rounded,
-                                  size: 28),
-                              color: AppColors.techBlue,
-                            ),
-                            const Text(
-                              '全选',
-                              style: TextStyle(
-                                fontSize: 12,
+                          // Select All Button (Moved from AppBar)
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                onPressed: () => booksProvider.selectAll(),
+                                icon: const Icon(Icons.select_all_rounded,
+                                    size: 28),
                                 color: AppColors.techBlue,
                               ),
-                            )
-                          ],
-                        ),
+                              const Text(
+                                '全选',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.techBlue,
+                                ),
+                              )
+                            ],
+                          ),
 
-                        // Delete Button
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              onPressed: booksProvider.selectedBookIds.isEmpty
-                                  ? null
-                                  : () => booksProvider.deleteSelectedBooks(),
-                              icon: const Icon(Icons.delete_outline_rounded,
-                                  size: 28),
-                              color: Colors.redAccent,
-                              disabledColor: Colors.grey[300],
-                            ),
-                            Text(
-                              '删除',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: booksProvider.selectedBookIds.isEmpty
-                                    ? Colors.grey[300]
-                                    : Colors.redAccent,
+                          // Delete Button
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                onPressed: booksProvider.selectedBookIds.isEmpty
+                                    ? null
+                                    : () => booksProvider.deleteSelectedBooks(),
+                                icon: const Icon(Icons.delete_outline_rounded,
+                                    size: 28),
+                                color: Colors.redAccent,
+                                disabledColor: Colors.grey[300],
                               ),
-                            )
-                          ],
-                        ),
-                      ],
+                              Text(
+                                '删除',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: booksProvider.selectedBookIds.isEmpty
+                                      ? Colors.grey[300]
+                                      : Colors.redAccent,
+                                ),
+                              )
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
                 ), // <- 补这一行：关闭 Positioned
             ],
-
           );
         },
       ),

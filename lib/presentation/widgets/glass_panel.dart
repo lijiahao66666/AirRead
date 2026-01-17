@@ -56,13 +56,13 @@ class GlassPanel extends StatelessWidget {
   }) {
     return GlassPanel(
       key: key,
-      child: child,
       padding: padding,
       surfaceColor: surfaceColor,
       opacity: opacity,
       blurSigma: blurSigma,
       borderRadius: borderRadius,
       boxShadow: AppTokens.shadowSoft,
+      child: child,
     );
   }
 
