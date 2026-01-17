@@ -26,6 +26,43 @@ static jmethodID getMethodIdSafe(JNIEnv* env, jclass cls, const char* name, cons
     }
     return mid;
 }
+
+static std::string decodeTokens(MNN::Transformer::Llm* llm, const std::vector<int>& tokens, size_t start, size_t end) {
+    std::string out;
+    if (start >= end || end > tokens.size()) return out;
+    out.reserve((end - start) * 2);
+    for (size_t i = start; i < end; i++) {
+        out.append(llm->tokenizer_decode(tokens[i]));
+    }
+    return out;
+}
+
+static std::string trimPromptByTokens(MNN::Transformer::Llm* llm, const std::string& prompt, int max_input_tokens) {
+    if (llm == nullptr) return prompt;
+    if (max_input_tokens <= 0) return prompt;
+    const auto ids = llm->tokenizer_encode(prompt);
+    if (static_cast<int>(ids.size()) <= max_input_tokens) return prompt;
+
+    int head = max_input_tokens / 4;
+    if (head > 128) head = 128;
+    if (head < 0) head = 0;
+    if (head > max_input_tokens) head = max_input_tokens;
+    int tail = max_input_tokens - head;
+
+    std::string out;
+    out.reserve(prompt.size());
+
+    if (head > 0) {
+        out.append(decodeTokens(llm, ids, 0, static_cast<size_t>(head)));
+    }
+    if (tail > 0) {
+        const size_t total = ids.size();
+        const size_t tailStart = total > static_cast<size_t>(tail) ? (total - static_cast<size_t>(tail)) : 0;
+        if (!out.empty()) out.push_back('\n');
+        out.append(decodeTokens(llm, ids, tailStart, total));
+    }
+    return out;
+}
 #endif
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -71,7 +108,7 @@ Java_com_airread_airread_MainActivity_nativeInit(JNIEnv* env, jobject thiz, jstr
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_airread_airread_MainActivity_nativeChat(JNIEnv* env, jobject thiz, jstring prompt) {
+Java_com_airread_airread_MainActivity_nativeChat(JNIEnv* env, jobject thiz, jstring prompt, jint max_new_tokens, jint max_input_tokens) {
     const char* input_str = env->GetStringUTFChars(prompt, 0);
     std::string response;
 
@@ -85,7 +122,9 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv* env, jobject thiz, jstr
     
     g_llm->reset();
     std::stringstream ss;
-    g_llm->response(input_str, &ss, nullptr, 256);
+    const int maxTokens = max_new_tokens > 0 ? static_cast<int>(max_new_tokens) : 256;
+    const std::string effectivePrompt = trimPromptByTokens(g_llm.get(), input_str, static_cast<int>(max_input_tokens));
+    g_llm->response(effectivePrompt, &ss, nullptr, maxTokens);
     response = ss.str();
 #else
     response = "【系统提示】本地推理引擎尚未集成。请按照项目文档下载 MNN 库文件并配置 android/app/src/main/cpp/mnn_bridge.cpp 以启用本地模型功能。";
@@ -198,7 +237,7 @@ private:
 #endif
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv* env, jobject thiz, jstring prompt, jobject callback) {
+Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv* env, jobject thiz, jstring prompt, jint max_new_tokens, jint max_input_tokens, jobject callback) {
     const char* input_str = env->GetStringUTFChars(prompt, 0);
 
 #ifdef ENABLE_MNN
@@ -211,7 +250,9 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv* env, jobject thiz
     g_llm->reset();
     CallbackStreamBuf buf(env, callback);
     std::ostream os(&buf);
-    g_llm->response(input_str, &os, nullptr, 256);
+    const int maxTokens = max_new_tokens > 0 ? static_cast<int>(max_new_tokens) : 256;
+    const std::string effectivePrompt = trimPromptByTokens(g_llm.get(), input_str, static_cast<int>(max_input_tokens));
+    g_llm->response(effectivePrompt, &os, nullptr, maxTokens);
     os.flush();
 
     jclass cls = env->GetObjectClass(callback);

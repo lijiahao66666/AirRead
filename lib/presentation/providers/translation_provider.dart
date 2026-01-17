@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
 
@@ -27,7 +28,7 @@ class TranslationProvider extends ChangeNotifier {
   static const _kAutoGlossary = 'tr_auto_glossary';
 
   final TranslationCache _cache =
-      TranslationCache(ttl: const Duration(hours: 24));
+      TranslationCache(ttl: const Duration(days: 30));
   final GlossaryManager _glossary = GlossaryManager();
 
   late TranslationService _service;
@@ -48,6 +49,9 @@ class TranslationProvider extends ChangeNotifier {
   bool _aiReadAloudEnabled = false;
   bool _autoGlossaryExtractionEnabled = true;
   bool _loaded = false;
+
+  Timer? _notifyTimer;
+  bool _notifyScheduled = false;
 
   TranslationProvider({
     AiModelProvider? aiModel,
@@ -172,11 +176,30 @@ class TranslationProvider extends ChangeNotifier {
   UnmodifiableListView<GlossaryTerm> get glossaryTerms => _glossary.terms;
   int get glossaryVersion => _glossary.version;
 
+  @override
+  void dispose() {
+    _notifyTimer?.cancel();
+    if (_aiModelListener != null) {
+      _aiModel?.removeListener(_aiModelListener!);
+    }
+    super.dispose();
+  }
+
   Future<void> setCurrentBookId(String bookId) async {
     if (_currentBookId == bookId) return;
     await _savePrefs();
     _currentBookId = bookId;
     await _loadFromPrefs();
+  }
+
+  void _scheduleNotify([Duration delay = const Duration(milliseconds: 50)]) {
+    if (_notifyScheduled) return;
+    _notifyScheduled = true;
+    _notifyTimer?.cancel();
+    _notifyTimer = Timer(delay, () {
+      _notifyScheduled = false;
+      notifyListeners();
+    });
   }
 
   Future<void> _loadFromPrefs() async {
@@ -373,17 +396,16 @@ class TranslationProvider extends ChangeNotifier {
             .then((result) {
           _pendingKeys.remove(cacheKey);
           _failedKeys.remove(cacheKey); // 清除失败标记
-          notifyListeners();
+          _scheduleNotify();
         }).catchError((e) {
-          debugPrint('Translation failed for para ${entry.key}: $e');
           // 不缓存原文，只标记为失败
           _failedKeys.add(cacheKey);
           _pendingKeys.remove(cacheKey);
-          notifyListeners();
+          _scheduleNotify();
         });
       }
       if (pendingChanged) {
-        notifyListeners();
+        _scheduleNotify();
       }
     } catch (_) {}
   }

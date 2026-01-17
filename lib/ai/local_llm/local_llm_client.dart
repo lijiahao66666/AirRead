@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -11,7 +12,11 @@ class LocalLlmClient {
   static const EventChannel _streamChannel =
       EventChannel('airread/local_llm_stream');
 
-  String? _initializedModelPath;
+  static final _ConcurrencyGate _gate = _ConcurrencyGate(maxConcurrent: 1);
+
+  static String? _initializedModelPath;
+  static Future<void>? _initializing;
+  static const int _defaultMaxNewTokens = 1024;
 
   Future<bool> isAvailable() async {
     if (kIsWeb) return false;
@@ -25,32 +30,40 @@ class LocalLlmClient {
 
   Future<String> chatOnce({
     required String userText,
+    int maxNewTokens = _defaultMaxNewTokens,
+    int maxInputTokens = 0,
   }) async {
-    final modelPath = await _resolveModelPath();
-    await _ensureInitialized(modelPath);
-    String? resp;
+    final release = await _gate.acquire();
     try {
-      resp = await _channel.invokeMethod<String>('chatOnce', {
+      final modelPath = await _resolveModelPath();
+      await _ensureInitialized(modelPath);
+      final resp = await _channel.invokeMethod<String>('chatOnce', {
         'modelPath': modelPath,
         'userText': userText,
+        'maxNewTokens': maxNewTokens,
+        'maxInputTokens': maxInputTokens,
       });
+      if (resp == null) {
+        throw PlatformException(
+          code: 'LocalLlmNullResponse',
+          message: '本地推理返回为空',
+        );
+      }
+      return resp;
     } on MissingPluginException {
       throw PlatformException(
         code: 'LocalLlmNotAvailable',
         message: '本地推理暂不可用（当前平台未集成本地推理）',
       );
+    } finally {
+      release();
     }
-    if (resp == null) {
-      throw PlatformException(
-        code: 'LocalLlmNullResponse',
-        message: '本地推理返回为空',
-      );
-    }
-    return resp;
   }
 
   Stream<String> chatStream({
     required String userText,
+    int maxNewTokens = _defaultMaxNewTokens,
+    int maxInputTokens = 0,
   }) {
     if (kIsWeb) {
       return Stream.error(UnsupportedError('本地模型不支持在 Web 平台上运行'));
@@ -58,68 +71,106 @@ class LocalLlmClient {
 
     late final StreamController<String> controller;
     StreamSubscription<dynamic>? sub;
+    void Function()? release;
+    bool closed = false;
+
+    Future<void> closeSafely([Object? error, StackTrace? st]) async {
+      if (closed) return;
+      closed = true;
+      try {
+        await sub?.cancel();
+      } catch (_) {}
+      if (error != null) {
+        try {
+          controller.addError(error, st);
+        } catch (_) {}
+      }
+      try {
+        await controller.close();
+      } catch (_) {}
+      release?.call();
+    }
 
     controller = StreamController<String>(
       onListen: () async {
         try {
+          release = await _gate.acquire();
+          if (closed) {
+            release?.call();
+            release = null;
+            return;
+          }
           final modelPath = await _resolveModelPath();
+          if (closed) {
+            release?.call();
+            release = null;
+            return;
+          }
           await _ensureInitialized(modelPath);
+          if (closed) {
+            release?.call();
+            release = null;
+            return;
+          }
 
           sub = _streamChannel.receiveBroadcastStream().listen(
             (event) {
+              if (closed) return;
               if (event is Map) {
                 final type = event['type'];
                 if (type == 'chunk') {
                   final data = event['data'];
                   if (data is String && data.isNotEmpty) {
-                    controller.add(data);
+                    try {
+                      controller.add(data);
+                    } catch (_) {}
                   }
                 } else if (type == 'done') {
-                  sub?.cancel();
-                  controller.close();
+                  closeSafely();
                 } else if (type == 'error') {
                   final message = event['message'];
-                  sub?.cancel();
-                  controller.addError(
+                  closeSafely(
                     PlatformException(
                       code: 'LocalLlmStreamError',
                       message: message is String ? message : '本地推理流式输出失败',
                     ),
                   );
-                  controller.close();
                 }
               } else if (event is String) {
-                if (event.isNotEmpty) controller.add(event);
+                if (event.isNotEmpty) {
+                  try {
+                    controller.add(event);
+                  } catch (_) {}
+                }
               }
             },
             onError: (e) {
-              controller.addError(e);
-              controller.close();
+              closeSafely(e);
             },
           );
 
           await _channel.invokeMethod<void>('chatStream', {
             'modelPath': modelPath,
             'userText': userText,
+            'maxNewTokens': maxNewTokens,
+            'maxInputTokens': maxInputTokens,
           });
         } on MissingPluginException {
-          controller.addError(
+          await closeSafely(
             PlatformException(
               code: 'LocalLlmNotAvailable',
               message: '本地推理暂不可用（当前平台未集成本地推理）',
             ),
           );
-          await controller.close();
         } catch (e) {
-          controller.addError(e);
-          await controller.close();
+          await closeSafely(e);
         }
       },
       onCancel: () async {
         try {
           await _channel.invokeMethod<void>('cancelChatStream');
         } catch (_) {}
-        await sub?.cancel();
+        await closeSafely();
       },
     );
 
@@ -155,6 +206,23 @@ class LocalLlmClient {
 
   Future<void> _ensureInitialized(String modelPath) async {
     if (_initializedModelPath == modelPath) return;
+    if (_initializing != null) {
+      await _initializing;
+      if (_initializedModelPath == modelPath) return;
+    }
+    final future = _init(modelPath);
+    _initializing = future;
+    try {
+      await future;
+      _initializedModelPath = modelPath;
+    } finally {
+      if (identical(_initializing, future)) {
+        _initializing = null;
+      }
+    }
+  }
+
+  Future<void> _init(String modelPath) async {
     try {
       await _channel.invokeMethod<void>('init', {
         'modelPath': modelPath,
@@ -165,6 +233,32 @@ class LocalLlmClient {
         message: '本地推理暂不可用（当前平台未集成本地推理）',
       );
     }
-    _initializedModelPath = modelPath;
+  }
+}
+
+class _ConcurrencyGate {
+  final int maxConcurrent;
+  final Queue<Completer<void Function()>> _waiters = Queue();
+  int _active = 0;
+
+  _ConcurrencyGate({required this.maxConcurrent}) : assert(maxConcurrent >= 1);
+
+  Future<void Function()> acquire() {
+    if (_active < maxConcurrent) {
+      _active++;
+      return Future.value(_release);
+    }
+    final c = Completer<void Function()>();
+    _waiters.addLast(c);
+    return c.future;
+  }
+
+  void _release() {
+    if (_waiters.isNotEmpty) {
+      final next = _waiters.removeFirst();
+      next.complete(_release);
+      return;
+    }
+    _active--;
   }
 }

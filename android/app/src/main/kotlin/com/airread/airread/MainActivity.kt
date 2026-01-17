@@ -10,6 +10,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "airread/local_llm"
     private val STREAM_CHANNEL = "airread/local_llm_stream"
+    private val DEFAULT_MAX_NEW_TOKENS = 1024
 
     @Volatile
     private var streamSink: EventChannel.EventSink? = null
@@ -42,8 +43,8 @@ class MainActivity: FlutterActivity() {
 
     external fun nativeIsAvailable(): Boolean
     external fun nativeInit(modelPath: String)
-    external fun nativeChat(prompt: String): String
-    external fun nativeChatStream(prompt: String, callback: Any)
+    external fun nativeChat(prompt: String, maxNewTokens: Int, maxInputTokens: Int): String
+    external fun nativeChatStream(prompt: String, maxNewTokens: Int, maxInputTokens: Int, callback: Any)
 
     @Keep
     inner class LocalLlmStreamCallback {
@@ -126,9 +127,11 @@ class MainActivity: FlutterActivity() {
                     }
                     val userText = call.argument<String>("userText")
                     if (userText != null) {
+                        val maxNewTokens = call.argument<Int>("maxNewTokens") ?: DEFAULT_MAX_NEW_TOKENS
+                        val maxInputTokens = call.argument<Int>("maxInputTokens") ?: 0
                         Thread {
                             try {
-                                val response = nativeChat(userText)
+                                val response = nativeChat(userText, maxNewTokens, maxInputTokens)
                                 runOnUiThread { result.success(response) }
                             } catch (e: UnsatisfiedLinkError) {
                                 runOnUiThread { result.error("NATIVE_ERR", "Native chat failed", e.toString()) }
@@ -158,11 +161,13 @@ class MainActivity: FlutterActivity() {
                         result.error("INVALID_ARG", "User text is null", null)
                         return@setMethodCallHandler
                     }
+                    val maxNewTokens = call.argument<Int>("maxNewTokens") ?: DEFAULT_MAX_NEW_TOKENS
+                    val maxInputTokens = call.argument<Int>("maxInputTokens") ?: 0
                     streamCancelled = false
                     val callback = LocalLlmStreamCallback()
                     Thread {
                         try {
-                            nativeChatStream(userText, callback)
+                            nativeChatStream(userText, maxNewTokens, maxInputTokens, callback)
                         } catch (e: UnsatisfiedLinkError) {
                             callback.onError(e.toString())
                         } catch (e: Exception) {

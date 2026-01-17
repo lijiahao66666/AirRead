@@ -33,6 +33,8 @@ class QAService {
   final ReadingContextService contextService;
   final TencentCredentials credentials;
   final QAContentScope contentScope;
+  static const int _localQaMaxNewTokens = 1024;
+  static const int _localQaMaxInputTokens = 3072;
 
   QAService({
     required this.contextService,
@@ -109,11 +111,16 @@ class QAService {
     );
 
     final parser = _ThinkTagStreamParser();
-    await for (final delta in client.chatStream(userText: prompt)) {
+    await for (final delta in client.chatStream(
+      userText: prompt,
+      maxNewTokens: _localQaMaxNewTokens,
+      maxInputTokens: _localQaMaxInputTokens,
+    )) {
       for (final chunk in parser.consume(delta)) {
         yield chunk;
       }
     }
+
     for (final chunk in parser.finish()) {
       yield chunk;
     }
@@ -127,7 +134,7 @@ class QAService {
     final historyText = (history ?? '').trim();
     final content = contextService.getContentByScope(contentScope);
     const thinkRule =
-        '请先在 <think>...</think> 中输出思考过程，然后在 <answer>...</answer> 中输出最终回答。';
+        '请先在 <think>...</think> 中输出思考过程（尽量精简，控制在120字以内），然后在 <answer>...</answer> 中输出最终回答。';
 
     switch (qaType) {
       case QAType.summary:
@@ -138,7 +145,7 @@ class QAService {
           '你是阅读助手。请对以下内容做简要总结：',
           _tail(_squashSpaces(chapter), 2400),
           '',
-          '要求：用不超过6条要点概括，尽量引用原文信息，不要编造。',
+          '要求：用不超过6条要点概括，尽量引用原文信息，不要编造；最终回答控制在260字以内。',
         ].join('\n');
       case QAType.keyPoints:
         final chapter = contextService.getCurrentChapterContent();
@@ -148,7 +155,7 @@ class QAService {
           '你是阅读助手。请从以下内容提取关键要点：',
           _tail(_squashSpaces(chapter), 2400),
           '',
-          '要求：不超过5条；每条一句话；覆盖事件、人物变化、伏笔线索。',
+          '要求：不超过5条；每条一句话；覆盖事件、人物变化、伏笔线索；最终回答控制在240字以内。',
         ].join('\n');
       case QAType.general:
         final parts = <String>[
@@ -156,6 +163,7 @@ class QAService {
           '',
           '你是阅读助手。请根据「当前阅读内容」回答「用户问题」。',
           '规则：只依据内容与历史对话；不确定就说“文中未提及/需要更多上下文”。',
+          '要求：最终回答控制在600字以内，语句完整结束。',
           '',
           '【当前阅读内容】',
           _tail(_squashSpaces(content), 1800),
@@ -187,7 +195,7 @@ class QAService {
           '【上下文】',
           _tail(_squashSpaces(content), 1500),
           '',
-          '要求：先解释字面意思，再说明与情节的关系。控制在8句以内。',
+          '要求：先解释字面意思，再说明与情节的关系。控制在8句以内；最终回答控制在520字以内。',
         ].join('\n').trim();
     }
   }
