@@ -191,7 +191,6 @@ class TranslationProvider extends ChangeNotifier {
     final from = prefs.getString(_kCfgFrom);
     final to = prefs.getString(_kCfgTo);
     final mode = prefs.getString(_kCfgMode);
-    final apply = prefs.getBool(_kCfgApply);
 
     _aiTranslateEnabled = prefs.getBool(_kAiTranslateEnabled) ?? false;
     _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
@@ -210,9 +209,12 @@ class TranslationProvider extends ChangeNotifier {
       targetLang:
           (to ?? _config.targetLang).trim().isEmpty ? _config.targetLang : to,
       displayMode: displayMode,
+      engineType: _aiTranslateEnabled
+          ? TranslationEngineType.ai
+          : TranslationEngineType.machine,
       autoExtractGlossary: _autoGlossaryExtractionEnabled,
     );
-    _applyToReader = apply ?? _applyToReader;
+    _applyToReader = _aiTranslateEnabled;
 
     if (_currentBookId.isNotEmpty) {
       final glossaryRaw = prefs.getString(_glossaryKey);
@@ -295,6 +297,10 @@ class TranslationProvider extends ChangeNotifier {
       _validateEngineConfig();
     }
     _aiTranslateEnabled = value;
+    _config = _config.copyWith(
+      engineType:
+          value ? TranslationEngineType.ai : TranslationEngineType.machine,
+    );
     if (value && _aiImageTextEnabled) {
       _aiImageTextEnabled = false;
     }

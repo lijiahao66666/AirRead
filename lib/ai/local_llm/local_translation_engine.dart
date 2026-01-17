@@ -28,7 +28,7 @@ class LocalTranslationEngine extends TranslationEngine {
       glossaryPlaceholders: glossaryPlaceholders,
       references: references,
     );
-    return _client.chatOnce(userText: prompt).then(_stripThink);
+    return _client.chatOnce(userText: prompt).then(_postProcessModelOutput);
   }
 
   String _buildPrompt({
@@ -51,8 +51,7 @@ class LocalTranslationEngine extends TranslationEngine {
 
     final ctx = contextSources.isEmpty
         ? ''
-        : contextSources
-            .reversed
+        : contextSources.reversed
             .take(2)
             .map((e) => '- ${_clip(_squashSpaces(e), 220)}')
             .join('\n');
@@ -102,11 +101,65 @@ class LocalTranslationEngine extends TranslationEngine {
     return buffer.toString().trim();
   }
 
-  String _stripThink(String input) {
-    var s = input;
-    s = s.replaceAll(RegExp(r'<think>[\\s\\S]*?<\\/think>', multiLine: true), '');
-    s = s.replaceAll(RegExp(r'<think>[\\s\\S]*', multiLine: true), '');
-    return s.trim();
+  String _postProcessModelOutput(String input) {
+    var s = input.trim();
+
+    final lastCloseThink = s.lastIndexOf('</think>');
+    if (lastCloseThink >= 0) {
+      s = s.substring(lastCloseThink + '</think>'.length).trim();
+    }
+
+    s = s.replaceAll(
+      RegExp(r'<think>[\s\S]*?</think>', multiLine: true),
+      '',
+    );
+    s = s.replaceAll(
+      RegExp(r'<think>[\s\S]*', multiLine: true),
+      '',
+    );
+    s = s.replaceAll('</think>', '');
+    s = s.trim();
+
+    final bracketTagged = _extractBracketTag(s);
+    if (bracketTagged != null) {
+      s = bracketTagged.trim();
+    }
+
+    final answer = _extractAnswerTag(s);
+    if (answer != null) return answer.trim();
+
+    s = s.replaceAll('<answer>', '').replaceAll('</answer>', '');
+    s = s.replaceAll(RegExp(r'</?\[[^\]]+\]>'), '');
+    s = s.trim();
+    return s;
+  }
+
+  String? _extractAnswerTag(String input) {
+    final open = '<answer>';
+    final close = '</answer>';
+    final start = input.indexOf(open);
+    if (start < 0) return null;
+    final afterOpen = start + open.length;
+    final end = input.indexOf(close, afterOpen);
+    if (end >= 0) {
+      return input.substring(afterOpen, end);
+    }
+    return input.substring(afterOpen);
+  }
+
+  String? _extractBracketTag(String input) {
+    final openStart = input.lastIndexOf('<[');
+    if (openStart < 0) return null;
+    final openEnd = input.indexOf(']>', openStart);
+    if (openEnd < 0) return null;
+    final tag = input.substring(openStart + 2, openEnd);
+    final afterOpen = openEnd + 2;
+    final close = '</[$tag]>';
+    final closeIdx = input.indexOf(close, afterOpen);
+    if (closeIdx >= 0) {
+      return input.substring(afterOpen, closeIdx);
+    }
+    return input.substring(afterOpen);
   }
 
   String _clip(String input, int maxChars) {

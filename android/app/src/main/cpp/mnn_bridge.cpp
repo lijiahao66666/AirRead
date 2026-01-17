@@ -16,6 +16,16 @@
 static std::unique_ptr<MNN::Transformer::Llm> g_llm;
 static std::string g_model_path;
 static std::mutex g_llm_mutex;
+
+static jmethodID getMethodIdSafe(JNIEnv* env, jclass cls, const char* name, const char* sig) {
+    jmethodID mid = env->GetMethodID(cls, name, sig);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        __android_log_print(ANDROID_LOG_ERROR, TAG, "Missing callback method: %s %s", name, sig);
+        return nullptr;
+    }
+    return mid;
+}
 #endif
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -91,8 +101,8 @@ public:
     CallbackStreamBuf(JNIEnv* env, jobject callback)
         : env_(env), callback_(callback) {
         jclass cls = env_->GetObjectClass(callback_);
-        onChunk_ = env_->GetMethodID(cls, "onChunk", "(Ljava/lang/String;)V");
-        isCancelled_ = env_->GetMethodID(cls, "isCancelled", "()Z");
+        onChunk_ = getMethodIdSafe(env_, cls, "onChunk", "(Ljava/lang/String;)V");
+        isCancelled_ = getMethodIdSafe(env_, cls, "isCancelled", "()Z");
         env_->DeleteLocalRef(cls);
     }
 
@@ -205,7 +215,7 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv* env, jobject thiz
     os.flush();
 
     jclass cls = env->GetObjectClass(callback);
-    jmethodID onDone = env->GetMethodID(cls, "onDone", "()V");
+    jmethodID onDone = getMethodIdSafe(env, cls, "onDone", "()V");
     env->DeleteLocalRef(cls);
     if (onDone != nullptr) {
         env->CallVoidMethod(callback, onDone);

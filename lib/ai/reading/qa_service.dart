@@ -126,7 +126,8 @@ class QAService {
   }) {
     final historyText = (history ?? '').trim();
     final content = contextService.getContentByScope(contentScope);
-    const thinkRule = '请先在 <think>...</think> 中输出思考过程，然后输出最终回答（不要包含 think 标签）。';
+    const thinkRule =
+        '请先在 <think>...</think> 中输出思考过程，然后在 <answer>...</answer> 中输出最终回答。';
 
     switch (qaType) {
       case QAType.summary:
@@ -211,9 +212,19 @@ class QAService {
 class _ThinkTagStreamParser {
   static const _open = '<think>';
   static const _close = '</think>';
+  static const _answerOpen = '<answer>';
+  static const _answerClose = '</answer>';
+  static final RegExp _bracketTag = RegExp(r'</?\[[^\]]+\]>');
 
   final StringBuffer _buffer = StringBuffer();
   bool _inThink = false;
+  bool _inAnswer = false;
+  bool _sawAnswerTag = false;
+
+  static String _clean(String input) {
+    if (input.isEmpty) return input;
+    return input.replaceAll(_bracketTag, '');
+  }
 
   Iterable<QAStreamChunk> consume(String delta) sync* {
     if (delta.isEmpty) return;
@@ -233,7 +244,7 @@ class _ThinkTagStreamParser {
       if (_inThink) {
         final idx = text.indexOf(_close);
         if (idx >= 0) {
-          final part = text.substring(0, idx);
+          final part = _clean(text.substring(0, idx));
           if (part.isNotEmpty) {
             yield QAStreamChunk(
               content: '',
@@ -248,7 +259,7 @@ class _ThinkTagStreamParser {
 
         final keep = _close.length - 1;
         if (!force && text.length > keep) {
-          final emit = text.substring(0, text.length - keep);
+          final emit = _clean(text.substring(0, text.length - keep));
           if (emit.isNotEmpty) {
             yield QAStreamChunk(
               content: '',
@@ -260,10 +271,41 @@ class _ThinkTagStreamParser {
         }
         break;
       } else {
+        if (_inAnswer) {
+          final closeIdx = text.indexOf(_answerClose);
+          if (closeIdx >= 0) {
+            final part = _clean(text.substring(0, closeIdx));
+            if (part.isNotEmpty) {
+              yield QAStreamChunk(content: part);
+            }
+            text = text.substring(closeIdx + _answerClose.length);
+            _inAnswer = false;
+            continue;
+          }
+
+          final keep = _answerClose.length - 1;
+          if (!force && text.length > keep) {
+            final emit = _clean(text.substring(0, text.length - keep));
+            if (emit.isNotEmpty) {
+              yield QAStreamChunk(content: emit);
+            }
+            text = text.substring(text.length - keep);
+          }
+          break;
+        }
+
+        final answerIdx = text.indexOf(_answerOpen);
+        if (answerIdx >= 0) {
+          text = text.substring(answerIdx + _answerOpen.length);
+          _inAnswer = true;
+          _sawAnswerTag = true;
+          continue;
+        }
+
         final idx = text.indexOf(_open);
         if (idx >= 0) {
-          final part = text.substring(0, idx);
-          if (part.isNotEmpty) {
+          final part = _clean(text.substring(0, idx));
+          if (part.isNotEmpty && !_sawAnswerTag) {
             yield QAStreamChunk(content: part);
           }
           text = text.substring(idx + _open.length);
@@ -273,8 +315,8 @@ class _ThinkTagStreamParser {
 
         final keep = _open.length - 1;
         if (!force && text.length > keep) {
-          final emit = text.substring(0, text.length - keep);
-          if (emit.isNotEmpty) {
+          final emit = _clean(text.substring(0, text.length - keep));
+          if (emit.isNotEmpty && !_sawAnswerTag) {
             yield QAStreamChunk(content: emit);
           }
           text = text.substring(text.length - keep);
@@ -285,13 +327,19 @@ class _ThinkTagStreamParser {
 
     if (force && text.isNotEmpty) {
       if (_inThink) {
+        text = _clean(text);
         yield QAStreamChunk(
           content: '',
           reasoningContent: text,
           isReasoning: true,
         );
       } else {
-        yield QAStreamChunk(content: text);
+        if (!_sawAnswerTag || _inAnswer) {
+          final out = _clean(text);
+          if (out.isNotEmpty) {
+            yield QAStreamChunk(content: out);
+          }
+        }
       }
       text = '';
     }

@@ -21,7 +21,7 @@ class TranslationService {
 
   final TranslationTaskQueue _machineQueue =
       TranslationTaskQueue(maxConcurrent: 3); // 保守设置，避免触发限流
-  final TranslationTaskQueue _aiQueue = TranslationTaskQueue(maxConcurrent: 2);
+  final TranslationTaskQueue _aiQueue = TranslationTaskQueue(maxConcurrent: 4);
 
   final Map<String, Future<String>> _inFlight = {};
 

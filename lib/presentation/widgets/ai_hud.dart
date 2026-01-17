@@ -440,7 +440,9 @@ class _TencentHunyuanSettingsPanelState
                 child: Text(
                   '自动术语提取',
                   style: TextStyle(
-                      color: widget.textColor.withOpacity(0.8), fontSize: 13),
+                      color: widget.textColor,
+                      fontSize: 13,
+                      fontWeight: FontWeight.normal),
                 ),
               ),
               Transform.scale(
@@ -496,10 +498,9 @@ class _TencentHunyuanSettingsPanelState
                 child: Text(
                   '进入章节自动开始',
                   style: TextStyle(
-                    color: widget.textColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.normal,
-                  ),
+                      color: widget.textColor,
+                      fontSize: 13,
+                      fontWeight: FontWeight.normal),
                 ),
               ),
               Transform.scale(

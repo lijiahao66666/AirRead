@@ -1,6 +1,7 @@
 package com.airread.airread
 
 import android.util.Log
+import androidx.annotation.Keep
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -44,7 +45,8 @@ class MainActivity: FlutterActivity() {
     external fun nativeChat(prompt: String): String
     external fun nativeChatStream(prompt: String, callback: Any)
 
-    private inner class LocalLlmStreamCallback {
+    @Keep
+    inner class LocalLlmStreamCallback {
         fun onChunk(text: String) {
             if (text.isEmpty()) return
             val sink = streamSink ?: return
