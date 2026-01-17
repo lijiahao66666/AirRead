@@ -17,6 +17,7 @@ class _FakeEngine extends TranslationEngine {
     required String targetLang,
     required List<String> contextSources,
     required Map<String, String> glossaryPlaceholders,
+    required List<TranslationReference> references,
   }) async {
     return 'ok';
   }

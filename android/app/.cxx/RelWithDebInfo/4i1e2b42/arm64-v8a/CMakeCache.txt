@@ -252,7 +252,7 @@ Project_IS_TOP_LEVEL:STATIC=ON
 Project_SOURCE_DIR:STATIC=C:/Users/28679/traeProjects/AirRead/android/app/src/main/cpp
 
 //Dependencies for the target
-mnn_bridge_LIB_DEPENDS:STATIC=general;android;general;log;
+mnn_bridge_LIB_DEPENDS:STATIC=general;MNN;general;MNN_Express;general;llm;general;android;general;log;
 
 
 ########################

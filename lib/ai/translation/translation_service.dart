@@ -5,16 +5,14 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
-import '../hunyuan/hunyuan_text_client.dart';
-
-
 import 'engines/translation_engine.dart';
-
 
 import 'glossary.dart';
 import 'translation_cache.dart';
 import 'translation_queue.dart';
 import 'translation_types.dart';
+
+typedef ChatOnceFn = Future<String> Function({required String userText});
 
 class TranslationService {
   final TranslationCache cache;
@@ -29,7 +27,7 @@ class TranslationService {
 
   final TranslationEngine machineEngine;
   final TranslationEngine aiEngine;
-  final HunyuanTextClient? chatClient;
+  final ChatOnceFn? chatOnce;
 
   /// AI context cache: keep last 3 source paragraphs per (targetLang).
 
@@ -41,9 +39,8 @@ class TranslationService {
     this.logger,
     required this.machineEngine,
     required this.aiEngine,
-    this.chatClient,
+    this.chatOnce,
   });
-
 
   TranslationEngine _engineFor(TranslationEngineType type) {
     switch (type) {
@@ -135,7 +132,6 @@ class TranslationService {
         translatedParagraph: finalText,
       );
 
-
       return finalText;
     });
 
@@ -198,7 +194,6 @@ class TranslationService {
           });
           return list;
         });
-
 
         for (int j = 0; j < results.length; j++) {
           final originalIdx = toTranslateIdxs[j];
@@ -267,7 +262,7 @@ class TranslationService {
 
     if (config.autoExtractGlossary &&
         config.engineType == TranslationEngineType.ai &&
-        chatClient != null) {
+        chatOnce != null) {
       _autoExtractGlossary(
         source: sourceParagraph,
         translation: translatedParagraph,
@@ -279,10 +274,19 @@ class TranslationService {
     required String source,
     required String translation,
   }) async {
-    final prompt =
-        '从以下「原文」和「译文」中，提取专有名词或术语，以JSON数组格式返回，每项包含"source"和"target"两个key。最多返回3个。\n\n「原文」：$source\n「译文」：$translation\n\nJSON数组：';
+    final sourceText = _clip(_squashSpaces(source), 600);
+    final translationText = _clip(_squashSpaces(translation), 600);
+    final prompt = [
+      '你是术语提取器。请从以下「原文」和「译文」中提取专有名词/术语，返回 JSON 数组。',
+      '规则：仅输出 JSON；最多 3 项；每项包含 source 与 target；不要输出多余文字。',
+      '',
+      '原文：$sourceText',
+      '译文：$translationText',
+      '',
+      'JSON：',
+    ].join('\n');
     try {
-      final result = await chatClient!.chatOnce(userText: prompt);
+      final result = await chatOnce!(userText: prompt);
       final jsonStart = result.indexOf('[');
       final jsonEnd = result.lastIndexOf(']');
       if (jsonStart != -1 && jsonEnd != -1) {
@@ -309,6 +313,15 @@ class TranslationService {
     }
   }
 
+  String _clip(String input, int maxChars) {
+    final s = input.trim();
+    if (s.length <= maxChars) return s;
+    return s.substring(0, maxChars);
+  }
+
+  String _squashSpaces(String input) {
+    return input.replaceAll(RegExp(r'\\s+'), ' ').trim();
+  }
 
   Future<T> _withRetry<T>(Future<T> Function() task) async {
     const int maxRetries = 3;

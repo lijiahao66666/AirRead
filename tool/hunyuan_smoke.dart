@@ -1,6 +1,7 @@
 import 'package:airread/ai/hunyuan/hunyuan_text_client.dart';
 import 'package:airread/ai/hunyuan/hunyuan_translation_engine.dart';
 import 'package:airread/ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
+import 'package:airread/ai/translation/translation_types.dart';
 
 Future<void> main() async {
   final creds = getEmbeddedPublicHunyuanCredentials();
@@ -26,6 +27,7 @@ Future<void> main() async {
     targetLang: 'zh',
     contextSources: const [],
     glossaryPlaceholders: const {},
+    references: const <TranslationReference>[],
   );
   final trText = t.trim().replaceAll(RegExp(r'\s+'), ' ');
   print('translation ok: ${t.trim().isNotEmpty}');

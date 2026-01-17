@@ -20,7 +20,7 @@ class QAStreamChunk {
   final String? reasoningContent;
   final bool isReasoning;
   final bool isComplete;
-  
+
   QAStreamChunk({
     required this.content,
     this.reasoningContent,
@@ -28,8 +28,6 @@ class QAStreamChunk {
     this.isComplete = false,
   });
 }
-
-
 
 class QAService {
   final ReadingContextService contextService;
@@ -82,13 +80,12 @@ class QAService {
         break;
     }
 
-
     // 所有在线模型调用都启用联网搜索增强
     final stream = client.chatStream(
       userText: prompt,
-      enableSearch: true,  // 启用联网搜索
+      enableSearch: true, // 启用联网搜索
     );
-    
+
     await for (final chunk in stream) {
       yield QAStreamChunk(
         content: chunk.content,
@@ -104,43 +101,203 @@ class QAService {
     QAType qaType, {
     String? history,
   }) async* {
-    // 本地模型暂时不支持流式输出，模拟流式
     final client = LocalLlmClient();
-    String prompt;
+    final prompt = _buildLocalPrompt(
+      question: question,
+      qaType: qaType,
+      history: history,
+    );
+
+    final parser = _ThinkTagStreamParser();
+    await for (final delta in client.chatStream(userText: prompt)) {
+      for (final chunk in parser.consume(delta)) {
+        yield chunk;
+      }
+    }
+    for (final chunk in parser.finish()) {
+      yield chunk;
+    }
+  }
+
+  String _buildLocalPrompt({
+    required String question,
+    required QAType qaType,
+    String? history,
+  }) {
+    final historyText = (history ?? '').trim();
+    final content = contextService.getContentByScope(contentScope);
+    const thinkRule = '请先在 <think>...</think> 中输出思考过程，然后输出最终回答（不要包含 think 标签）。';
 
     switch (qaType) {
       case QAType.summary:
-        prompt = contextService.generateSummaryPrompt();
-        break;
+        final chapter = contextService.getCurrentChapterContent();
+        return [
+          thinkRule,
+          '',
+          '你是阅读助手。请对以下内容做简要总结：',
+          _tail(_squashSpaces(chapter), 2400),
+          '',
+          '要求：用不超过6条要点概括，尽量引用原文信息，不要编造。',
+        ].join('\n');
       case QAType.keyPoints:
-        prompt = contextService.generateKeyPointsPrompt();
-        break;
+        final chapter = contextService.getCurrentChapterContent();
+        return [
+          thinkRule,
+          '',
+          '你是阅读助手。请从以下内容提取关键要点：',
+          _tail(_squashSpaces(chapter), 2400),
+          '',
+          '要求：不超过5条；每条一句话；覆盖事件、人物变化、伏笔线索。',
+        ].join('\n');
       case QAType.general:
-        prompt = contextService.generateQAPrompt(
-          question,
-          contentScope,
-          history: history,
-        );
-        break;
+        final parts = <String>[
+          thinkRule,
+          '',
+          '你是阅读助手。请根据「当前阅读内容」回答「用户问题」。',
+          '规则：只依据内容与历史对话；不确定就说“文中未提及/需要更多上下文”。',
+          '',
+          '【当前阅读内容】',
+          _tail(_squashSpaces(content), 1800),
+        ];
+        if (historyText.isNotEmpty) {
+          parts.addAll([
+            '',
+            '【历史问答】',
+            _tail(_squashSpaces(historyText), 600),
+          ]);
+        }
+        parts.addAll([
+          '',
+          '【用户问题】',
+          _clip(_squashSpaces(question), 200),
+          '',
+          '请直接给出回答：',
+        ]);
+        return parts.join('\n').trim();
       case QAType.explain:
-        prompt = contextService.generateExplainPrompt(question, contentScope);
+        return [
+          thinkRule,
+          '',
+          '你是阅读助手。请解释「选中内容」在「上下文」中的意思。',
+          '',
+          '【选中内容】',
+          _clip(_squashSpaces(question), 400),
+          '',
+          '【上下文】',
+          _tail(_squashSpaces(content), 1500),
+          '',
+          '要求：先解释字面意思，再说明与情节的关系。控制在8句以内。',
+        ].join('\n').trim();
+    }
+  }
+
+  String _clip(String input, int maxChars) {
+    final s = input.trim();
+    if (s.length <= maxChars) return s;
+    return s.substring(0, maxChars);
+  }
+
+  String _tail(String input, int maxChars) {
+    final s = input.trim();
+    if (s.length <= maxChars) return s;
+    return s.substring(s.length - maxChars);
+  }
+
+  String _squashSpaces(String input) {
+    return input.replaceAll(RegExp(r'\\s+'), ' ').trim();
+  }
+}
+
+class _ThinkTagStreamParser {
+  static const _open = '<think>';
+  static const _close = '</think>';
+
+  final StringBuffer _buffer = StringBuffer();
+  bool _inThink = false;
+
+  Iterable<QAStreamChunk> consume(String delta) sync* {
+    if (delta.isEmpty) return;
+    _buffer.write(delta);
+    yield* _drain(force: false);
+  }
+
+  Iterable<QAStreamChunk> finish() sync* {
+    yield* _drain(force: true);
+  }
+
+  Iterable<QAStreamChunk> _drain({required bool force}) sync* {
+    var text = _buffer.toString();
+    _buffer.clear();
+
+    while (text.isNotEmpty) {
+      if (_inThink) {
+        final idx = text.indexOf(_close);
+        if (idx >= 0) {
+          final part = text.substring(0, idx);
+          if (part.isNotEmpty) {
+            yield QAStreamChunk(
+              content: '',
+              reasoningContent: part,
+              isReasoning: true,
+            );
+          }
+          text = text.substring(idx + _close.length);
+          _inThink = false;
+          continue;
+        }
+
+        final keep = _close.length - 1;
+        if (!force && text.length > keep) {
+          final emit = text.substring(0, text.length - keep);
+          if (emit.isNotEmpty) {
+            yield QAStreamChunk(
+              content: '',
+              reasoningContent: emit,
+              isReasoning: true,
+            );
+          }
+          text = text.substring(text.length - keep);
+        }
         break;
+      } else {
+        final idx = text.indexOf(_open);
+        if (idx >= 0) {
+          final part = text.substring(0, idx);
+          if (part.isNotEmpty) {
+            yield QAStreamChunk(content: part);
+          }
+          text = text.substring(idx + _open.length);
+          _inThink = true;
+          continue;
+        }
+
+        final keep = _open.length - 1;
+        if (!force && text.length > keep) {
+          final emit = text.substring(0, text.length - keep);
+          if (emit.isNotEmpty) {
+            yield QAStreamChunk(content: emit);
+          }
+          text = text.substring(text.length - keep);
+        }
+        break;
+      }
     }
 
-
-    final response = await client.chatOnce(userText: prompt);
-    
-    // 模拟流式输出，按句子分割
-    final sentences = response.split(RegExp(r'[。！？]'));
-    for (final sentence in sentences) {
-      if (sentence.trim().isNotEmpty) {
+    if (force && text.isNotEmpty) {
+      if (_inThink) {
         yield QAStreamChunk(
-          content: sentence.trim() + '。',
-          isReasoning: false,
-          isComplete: false,
+          content: '',
+          reasoningContent: text,
+          isReasoning: true,
         );
-        await Future.delayed(const Duration(milliseconds: 100));
+      } else {
+        yield QAStreamChunk(content: text);
       }
+      text = '';
+    }
+
+    if (text.isNotEmpty) {
+      _buffer.write(text);
     }
   }
 }

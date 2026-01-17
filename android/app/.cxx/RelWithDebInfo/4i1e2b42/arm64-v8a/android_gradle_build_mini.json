@@ -21,7 +21,11 @@
       "artifactName": "mnn_bridge",
       "abi": "arm64-v8a",
       "output": "C:\\Users\\28679\\traeProjects\\AirRead\\build\\app\\intermediates\\cxx\\RelWithDebInfo\\4i1e2b42\\obj\\arm64-v8a\\libmnn_bridge.so",
-      "runtimeFiles": []
+      "runtimeFiles": [
+        "C:\\Users\\28679\\traeProjects\\AirRead\\android\\app\\src\\main\\jniLibs\\arm64-v8a\\libMNN.so",
+        "C:\\Users\\28679\\traeProjects\\AirRead\\android\\app\\src\\main\\jniLibs\\arm64-v8a\\libMNN_Express.so",
+        "C:\\Users\\28679\\traeProjects\\AirRead\\android\\app\\src\\main\\jniLibs\\arm64-v8a\\libllm.so"
+      ]
     }
   }
 }

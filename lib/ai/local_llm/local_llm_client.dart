@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -7,6 +8,8 @@ import 'package:path_provider/path_provider.dart';
 
 class LocalLlmClient {
   static const MethodChannel _channel = MethodChannel('airread/local_llm');
+  static const EventChannel _streamChannel =
+      EventChannel('airread/local_llm_stream');
 
   String? _initializedModelPath;
 
@@ -46,6 +49,83 @@ class LocalLlmClient {
     return resp;
   }
 
+  Stream<String> chatStream({
+    required String userText,
+  }) {
+    if (kIsWeb) {
+      return Stream.error(UnsupportedError('本地模型不支持在 Web 平台上运行'));
+    }
+
+    late final StreamController<String> controller;
+    StreamSubscription<dynamic>? sub;
+
+    controller = StreamController<String>(
+      onListen: () async {
+        try {
+          final modelPath = await _resolveModelPath();
+          await _ensureInitialized(modelPath);
+
+          sub = _streamChannel.receiveBroadcastStream().listen(
+            (event) {
+              if (event is Map) {
+                final type = event['type'];
+                if (type == 'chunk') {
+                  final data = event['data'];
+                  if (data is String && data.isNotEmpty) {
+                    controller.add(data);
+                  }
+                } else if (type == 'done') {
+                  sub?.cancel();
+                  controller.close();
+                } else if (type == 'error') {
+                  final message = event['message'];
+                  sub?.cancel();
+                  controller.addError(
+                    PlatformException(
+                      code: 'LocalLlmStreamError',
+                      message: message is String ? message : '本地推理流式输出失败',
+                    ),
+                  );
+                  controller.close();
+                }
+              } else if (event is String) {
+                if (event.isNotEmpty) controller.add(event);
+              }
+            },
+            onError: (e) {
+              controller.addError(e);
+              controller.close();
+            },
+          );
+
+          await _channel.invokeMethod<void>('chatStream', {
+            'modelPath': modelPath,
+            'userText': userText,
+          });
+        } on MissingPluginException {
+          controller.addError(
+            PlatformException(
+              code: 'LocalLlmNotAvailable',
+              message: '本地推理暂不可用（当前平台未集成本地推理）',
+            ),
+          );
+          await controller.close();
+        } catch (e) {
+          controller.addError(e);
+          await controller.close();
+        }
+      },
+      onCancel: () async {
+        try {
+          await _channel.invokeMethod<void>('cancelChatStream');
+        } catch (_) {}
+        await sub?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
+
   Future<String> translate({
     required String text,
     required String sourceLang,
@@ -62,7 +142,7 @@ class LocalLlmClient {
       throw UnsupportedError('本地模型不支持在 Web 平台上运行');
     }
     final dir = await getApplicationDocumentsDirectory();
-    final modelPath = p.join(dir.path, 'models', 'hunyuan', 'model.mnn');
+    final modelPath = p.join(dir.path, 'models', 'hunyuan', 'config.json');
     final file = File(modelPath);
     if (!await file.exists()) {
       throw FileSystemException('本地模型文件不存在');

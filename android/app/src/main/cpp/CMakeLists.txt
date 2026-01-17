@@ -1,32 +1,27 @@
 cmake_minimum_required(VERSION 3.4.1)
 
-# Configure MNN Library Path
-# Please create 'android/libs/mnn' directory and put libMNN.so, libMNN_LLM.so and headers there.
-# Structure:
-# android/libs/mnn/include/ (MNN headers)
-# android/libs/mnn/libs/arm64-v8a/ (libMNN.so, libMNN_LLM.so)
-
-set(MNN_DIR ${CMAKE_SOURCE_DIR}/../../../../libs/mnn)
-
-# If you haven't set up MNN yet, these lines might cause CMake error.
-# You can comment them out until you put the libraries in place.
-
-# add_library(MNN SHARED IMPORTED)
-# set_target_properties(MNN PROPERTIES IMPORTED_LOCATION ${MNN_DIR}/libs/${ANDROID_ABI}/libMNN.so)
-
-# add_library(MNN_LLM SHARED IMPORTED)
-# set_target_properties(MNN_LLM PROPERTIES IMPORTED_LOCATION ${MNN_DIR}/libs/${ANDROID_ABI}/libMNN_LLM.so)
-
-# Include directories
-# include_directories(${MNN_DIR}/include)
-
 add_library(mnn_bridge SHARED mnn_bridge.cpp)
 
-# Link libraries
-# Uncomment MNN and MNN_LLM when ready
-target_link_libraries(mnn_bridge 
-    # MNN 
-    # MNN_LLM 
-    android 
-    log
-)
+set(MNN_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/mnn/include)
+set(MNN_LIB_DIR ${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI})
+set(MNN_LIB_PATH ${MNN_LIB_DIR}/libMNN.so)
+set(MNN_EXPRESS_LIB_PATH ${MNN_LIB_DIR}/libMNN_Express.so)
+set(MNN_LLM_LIB_PATH ${MNN_LIB_DIR}/libllm.so)
+set(MNN_LLM_HEADER ${MNN_INCLUDE_DIR}/MNN/llm/llm.hpp)
+
+if (EXISTS "${MNN_LIB_PATH}" AND EXISTS "${MNN_EXPRESS_LIB_PATH}" AND EXISTS "${MNN_LLM_LIB_PATH}" AND EXISTS "${MNN_LLM_HEADER}")
+    add_library(MNN SHARED IMPORTED)
+    set_target_properties(MNN PROPERTIES IMPORTED_LOCATION ${MNN_LIB_PATH})
+
+    add_library(MNN_Express SHARED IMPORTED)
+    set_target_properties(MNN_Express PROPERTIES IMPORTED_LOCATION ${MNN_EXPRESS_LIB_PATH})
+
+    add_library(llm SHARED IMPORTED)
+    set_target_properties(llm PROPERTIES IMPORTED_LOCATION ${MNN_LLM_LIB_PATH})
+
+    target_include_directories(mnn_bridge PRIVATE ${MNN_INCLUDE_DIR})
+    target_compile_definitions(mnn_bridge PRIVATE ENABLE_MNN=1)
+    target_link_libraries(mnn_bridge MNN MNN_Express llm android log)
+else()
+    target_link_libraries(mnn_bridge android log)
+endif()

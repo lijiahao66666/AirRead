@@ -496,8 +496,9 @@ class _TencentHunyuanSettingsPanelState
                 child: Text(
                   '进入章节自动开始',
                   style: TextStyle(
-                    color: widget.textColor.withOpacity(0.8),
-                    fontSize: 14,
+                    color: widget.textColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
                   ),
                 ),
               ),
@@ -976,7 +977,18 @@ class _TencentHunyuanSettingsPanelState
     String text = '模型未下载，下载后可在无网环境使用AI功能';
     Widget? action;
 
-    if (aiModel.localModelDownloading) {
+    if (aiModel.localModelInstalling) {
+      text = '模型安装中…';
+      action = SizedBox(
+        width: 16,
+        height: 16,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          value: null,
+          color: AppColors.techBlue,
+        ),
+      );
+    } else if (aiModel.localModelDownloading) {
       text = '模型下载中，下载后可在无网环境使用AI功能';
       String pctText = '';
       if (aiModel.localModelTotalBytes > 0) {
@@ -1135,17 +1147,36 @@ class _MainPanel extends StatelessWidget {
     final source = aiModel.source;
 
     final bool modelEnabled = source != AiModelSource.none;
+    final bool aiReady = switch (source) {
+      AiModelSource.none => false,
+      AiModelSource.online => true,
+      AiModelSource.local => aiModel.isLocalModelReady,
+    };
+    final bool localBlocked = source == AiModelSource.local && !aiReady;
+    final String localBlockedHint = () {
+      if (source != AiModelSource.local) return '';
+      if (aiModel.localModelInstalling) return '本地模型安装中…';
+      if (aiModel.localModelDownloading) return '本地模型下载中…';
+      if (aiModel.localModelPaused) return '本地模型下载已暂停';
+      if (!aiModel.localModelExists) return '本地模型未下载，下载后可用';
+      if (!aiModel.localRuntimeAvailable) return '本地推理后端未就绪';
+      return '本地模型未就绪';
+    }();
     const bool showImageTextFeature = false;
 
     final translateSubtitle = !modelEnabled
         ? '请先在 AI设置 中启用大模型'
-        : translateEnabled
-            ? (translateActive ? '翻译中' : '已暂停')
-            : '开启后，自动应用到正文';
+        : localBlocked
+            ? localBlockedHint
+            : translateEnabled
+                ? (translateActive ? '翻译中' : '已暂停')
+                : '开启后，自动应用到正文';
 
     final readAloudSubtitle = !modelEnabled
         ? '请先在 AI设置 中启用大模型'
-        : (readAloudEnabled ? '已开启' : '开启后，可朗读当前页');
+        : source != AiModelSource.online
+            ? '朗读仅支持在线模式'
+            : (readAloudEnabled ? '已开启' : '开启后，可朗读当前页');
 
     final imageTextSubtitle = !modelEnabled
         ? '请先在 AI设置 中启用大模型'
@@ -1167,7 +1198,7 @@ class _MainPanel extends StatelessWidget {
             title: '翻译',
             subtitle: translateSubtitle,
             value: translateEnabled,
-            onChanged: modelEnabled ? onTranslateChanged : null,
+            onChanged: aiReady ? onTranslateChanged : null,
           ),
           const SizedBox(height: 10),
           _featureRow(
@@ -1176,7 +1207,8 @@ class _MainPanel extends StatelessWidget {
             title: '朗读',
             subtitle: readAloudSubtitle,
             value: readAloudEnabled,
-            onChanged: modelEnabled ? onReadAloudChanged : null,
+            onChanged:
+                source == AiModelSource.online ? onReadAloudChanged : null,
           ),
           if (showImageTextFeature) ...[
             const SizedBox(height: 10),
@@ -1191,8 +1223,13 @@ class _MainPanel extends StatelessWidget {
           ],
           const SizedBox(height: 14),
           _qaEntry(
-            enabled: modelEnabled,
-            onTap: modelEnabled ? onOpenQa : () {},
+            enabled: aiReady,
+            subtitle: !modelEnabled
+                ? '请先在 AI设置 中启用大模型'
+                : localBlocked
+                    ? localBlockedHint
+                    : '支持总结/解释/提取要点',
+            onTap: aiReady ? onOpenQa : () {},
           ),
         ],
       ),
@@ -1335,7 +1372,11 @@ class _MainPanel extends StatelessWidget {
     );
   }
 
-  Widget _qaEntry({required bool enabled, required VoidCallback onTap}) {
+  Widget _qaEntry({
+    required bool enabled,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
     final Color cardBg =
         isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
 
@@ -1361,8 +1402,12 @@ class _MainPanel extends StatelessWidget {
                     : textColor.withOpacity(0.06),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.question_answer,
-                  color: AppColors.techBlue, size: 20),
+              child: Icon(
+                Icons.question_answer,
+                color:
+                    enabled ? AppColors.techBlue : textColor.withOpacity(0.7),
+                size: 20,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1382,7 +1427,7 @@ class _MainPanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '支持总结/解释/提取要点',
+                    subtitle,
                     style: TextStyle(
                       color: textColor.withOpacity(0.65),
                       fontSize: 12,

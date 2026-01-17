@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../ai/hunyuan/hunyuan_text_client.dart';
 
+import '../../ai/local_llm/local_llm_client.dart';
 import '../../ai/local_llm/local_translation_engine.dart';
 import '../../ai/hunyuan/hunyuan_translation_engine.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
@@ -112,6 +113,17 @@ class TranslationProvider extends ChangeNotifier {
         _aiImageTextEnabled = false;
         changed = true;
       }
+      final ready = _aiModel?.isLocalModelReady ?? false;
+      if (!ready) {
+        if (_aiTranslateEnabled) {
+          _aiTranslateEnabled = false;
+          changed = true;
+        }
+        if (_applyToReader) {
+          _applyToReader = false;
+          changed = true;
+        }
+      }
     }
 
     if (changed) {
@@ -134,7 +146,21 @@ class TranslationProvider extends ChangeNotifier {
       glossary: _glossary,
       machineEngine: engine,
       aiEngine: engine,
-      chatClient: HunyuanTextClient(credentials: creds),
+      chatOnce: switch (source) {
+        AiModelSource.local => LocalLlmClient().chatOnce,
+        AiModelSource.online => ({required String userText}) async {
+            final client = HunyuanTextClient(credentials: creds);
+            final buffer = StringBuffer();
+            await for (final chunk
+                in client.chatStream(userText: userText, enableSearch: false)) {
+              if (chunk.content.isNotEmpty) {
+                buffer.write(chunk.content);
+              }
+            }
+            return buffer.toString();
+          },
+        AiModelSource.none => null,
+      },
     );
   }
 
@@ -265,6 +291,9 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   Future<void> setAiTranslateEnabled(bool value) async {
+    if (value) {
+      _validateEngineConfig();
+    }
     _aiTranslateEnabled = value;
     if (value && _aiImageTextEnabled) {
       _aiImageTextEnabled = false;
@@ -303,7 +332,6 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   Future<void> upsertGlossaryTerm(GlossaryTerm term) async {
-
     _glossary.addOrUpdate(term);
     notifyListeners();
     await _savePrefs();
@@ -314,7 +342,6 @@ class TranslationProvider extends ChangeNotifier {
     notifyListeners();
     await _savePrefs();
   }
-
 
   Future<Map<int, String>> translateParagraphsByIndex(
       Map<int, String> paragraphsByIndex) async {
@@ -335,19 +362,19 @@ class TranslationProvider extends ChangeNotifier {
         _service.buildCacheKey(config: _config, paragraphText: paragraphText);
     return _pendingKeys.contains(key);
   }
-  
+
   bool isTranslationFailed(String paragraphText) {
     final key =
         _service.buildCacheKey(config: _config, paragraphText: paragraphText);
     return _failedKeys.contains(key);
   }
-  
+
   void retryTranslation(String paragraphText) {
     final key =
         _service.buildCacheKey(config: _config, paragraphText: paragraphText);
     _failedKeys.remove(key); // 清除失败标记
     _pendingKeys.remove(key); // 清除pending标记
-    
+
     // 重新请求翻译
     requestTranslationForParagraphs({0: paragraphText});
   }
