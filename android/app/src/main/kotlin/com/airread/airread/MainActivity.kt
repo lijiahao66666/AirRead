@@ -6,11 +6,13 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.Executors
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "airread/local_llm"
     private val STREAM_CHANNEL = "airread/local_llm_stream"
     private val DEFAULT_MAX_NEW_TOKENS = 1024
+    private val llmExecutor = Executors.newSingleThreadExecutor()
 
     @Volatile
     private var streamSink: EventChannel.EventSink? = null
@@ -44,8 +46,31 @@ class MainActivity: FlutterActivity() {
     external fun nativeIsAvailable(): Boolean
     external fun nativeInit(modelPath: String)
     external fun nativeDumpConfig(): String
-    external fun nativeChat(prompt: String, maxNewTokens: Int, maxInputTokens: Int): String
-    external fun nativeChatStream(prompt: String, maxNewTokens: Int, maxInputTokens: Int, callback: Any)
+    external fun nativeChat(
+        prompt: String,
+        maxNewTokens: Int,
+        maxInputTokens: Int,
+        temperature: Double,
+        topP: Double,
+        topK: Int,
+        minP: Double,
+        presencePenalty: Double,
+        repetitionPenalty: Double,
+        enableThinking: Int
+    ): String
+    external fun nativeChatStream(
+        prompt: String,
+        maxNewTokens: Int,
+        maxInputTokens: Int,
+        temperature: Double,
+        topP: Double,
+        topK: Int,
+        minP: Double,
+        presencePenalty: Double,
+        repetitionPenalty: Double,
+        enableThinking: Int,
+        callback: Any
+    )
 
     @Keep
     inner class LocalLlmStreamCallback {
@@ -130,14 +155,32 @@ class MainActivity: FlutterActivity() {
                     if (userText != null) {
                         val maxNewTokens = call.argument<Int>("maxNewTokens") ?: DEFAULT_MAX_NEW_TOKENS
                         val maxInputTokens = call.argument<Int>("maxInputTokens") ?: 0
-                        Thread {
+                        val temperature = call.argument<Number>("temperature")?.toDouble() ?: -1.0
+                        val topP = call.argument<Number>("top_p")?.toDouble() ?: -1.0
+                        val topK = call.argument<Number>("top_k")?.toInt() ?: -1
+                        val minP = call.argument<Number>("min_p")?.toDouble() ?: -1.0
+                        val presencePenalty = call.argument<Number>("presence_penalty")?.toDouble() ?: -1.0
+                        val repetitionPenalty = call.argument<Number>("repetition_penalty")?.toDouble() ?: -1.0
+                        val enableThinking = call.argument<Boolean>("enable_thinking")?.let { if (it) 1 else 0 } ?: -1
+                        llmExecutor.execute {
                             try {
-                                val response = nativeChat(userText, maxNewTokens, maxInputTokens)
+                                val response = nativeChat(
+                                    userText,
+                                    maxNewTokens,
+                                    maxInputTokens,
+                                    temperature,
+                                    topP,
+                                    topK,
+                                    minP,
+                                    presencePenalty,
+                                    repetitionPenalty,
+                                    enableThinking
+                                )
                                 runOnUiThread { result.success(response) }
                             } catch (e: UnsatisfiedLinkError) {
                                 runOnUiThread { result.error("NATIVE_ERR", "Native chat failed", e.toString()) }
                             }
-                        }.start()
+                        }
                     } else {
                         result.error("INVALID_ARG", "User text is null", null)
                     }
@@ -164,17 +207,36 @@ class MainActivity: FlutterActivity() {
                     }
                     val maxNewTokens = call.argument<Int>("maxNewTokens") ?: DEFAULT_MAX_NEW_TOKENS
                     val maxInputTokens = call.argument<Int>("maxInputTokens") ?: 0
+                    val temperature = call.argument<Number>("temperature")?.toDouble() ?: -1.0
+                    val topP = call.argument<Number>("top_p")?.toDouble() ?: -1.0
+                    val topK = call.argument<Number>("top_k")?.toInt() ?: -1
+                    val minP = call.argument<Number>("min_p")?.toDouble() ?: -1.0
+                    val presencePenalty = call.argument<Number>("presence_penalty")?.toDouble() ?: -1.0
+                    val repetitionPenalty = call.argument<Number>("repetition_penalty")?.toDouble() ?: -1.0
+                    val enableThinking = call.argument<Boolean>("enable_thinking")?.let { if (it) 1 else 0 } ?: -1
                     streamCancelled = false
                     val callback = LocalLlmStreamCallback()
-                    Thread {
+                    llmExecutor.execute {
                         try {
-                            nativeChatStream(userText, maxNewTokens, maxInputTokens, callback)
+                            nativeChatStream(
+                                userText,
+                                maxNewTokens,
+                                maxInputTokens,
+                                temperature,
+                                topP,
+                                topK,
+                                minP,
+                                presencePenalty,
+                                repetitionPenalty,
+                                enableThinking,
+                                callback
+                            )
                         } catch (e: UnsatisfiedLinkError) {
                             callback.onError(e.toString())
                         } catch (e: Exception) {
                             callback.onError(e.toString())
                         }
-                    }.start()
+                    }
                     result.success(null)
                 }
                 "cancelChatStream" -> {
@@ -206,7 +268,7 @@ class MainActivity: FlutterActivity() {
                         result.error("NOT_AVAILABLE", "Local LLM not available", e.toString())
                         return@setMethodCallHandler
                     }
-                    Thread {
+                    llmExecutor.execute {
                         try {
                             val cfg = nativeDumpConfig()
                             runOnUiThread { result.success(cfg) }
@@ -215,7 +277,7 @@ class MainActivity: FlutterActivity() {
                         } catch (e: Exception) {
                             runOnUiThread { result.error("NATIVE_ERR", "Native dumpConfig failed", e.toString()) }
                         }
-                    }.start()
+                    }
                 }
                 "logcat" -> {
                     val tag = call.argument<String>("tag") ?: "AirRead"

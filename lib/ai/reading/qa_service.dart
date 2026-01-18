@@ -85,7 +85,7 @@ String buildLocalQaPrompt({
   switch (qaType) {
     case QAType.summary:
       return [
-        '你是阅读助手。请对以下内容做简要总结：',
+        '你是阅读助手。请对以下内容做简要总结，避免重复表述：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
         '',
@@ -93,7 +93,7 @@ String buildLocalQaPrompt({
       ].join('\n');
     case QAType.keyPoints:
       return [
-        '你是阅读助手。请从以下内容提取关键要点：',
+        '你是阅读助手。请从以下内容提取关键要点，避免重复表述：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
         '',
@@ -102,7 +102,7 @@ String buildLocalQaPrompt({
     case QAType.general:
       final parts = <String>[
         '你是阅读助手。请根据「当前阅读内容」回答「用户问题」。',
-        '规则：参考内容与历史对话；不确定就说“文中未提及/需要更多上下文”。',
+        '规则：参考内容与历史对话；不确定就说“文中未提及/需要更多上下文”；避免重复输出相同句子。',
         '',
         '【当前阅读内容】',
         _tailText(
@@ -213,10 +213,12 @@ class QAService {
       userText: prompt,
       maxNewTokens: caps.maxNewTokens,
       maxInputTokens: caps.maxInputTokens,
-      // Optimized parameters for Qwen3-0.6B Thinking Mode
       temperature: 0.6,
       topP: 0.95,
       topK: 20,
+      minP: 0,
+      presencePenalty: 1.5,
+      enableThinking: true,
     )) {
       if (delta.isEmpty) continue;
       yield QAStreamChunk(content: delta);

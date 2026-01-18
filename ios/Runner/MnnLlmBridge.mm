@@ -3,9 +3,117 @@
 #import <MNN/llm/llm.hpp>
 
 #include <streambuf>
+#include <sstream>
+#include <vector>
+#include <atomic>
 
 static std::unique_ptr<MNN::Transformer::Llm> g_llm;
 static NSString* g_modelPath = nil;
+static std::atomic<bool> g_cancelStream(false);
+
+struct StreamCancelledException {};
+
+static std::vector<int> trimPromptToTokens(MNN::Transformer::Llm* llm, const std::string& prompt, int max_input_tokens) {
+  if (llm == nullptr) return {};
+  const auto ids = llm->tokenizer_encode(prompt);
+  if (max_input_tokens <= 0) return ids;
+  if (static_cast<int>(ids.size()) <= max_input_tokens) return ids;
+
+  int head = max_input_tokens / 4;
+  if (head > 128) head = 128;
+  if (head < 0) head = 0;
+  if (head > max_input_tokens) head = max_input_tokens;
+  int tail = max_input_tokens - head;
+
+  std::vector<int> out;
+  out.reserve(static_cast<size_t>(max_input_tokens));
+
+  if (head > 0) {
+    out.insert(out.end(), ids.begin(), ids.begin() + head);
+  }
+
+  if (tail > 0) {
+    const auto sep = llm->tokenizer_encode("\n");
+    if (!sep.empty()) {
+      out.insert(out.end(), sep.begin(), sep.end());
+    }
+    const size_t total = ids.size();
+    const size_t tailStart = total > static_cast<size_t>(tail) ? (total - static_cast<size_t>(tail)) : 0;
+    out.insert(out.end(), ids.begin() + tailStart, ids.end());
+  }
+
+  if (static_cast<int>(out.size()) > max_input_tokens) {
+    out.erase(out.begin() + max_input_tokens, out.end());
+  }
+  return out;
+}
+
+static void applyRuntimeConfig(
+    MNN::Transformer::Llm* llm,
+    double temperature,
+    double top_p,
+    int top_k,
+    double min_p,
+    double presence_penalty,
+    double repetition_penalty,
+    int enable_thinking
+) {
+  if (llm == nullptr) return;
+
+  std::ostringstream os;
+  bool hasAny = false;
+  os << "{";
+
+  auto addCommaIfNeeded = [&]() {
+    if (hasAny) os << ",";
+    hasAny = true;
+  };
+
+  if (temperature >= 0.0) {
+    addCommaIfNeeded();
+    os << "\"temperature\":" << temperature;
+  }
+  if (top_p >= 0.0) {
+    addCommaIfNeeded();
+    os << "\"top_p\":" << top_p;
+  }
+  if (top_k >= 0) {
+    addCommaIfNeeded();
+    os << "\"top_k\":" << top_k;
+  }
+  if (min_p >= 0.0) {
+    addCommaIfNeeded();
+    os << "\"min_p\":" << min_p;
+  }
+  if (presence_penalty >= 0.0) {
+    addCommaIfNeeded();
+    os << "\"presence_penalty\":" << presence_penalty;
+  }
+  if (repetition_penalty >= 0.0) {
+    addCommaIfNeeded();
+    os << "\"repetition_penalty\":" << repetition_penalty;
+  }
+  if (enable_thinking == 0 || enable_thinking == 1) {
+    addCommaIfNeeded();
+    os << "\"enable_thinking\":" << (enable_thinking == 1 ? "true" : "false");
+  }
+
+  os << "}";
+  if (!hasAny) return;
+  llm->set_config(os.str());
+}
+
+static std::string toChatPrompt(MNN::Transformer::Llm* llm, const std::string& user_content) {
+  if (llm == nullptr) return user_content;
+  std::string out;
+  try {
+    out = llm->apply_chat_template(user_content);
+  } catch (...) {
+    out.clear();
+  }
+  if (out.empty()) return user_content;
+  return out;
+}
 
 static size_t validUtf8Prefix(const std::string& s) {
   size_t i = 0;
@@ -39,7 +147,10 @@ public:
   BlockStreamBuf(void (^onChunk)(NSString* chunk)) : onChunk_([onChunk copy]) {}
 
   ~BlockStreamBuf() override {
-    flushPending(true);
+    try {
+      flushPending(true);
+    } catch (...) {
+    }
   }
 
 protected:
@@ -64,6 +175,10 @@ private:
   void flushPending(bool force) {
     if (pending_.empty()) return;
     if (!force && pending_.size() < 48) return;
+    if (g_cancelStream.load()) {
+      pending_.clear();
+      throw StreamCancelledException();
+    }
     if (!onChunk_) {
       pending_.clear();
       return;
@@ -128,7 +243,37 @@ private:
   }
 }
 
-+ (NSString*)chatOnce:(NSString*)prompt error:(NSError**)error {
++ (NSString*)dumpConfigWithError:(NSError**)error {
+  if (!g_llm) {
+    if (error) {
+      *error = [NSError errorWithDomain:@"MnnLlmBridge" code:4 userInfo:@{NSLocalizedDescriptionKey: @"模型未初始化"}];
+    }
+    return @"";
+  }
+
+  const auto cfg = g_llm->dump_config();
+  NSString* resp = [[NSString alloc] initWithBytes:cfg.data() length:cfg.size() encoding:NSUTF8StringEncoding];
+  if (resp == nil) {
+    resp = [[NSString alloc] initWithCString:cfg.c_str() encoding:NSUTF8StringEncoding];
+  }
+  return resp ?: @"";
+}
+
++ (void)cancelCurrentStream {
+  g_cancelStream.store(true);
+}
+
++ (NSString*)chatOnce:(NSString*)prompt
+         maxNewTokens:(int)maxNewTokens
+       maxInputTokens:(int)maxInputTokens
+          temperature:(double)temperature
+                 topP:(double)topP
+                 topK:(int)topK
+                 minP:(double)minP
+       presencePenalty:(double)presencePenalty
+     repetitionPenalty:(double)repetitionPenalty
+        enableThinking:(int)enableThinking
+                error:(NSError**)error {
   if (!g_llm) {
     if (error) {
       *error = [NSError errorWithDomain:@"MnnLlmBridge" code:4 userInfo:@{NSLocalizedDescriptionKey: @"模型未初始化"}];
@@ -140,9 +285,18 @@ private:
   }
 
   g_llm->reset();
+  applyRuntimeConfig(g_llm.get(), temperature, topP, topK, minP, presencePenalty, repetitionPenalty, enableThinking);
   std::stringstream ss;
-  std::string input([prompt UTF8String]);
-  g_llm->response(input, &ss, nullptr, 256);
+  const std::string input([prompt UTF8String]);
+  const std::string chatPrompt = toChatPrompt(g_llm.get(), input);
+  const int maxTokens = maxNewTokens > 0 ? maxNewTokens : 256;
+  const char* endWith = "<|im_end|>";
+  if (maxInputTokens > 0) {
+    const auto ids = trimPromptToTokens(g_llm.get(), chatPrompt, maxInputTokens);
+    g_llm->response(ids, &ss, endWith, maxTokens);
+  } else {
+    g_llm->response(chatPrompt, &ss, endWith, maxTokens);
+  }
   const auto out = ss.str();
 
   NSString* resp = [[NSString alloc] initWithBytes:out.data() length:out.size() encoding:NSUTF8StringEncoding];
@@ -153,6 +307,15 @@ private:
 }
 
 + (void)chatStream:(NSString*)prompt
+       maxNewTokens:(int)maxNewTokens
+     maxInputTokens:(int)maxInputTokens
+        temperature:(double)temperature
+               topP:(double)topP
+               topK:(int)topK
+               minP:(double)minP
+     presencePenalty:(double)presencePenalty
+   repetitionPenalty:(double)repetitionPenalty
+      enableThinking:(int)enableThinking
            onChunk:(void (^)(NSString* chunk))onChunk
             onDone:(void (^)(NSError* _Nullable error))onDone {
   if (!g_llm) {
@@ -167,10 +330,26 @@ private:
   }
 
   g_llm->reset();
-  std::string input([prompt UTF8String]);
+  applyRuntimeConfig(g_llm.get(), temperature, topP, topK, minP, presencePenalty, repetitionPenalty, enableThinking);
+  g_cancelStream.store(false);
+  const std::string input([prompt UTF8String]);
+  const std::string chatPrompt = toChatPrompt(g_llm.get(), input);
   BlockStreamBuf buf(onChunk);
   std::ostream os(&buf);
-  g_llm->response(input, &os, nullptr, 256);
+  const int maxTokens = maxNewTokens > 0 ? maxNewTokens : 256;
+  const char* endWith = "<|im_end|>";
+  if (maxInputTokens > 0) {
+    const auto ids = trimPromptToTokens(g_llm.get(), chatPrompt, maxInputTokens);
+    try {
+      g_llm->response(ids, &os, endWith, maxTokens);
+    } catch (const StreamCancelledException&) {
+    }
+  } else {
+    try {
+      g_llm->response(chatPrompt, &os, endWith, maxTokens);
+    } catch (const StreamCancelledException&) {
+    }
+  }
   os.flush();
   if (onDone) onDone(nil);
 }

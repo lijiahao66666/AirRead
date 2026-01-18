@@ -156,6 +156,10 @@ class LocalLlmClient {
     double? temperature,
     double? topP,
     int? topK,
+    double? minP,
+    double? presencePenalty,
+    double? repetitionPenalty,
+    bool? enableThinking,
   }) async {
     final release = await _gate.acquire();
     try {
@@ -169,6 +173,10 @@ class LocalLlmClient {
         if (temperature != null) 'temperature': temperature,
         if (topP != null) 'top_p': topP,
         if (topK != null) 'top_k': topK,
+        if (minP != null) 'min_p': minP,
+        if (presencePenalty != null) 'presence_penalty': presencePenalty,
+        if (repetitionPenalty != null) 'repetition_penalty': repetitionPenalty,
+        if (enableThinking != null) 'enable_thinking': enableThinking,
       });
       if (resp == null) {
         throw PlatformException(
@@ -194,6 +202,10 @@ class LocalLlmClient {
     double? temperature,
     double? topP,
     int? topK,
+    double? minP,
+    double? presencePenalty,
+    double? repetitionPenalty,
+    bool? enableThinking,
   }) {
     if (kIsWeb) {
       return Stream.error(UnsupportedError('本地模型不支持在 Web 平台上运行'));
@@ -287,6 +299,11 @@ class LocalLlmClient {
             if (temperature != null) 'temperature': temperature,
             if (topP != null) 'top_p': topP,
             if (topK != null) 'top_k': topK,
+            if (minP != null) 'min_p': minP,
+            if (presencePenalty != null) 'presence_penalty': presencePenalty,
+            if (repetitionPenalty != null)
+              'repetition_penalty': repetitionPenalty,
+            if (enableThinking != null) 'enable_thinking': enableThinking,
           });
         } on MissingPluginException {
           await closeSafely(

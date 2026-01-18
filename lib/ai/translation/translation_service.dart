@@ -42,7 +42,7 @@ class TranslationService {
   Duration get _translateTimeout {
     switch (backend) {
       case TranslationBackend.local:
-        return const Duration(seconds: 60);
+        return const Duration(seconds: 70);
       case TranslationBackend.online:
         return const Duration(seconds: 45);
     }
@@ -181,7 +181,7 @@ class TranslationService {
   }
 
   Future<T> _withRetry<T>(Future<T> Function() task) async {
-    const int maxRetries = 3;
+    final int maxRetries = backend == TranslationBackend.local ? 2 : 3;
     int attempt = 0;
     while (true) {
       attempt++;

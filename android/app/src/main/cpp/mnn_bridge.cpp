@@ -4,6 +4,7 @@
 #include <memory>
 #include <sstream>
 #include <streambuf>
+#include <thread>
 #include <mutex>
 
 #ifdef ENABLE_MNN
@@ -16,6 +17,38 @@
 static std::unique_ptr<MNN::Transformer::Llm> g_llm;
 static std::string g_model_path;
 static std::mutex g_llm_mutex;
+
+static int defaultThreadNum() {
+    unsigned int hc = std::thread::hardware_concurrency();
+    int t = hc > 0 ? static_cast<int>(hc) : 4;
+    if (t > 6) t = 6;
+    if (t < 2) t = 2;
+    return t;
+}
+
+static void ensureThreadConfig(MNN::Transformer::Llm* llm) {
+    if (llm == nullptr) return;
+    std::string cfg;
+    try {
+        cfg = llm->dump_config();
+    } catch (...) {
+        cfg.clear();
+    }
+    if (!cfg.empty()) {
+        if (cfg.find("\"thread_num\"") != std::string::npos) return;
+        if (cfg.find("\"numThread\"") != std::string::npos) return;
+        if (cfg.find("\"num_thread\"") != std::string::npos) return;
+    }
+    const int t = defaultThreadNum();
+    std::ostringstream os;
+    os << "{\"thread_num\":" << t << "}";
+    const auto ok = llm->set_config(os.str());
+    if (!ok) {
+        __android_log_print(ANDROID_LOG_WARN, TAG, "set_config(thread_num=%d) returned false", t);
+    } else {
+        __android_log_print(ANDROID_LOG_INFO, TAG, "Applied thread_num=%d", t);
+    }
+}
 
 static jmethodID getMethodIdSafe(JNIEnv* env, jclass cls, const char* name, const char* sig) {
     jmethodID mid = env->GetMethodID(cls, name, sig);
@@ -61,6 +94,79 @@ static std::vector<int> trimPromptToTokens(MNN::Transformer::Llm* llm, const std
     }
     return out;
 }
+
+static void applyRuntimeConfig(
+    MNN::Transformer::Llm* llm,
+    double temperature,
+    double top_p,
+    int top_k,
+    double min_p,
+    double presence_penalty,
+    double repetition_penalty,
+    int enable_thinking
+) {
+    if (llm == nullptr) return;
+
+    std::ostringstream os;
+    bool hasAny = false;
+    os << "{";
+
+    auto addCommaIfNeeded = [&]() {
+        if (hasAny) os << ",";
+        hasAny = true;
+    };
+
+    if (temperature >= 0.0) {
+        addCommaIfNeeded();
+        os << "\"temperature\":" << temperature;
+    }
+    if (top_p >= 0.0) {
+        addCommaIfNeeded();
+        os << "\"top_p\":" << top_p;
+    }
+    if (top_k >= 0) {
+        addCommaIfNeeded();
+        os << "\"top_k\":" << top_k;
+    }
+    if (min_p >= 0.0) {
+        addCommaIfNeeded();
+        os << "\"min_p\":" << min_p;
+    }
+    if (presence_penalty >= 0.0) {
+        addCommaIfNeeded();
+        os << "\"presence_penalty\":" << presence_penalty;
+    }
+    if (repetition_penalty >= 0.0) {
+        addCommaIfNeeded();
+        os << "\"repetition_penalty\":" << repetition_penalty;
+    }
+    if (enable_thinking == 0 || enable_thinking == 1) {
+        addCommaIfNeeded();
+        os << "\"enable_thinking\":" << (enable_thinking == 1 ? "true" : "false");
+    }
+
+    os << "}";
+    if (!hasAny) return;
+
+    const auto ok = llm->set_config(os.str());
+    if (!ok) {
+        __android_log_print(ANDROID_LOG_WARN, TAG, "set_config returned false");
+    }
+}
+
+static std::string toChatPrompt(MNN::Transformer::Llm* llm, const std::string& user_content) {
+    if (llm == nullptr) return user_content;
+    std::string out;
+    try {
+        out = llm->apply_chat_template(user_content);
+    } catch (...) {
+        out.clear();
+    }
+    if (out.empty()) return user_content;
+    return out;
+}
+
+struct StreamCancelledException {};
 #endif
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -91,6 +197,7 @@ Java_com_airread_airread_MainActivity_nativeInit(JNIEnv* env, jobject thiz, jstr
     if (g_llm) {
         const auto ok = g_llm->load();
         if (ok) {
+            ensureThreadConfig(g_llm.get());
             __android_log_print(ANDROID_LOG_INFO, TAG, "Model loaded successfully");
         } else {
             __android_log_print(ANDROID_LOG_ERROR, TAG, "Model load failed");
@@ -120,7 +227,20 @@ Java_com_airread_airread_MainActivity_nativeDumpConfig(JNIEnv* env, jobject thiz
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_airread_airread_MainActivity_nativeChat(JNIEnv* env, jobject thiz, jstring prompt, jint max_new_tokens, jint max_input_tokens) {
+Java_com_airread_airread_MainActivity_nativeChat(
+    JNIEnv* env,
+    jobject thiz,
+    jstring prompt,
+    jint max_new_tokens,
+    jint max_input_tokens,
+    jdouble temperature,
+    jdouble top_p,
+    jint top_k,
+    jdouble min_p,
+    jdouble presence_penalty,
+    jdouble repetition_penalty,
+    jint enable_thinking
+) {
     const char* input_str = env->GetStringUTFChars(prompt, 0);
     std::string response;
 
@@ -133,13 +253,16 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv* env, jobject thiz, jstr
     }
     
     g_llm->reset();
+    applyRuntimeConfig(g_llm.get(), temperature, top_p, static_cast<int>(top_k), min_p, presence_penalty, repetition_penalty, static_cast<int>(enable_thinking));
+    const std::string chatPrompt = toChatPrompt(g_llm.get(), std::string(input_str));
     std::stringstream ss;
     const int maxTokens = max_new_tokens > 0 ? static_cast<int>(max_new_tokens) : 256;
+    const char* endWith = "<|im_end|>";
     if (max_input_tokens > 0) {
-        const auto ids = trimPromptToTokens(g_llm.get(), input_str, static_cast<int>(max_input_tokens));
-        g_llm->response(ids, &ss, nullptr, maxTokens);
+        const auto ids = trimPromptToTokens(g_llm.get(), chatPrompt, static_cast<int>(max_input_tokens));
+        g_llm->response(ids, &ss, endWith, maxTokens);
     } else {
-        g_llm->response(input_str, &ss, nullptr, maxTokens);
+        g_llm->response(chatPrompt, &ss, endWith, maxTokens);
     }
     response = ss.str();
 #else
@@ -162,29 +285,34 @@ public:
     }
 
     ~CallbackStreamBuf() override {
-        flushPending(true);
+        try {
+            flushPending(true, false);
+        } catch (...) {
+        }
     }
 
 protected:
     int overflow(int ch) override {
         if (ch == EOF) {
-            flushPending(true);
+            flushPending(true, true);
             return 0;
         }
+        throwIfCancelled();
         pending_.push_back(static_cast<char>(ch));
-        flushPending(false);
+        flushPending(false, true);
         return ch;
     }
 
     std::streamsize xsputn(const char* s, std::streamsize n) override {
         if (n <= 0) return 0;
+        throwIfCancelled();
         pending_.append(s, static_cast<size_t>(n));
-        flushPending(false);
+        flushPending(false, true);
         return n;
     }
 
     int sync() override {
-        flushPending(true);
+        flushPending(true, true);
         return 0;
     }
 
@@ -216,18 +344,29 @@ private:
         return i;
     }
 
-    void flushPending(bool force) {
+    bool isCancelledNow() {
+        if (isCancelled_ == nullptr) return false;
+        const auto cancelled = env_->CallBooleanMethod(callback_, isCancelled_);
+        if (env_->ExceptionCheck()) {
+            env_->ExceptionClear();
+        }
+        return cancelled == JNI_TRUE;
+    }
+
+    void throwIfCancelled() {
+        if (isCancelledNow()) {
+            pending_.clear();
+            throw StreamCancelledException();
+        }
+    }
+
+    void flushPending(bool force, bool allowThrow) {
         if (pending_.empty()) return;
         if (!force && pending_.size() < 48) return;
-        if (isCancelled_ != nullptr) {
-            const auto cancelled = env_->CallBooleanMethod(callback_, isCancelled_);
-            if (env_->ExceptionCheck()) {
-                env_->ExceptionClear();
-            }
-            if (cancelled == JNI_TRUE) {
-                pending_.clear();
-                return;
-            }
+        if (isCancelledNow()) {
+            pending_.clear();
+            if (allowThrow) throw StreamCancelledException();
+            return;
         }
         if (onChunk_ == nullptr) {
             pending_.clear();
@@ -258,7 +397,21 @@ private:
 #endif
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv* env, jobject thiz, jstring prompt, jint max_new_tokens, jint max_input_tokens, jobject callback) {
+Java_com_airread_airread_MainActivity_nativeChatStream(
+    JNIEnv* env,
+    jobject thiz,
+    jstring prompt,
+    jint max_new_tokens,
+    jint max_input_tokens,
+    jdouble temperature,
+    jdouble top_p,
+    jint top_k,
+    jdouble min_p,
+    jdouble presence_penalty,
+    jdouble repetition_penalty,
+    jint enable_thinking,
+    jobject callback
+) {
     const char* input_str = env->GetStringUTFChars(prompt, 0);
 
 #ifdef ENABLE_MNN
@@ -269,17 +422,24 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv* env, jobject thiz
     }
 
     g_llm->reset();
+    applyRuntimeConfig(g_llm.get(), temperature, top_p, static_cast<int>(top_k), min_p, presence_penalty, repetition_penalty, static_cast<int>(enable_thinking));
+    const std::string chatPrompt = toChatPrompt(g_llm.get(), std::string(input_str));
     const int maxTokens = max_new_tokens > 0 ? static_cast<int>(max_new_tokens) : 256;
+    const char* endWith = "<|im_end|>";
     {
         CallbackStreamBuf buf(env, callback);
         std::ostream os(&buf);
-        if (max_input_tokens > 0) {
-            const auto ids = trimPromptToTokens(g_llm.get(), input_str, static_cast<int>(max_input_tokens));
-            g_llm->response(ids, &os, nullptr, maxTokens);
-        } else {
-            g_llm->response(input_str, &os, nullptr, maxTokens);
+        try {
+            if (max_input_tokens > 0) {
+                const auto ids = trimPromptToTokens(g_llm.get(), chatPrompt, static_cast<int>(max_input_tokens));
+                g_llm->response(ids, &os, endWith, maxTokens);
+            } else {
+                g_llm->response(chatPrompt, &os, endWith, maxTokens);
+            }
+            os.flush();
+        } catch (const StreamCancelledException&) {
+        } catch (...) {
         }
-        os.flush();
     }
 
     jclass cls = env->GetObjectClass(callback);

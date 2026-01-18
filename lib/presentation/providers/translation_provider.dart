@@ -335,7 +335,8 @@ class TranslationProvider extends ChangeNotifier {
 
         Future<String> f;
         try {
-          f = _service.translateParagraph(config: _config, paragraphText: entry.value);
+          f = _service.translateParagraph(
+              config: _config, paragraphText: entry.value);
         } catch (_) {
           _failedKeys.add(cacheKey);
           _pendingKeys.remove(cacheKey);

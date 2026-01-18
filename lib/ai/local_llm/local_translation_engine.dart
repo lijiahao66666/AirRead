@@ -10,6 +10,9 @@ class LocalTranslationEngine extends TranslationEngine {
       : _client =
             client ?? LocalLlmClient(modelType: LocalLlmModelType.translation);
 
+  static const int _mtHardMaxNewTokens = 512;
+  static const int _mtHardMinNewTokens = 64;
+
   @override
   String get id => 'local_hunyuan';
 
@@ -26,24 +29,66 @@ class LocalTranslationEngine extends TranslationEngine {
       targetLang: targetLang,
       contextSources: contextSources,
     );
-    return _chatStreamOnce(prompt).then(_postProcessModelOutput);
+    final maxNewTokens = _estimateMaxNewTokens(
+      inputText: text,
+      sourceLang: sourceLang,
+      targetLang: targetLang,
+    );
+    return _chatStreamOnce(prompt, maxNewTokens: maxNewTokens)
+        .then(_postProcessModelOutput);
   }
 
-  Future<String> _chatStreamOnce(String prompt) async {
+  int _estimateMaxNewTokens({
+    required String inputText,
+    required String sourceLang,
+    required String targetLang,
+  }) {
+    final s = inputText.trim();
+    if (s.isEmpty) return 0;
+
+    var tokens = (s.length / 2).ceil() + 32;
+    if (sourceLang.toLowerCase().contains('zh') ||
+        targetLang.toLowerCase().contains('zh')) {
+      tokens = (s.length / 1.5).ceil() + 32;
+    }
+    if (tokens > _mtHardMaxNewTokens) tokens = _mtHardMaxNewTokens;
+    if (tokens < _mtHardMinNewTokens) tokens = _mtHardMinNewTokens;
+    return tokens;
+  }
+
+  Future<String> _chatStreamOnce(
+    String prompt, {
+    required int maxNewTokens,
+  }) async {
     final stream = _client.chatStream(
       userText: prompt,
-      maxNewTokens: 1024,
+      maxNewTokens: maxNewTokens <= 0 ? 256 : maxNewTokens,
       maxInputTokens: 0,
-      temperature: 0.7,
-      topP: 0.6,
-      topK: 20,
+      temperature: 0.2,
+      topP: 0.95,
+      topK: 40,
+      repetitionPenalty: 1.02,
+      enableThinking: false,
     );
 
     final buffer = StringBuffer();
     final completer = Completer<String>();
     late final StreamSubscription<String> sub;
 
-    final timer = Timer(const Duration(seconds: 55), () async {
+    bool gotAnyChunk = false;
+
+    final firstChunkTimer = Timer(const Duration(seconds: 12), () async {
+      try {
+        await sub.cancel();
+      } catch (_) {}
+      if (!completer.isCompleted) {
+        completer.completeError(
+          TimeoutException('local translation first chunk timeout'),
+        );
+      }
+    });
+
+    final totalTimer = Timer(const Duration(seconds: 55), () async {
       try {
         await sub.cancel();
       } catch (_) {}
@@ -57,16 +102,22 @@ class LocalTranslationEngine extends TranslationEngine {
     sub = stream.listen(
       (chunk) {
         if (chunk.isEmpty) return;
+        if (!gotAnyChunk) {
+          gotAnyChunk = true;
+          firstChunkTimer.cancel();
+        }
         buffer.write(chunk);
       },
       onError: (e, st) {
-        timer.cancel();
+        firstChunkTimer.cancel();
+        totalTimer.cancel();
         if (!completer.isCompleted) {
           completer.completeError(e, st);
         }
       },
       onDone: () {
-        timer.cancel();
+        firstChunkTimer.cancel();
+        totalTimer.cancel();
         if (!completer.isCompleted) {
           completer.complete(buffer.toString());
         }
@@ -103,11 +154,11 @@ class LocalTranslationEngine extends TranslationEngine {
     if (contextSources.isNotEmpty && isZh) {
       final langTo = _displayLang(targetLang, isSource: false);
       for (final ctx in contextSources) {
-        buffer.writeln(_clip(_squashSpaces(ctx), 220));
+        buffer.writeln(_clip(_squashSpaces(ctx), 140));
       }
       buffer.writeln();
       buffer.writeln('参考上面的信息，把下面的文本翻译成$langTo，注意不需要翻译上文，也不要额外解释：');
-      buffer.writeln(text);
+      buffer.writeln(text.trimRight());
       return buffer.toString().trim();
     }
 
@@ -121,7 +172,7 @@ class LocalTranslationEngine extends TranslationEngine {
       // So here isZh is true, but contextSources is empty.
       buffer.writeln('将以下文本翻译为$langTo，注意只需要输出翻译后的结果，不要额外解释：');
       buffer.writeln();
-      buffer.writeln(text);
+      buffer.writeln(text.trimRight());
       return buffer.toString().trim();
     }
 
@@ -135,7 +186,7 @@ class LocalTranslationEngine extends TranslationEngine {
     if (contextSources.isNotEmpty) {
       buffer.writeln('### Context');
       for (final ctx in contextSources) {
-        buffer.writeln(_clip(_squashSpaces(ctx), 220));
+        buffer.writeln(_clip(_squashSpaces(ctx), 140));
       }
       buffer.writeln();
     }
@@ -143,7 +194,7 @@ class LocalTranslationEngine extends TranslationEngine {
     buffer.writeln(
         'Translate the following segment into $langToEn, without additional explanation.');
     buffer.writeln();
-    buffer.writeln(text);
+    buffer.writeln(text.trimRight());
     return buffer.toString().trim();
   }
 

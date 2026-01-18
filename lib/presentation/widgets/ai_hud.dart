@@ -965,15 +965,15 @@ class _TencentHunyuanSettingsPanelState
         _localModelStatusRow(
           aiModel,
           type: LocalLlmModelType.translation,
-          title: '翻译模型',
-          sizeText: '830M',
+          title: 'HY-MT1.5-1.8B',
+          sizeText: '860M',
           capabilityText: '翻译',
         ),
         const SizedBox(height: 10),
         _localModelStatusRow(
           aiModel,
           type: LocalLlmModelType.qa,
-          title: '问答模型',
+          title: 'Qwen3-0.6B',
           sizeText: '280M',
           capabilityText: '问答',
         ),
@@ -1200,6 +1200,14 @@ class _MainPanel extends StatelessWidget {
             ? '朗读仅支持在线模式'
             : (readAloudEnabled ? '已开启' : '开启后，可朗读当前页');
 
+    final perfEnabled =
+        source == AiModelSource.local && aiModel.localRuntimeAvailable;
+    final perfSubtitle = source != AiModelSource.local
+        ? '仅本地模式可用'
+        : !aiModel.localRuntimeAvailable
+            ? '本地推理后端未就绪'
+            : '查看当前配置并跑一次小测试';
+
     return SingleChildScrollView(
       key: const PageStorageKey('ai_hud_main_scroll'),
       padding: const EdgeInsets.only(bottom: 6),
@@ -1234,12 +1242,195 @@ class _MainPanel extends StatelessWidget {
             subtitle: !modelEnabled
                 ? '请先在 AI设置 中启用大模型'
                 : (source == AiModelSource.local && !qaReady)
-                    ? localBlockedHintFor(LocalLlmModelType.qa, '问答模型')
+                    ? localBlockedHintFor(LocalLlmModelType.qa, '本地模型')
                     : '支持问答/总结/提取要点',
             onTap: qaReady ? onOpenQa : () {},
           ),
+          const SizedBox(height: 10),
+          _perfEntry(
+            enabled: perfEnabled,
+            subtitle: perfSubtitle,
+            onTap: perfEnabled ? () => _openLocalPerfCheck(context) : () {},
+          ),
         ],
       ),
+    );
+  }
+
+  Future<void> _openLocalPerfCheck(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        var started = false;
+        String report = '';
+        var running = false;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            Future<void> run() async {
+              if (running) return;
+              setState(() {
+                running = true;
+                report = '运行中…';
+              });
+
+              final aiModel = dialogContext.read<AiModelProvider>();
+              final buf = StringBuffer();
+              buf.writeln('time=${DateTime.now().toIso8601String()}');
+              buf.writeln('platform=${defaultTargetPlatform.name}');
+              buf.writeln('source=${aiModel.source.name}');
+              buf.writeln(
+                  'localRuntimeAvailable=${aiModel.localRuntimeAvailable}');
+              buf.writeln('qaReady=${aiModel.isLocalQaModelReady}');
+              buf.writeln(
+                  'translationReady=${aiModel.isLocalTranslationModelReady}');
+              buf.writeln();
+
+              Future<void> dump(LocalLlmModelType type) async {
+                final sw = Stopwatch()..start();
+                try {
+                  final client = LocalLlmClient(modelType: type);
+                  final cfg = await client.dumpConfig();
+                  sw.stop();
+                  buf.writeln(
+                      '[${type.name}] dumpConfigMs=${sw.elapsedMilliseconds}');
+                  buf.writeln(cfg.trim().isEmpty ? '(empty)' : cfg.trim());
+                } catch (e) {
+                  sw.stop();
+                  buf.writeln(
+                      '[${type.name}] dumpConfigMs=${sw.elapsedMilliseconds}');
+                  buf.writeln('error=${e.toString()}');
+                }
+                buf.writeln();
+              }
+
+              Future<void> streamTest({
+                required LocalLlmModelType type,
+                required String label,
+                required String prompt,
+              }) async {
+                final client = LocalLlmClient(modelType: type);
+                final swAll = Stopwatch()..start();
+                final swFirst = Stopwatch()..start();
+                var firstMs = -1;
+                var outLen = 0;
+                var chunkCount = 0;
+                try {
+                  await for (final chunk in client.chatStream(
+                    userText: prompt,
+                    maxNewTokens: 96,
+                    maxInputTokens: 0,
+                    temperature: 0.2,
+                    topP: 0.95,
+                    topK: 40,
+                    repetitionPenalty: 1.02,
+                    enableThinking: false,
+                  )) {
+                    if (chunk.isEmpty) continue;
+                    chunkCount += 1;
+                    outLen += chunk.length;
+                    if (firstMs < 0) {
+                      swFirst.stop();
+                      firstMs = swFirst.elapsedMilliseconds;
+                    }
+                    if (outLen >= 256) break;
+                  }
+                  swAll.stop();
+                  buf.writeln(
+                      '[$label] firstChunkMs=$firstMs totalMs=${swAll.elapsedMilliseconds} chunks=$chunkCount outLen=$outLen');
+                } catch (e) {
+                  swAll.stop();
+                  final t = firstMs < 0 ? swFirst.elapsedMilliseconds : firstMs;
+                  buf.writeln(
+                      '[$label] firstChunkMs=$t totalMs=${swAll.elapsedMilliseconds} error=${e.toString()}');
+                }
+                buf.writeln();
+              }
+
+              await dump(LocalLlmModelType.translation);
+              await dump(LocalLlmModelType.qa);
+
+              if (aiModel.source == AiModelSource.local &&
+                  aiModel.localRuntimeAvailable) {
+                if (aiModel.isLocalQaModelReady) {
+                  await streamTest(
+                    type: LocalLlmModelType.qa,
+                    label: 'qa',
+                    prompt: '你好，请只回复“OK”。',
+                  );
+                } else {
+                  buf.writeln('[qa] skipped=not_ready');
+                  buf.writeln();
+                }
+
+                if (aiModel.isLocalTranslationModelReady) {
+                  await streamTest(
+                    type: LocalLlmModelType.translation,
+                    label: 'translation',
+                    prompt: '将以下文本翻译为英语，注意只需要输出翻译后的结果，不要额外解释：\n\n你好，世界。',
+                  );
+                } else {
+                  buf.writeln('[translation] skipped=not_ready');
+                  buf.writeln();
+                }
+              }
+
+              setState(() {
+                running = false;
+                report = buf.toString().trimRight();
+              });
+            }
+
+            if (!started) {
+              started = true;
+              scheduleMicrotask(run);
+            }
+
+            final theme = Theme.of(dialogContext);
+            final isDarkBg = theme.colorScheme.surface.computeLuminance() < 0.5;
+            final fg = isDarkBg ? Colors.white : AppColors.deepSpace;
+
+            return AlertDialog(
+              title: const Text('本地推理性能自检'),
+              content: SizedBox(
+                width: 560,
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    report.isEmpty ? '准备中…' : report,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.35,
+                      color: fg.withOpacity(0.9),
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: running
+                      ? null
+                      : () {
+                          Clipboard.setData(ClipboardData(text: report));
+                          Navigator.of(dialogContext).pop();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('已复制并关闭')),
+                          );
+                        },
+                  child: const Text('复制并关闭'),
+                ),
+                TextButton(
+                  onPressed: running ? null : run,
+                  child: Text(running ? '运行中…' : '重新运行'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('关闭'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1450,6 +1641,74 @@ class _MainPanel extends StatelessWidget {
       ),
     );
   }
+
+  Widget _perfEntry({
+    required bool enabled,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final Color cardBg =
+        isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
+
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+      child: Container(
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+          border: Border.all(
+              color: textColor.withOpacity(0.08), width: AppTokens.stroke),
+        ),
+        padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: enabled
+                    ? AppColors.techBlue.withOpacity(0.12)
+                    : textColor.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.speed,
+                color:
+                    enabled ? AppColors.techBlue : textColor.withOpacity(0.7),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '性能自检',
+                    style: TextStyle(
+                      color: textColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: textColor.withOpacity(0.65),
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: textColor.withOpacity(0.6)),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 enum _QaRole { user, assistant, divider }
@@ -1550,7 +1809,7 @@ class _QaPanelState extends State<_QaPanel> {
   String _localRawText = '';
 
   void _resetLocalStreamSanitizer() {
-    _localInThink = true;
+    _localInThink = false;
     _localTagCarry = '';
     _localRawText = '';
   }
@@ -1905,8 +2164,7 @@ class _QaPanelState extends State<_QaPanel> {
             final raw = _sanitizeLocalDelta(chunk.content);
             if (raw.isNotEmpty) {
               _localRawText += raw;
-              if (_localRawText.contains('</answer>') ||
-                  _localRawText.length > 30000) {
+              if (_localRawText.length > 30000) {
                 _streamSub?.cancel();
               }
             }
