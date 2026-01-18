@@ -1149,9 +1149,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
     final dpr = MediaQuery.of(context).devicePixelRatio;
     String snapKey(double v) => (v * dpr).roundToDouble().toStringAsFixed(0);
-    // Key includes effective text length to invalidate on translation updates
     final String paginationKey =
-        '${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|${effectiveText.length}|${_contentBottomInset?.toStringAsFixed(1) ?? '0'}';
+        'v2|${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|${effectiveText.length}|${_contentBottomInset?.toStringAsFixed(1) ?? '0'}';
 
     if (_chapterPageRangeKeys[chapterIndex] == paginationKey &&
         _chapterPageRanges[chapterIndex] != null) {
@@ -1180,6 +1179,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     final textPainter = TextPainter(
       textDirection: TextDirection.ltr,
       textScaler: MediaQuery.of(context).textScaler,
+      strutStyle:
+          StrutStyle.fromTextStyle(effectiveTextStyle, forceStrutHeight: true),
     );
 
     final List<TextRange> ranges = [];
@@ -1254,7 +1255,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     final dpr = MediaQuery.of(context).devicePixelRatio;
     String snapKey(double v) => (v * dpr).roundToDouble().toStringAsFixed(0);
     final String paginationKey =
-        '${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|${plainText.length}|${_contentBottomInset?.toStringAsFixed(1) ?? '0'}';
+        'v2|${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|${plainText.length}|${_contentBottomInset?.toStringAsFixed(1) ?? '0'}';
 
     if (_chapterPlainPageRangeKeys[chapterIndex] == paginationKey &&
         _chapterPlainPageRanges[chapterIndex] != null) {
@@ -1271,6 +1272,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     final textPainter = TextPainter(
       textDirection: TextDirection.ltr,
       textScaler: MediaQuery.of(context).textScaler,
+      strutStyle: StrutStyle.fromTextStyle(textStyle, forceStrutHeight: true),
     );
 
     final List<TextRange> ranges = [];
@@ -1820,7 +1822,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         final double bottomMargin = snap(padding.bottom + 24);
 
         double viewportHeight = snapDown(
-            constraints.maxHeight - topMargin - bottomMargin - (1 / dpr));
+          constraints.maxHeight - topMargin - bottomMargin - (1 / dpr),
+        );
         if (viewportHeight <= 0) viewportHeight = 500;
 
         final TextStyle effectiveTextStyle =
@@ -1989,6 +1992,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       width: double.infinity,
       child: SelectableText.rich(
         bodySpan,
+        style: bodyStyle,
+        strutStyle: StrutStyle.fromTextStyle(bodyStyle, forceStrutHeight: true),
         contextMenuBuilder: (context, state) {
           final selection = state.textEditingValue.selection;
           final hasSelection = !selection.isCollapsed;
