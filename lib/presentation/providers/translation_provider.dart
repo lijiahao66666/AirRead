@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../ai/local_llm/local_llm_client.dart';
 import '../../ai/local_llm/local_translation_engine.dart';
 import '../../ai/hunyuan/hunyuan_translation_engine.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
@@ -18,6 +19,8 @@ class TranslationProvider extends ChangeNotifier {
   static const _kCfgApply = 'tr_cfg_apply';
   static const _kAiTranslateEnabled = 'tr_ai_translate_enabled';
   static const _kAiReadAloudEnabled = 'tr_ai_read_aloud_enabled';
+  static const _kTtsVoiceType = 'tr_tts_voice_type';
+  static const _kTtsSpeed = 'tr_tts_speed';
 
   final TranslationCache _cache =
       TranslationCache(ttl: const Duration(days: 30));
@@ -38,6 +41,9 @@ class TranslationProvider extends ChangeNotifier {
   bool _aiTranslateEnabled = false;
   bool _aiReadAloudEnabled = false;
   bool _loaded = false;
+
+  int _ttsVoiceType = 601003;
+  double _ttsSpeed = 1.0;
 
   Timer? _notifyTimer;
   bool _notifyScheduled = false;
@@ -96,7 +102,7 @@ class TranslationProvider extends ChangeNotifier {
         _aiReadAloudEnabled = false;
         changed = true;
       }
-      final ready = _aiModel?.isLocalModelReady ?? false;
+      final ready = _aiModel?.isLocalTranslationModelReady ?? false;
       if (!ready) {
         if (_aiTranslateEnabled) {
           _aiTranslateEnabled = false;
@@ -142,6 +148,8 @@ class TranslationProvider extends ChangeNotifier {
   bool get applyToReader => _applyToReader;
   bool get aiTranslateEnabled => _aiTranslateEnabled;
   bool get aiReadAloudEnabled => _aiReadAloudEnabled;
+  int get ttsVoiceType => _ttsVoiceType;
+  double get ttsSpeed => _ttsSpeed;
 
   @override
   void dispose() {
@@ -178,6 +186,8 @@ class TranslationProvider extends ChangeNotifier {
 
     _aiTranslateEnabled = prefs.getBool(_kAiTranslateEnabled) ?? false;
     _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
+    _ttsVoiceType = prefs.getInt(_kTtsVoiceType) ?? _ttsVoiceType;
+    _ttsSpeed = prefs.getDouble(_kTtsSpeed) ?? _ttsSpeed;
 
     TranslationDisplayMode displayMode = _config.displayMode;
     if (mode == 'bilingual') displayMode = TranslationDisplayMode.bilingual;
@@ -212,6 +222,22 @@ class TranslationProvider extends ChangeNotifier {
     await prefs.setBool(_kCfgApply, _applyToReader);
     await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
     await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
+    await prefs.setInt(_kTtsVoiceType, _ttsVoiceType);
+    await prefs.setDouble(_kTtsSpeed, _ttsSpeed);
+  }
+
+  Future<void> setTtsVoiceType(int voiceType) async {
+    if (_ttsVoiceType == voiceType) return;
+    _ttsVoiceType = voiceType;
+    notifyListeners();
+    await _savePrefs();
+  }
+
+  Future<void> setTtsSpeed(double speed) async {
+    if (_ttsSpeed == speed) return;
+    _ttsSpeed = speed;
+    notifyListeners();
+    await _savePrefs();
   }
 
   Future<void> setSourceLang(String lang) async {
@@ -368,17 +394,23 @@ class TranslationProvider extends ChangeNotifier {
       if (model == null) {
         throw TranslationConfigException('本地模型未就绪');
       }
-      if (model.localModelDownloading) {
-        throw TranslationConfigException('本地模型下载中…');
+      if (model.isLocalModelInstallingByType(LocalLlmModelType.translation)) {
+        throw TranslationConfigException('翻译模型安装中…');
       }
-      if (!model.localModelExists) {
-        throw TranslationConfigException('本地模型未下载');
+      if (model.isLocalModelDownloadingByType(LocalLlmModelType.translation)) {
+        throw TranslationConfigException('翻译模型下载中…');
+      }
+      if (model.isLocalModelPausedByType(LocalLlmModelType.translation)) {
+        throw TranslationConfigException('翻译模型下载已暂停');
+      }
+      if (!model.localModelExistsByType(LocalLlmModelType.translation)) {
+        throw TranslationConfigException('翻译模型未下载');
       }
       if (!model.localRuntimeAvailable) {
         throw TranslationConfigException('本地推理后端未就绪');
       }
-      if (!model.isLocalModelReady) {
-        throw TranslationConfigException('本地模型未就绪');
+      if (!model.isLocalTranslationModelReady) {
+        throw TranslationConfigException('翻译模型未就绪');
       }
     }
   }

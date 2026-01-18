@@ -42,25 +42,54 @@ class AiModelProvider extends ChangeNotifier {
 
   static const String _localModelCosBucket = 'hunyuan-mnn-1256643821';
   static const String _localModelCosRegion = 'ap-guangzhou';
-  static const String _localModelCosObjectKey = 'hunyuan-1.8b-4bit-mnn.zip';
-  static const String _localModelModelScopeUrl =
-      'https://www.modelscope.cn/models/lijiahaojj/Hunyuan-0.5B-Instruct-mnn-int4/resolve/master/hunyuan-1.8b-4bit-mnn.zip';
+  static const Map<LocalLlmModelType, String> _localModelCosObjectKeyByType = {
+    LocalLlmModelType.qa: '',
+    LocalLlmModelType.translation: '',
+  };
+  static const Map<LocalLlmModelType, String> _localModelModelScopeUrlByType = {
+    LocalLlmModelType.qa:
+        'https://www.modelscope.cn/models/lijiahaojj/Hunyuan-0.5B-Instruct-mnn-int4/resolve/master/qwen3-0.6B.zip',
+    LocalLlmModelType.translation:
+        'https://www.modelscope.cn/models/lijiahaojj/Hunyuan-0.5B-Instruct-mnn-int4/resolve/master/HY-MT1.5-1.8B.zip',
+  };
 
   bool _loaded = false;
   AiModelSource _source = AiModelSource.none;
 
   bool _localModelExists = false;
+  final Map<LocalLlmModelType, bool> _localModelExistsByType = {
+    for (final t in LocalLlmModelType.values) t: false,
+  };
   bool _localModelDownloading = false;
   bool _localModelPaused = false;
+  LocalLlmModelType? _pausedDownloadType;
   bool _localModelInstalling = false;
-  bool _localModelCorruptRetried = false;
-  bool _localModelModelScopeFallbackRetried = false;
+  final Map<LocalLlmModelType, bool> _localModelCorruptRetriedByType = {
+    for (final t in LocalLlmModelType.values) t: false,
+  };
+  final Map<LocalLlmModelType, bool>
+      _localModelModelScopeFallbackRetriedByType = {
+    for (final t in LocalLlmModelType.values) t: false,
+  };
   double _localModelProgress = 0;
   String _localModelError = '';
   int _localModelDownloadedBytes = 0;
   int _localModelTotalBytes = 0;
   bool _localRuntimeAvailable = false;
   bool _localModelSmokeDone = false;
+
+  final Map<LocalLlmModelType, int> _downloadedBytesByType = {
+    for (final t in LocalLlmModelType.values) t: 0,
+  };
+  final Map<LocalLlmModelType, int> _totalBytesByType = {
+    for (final t in LocalLlmModelType.values) t: 0,
+  };
+  final Map<LocalLlmModelType, int> _installedBytesByType = {
+    for (final t in LocalLlmModelType.values) t: 0,
+  };
+
+  List<LocalLlmModelType> _downloadQueue = const [];
+  LocalLlmModelType? _activeDownloadType;
 
   http.Client? _downloadClient;
   StreamSubscription<List<int>>? _downloadSub;
@@ -153,17 +182,30 @@ class AiModelProvider extends ChangeNotifier {
     return int.tryParse(tail);
   }
 
-  Uri _buildLocalModelCosUri() {
+  bool _hasLocalModelCos(LocalLlmModelType type) {
+    final key = _localModelCosObjectKeyByType[type] ?? '';
+    return key.trim().isNotEmpty;
+  }
+
+  Uri _buildLocalModelCosUri(LocalLlmModelType type) {
+    final key = _localModelCosObjectKeyByType[type] ?? '';
+    if (key.trim().isEmpty) {
+      throw const HttpException('未配置腾讯 COS 下载地址');
+    }
     const host = '$_localModelCosBucket.cos.$_localModelCosRegion.myqcloud.com';
     return Uri(
       scheme: 'https',
       host: host,
-      path: '/$_localModelCosObjectKey',
+      path: '/$key',
     );
   }
 
-  Uri _buildLocalModelModelScopeUri() {
-    return Uri.parse(_localModelModelScopeUrl);
+  Uri _buildLocalModelModelScopeUri(LocalLlmModelType type) {
+    final url = _localModelModelScopeUrlByType[type] ?? '';
+    if (url.trim().isEmpty) {
+      throw const HttpException('未配置 ModelScope 下载地址');
+    }
+    return Uri.parse(url);
   }
 
   String _buildCosAuthorization({
@@ -246,12 +288,53 @@ class AiModelProvider extends ChangeNotifier {
   int get localModelTotalBytes => _localModelTotalBytes;
   bool get localRuntimeAvailable => _localRuntimeAvailable;
 
-  bool get isLocalModelReady =>
-      _localModelExists &&
-      _localRuntimeAvailable &&
-      !_localModelDownloading &&
-      !_localModelPaused &&
-      !_localModelInstalling;
+  bool get isLocalModelReady => isLocalModelReadyByType(LocalLlmModelType.qa);
+
+  bool get isLocalQaModelReady => isLocalModelReadyByType(LocalLlmModelType.qa);
+
+  bool get isLocalTranslationModelReady =>
+      isLocalModelReadyByType(LocalLlmModelType.translation);
+
+  bool localModelExistsByType(LocalLlmModelType type) =>
+      _localModelExistsByType[type] ?? false;
+
+  bool isLocalModelDownloadingByType(LocalLlmModelType type) =>
+      _localModelDownloading && _activeDownloadType == type;
+
+  bool isLocalModelPausedByType(LocalLlmModelType type) =>
+      _localModelPaused && _pausedDownloadType == type;
+
+  bool isLocalModelInstallingByType(LocalLlmModelType type) =>
+      _localModelInstalling && _activeDownloadType == type;
+
+  int localModelDownloadedBytesByType(LocalLlmModelType type) {
+    final installed = _installedBytesByType[type] ?? 0;
+    if (installed > 0) return installed;
+    return _downloadedBytesByType[type] ?? 0;
+  }
+
+  int localModelTotalBytesByType(LocalLlmModelType type) {
+    final installed = _installedBytesByType[type] ?? 0;
+    if (installed > 0) return installed;
+    return _totalBytesByType[type] ?? 0;
+  }
+
+  double localModelProgressByType(LocalLlmModelType type) {
+    final total = localModelTotalBytesByType(type);
+    final downloaded = localModelDownloadedBytesByType(type);
+    if (total <= 0) return 0;
+    return (downloaded / total).clamp(0, 1);
+  }
+
+  bool isLocalModelReadyByType(LocalLlmModelType type) {
+    final exists = _localModelExistsByType[type] ?? false;
+    if (!exists) return false;
+    if (!_localRuntimeAvailable) return false;
+    if (_localModelInstalling && _activeDownloadType == type) return false;
+    if (_localModelDownloading && _activeDownloadType == type) return false;
+    if (_localModelPaused && _pausedDownloadType == type) return false;
+    return true;
+  }
 
   @override
   void dispose() {
@@ -296,15 +379,22 @@ class AiModelProvider extends ChangeNotifier {
     await prefs.setString(_kQAContentScope, value.name);
   }
 
+  String _modelDirName(LocalLlmModelType type) {
+    return switch (type) {
+      LocalLlmModelType.qa => 'qa',
+      LocalLlmModelType.translation => 'mt',
+    };
+  }
+
   Future<File> getLocalModelFile() async {
-    return getLocalModelConfigFile();
+    return getLocalModelConfigFile(LocalLlmModelType.qa);
   }
 
   Future<File> getLocalModelPartialFile() async {
-    return getLocalModelZipPartialFile();
+    return getLocalModelZipPartialFile(LocalLlmModelType.qa);
   }
 
-  Future<Directory> getLocalModelDir() async {
+  Future<Directory> getLocalModelBaseDir() async {
     if (kIsWeb) {
       throw UnsupportedError('Local model not supported on Web');
     }
@@ -316,28 +406,28 @@ class AiModelProvider extends ChangeNotifier {
     }
   }
 
-  Future<File> getLocalModelConfigFile() async {
-    final modelDir = await getLocalModelDir();
+  Future<Directory> getLocalModelDir(LocalLlmModelType type) async {
+    final base = await getLocalModelBaseDir();
+    return Directory(p.join(base.path, _modelDirName(type)));
+  }
+
+  Future<File> getLocalModelConfigFile(LocalLlmModelType type) async {
+    final modelDir = await getLocalModelDir(type);
     return File(p.join(modelDir.path, 'config.json'));
   }
 
-  Future<File> getLocalModelZipFile() async {
-    final modelDir = await getLocalModelDir();
-    return File(p.join(modelDir.path, 'model.zip'));
+  Future<File> getLocalModelZipFile(LocalLlmModelType type) async {
+    final base = await getLocalModelBaseDir();
+    return File(p.join(base.path, 'model_${_modelDirName(type)}.zip'));
   }
 
-  Future<File> getLocalModelZipPartialFile() async {
-    final file = await getLocalModelZipFile();
+  Future<File> getLocalModelZipPartialFile(LocalLlmModelType type) async {
+    final file = await getLocalModelZipFile(type);
     return File('${file.path}.partial');
   }
 
-  Future<void> refreshLocalModelStatus() async {
-    if (kIsWeb) {
-      _localModelExists = false;
-      notifyListeners();
-      return;
-    }
-    final dir = await getLocalModelDir();
+  Future<bool> _localModelFilesExist(LocalLlmModelType type) async {
+    final dir = await getLocalModelDir(type);
     final config = File(p.join(dir.path, 'config.json'));
     final llm = File(p.join(dir.path, 'llm.mnn'));
     final weight = File(p.join(dir.path, 'llm.mnn.weight'));
@@ -349,26 +439,94 @@ class AiModelProvider extends ChangeNotifier {
         await weight.exists() &&
         await llmConfig.exists() &&
         await tokenizer.exists();
+    if (!exists) return false;
 
-    int size = 0;
-    if (exists) {
-      final sizes = await Future.wait<int>([
-        config.length(),
-        llm.length(),
-        weight.length(),
-        llmConfig.length(),
-        tokenizer.length(),
-      ]);
-      size = sizes.fold<int>(0, (a, b) => a + b);
+    final lengths = await Future.wait<int>([
+      config.length(),
+      llm.length(),
+      weight.length(),
+      llmConfig.length(),
+      tokenizer.length(),
+    ]);
+    final size = lengths.fold<int>(0, (a, b) => a + b);
+    return size > 0;
+  }
+
+  Future<int> _calcLocalModelSize(LocalLlmModelType type) async {
+    final dir = await getLocalModelDir(type);
+    final config = File(p.join(dir.path, 'config.json'));
+    final llm = File(p.join(dir.path, 'llm.mnn'));
+    final weight = File(p.join(dir.path, 'llm.mnn.weight'));
+    final llmConfig = File(p.join(dir.path, 'llm_config.json'));
+    final tokenizer = File(p.join(dir.path, 'tokenizer.txt'));
+
+    final lengths = await Future.wait<int>([
+      config.length().catchError((_) => 0),
+      llm.length().catchError((_) => 0),
+      weight.length().catchError((_) => 0),
+      llmConfig.length().catchError((_) => 0),
+      tokenizer.length().catchError((_) => 0),
+    ]);
+    return lengths.fold<int>(0, (a, b) => a + b);
+  }
+
+  void _recomputeAggregateProgress() {
+    int downloaded = 0;
+    int total = 0;
+    for (final t in LocalLlmModelType.values) {
+      final installed = _installedBytesByType[t] ?? 0;
+      final d = _downloadedBytesByType[t] ?? 0;
+      final tt = _totalBytesByType[t] ?? 0;
+      downloaded += installed > 0 ? installed : d;
+      total += installed > 0 ? installed : tt;
+    }
+    _localModelDownloadedBytes = downloaded;
+    _localModelTotalBytes = total;
+    if (total > 0) {
+      _localModelProgress = (downloaded / total).clamp(0, 1);
+    } else {
+      _localModelProgress = 0;
+    }
+  }
+
+  Future<void> refreshLocalModelStatus() async {
+    if (kIsWeb) {
+      _localModelExists = false;
+      for (final t in LocalLlmModelType.values) {
+        _localModelExistsByType[t] = false;
+        _installedBytesByType[t] = 0;
+      }
+      notifyListeners();
+      return;
     }
 
-    _localModelExists = exists && size > 0;
+    bool anyExists = false;
+    int totalSize = 0;
+
+    for (final t in LocalLlmModelType.values) {
+      final ok = await _localModelFilesExist(t);
+      if (!ok) {
+        _localModelExistsByType[t] = false;
+        _installedBytesByType[t] = 0;
+        if ((_downloadedBytesByType[t] ?? 0) == 0) {
+          _totalBytesByType[t] = 0;
+        }
+        continue;
+      }
+      _localModelExistsByType[t] = true;
+      anyExists = true;
+      final size = await _calcLocalModelSize(t);
+      _installedBytesByType[t] = size;
+      _downloadedBytesByType[t] = size;
+      _totalBytesByType[t] = size;
+      totalSize += size;
+    }
+
+    _localModelExists = anyExists && totalSize > 0;
     if (_localModelExists) {
       _localModelError = '';
-      _localModelProgress = 1;
-      _localModelDownloadedBytes = size;
-      _localModelTotalBytes = size;
     }
+    _recomputeAggregateProgress();
     notifyListeners();
   }
 
@@ -381,7 +539,7 @@ class AiModelProvider extends ChangeNotifier {
   Future<void> _runLocalModelSmokeOnce() async {
     if (!_smokeTestLocalModel) return;
     if (_localModelSmokeDone) return;
-    if (!_localModelExists || !_localRuntimeAvailable) return;
+    if (!isLocalModelReadyByType(LocalLlmModelType.qa)) return;
     _localModelSmokeDone = true;
     try {
       final client = LocalLlmClient();
@@ -404,39 +562,127 @@ class AiModelProvider extends ChangeNotifier {
       return;
     }
 
-    _debugLog('startLocalModelDownload: begin forceCos=$forceCos');
-    final modelDir = await getLocalModelDir();
-    final targetZipFile = await getLocalModelZipFile();
-    final partialZipFile = await getLocalModelZipPartialFile();
-    final configFile = await getLocalModelConfigFile();
+    await refreshLocalModelStatus();
+    await refreshLocalRuntimeStatus();
+    unawaited(_runLocalModelSmokeOnce());
+    if (LocalLlmModelType.values.every(localModelExistsByType)) return;
 
-    if (await configFile.exists()) {
-      await refreshLocalModelStatus();
-      await refreshLocalRuntimeStatus();
-      unawaited(_runLocalModelSmokeOnce());
-      if (_localModelExists) return;
+    _debugLog('startLocalModelDownload: begin forceCos=$forceCos');
+
+    final baseDir = await getLocalModelBaseDir();
+    await baseDir.create(recursive: true);
+
+    _downloadQueue = LocalLlmModelType.values.toList(growable: false);
+    _activeDownloadType = null;
+    _localModelDownloading = true;
+    _localModelPaused = false;
+    _pausedDownloadType = null;
+    _localModelInstalling = false;
+    _localModelError = '';
+    _recomputeAggregateProgress();
+    notifyListeners();
+
+    unawaited(_startNextLocalModelInQueue(forceCos: forceCos));
+  }
+
+  Future<void> startLocalModelDownloadForType(
+    LocalLlmModelType type, {
+    bool forceCos = false,
+  }) async {
+    if (_localModelDownloading) return;
+    if (_localModelInstalling) return;
+    if (kIsWeb) {
+      _localModelError = 'Web 端暂不支持下载本地模型';
+      notifyListeners();
+      return;
     }
 
-    await modelDir.create(recursive: true);
+    await refreshLocalModelStatus();
+    await refreshLocalRuntimeStatus();
+    unawaited(_runLocalModelSmokeOnce());
+    if (localModelExistsByType(type)) return;
+
+    _debugLog(
+        'startLocalModelDownloadForType: type=${type.name} forceCos=$forceCos');
+
+    final baseDir = await getLocalModelBaseDir();
+    await baseDir.create(recursive: true);
+
+    _downloadQueue = [type];
+    _activeDownloadType = null;
+    _localModelDownloading = true;
+    _localModelPaused = false;
+    _pausedDownloadType = null;
+    _localModelInstalling = false;
+    _localModelError = '';
+    _recomputeAggregateProgress();
+    notifyListeners();
+
+    unawaited(_startNextLocalModelInQueue(forceCos: forceCos));
+  }
+
+  Future<void> _startNextLocalModelInQueue({required bool forceCos}) async {
+    if (_localModelPaused) return;
+    if (!_localModelDownloading && !_localModelInstalling) return;
+
+    while (_downloadQueue.isNotEmpty) {
+      final type = _downloadQueue.first;
+      final already = await _localModelFilesExist(type);
+      if (already) {
+        final size = await _calcLocalModelSize(type);
+        _localModelExistsByType[type] = true;
+        _installedBytesByType[type] = size;
+        _downloadedBytesByType[type] = size;
+        _totalBytesByType[type] = size;
+        _downloadQueue = _downloadQueue.sublist(1);
+        _recomputeAggregateProgress();
+        notifyListeners();
+        continue;
+      }
+
+      _activeDownloadType = type;
+      unawaited(_startSingleLocalModelDownload(type, forceCos: forceCos));
+      return;
+    }
+
+    _activeDownloadType = null;
+    _downloadQueue = const [];
+    _localModelDownloading = false;
+    _localModelPaused = false;
+    _pausedDownloadType = null;
+    _localModelInstalling = false;
+    _stopInstallWatchdog();
+    await refreshLocalModelStatus();
+    await refreshLocalRuntimeStatus();
+    unawaited(_runLocalModelSmokeOnce());
+    notifyListeners();
+  }
+
+  Future<void> _startSingleLocalModelDownload(
+    LocalLlmModelType type, {
+    required bool forceCos,
+  }) async {
+    if (_localModelPaused) return;
+
+    final modelDir = await getLocalModelDir(type);
+    final targetZipFile = await getLocalModelZipFile(type);
+    final partialZipFile = await getLocalModelZipPartialFile(type);
 
     int existing = 0;
     if (await partialZipFile.exists()) {
       existing = await partialZipFile.length();
     }
-    if (existing == 0) {
-      _localModelCorruptRetried = false;
-      _localModelModelScopeFallbackRetried = false;
-    }
-    _debugLog(
-        'download: primaryUri=${_buildLocalModelModelScopeUri()} fallbackUri=${_buildLocalModelCosUri()} existingBytes=$existing forceCos=$forceCos');
 
-    _localModelDownloading = true;
-    _localModelPaused = false;
-    _localModelInstalling = false;
-    _localModelError = '';
-    // If resuming, don't reset total bytes if we already knew it (though usually 0 on restart app)
-    // But if we are starting fresh or resuming, existing bytes is correct.
-    _localModelDownloadedBytes = existing;
+    if (existing == 0) {
+      _localModelCorruptRetriedByType[type] = false;
+      _localModelModelScopeFallbackRetriedByType[type] = false;
+      _downloadedBytesByType[type] = 0;
+      _totalBytesByType[type] = 0;
+    } else {
+      _downloadedBytesByType[type] = existing;
+    }
+
+    _recomputeAggregateProgress();
     notifyListeners();
 
     _downloadClient?.close();
@@ -446,14 +692,18 @@ class AiModelProvider extends ChangeNotifier {
       http.StreamedResponse resp;
       bool usedFallbackCos = false;
       String? modelScopeError;
+      final canUseCos = _hasLocalModelCos(type);
 
       Future<http.StreamedResponse> sendCos() async {
+        if (!canUseCos) {
+          throw const HttpException('未配置腾讯 COS 下载地址');
+        }
         final creds = getEmbeddedPublicHunyuanCredentials();
         if (!creds.isUsable) {
           throw const HttpException('缺少腾讯 COS 鉴权信息');
         }
 
-        final uri = _buildLocalModelCosUri();
+        final uri = _buildLocalModelCosUri(type);
         int attempts = 0;
         http.StreamedResponse resp;
         while (true) {
@@ -477,12 +727,12 @@ class AiModelProvider extends ChangeNotifier {
             req.headers['Range'] = 'bytes=$existing-';
           }
           _debugLog(
-              'download: cos send attempt=$attempts range=${req.headers['Range'] ?? ''}');
+              'download: type=${type.name} cos send attempt=$attempts range=${req.headers['Range'] ?? ''}');
           resp = await _downloadClient!.send(req);
           _debugLog(
-              'download: cos resp status=${resp.statusCode} contentLength=${resp.contentLength}');
+              'download: type=${type.name} cos resp status=${resp.statusCode} contentLength=${resp.contentLength}');
           _debugLog(
-              'download: cos headers contentEncoding=${resp.headers['content-encoding'] ?? ''} contentType=${resp.headers['content-type'] ?? ''} contentRange=${resp.headers['content-range'] ?? ''}');
+              'download: type=${type.name} cos headers contentEncoding=${resp.headers['content-encoding'] ?? ''} contentType=${resp.headers['content-type'] ?? ''} contentRange=${resp.headers['content-range'] ?? ''}');
 
           if ((resp.statusCode == 401 || resp.statusCode == 403) &&
               existing > 0 &&
@@ -492,7 +742,8 @@ class AiModelProvider extends ChangeNotifier {
               await partialZipFile.delete();
             } catch (_) {}
             existing = 0;
-            _localModelDownloadedBytes = 0;
+            _downloadedBytesByType[type] = 0;
+            _recomputeAggregateProgress();
             notifyListeners();
             continue;
           }
@@ -511,28 +762,31 @@ class AiModelProvider extends ChangeNotifier {
         return resp;
       }
 
-      if (forceCos) {
+      if (forceCos && canUseCos) {
         usedFallbackCos = true;
         resp = await sendCos();
       } else {
         try {
-          final uri = _buildLocalModelModelScopeUri();
+          final uri = _buildLocalModelModelScopeUri(type);
           final req = http.Request('GET', uri);
           req.headers['Accept-Encoding'] = 'identity';
           if (existing > 0) {
             req.headers['Range'] = 'bytes=$existing-';
           }
           _debugLog(
-              'download: modelscope send range=${req.headers['Range'] ?? ''}');
+              'download: type=${type.name} modelscope send range=${req.headers['Range'] ?? ''}');
           resp = await _downloadClient!.send(req);
           _debugLog(
-              'download: modelscope resp status=${resp.statusCode} contentLength=${resp.contentLength}');
+              'download: type=${type.name} modelscope resp status=${resp.statusCode} contentLength=${resp.contentLength}');
           _debugLog(
-              'download: modelscope headers contentEncoding=${resp.headers['content-encoding'] ?? ''} contentType=${resp.headers['content-type'] ?? ''} contentRange=${resp.headers['content-range'] ?? ''}');
+              'download: type=${type.name} modelscope headers contentEncoding=${resp.headers['content-encoding'] ?? ''} contentType=${resp.headers['content-type'] ?? ''} contentRange=${resp.headers['content-range'] ?? ''}');
           if (resp.statusCode != 200 && resp.statusCode != 206) {
             throw HttpException('ModelScope 下载失败：HTTP ${resp.statusCode}');
           }
         } catch (e) {
+          if (!canUseCos) {
+            rethrow;
+          }
           usedFallbackCos = true;
           modelScopeError = _formatError(e);
           resp = await sendCos();
@@ -545,16 +799,17 @@ class AiModelProvider extends ChangeNotifier {
           await partialZipFile.delete();
         } catch (_) {}
         existing = 0;
-        _localModelDownloadedBytes = 0;
+        _downloadedBytesByType[type] = 0;
       }
 
       final respLength = resp.contentLength ?? 0;
       final totalFromRange =
           _tryParseTotalBytesFromContentRange(resp.headers['content-range']);
-      _localModelTotalBytes = totalFromRange ?? (existing + respLength);
+      _totalBytesByType[type] = totalFromRange ?? (existing + respLength);
+      _recomputeAggregateProgress();
       notifyListeners();
       _debugLog(
-          'download: totalBytes=$_localModelTotalBytes existingBytes=$existing');
+          'download: type=${type.name} totalBytes=${_totalBytesByType[type]} existingBytes=$existing');
 
       _downloadSink = partialZipFile.openWrite(
         mode: existing > 0 ? FileMode.append : FileMode.write,
@@ -562,26 +817,23 @@ class AiModelProvider extends ChangeNotifier {
       _downloadSub = resp.stream.listen(
         (chunk) {
           _downloadSink?.add(chunk);
-          _localModelDownloadedBytes += chunk.length;
-          if (_localModelTotalBytes > 0) {
-            _localModelProgress =
-                _localModelDownloadedBytes / _localModelTotalBytes;
-          }
+          _downloadedBytesByType[type] =
+              (_downloadedBytesByType[type] ?? 0) + chunk.length;
+          _recomputeAggregateProgress();
           notifyListeners();
         },
         onDone: () async {
           try {
-            _debugLog(
-                'download: stream done, downloadedBytes=$_localModelDownloadedBytes');
             await _downloadSink?.flush();
             await _downloadSink?.close();
             _downloadSink = null;
             _downloadSub = null;
 
-            if (_localModelTotalBytes > 0 &&
-                _localModelDownloadedBytes != _localModelTotalBytes) {
+            final total = _totalBytesByType[type] ?? 0;
+            final downloaded = _downloadedBytesByType[type] ?? 0;
+            if (total > 0 && downloaded != total) {
               throw Exception(
-                '模型下载失败：下载字节数不匹配（$_localModelDownloadedBytes/$_localModelTotalBytes）',
+                '模型下载失败：下载字节数不匹配（$downloaded/$total）',
               );
             }
 
@@ -590,27 +842,31 @@ class AiModelProvider extends ChangeNotifier {
                 await targetZipFile.delete();
               } catch (_) {}
             }
-            _debugLog('install: rename partial -> zip');
+            _debugLog('install: type=${type.name} rename partial -> zip');
             await partialZipFile.rename(targetZipFile.path);
 
             _localModelInstalling = true;
             _startInstallWatchdog();
             notifyListeners();
-            _debugLog('install: begin');
+            _debugLog('install: type=${type.name} begin');
             await _installLocalModelFromZip(targetZipFile, modelDir);
-            _debugLog('install: unzip done, cleanup zip');
+            _debugLog('install: type=${type.name} unzip done, cleanup zip');
             try {
               await targetZipFile.delete();
             } catch (_) {}
 
-            _localModelDownloading = false;
-            _localModelPaused = false;
+            final size = await _calcLocalModelSize(type);
+            _installedBytesByType[type] = size;
+            _downloadedBytesByType[type] = size;
+            _totalBytesByType[type] = size;
+            _recomputeAggregateProgress();
+
             _localModelInstalling = false;
             _stopInstallWatchdog();
-            await refreshLocalModelStatus();
-            await refreshLocalRuntimeStatus();
-            unawaited(_runLocalModelSmokeOnce());
-            _debugLog('install: completed localModelExists=$_localModelExists');
+            _downloadQueue =
+                _downloadQueue.isEmpty ? const [] : _downloadQueue.sublist(1);
+            notifyListeners();
+            unawaited(_startNextLocalModelInQueue(forceCos: false));
           } catch (e) {
             final raw = '$e';
             final base = _formatError(e);
@@ -619,76 +875,71 @@ class AiModelProvider extends ChangeNotifier {
             if (isNotZip &&
                 !forceCos &&
                 !usedFallbackCos &&
-                !_localModelModelScopeFallbackRetried) {
-              _localModelModelScopeFallbackRetried = true;
-              _debugLog('install: modelscope not zip, fallback to cos');
+                canUseCos &&
+                !(_localModelModelScopeFallbackRetriedByType[type] ?? false)) {
+              _localModelModelScopeFallbackRetriedByType[type] = true;
+              _debugLog(
+                  'install: type=${type.name} modelscope not zip, fallback to cos');
               try {
                 await targetZipFile.delete();
               } catch (_) {}
               try {
                 await partialZipFile.delete();
               } catch (_) {}
-              _localModelDownloading = false;
-              _localModelPaused = false;
               _localModelInstalling = false;
               _stopInstallWatchdog();
               _localModelError = 'ModelScope 返回内容异常，正在改用腾讯 COS 下载…';
-              _localModelDownloadedBytes = 0;
-              _localModelTotalBytes = 0;
-              _localModelProgress = 0;
+              _downloadedBytesByType[type] = 0;
+              _totalBytesByType[type] = 0;
+              _recomputeAggregateProgress();
               notifyListeners();
               _downloadClient?.close();
               _downloadClient = null;
               await Future<void>.delayed(const Duration(milliseconds: 80));
-              _debugLog('install: retry startLocalModelDownload forceCos=true');
-              unawaited(startLocalModelDownload(forceCos: true));
+              unawaited(_startSingleLocalModelDownload(type, forceCos: true));
               return;
             }
+
             final isCorruptZip = e is FormatException ||
                 raw.contains('Filter error') ||
                 raw.contains('bad data') ||
                 base.contains('zip 不完整') ||
                 base.contains('下载字节数不匹配');
-            if (isCorruptZip && !_localModelCorruptRetried) {
-              _localModelCorruptRetried = true;
-              if (!forceCos && !usedFallbackCos) {
-                _debugLog(
-                    'install: zip corrupt from modelscope, fallback to cos');
-              } else {
-                _debugLog('install: zip corrupt, will retry download once');
-              }
+            if (isCorruptZip &&
+                !(_localModelCorruptRetriedByType[type] ?? false)) {
+              _localModelCorruptRetriedByType[type] = true;
               try {
                 await targetZipFile.delete();
               } catch (_) {}
               try {
                 await partialZipFile.delete();
               } catch (_) {}
-              _localModelDownloading = false;
-              _localModelPaused = false;
               _localModelInstalling = false;
               _stopInstallWatchdog();
-              if (!forceCos && !usedFallbackCos) {
-                _localModelError = 'ModelScope 压缩包损坏，正在改用腾讯 COS 重新下载…';
-              } else {
-                _localModelError = '压缩包损坏，正在重新下载…';
-              }
-              _localModelDownloadedBytes = 0;
-              _localModelTotalBytes = 0;
-              _localModelProgress = 0;
+              _localModelError = canUseCos && !forceCos && !usedFallbackCos
+                  ? 'ModelScope 压缩包损坏，正在改用腾讯 COS 重新下载…'
+                  : '压缩包损坏，正在重新下载…';
+              _downloadedBytesByType[type] = 0;
+              _totalBytesByType[type] = 0;
+              _recomputeAggregateProgress();
               notifyListeners();
               _downloadClient?.close();
               _downloadClient = null;
               await Future<void>.delayed(const Duration(milliseconds: 80));
-              final retryForceCos = !forceCos && !usedFallbackCos
-                  ? true
-                  : (forceCos || usedFallbackCos);
-              _debugLog(
-                  'install: retry startLocalModelDownload forceCos=$retryForceCos');
-              unawaited(startLocalModelDownload(forceCos: retryForceCos));
+              final retryForceCos =
+                  canUseCos && !forceCos && !usedFallbackCos ? true : forceCos;
+              unawaited(_startSingleLocalModelDownload(
+                type,
+                forceCos: retryForceCos,
+              ));
               return;
             }
+
+            _downloadQueue = const [];
+            _activeDownloadType = null;
             _localModelDownloading = false;
             _localModelPaused = false;
+            _pausedDownloadType = null;
             _localModelInstalling = false;
             _stopInstallWatchdog();
             if (usedFallbackCos && modelScopeError != null) {
@@ -696,7 +947,8 @@ class AiModelProvider extends ChangeNotifier {
             } else {
               _localModelError = base;
             }
-            _debugLog('install: failed error=$_localModelError');
+            _debugLog(
+                'install: type=${type.name} failed error=$_localModelError');
             notifyListeners();
           }
         },
@@ -709,16 +961,17 @@ class AiModelProvider extends ChangeNotifier {
           await _downloadSink?.close().catchError((_) {});
           _downloadSink = null;
           _downloadSub = null;
-          _localModelDownloading = false;
-          _localModelPaused = false;
           _localModelInstalling = false;
           _stopInstallWatchdog();
           final base = _formatError(e);
+
           if (!forceCos &&
               !usedFallbackCos &&
-              !_localModelModelScopeFallbackRetried) {
-            _localModelModelScopeFallbackRetried = true;
-            _debugLog('download: modelscope stream error, fallback to cos');
+              canUseCos &&
+              !(_localModelModelScopeFallbackRetriedByType[type] ?? false)) {
+            _localModelModelScopeFallbackRetriedByType[type] = true;
+            _debugLog(
+                'download: type=${type.name} modelscope error, fallback to cos');
             try {
               await targetZipFile.delete();
             } catch (_) {}
@@ -726,23 +979,30 @@ class AiModelProvider extends ChangeNotifier {
               await partialZipFile.delete();
             } catch (_) {}
             _localModelError = 'ModelScope 下载失败，正在改用腾讯 COS 下载…';
-            _localModelDownloadedBytes = 0;
-            _localModelTotalBytes = 0;
-            _localModelProgress = 0;
+            _downloadedBytesByType[type] = 0;
+            _totalBytesByType[type] = 0;
+            _recomputeAggregateProgress();
             notifyListeners();
             _downloadClient?.close();
             _downloadClient = null;
             await Future<void>.delayed(const Duration(milliseconds: 80));
-            _debugLog('download: retry startLocalModelDownload forceCos=true');
-            unawaited(startLocalModelDownload(forceCos: true));
+            unawaited(_startSingleLocalModelDownload(type, forceCos: true));
             return;
           }
+
+          _downloadQueue = const [];
+          _activeDownloadType = null;
+          _localModelDownloading = false;
+          _localModelPaused = false;
+          _pausedDownloadType = null;
+          _localModelInstalling = false;
           if (usedFallbackCos && modelScopeError != null) {
             _localModelError = 'ModelScope 下载失败：$modelScopeError；$base';
           } else {
             _localModelError = base;
           }
-          _debugLog('download: stream error=$_localModelError');
+          _debugLog(
+              'download: type=${type.name} failed error=$_localModelError');
           notifyListeners();
         },
         cancelOnError: true,
@@ -752,12 +1012,15 @@ class AiModelProvider extends ChangeNotifier {
         _localModelDownloading = false;
         return;
       }
+      _downloadQueue = const [];
+      _activeDownloadType = null;
       _localModelDownloading = false;
       _localModelPaused = false;
+      _pausedDownloadType = null;
       _localModelInstalling = false;
       _stopInstallWatchdog();
       _localModelError = _formatError(e);
-      _debugLog('download: failed error=$_localModelError');
+      _debugLog('download: type=${type.name} failed error=$_localModelError');
       notifyListeners();
     }
   }
@@ -898,6 +1161,9 @@ class AiModelProvider extends ChangeNotifier {
 
   void _cancelDownload({required bool isPause}) {
     bool changed = false;
+    if (!isPause) {
+      _pausedDownloadType = null;
+    }
     if (_localModelDownloading) {
       _localModelDownloading = false;
       if (isPause) {
@@ -910,6 +1176,15 @@ class AiModelProvider extends ChangeNotifier {
     if (_localModelInstalling) {
       _localModelInstalling = false;
       _stopInstallWatchdog();
+      changed = true;
+    }
+
+    if (_downloadQueue.isNotEmpty || _activeDownloadType != null) {
+      if (isPause && _pausedDownloadType == null) {
+        _pausedDownloadType = _activeDownloadType;
+      }
+      _downloadQueue = const [];
+      _activeDownloadType = null;
       changed = true;
     }
 
@@ -930,6 +1205,7 @@ class AiModelProvider extends ChangeNotifier {
     _downloadSink = null;
 
     if (changed) {
+      _recomputeAggregateProgress();
       notifyListeners();
     }
   }

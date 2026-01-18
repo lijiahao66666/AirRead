@@ -81,15 +81,12 @@ String buildLocalQaPrompt({
 }) {
   final historyText = (history ?? '').trim();
   final content = contextService.getContentByScope(contentScope);
-  const quickRule = '规则：不要输出思考过程；不要输出<think>或<answer>标签；直接输出最终答案。';
-  const fastThinkingTag = '/no_think';
+  const outputRule = '回答要求：不要输出思考过程，直接输出最终回答正文。';
 
   switch (qaType) {
     case QAType.summary:
       return [
-        fastThinkingTag,
-        '',
-        quickRule,
+        outputRule,
         '',
         '你是阅读助手。请对以下内容做简要总结：',
         _tailText(
@@ -99,9 +96,7 @@ String buildLocalQaPrompt({
       ].join('\n');
     case QAType.keyPoints:
       return [
-        fastThinkingTag,
-        '',
-        quickRule,
+        outputRule,
         '',
         '你是阅读助手。请从以下内容提取关键要点：',
         _tailText(
@@ -111,9 +106,7 @@ String buildLocalQaPrompt({
       ].join('\n');
     case QAType.general:
       final parts = <String>[
-        fastThinkingTag,
-        '',
-        quickRule,
+        outputRule,
         '',
         '你是阅读助手。请根据「当前阅读内容」回答「用户问题」。',
         '规则：参考内容与历史对话；不确定就说“文中未提及/需要更多上下文”。',
@@ -194,7 +187,7 @@ class QAService {
 
     final stream = client.chatStream(
       userText: prompt,
-      model: 'hunyuan-2.0-instruct-20251111',
+      model: 'hunyuan-2.0-thinking-20251109',
     );
 
     await for (final chunk in stream) {
@@ -212,7 +205,7 @@ class QAService {
     QAType qaType, {
     String? history,
   }) async* {
-    final client = LocalLlmClient();
+    final client = LocalLlmClient(modelType: LocalLlmModelType.qa);
     final prompt = buildLocalQaPrompt(
       contextService: contextService,
       question: question,

@@ -5,7 +5,8 @@ class LocalTranslationEngine extends TranslationEngine {
   final LocalLlmClient _client;
 
   LocalTranslationEngine({LocalLlmClient? client})
-      : _client = client ?? LocalLlmClient();
+      : _client =
+            client ?? LocalLlmClient(modelType: LocalLlmModelType.translation);
 
   @override
   String get id => 'local_hunyuan';

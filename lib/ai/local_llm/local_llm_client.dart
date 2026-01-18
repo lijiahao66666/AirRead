@@ -8,6 +8,11 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+enum LocalLlmModelType {
+  qa,
+  translation,
+}
+
 class LocalLlmClient {
   static const MethodChannel _channel = MethodChannel('airread/local_llm');
   static const EventChannel _streamChannel =
@@ -19,6 +24,12 @@ class LocalLlmClient {
   static Future<void>? _initializing;
   static const int _defaultMaxNewTokens = 1024;
   static Future<String?>? _cachedDumpConfig;
+
+  final LocalLlmModelType modelType;
+
+  LocalLlmClient({
+    this.modelType = LocalLlmModelType.qa,
+  });
 
   Future<bool> isAvailable() async {
     if (kIsWeb) return false;
@@ -36,7 +47,7 @@ class LocalLlmClient {
     }
     final release = await _gate.acquire();
     try {
-      final modelPath = await _resolveModelPath();
+      final modelPath = await _resolveModelPath(modelType);
       await _ensureInitialized(modelPath);
       final out = await _channel.invokeMethod<String>('dumpConfig');
       return out ?? '';
@@ -145,7 +156,7 @@ class LocalLlmClient {
   }) async {
     final release = await _gate.acquire();
     try {
-      final modelPath = await _resolveModelPath();
+      final modelPath = await _resolveModelPath(modelType);
       await _ensureInitialized(modelPath);
       final resp = await _channel.invokeMethod<String>('chatOnce', {
         'modelPath': modelPath,
@@ -210,7 +221,7 @@ class LocalLlmClient {
             release = null;
             return;
           }
-          final modelPath = await _resolveModelPath();
+          final modelPath = await _resolveModelPath(modelType);
           if (closed) {
             release?.call();
             release = null;
@@ -298,12 +309,17 @@ class LocalLlmClient {
     return chatOnce(userText: prompt);
   }
 
-  Future<String> _resolveModelPath() async {
+  Future<String> _resolveModelPath(LocalLlmModelType modelType) async {
     if (kIsWeb) {
       throw UnsupportedError('本地模型不支持在 Web 平台上运行');
     }
     final dir = await getApplicationDocumentsDirectory();
-    final modelPath = p.join(dir.path, 'models', 'hunyuan', 'config.json');
+    final modelDir = switch (modelType) {
+      LocalLlmModelType.qa => 'qa',
+      LocalLlmModelType.translation => 'mt',
+    };
+    final modelPath =
+        p.join(dir.path, 'models', 'hunyuan', modelDir, 'config.json');
     final file = File(modelPath);
     if (!await file.exists()) {
       throw const FileSystemException('本地模型文件不存在');

@@ -774,7 +774,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     }
   }
 
-  String _readAloudTextForCurrentPage({int maxChars = 900}) {
+  String _readAloudTextForCurrentPage({int maxChars = 150}) {
     final paragraphs = _currentPageParagraphsByIndex();
     final raw = paragraphs.values.join('\n');
     final t = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -791,10 +791,14 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       return false;
     }
 
+    final ttsCfg = context.read<TranslationProvider>();
     final text = _readAloudTextForCurrentPage();
     if (text.isEmpty) return false;
 
-    final key = '$_currentChapterIndex|$_currentPageInChapter|${text.hashCode}';
+    final voiceType = ttsCfg.ttsVoiceType;
+    final speed = ttsCfg.ttsSpeed;
+    final key =
+        '$_currentChapterIndex|$_currentPageInChapter|${text.hashCode}|$voiceType|${speed.toStringAsFixed(2)}';
     try {
       setState(() {
         _aiReadAloudPlaying = true;
@@ -814,7 +818,11 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         final client = TencentTtsClient(
           credentials: getEmbeddedPublicHunyuanCredentials(),
         );
-        final res = await client.textToVoice(text: text);
+        final res = await client.textToVoice(
+          text: text,
+          voiceType: voiceType > 0 ? voiceType : null,
+          speed: speed,
+        );
         final bytes = base64Decode(res.audioBase64);
         _readAloudAudioCache[key] = bytes;
         await _readAloudPlayer.play(BytesSource(bytes));
@@ -2029,31 +2037,43 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
             child: AdaptiveTextSelectionToolbar(
               anchors: state.contextMenuAnchors,
               children: [
-                TextButton(
-                  onPressed: () {
-                    state.copySelection(SelectionChangedCause.toolbar);
-                    state.hideToolbar();
-                  },
-                  child: const Text('复制'),
-                ),
-                TextButton(
-                  onPressed: selectedText.isEmpty
-                      ? null
-                      : () async {
-                          state.hideToolbar();
-                          await _translateSelectedText(selectedText);
-                        },
-                  child: const Text('翻译'),
-                ),
-                TextButton(
-                  onPressed: selectedText.isEmpty
-                      ? null
-                      : () {
-                          state.hideToolbar();
-                          _explainSelectedText(selectedText);
-                        },
-                  child: const Text('解释'),
-                ),
+                ...() {
+                  final aiModel = context.watch<AiModelProvider>();
+                  final source = aiModel.source;
+                  final bool showTranslate = source != AiModelSource.local ||
+                      aiModel.isLocalTranslationModelReady;
+                  final bool showExplain = source != AiModelSource.local ||
+                      aiModel.isLocalQaModelReady;
+                  return [
+                    TextButton(
+                      onPressed: () {
+                        state.copySelection(SelectionChangedCause.toolbar);
+                        state.hideToolbar();
+                      },
+                      child: const Text('复制'),
+                    ),
+                    if (showTranslate)
+                      TextButton(
+                        onPressed: selectedText.isEmpty
+                            ? null
+                            : () async {
+                                state.hideToolbar();
+                                await _translateSelectedText(selectedText);
+                              },
+                        child: const Text('翻译'),
+                      ),
+                    if (showExplain)
+                      TextButton(
+                        onPressed: selectedText.isEmpty
+                            ? null
+                            : () {
+                                state.hideToolbar();
+                                _explainSelectedText(selectedText);
+                              },
+                        child: const Text('解释'),
+                      ),
+                  ];
+                }(),
               ],
             ),
           );

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
+import '../../ai/local_llm/local_llm_client.dart';
 import '../../ai/reading/reading_context_service.dart';
 import '../../ai/reading/qa_service.dart';
 export '../../ai/reading/qa_service.dart' show QAStreamChunk, QAType;
@@ -314,8 +315,60 @@ class _TencentHunyuanSettingsPanel extends StatefulWidget {
 
 class _TencentHunyuanSettingsPanelState
     extends State<_TencentHunyuanSettingsPanel> {
-  bool _autoStart = false;
-  double _rate = 1.0;
+  int? _voiceType;
+  double? _speed;
+
+  static const Map<int, String> _ttsLargeModelVoices = {
+    501000: '智斌（阅读男声）',
+    501001: '智兰（资讯女声）',
+    501002: '智菊（阅读女声）',
+    501003: '智宇（阅读男声）',
+    501004: '月华（聊天女声）',
+    501005: '飞镜（聊天男声）',
+    501006: '千嶂（聊天男声）',
+    501007: '浅草（聊天男声）',
+    501008: 'WeJames（外语男声）',
+    501009: 'WeWinny（外语女声）',
+    601000: '爱小溪（聊天女声）',
+    601001: '爱小洛（阅读女声）',
+    601002: '爱小辰（聊天男声）',
+    601003: '爱小荷（阅读女声）',
+    601004: '爱小树（资讯男声）',
+    601005: '爱小静（聊天女声）',
+    601006: '爱小耀（阅读男声）',
+    601007: '爱小叶（聊天女声）',
+    601008: '爱小豪（聊天男声）',
+    601009: '爱小芊（聊天女声）',
+    601010: '爱小娇（聊天女声）',
+    601011: '爱小川（聊天男声）',
+    601012: '爱小璟（特色女声）',
+    601013: '爱小伊（阅读女声）',
+    601014: '爱小简（聊天男声）',
+    601015: '爱小童（男童声）',
+    502001: '智小柔（聊天女声）',
+    502003: '智小敏（聊天女声）',
+    502004: '智小满（营销女声）',
+    502005: '智小解（解说男声）',
+    502006: '智小悟（聊天男声）',
+    502007: '智小虎（聊天童声）',
+    602003: '爱小悠（聊天女声）',
+    602004: '暖心阿灿（聊天男声）',
+    602005: '专业梓欣（聊天女声）',
+    603000: '懂事少年（特色男声）',
+    603001: '潇湘妹妹（特色女声）',
+    603002: '软萌心心（特色男童声）',
+    603003: '随和老李（聊天男声）',
+    603004: '温柔小柠（聊天女声）',
+    603005: '知心大林（聊天男声）',
+  };
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.read<TranslationProvider>();
+    _voiceType ??= provider.ttsVoiceType;
+    _speed ??= provider.ttsSpeed;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -440,6 +493,13 @@ class _TencentHunyuanSettingsPanelState
   }
 
   Widget _readAloudSettings({required Color cardBg}) {
+    final provider = context.watch<TranslationProvider>();
+    final voiceItems = <String, String>{
+      for (final e in _ttsLargeModelVoices.entries) e.key.toString(): e.value,
+    };
+    final voiceValue = (_voiceType ?? provider.ttsVoiceType).toString();
+    final speedValue = _speed ?? provider.ttsSpeed;
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -461,28 +521,24 @@ class _TencentHunyuanSettingsPanelState
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '进入章节自动开始',
-                  style: TextStyle(
-                      color: widget.textColor,
-                      fontSize: 13,
-                      fontWeight: FontWeight.normal),
-                ),
-              ),
-              Transform.scale(
-                scale: 0.75,
-                child: Switch(
-                  value: _autoStart,
-                  activeColor: AppColors.techBlue,
-                  onChanged: (v) => setState(() => _autoStart = v),
-                ),
-              ),
-            ],
+          _dropdown(
+            label: '音色选择',
+            value: voiceItems.containsKey(voiceValue)
+                ? voiceValue
+                : voiceItems.keys.first,
+            items: voiceItems,
+            onChanged: (v) async {
+              final parsed = int.tryParse(v ?? '');
+              if (parsed == null) return;
+              setState(() {
+                _voiceType = parsed;
+              });
+              await provider.setTtsVoiceType(parsed);
+            },
+            textColor: widget.textColor,
+            dropdownColor: cardBg,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Text(
             '语速',
             style: TextStyle(
@@ -492,13 +548,14 @@ class _TencentHunyuanSettingsPanelState
             ),
           ),
           Slider(
-            value: _rate,
+            value: speedValue.clamp(0.6, 1.6),
             min: 0.6,
             max: 1.6,
             divisions: 10,
             activeColor: AppColors.techBlue,
-            label: _rate.toStringAsFixed(1),
-            onChanged: (v) => setState(() => _rate = v),
+            label: speedValue.toStringAsFixed(1),
+            onChanged: (v) => setState(() => _speed = v),
+            onChangeEnd: (v) => provider.setTtsSpeed(v),
           ),
         ],
       ),
@@ -850,24 +907,49 @@ class _TencentHunyuanSettingsPanelState
                 ),
               if (enabled && source == AiModelSource.local) ...[
                 const SizedBox(height: 10),
-                _localModelStatusRow(aiModel),
+                _localModelStatusSection(aiModel),
                 if (!aiModel.localModelDownloading &&
-                    !aiModel.localModelExists) ...[
-                  if (aiModel.localModelError.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      aiModel.localModelError,
-                      style: const TextStyle(
-                        color: Colors.redAccent,
-                        fontSize: 13,
-                        height: 1.35,
+                    !aiModel.localModelInstalling &&
+                    aiModel.localModelError.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    aiModel.localModelError,
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 13,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ],
+              if (enabled && source == AiModelSource.online) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '更好的AI体验，需要购买时长后使用',
+                        style: TextStyle(
+                          color: widget.textColor.withOpacity(0.65),
+                          fontSize: 13,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    InkWell(
+                      onTap: () {},
+                      child: const Text(
+                        '购买',
+                        style: TextStyle(
+                          color: AppColors.techBlue,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
-                ],
-              ],
-              if (enabled && source == AiModelSource.online && kIsWeb) ...[
-                const SizedBox(height: 10),
+                ),
               ],
             ],
           ),
@@ -877,12 +959,40 @@ class _TencentHunyuanSettingsPanelState
     );
   }
 
-  Widget _localModelStatusRow(AiModelProvider aiModel) {
-    String text = '模型未下载，下载后可在无网环境使用AI功能';
+  Widget _localModelStatusSection(AiModelProvider aiModel) {
+    return Column(
+      children: [
+        _localModelStatusRow(
+          aiModel,
+          type: LocalLlmModelType.translation,
+          title: '翻译模型',
+          sizeText: '830M',
+          capabilityText: '翻译',
+        ),
+        const SizedBox(height: 10),
+        _localModelStatusRow(
+          aiModel,
+          type: LocalLlmModelType.qa,
+          title: '问答模型',
+          sizeText: '280M',
+          capabilityText: '问答',
+        ),
+      ],
+    );
+  }
+
+  Widget _localModelStatusRow(
+    AiModelProvider aiModel, {
+    required LocalLlmModelType type,
+    required String title,
+    required String sizeText,
+    required String capabilityText,
+  }) {
+    String text = '$title未下载($sizeText)，下载后可在无网环境使用$capabilityText';
     Widget? action;
 
-    if (aiModel.localModelInstalling) {
-      text = '模型安装中…';
+    if (aiModel.isLocalModelInstallingByType(type)) {
+      text = '$title安装中…';
       action = const SizedBox(
         width: 16,
         height: 16,
@@ -892,11 +1002,14 @@ class _TencentHunyuanSettingsPanelState
           color: AppColors.techBlue,
         ),
       );
-    } else if (aiModel.localModelDownloading) {
-      text = '模型下载中，下载后可在无网环境使用AI功能';
+    } else if (aiModel.isLocalModelDownloadingByType(type)) {
+      text = '$title下载中，下载后可在无网环境使用$capabilityText';
       String pctText = '';
-      if (aiModel.localModelTotalBytes > 0) {
-        final pct = (aiModel.localModelProgress.clamp(0, 1) * 100).round();
+      final total = aiModel.localModelTotalBytesByType(type);
+      final double progress =
+          aiModel.localModelProgressByType(type).clamp(0.0, 1.0);
+      if (total > 0) {
+        final pct = (progress * 100).round();
         pctText = '$pct%';
       }
       action = Row(
@@ -907,9 +1020,7 @@ class _TencentHunyuanSettingsPanelState
             height: 16,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              value: aiModel.localModelTotalBytes > 0
-                  ? aiModel.localModelProgress.clamp(0, 1)
-                  : null,
+              value: total > 0 ? progress : null,
               color: AppColors.techBlue,
             ),
           ),
@@ -937,11 +1048,14 @@ class _TencentHunyuanSettingsPanelState
           ),
         ],
       );
-    } else if (aiModel.localModelPaused) {
-      text = '下载已暂停，点击下载继续';
+    } else if (aiModel.isLocalModelPausedByType(type)) {
+      text = '$title下载已暂停，点击下载继续';
       String pctText = '';
-      if (aiModel.localModelTotalBytes > 0) {
-        final pct = (aiModel.localModelProgress.clamp(0, 1) * 100).round();
+      final total = aiModel.localModelTotalBytesByType(type);
+      final double progress =
+          aiModel.localModelProgressByType(type).clamp(0.0, 1.0);
+      if (total > 0) {
+        final pct = (progress * 100).round();
         pctText = '$pct%';
       }
       action = Row(
@@ -959,9 +1073,9 @@ class _TencentHunyuanSettingsPanelState
             const SizedBox(width: 12),
           ],
           InkWell(
-            onTap: aiModel.startLocalModelDownload,
+            onTap: () => aiModel.startLocalModelDownloadForType(type),
             child: const Text(
-              '下载', // Continue
+              '下载',
               style: TextStyle(
                 color: AppColors.techBlue,
                 fontSize: 13,
@@ -971,13 +1085,12 @@ class _TencentHunyuanSettingsPanelState
           ),
         ],
       );
-    } else if (aiModel.localModelExists) {
-      text = '可在无网环境使用AI功能';
+    } else if (aiModel.localModelExistsByType(type)) {
+      text = '可在无网环境使用$capabilityText';
       action = null;
     } else {
-      // Not downloaded
       action = InkWell(
-        onTap: aiModel.startLocalModelDownload,
+        onTap: () => aiModel.startLocalModelDownloadForType(type),
         child: const Text(
           '下载',
           style: TextStyle(
@@ -991,19 +1104,16 @@ class _TencentHunyuanSettingsPanelState
 
     return Row(
       children: [
-        if (text.isNotEmpty)
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                color: widget.textColor.withOpacity(0.65),
-                fontSize: 13,
-                height: 1.35,
-              ),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: widget.textColor.withOpacity(0.65),
+              fontSize: 13,
+              height: 1.35,
             ),
-          )
-        else
-          const Spacer(),
+          ),
+        ),
         if (action != null) ...[
           const SizedBox(width: 12),
           action,
@@ -1046,26 +1156,31 @@ class _MainPanel extends StatelessWidget {
     final source = aiModel.source;
 
     final bool modelEnabled = source != AiModelSource.none;
-    final bool aiReady = switch (source) {
+    final bool translateReady = switch (source) {
       AiModelSource.none => false,
       AiModelSource.online => true,
-      AiModelSource.local => aiModel.isLocalModelReady,
+      AiModelSource.local => aiModel.isLocalTranslationModelReady,
     };
-    final bool localBlocked = source == AiModelSource.local && !aiReady;
-    final String localBlockedHint = () {
+    final bool qaReady = switch (source) {
+      AiModelSource.none => false,
+      AiModelSource.online => true,
+      AiModelSource.local => aiModel.isLocalQaModelReady,
+    };
+
+    String localBlockedHintFor(LocalLlmModelType type, String modelName) {
       if (source != AiModelSource.local) return '';
-      if (aiModel.localModelInstalling) return '本地模型安装中…';
-      if (aiModel.localModelDownloading) return '本地模型下载中…';
-      if (aiModel.localModelPaused) return '本地模型下载已暂停';
-      if (!aiModel.localModelExists) return '本地模型未下载，下载后可用';
+      if (aiModel.isLocalModelInstallingByType(type)) return '$modelName安装中…';
+      if (aiModel.isLocalModelDownloadingByType(type)) return '$modelName下载中…';
+      if (aiModel.isLocalModelPausedByType(type)) return '$modelName下载已暂停';
+      if (!aiModel.localModelExistsByType(type)) return '$modelName未下载，下载后可用';
       if (!aiModel.localRuntimeAvailable) return '本地推理后端未就绪';
       return '本地模型未就绪';
-    }();
+    }
 
     final translateSubtitle = !modelEnabled
         ? '请先在 AI设置 中启用大模型'
-        : localBlocked
-            ? localBlockedHint
+        : (source == AiModelSource.local && !translateReady)
+            ? localBlockedHintFor(LocalLlmModelType.translation, '翻译模型')
             : translateEnabled
                 ? (translateActive ? '翻译中' : '已暂停')
                 : '开启后，自动应用到正文';
@@ -1092,7 +1207,7 @@ class _MainPanel extends StatelessWidget {
             title: '翻译',
             subtitle: translateSubtitle,
             value: translateEnabled,
-            onChanged: aiReady ? onTranslateChanged : null,
+            onChanged: translateReady ? onTranslateChanged : null,
           ),
           const SizedBox(height: 10),
           _featureRow(
@@ -1106,13 +1221,13 @@ class _MainPanel extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           _qaEntry(
-            enabled: aiReady,
+            enabled: qaReady,
             subtitle: !modelEnabled
                 ? '请先在 AI设置 中启用大模型'
-                : localBlocked
-                    ? localBlockedHint
+                : (source == AiModelSource.local && !qaReady)
+                    ? localBlockedHintFor(LocalLlmModelType.qa, '问答模型')
                     : '支持问答/总结/提取要点',
-            onTap: aiReady ? onOpenQa : () {},
+            onTap: qaReady ? onOpenQa : () {},
           ),
         ],
       ),
@@ -1333,11 +1448,20 @@ enum _QaRole { user, assistant, divider }
 class _QaMsg {
   final _QaRole role;
   final String text;
-  const _QaMsg(this.role, this.text);
+  final String reasoning;
+  final bool reasoningCollapsed;
+  const _QaMsg(
+    this.role,
+    this.text, {
+    this.reasoning = '',
+    this.reasoningCollapsed = true,
+  });
 
   Map<String, dynamic> toJson() => {
         'role': role.name,
         'text': text,
+        'reasoning': reasoning,
+        'reasoningCollapsed': reasoningCollapsed,
       };
 
   static _QaMsg fromJson(Map<String, dynamic> json) {
@@ -1349,6 +1473,10 @@ class _QaMsg {
     return _QaMsg(
       role,
       (json['text'] ?? '').toString(),
+      reasoning: (json['reasoning'] ?? '').toString(),
+      reasoningCollapsed: (json['reasoningCollapsed'] is bool)
+          ? (json['reasoningCollapsed'] as bool)
+          : true,
     );
   }
 }
@@ -1440,12 +1568,14 @@ class _QaPanelState extends State<_QaPanel> {
     return s;
   }
 
-  String _sanitizeLocalDelta(String delta) {
-    if (delta.isEmpty) return '';
+  ({String answer, String think}) _splitLocalDelta(String delta) {
+    if (delta.isEmpty) return (answer: '', think: '');
     var input = '$_localTagCarry$delta';
     _localTagCarry = '';
 
-    final out = StringBuffer();
+    final answer = StringBuffer();
+    final think = StringBuffer();
+
     var i = 0;
     while (i < input.length) {
       final ch = input[i];
@@ -1464,16 +1594,12 @@ class _QaPanelState extends State<_QaPanel> {
             matched = true;
             if (tag == '<think>') _localInThink = true;
             if (tag == '</think>') _localInThink = false;
-            if (tag == '<answer>') {
-              _localInThink = false;
-            }
+            if (tag == '<answer>') _localInThink = false;
             i += tag.length;
             break;
           }
         }
-        if (matched) {
-          continue;
-        }
+        if (matched) continue;
 
         final close = remaining.indexOf('>');
         if (close == -1) {
@@ -1482,13 +1608,36 @@ class _QaPanelState extends State<_QaPanel> {
         }
       }
 
-      if (!_localInThink) {
-        out.write(ch);
+      if (_localInThink) {
+        think.write(ch);
+      } else {
+        answer.write(ch);
       }
       i++;
     }
 
-    return out.toString();
+    return (answer: answer.toString(), think: think.toString());
+  }
+
+  String _sanitizeLocalThinkFinal(String input) {
+    final s = input;
+    if (s.trim().isEmpty) return '';
+    final buffer = StringBuffer();
+
+    var idx = 0;
+    while (true) {
+      final start = s.indexOf('<think>', idx);
+      if (start < 0) break;
+      final end = s.indexOf('</think>', start + 7);
+      if (end < 0) break;
+      final chunk = s.substring(start + 7, end);
+      if (chunk.trim().isNotEmpty) {
+        if (buffer.isNotEmpty) buffer.write('\n');
+        buffer.write(chunk.trim());
+      }
+      idx = end + 8;
+    }
+    return buffer.toString().trim();
   }
 
   String get _historyKey => 'qa_history_${widget.bookId}';
@@ -1726,41 +1875,74 @@ class _QaPanelState extends State<_QaPanel> {
         (QAStreamChunk chunk) {
           if (!mounted) return;
 
-          final delta = chunk.content.isNotEmpty
-              ? chunk.content
-              : (chunk.reasoningContent ?? '');
-          if (isLocalModel && delta.isNotEmpty) {
-            _localRawText += delta;
+          String answerDelta = '';
+          String thinkDelta = '';
+
+          if (isLocalModel) {
+            final raw = chunk.content;
+            if (raw.isNotEmpty) {
+              _localRawText += raw;
+            }
+            final split = _splitLocalDelta(raw);
+            answerDelta = split.answer;
+            thinkDelta = split.think;
+          } else {
+            thinkDelta = (chunk.reasoningContent ?? '');
+            answerDelta = chunk.content;
           }
-          final sanitizedDelta =
-              isLocalModel ? _sanitizeLocalDelta(delta) : delta;
 
           if (_activeReplyIndex == null) {
-            // Ignore empty chunks to maintain "Thinking..." state until content arrives
-            if (sanitizedDelta.trim().isEmpty) {
-              return;
-            }
-
-            // First valid chunk, add assistant message
+            final hasAny =
+                thinkDelta.trim().isNotEmpty || answerDelta.trim().isNotEmpty;
+            if (!hasAny) return;
             setState(() {
-              _messages.add(const _QaMsg(_QaRole.assistant, ''));
+              _messages.add(const _QaMsg(
+                _QaRole.assistant,
+                '',
+                reasoningCollapsed: false,
+              ));
               _activeReplyIndex = _messages.length - 1;
-              _messageState = _MessageState.answering;
+              _messageState = answerDelta.trim().isNotEmpty
+                  ? _MessageState.answering
+                  : _MessageState.thinking;
             });
           }
-          final replyIndex = _activeReplyIndex!;
 
-          var next = sanitizedDelta;
-          if (isLocalModel) {
-            final current = _messages[replyIndex];
-            if (current.text.isEmpty) {
-              next = next.replaceFirst(RegExp(r'^\s+'), '');
+          final replyIndex = _activeReplyIndex!;
+          final current = _messages[replyIndex];
+
+          if (thinkDelta.isNotEmpty) {
+            final nextThink = current.reasoning + thinkDelta;
+            _updateMessage(
+              replyIndex,
+              _QaMsg(
+                current.role,
+                current.text,
+                reasoning: nextThink,
+                reasoningCollapsed: false,
+              ),
+            );
+            _messageState = _MessageState.thinking;
+          }
+
+          if (answerDelta.isNotEmpty) {
+            var nextAnswer = answerDelta;
+            if (isLocalModel && current.text.isEmpty) {
+              nextAnswer = nextAnswer.replaceFirst(RegExp(r'^\s+'), '');
+            }
+            if (nextAnswer.isNotEmpty) {
+              _updateMessage(
+                replyIndex,
+                _QaMsg(
+                  current.role,
+                  current.text + nextAnswer,
+                  reasoning: _messages[replyIndex].reasoning,
+                  reasoningCollapsed: _messages[replyIndex].reasoningCollapsed,
+                ),
+              );
+              _messageState = _MessageState.answering;
             }
           }
-          if (next.isEmpty) return;
-
-          final current = _messages[replyIndex];
-          _updateMessage(replyIndex, _QaMsg(current.role, current.text + next));
         },
         onError: (error) {
           _updateTimer?.cancel();
@@ -1792,14 +1974,32 @@ class _QaPanelState extends State<_QaPanel> {
           final replyIndex = _activeReplyIndex;
           final localFinal =
               isLocalModel ? _sanitizeLocalFinalText(_localRawText) : '';
+          final localThinkFinal =
+              isLocalModel ? _sanitizeLocalThinkFinal(_localRawText) : '';
           setState(() {
             _messageState = _MessageState.idle;
             _activeReplyIndex = null;
-            if (!isLocalModel) return;
+            if (!isLocalModel) {
+              if (replyIndex != null) {
+                final m = _messages[replyIndex];
+                _messages[replyIndex] = _QaMsg(
+                  m.role,
+                  m.text,
+                  reasoning: m.reasoning,
+                  reasoningCollapsed: true,
+                );
+              }
+              return;
+            }
 
             if (replyIndex == null) {
               if (localFinal.trim().isNotEmpty) {
-                _messages.add(_QaMsg(_QaRole.assistant, localFinal));
+                _messages.add(_QaMsg(
+                  _QaRole.assistant,
+                  localFinal,
+                  reasoning: localThinkFinal,
+                  reasoningCollapsed: true,
+                ));
               }
               return;
             }
@@ -1808,7 +2008,15 @@ class _QaPanelState extends State<_QaPanel> {
             final String finalText = localFinal.trim().isNotEmpty
                 ? localFinal
                 : _sanitizeLocalFinalText(current.text);
-            _messages[replyIndex] = _QaMsg(current.role, finalText);
+            final String finalThink = localThinkFinal.trim().isNotEmpty
+                ? localThinkFinal
+                : current.reasoning.trim();
+            _messages[replyIndex] = _QaMsg(
+              current.role,
+              finalText,
+              reasoning: finalThink,
+              reasoningCollapsed: true,
+            );
           });
           _schedulePersist();
         },
@@ -1965,16 +2173,98 @@ class _QaPanelState extends State<_QaPanel> {
                           width: AppTokens.stroke,
                         ),
                       ),
-                      child: Text(
-                        m.text.isEmpty && _activeReplyIndex == i
-                            ? '...'
-                            : m.text,
-                        style: TextStyle(
-                          color: widget.textColor,
-                          height: 1.35,
-                          fontSize: 15,
-                        ),
-                      ),
+                      child: isUser
+                          ? Text(
+                              m.text,
+                              style: TextStyle(
+                                color: widget.textColor,
+                                height: 1.35,
+                                fontSize: 15,
+                              ),
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (m.reasoning.trim().isNotEmpty) ...[
+                                  InkWell(
+                                    onTap: () {
+                                      setState(() {
+                                        final cur = _messages[i];
+                                        _messages[i] = _QaMsg(
+                                          cur.role,
+                                          cur.text,
+                                          reasoning: cur.reasoning,
+                                          reasoningCollapsed:
+                                              !cur.reasoningCollapsed,
+                                        );
+                                      });
+                                      _schedulePersist();
+                                    },
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          '深度思考',
+                                          style: TextStyle(
+                                            color: widget.textColor
+                                                .withOpacity(0.72),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Icon(
+                                          m.reasoningCollapsed
+                                              ? Icons.expand_more
+                                              : Icons.expand_less,
+                                          size: 18,
+                                          color: widget.textColor
+                                              .withOpacity(0.55),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (!m.reasoningCollapsed) ...[
+                                    const SizedBox(height: 8),
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: widget.textColor.withOpacity(
+                                            widget.isDark ? 0.06 : 0.035),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: widget.textColor
+                                              .withOpacity(0.08),
+                                          width: AppTokens.stroke,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        m.reasoning.trim(),
+                                        style: TextStyle(
+                                          color: widget.textColor
+                                              .withOpacity(0.78),
+                                          height: 1.35,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                  ],
+                                ],
+                                Text(
+                                  m.text.isEmpty && _activeReplyIndex == i
+                                      ? '...'
+                                      : m.text,
+                                  style: TextStyle(
+                                    color: widget.textColor,
+                                    height: 1.35,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                              ],
+                            ),
                     ),
                   );
                 },
