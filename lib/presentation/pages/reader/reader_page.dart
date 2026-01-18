@@ -818,12 +818,31 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         final client = TencentTtsClient(
           credentials: getEmbeddedPublicHunyuanCredentials(),
         );
-        final res = await client.textToVoice(
-          text: text,
-          voiceType: voiceType > 0 ? voiceType : null,
-          speed: speed,
-        );
-        final bytes = base64Decode(res.audioBase64);
+        Uint8List bytes;
+        try {
+          bytes = await client.streamTextToVoiceBytes(
+            text: text,
+            codec: 'mp3',
+            voiceType: voiceType > 0 ? voiceType : null,
+            speed: speed,
+          );
+        } on FormatException {
+          final res = await client.textToVoice(
+            text: text,
+            codec: 'mp3',
+            voiceType: voiceType > 0 ? voiceType : null,
+            speed: speed,
+          );
+          bytes = base64Decode(res.audioBase64);
+        } on UnsupportedError {
+          final res = await client.textToVoice(
+            text: text,
+            codec: 'mp3',
+            voiceType: voiceType > 0 ? voiceType : null,
+            speed: speed,
+          );
+          bytes = base64Decode(res.audioBase64);
+        }
         _readAloudAudioCache[key] = bytes;
         await _readAloudPlayer.play(BytesSource(bytes));
         return true;
