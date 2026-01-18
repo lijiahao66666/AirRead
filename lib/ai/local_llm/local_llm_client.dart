@@ -153,6 +153,9 @@ class LocalLlmClient {
     required String userText,
     int maxNewTokens = _defaultMaxNewTokens,
     int maxInputTokens = 0,
+    double? temperature,
+    double? topP,
+    int? topK,
   }) async {
     final release = await _gate.acquire();
     try {
@@ -163,6 +166,9 @@ class LocalLlmClient {
         'userText': userText,
         'maxNewTokens': maxNewTokens,
         'maxInputTokens': maxInputTokens,
+        if (temperature != null) 'temperature': temperature,
+        if (topP != null) 'top_p': topP,
+        if (topK != null) 'top_k': topK,
       });
       if (resp == null) {
         throw PlatformException(
@@ -185,6 +191,9 @@ class LocalLlmClient {
     required String userText,
     int maxNewTokens = _defaultMaxNewTokens,
     int maxInputTokens = 0,
+    double? temperature,
+    double? topP,
+    int? topK,
   }) {
     if (kIsWeb) {
       return Stream.error(UnsupportedError('本地模型不支持在 Web 平台上运行'));
@@ -270,11 +279,14 @@ class LocalLlmClient {
             },
           );
 
-          await _channel.invokeMethod<void>('chatStream', {
+          await _channel.invokeMethod('chatStream', {
             'modelPath': modelPath,
             'userText': userText,
             'maxNewTokens': maxNewTokens,
             'maxInputTokens': maxInputTokens,
+            if (temperature != null) 'temperature': temperature,
+            if (topP != null) 'top_p': topP,
+            if (topK != null) 'top_k': topK,
           });
         } on MissingPluginException {
           await closeSafely(

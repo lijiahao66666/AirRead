@@ -1048,6 +1048,15 @@ class _TencentHunyuanSettingsPanelState
           ),
         ],
       );
+    } else if (aiModel.isLocalModelQueuedByType(type)) {
+      text = '$title已加入队列，等待下载…';
+      action = Text(
+        '队列中',
+        style: TextStyle(
+          color: widget.textColor.withOpacity(0.6),
+          fontSize: 13,
+        ),
+      );
     } else if (aiModel.isLocalModelPausedByType(type)) {
       text = '$title下载已暂停，点击下载继续';
       String pctText = '';
@@ -1541,9 +1550,23 @@ class _QaPanelState extends State<_QaPanel> {
   String _localRawText = '';
 
   void _resetLocalStreamSanitizer() {
-    _localInThink = false;
+    _localInThink = true;
     _localTagCarry = '';
     _localRawText = '';
+  }
+
+  String _sanitizeLocalDelta(String input) {
+    if (input.isEmpty) return '';
+    final buffer = StringBuffer();
+    for (final r in input.runes) {
+      if (r == 0x09 || r == 0x0A || r == 0x0D) {
+        buffer.writeCharCode(r);
+        continue;
+      }
+      if (r < 0x20 || r == 0x7F) continue;
+      buffer.writeCharCode(r);
+    }
+    return buffer.toString();
   }
 
   String _sanitizeLocalFinalText(String input) {
@@ -1879,9 +1902,13 @@ class _QaPanelState extends State<_QaPanel> {
           String thinkDelta = '';
 
           if (isLocalModel) {
-            final raw = chunk.content;
+            final raw = _sanitizeLocalDelta(chunk.content);
             if (raw.isNotEmpty) {
               _localRawText += raw;
+              if (_localRawText.contains('</answer>') ||
+                  _localRawText.length > 30000) {
+                _streamSub?.cancel();
+              }
             }
             final split = _splitLocalDelta(raw);
             answerDelta = split.answer;
@@ -1931,6 +1958,19 @@ class _QaPanelState extends State<_QaPanel> {
               nextAnswer = nextAnswer.replaceFirst(RegExp(r'^\s+'), '');
             }
             if (nextAnswer.isNotEmpty) {
+              final latest = _messages[replyIndex];
+              if (latest.reasoning.trim().isNotEmpty &&
+                  !latest.reasoningCollapsed) {
+                _updateMessage(
+                  replyIndex,
+                  _QaMsg(
+                    latest.role,
+                    latest.text,
+                    reasoning: latest.reasoning,
+                    reasoningCollapsed: true,
+                  ),
+                );
+              }
               _updateMessage(
                 replyIndex,
                 _QaMsg(
@@ -2208,8 +2248,7 @@ class _QaPanelState extends State<_QaPanel> {
                                           style: TextStyle(
                                             color: widget.textColor
                                                 .withOpacity(0.72),
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
+                                            fontSize: 15,
                                           ),
                                         ),
                                         const SizedBox(width: 6),
@@ -2234,19 +2273,21 @@ class _QaPanelState extends State<_QaPanel> {
                                         color: widget.textColor.withOpacity(
                                             widget.isDark ? 0.06 : 0.035),
                                         borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: widget.textColor
-                                              .withOpacity(0.08),
-                                          width: AppTokens.stroke,
-                                        ),
                                       ),
-                                      child: Text(
-                                        m.reasoning.trim(),
-                                        style: TextStyle(
-                                          color: widget.textColor
-                                              .withOpacity(0.78),
-                                          height: 1.35,
-                                          fontSize: 13,
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(
+                                            maxHeight: 140),
+                                        child: SingleChildScrollView(
+                                          reverse: true,
+                                          child: Text(
+                                            m.reasoning.trim(),
+                                            style: TextStyle(
+                                              color: widget.textColor
+                                                  .withOpacity(0.78),
+                                              height: 1.35,
+                                              fontSize: 13,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ),

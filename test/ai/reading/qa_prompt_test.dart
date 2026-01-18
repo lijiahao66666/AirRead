@@ -34,7 +34,7 @@ void main() {
     expect(p1.contains('1) 参考当前阅读内容。'), true);
   });
 
-  test('buildLocalQaPrompt outputs final-answer-only rule', () {
+  test('buildLocalQaPrompt outputs simple instructions', () {
     final ctx = _ctx('第二章内容');
 
     final p1 = buildLocalQaPrompt(
@@ -44,7 +44,10 @@ void main() {
       contentScope: QAContentScope.currentPage,
       history: '',
     );
-    expect(p1.contains('/think'), false);
-    expect(p1.contains('不要输出思考过程'), true);
+    // Should not enforce tags in the prompt
+    expect(p1.contains('<think>'), false);
+    expect(p1.contains('<answer>'), false);
+    expect(p1.contains('你是阅读助手'), true);
+    expect(p1.contains('【当前阅读内容】'), true);
   });
 }

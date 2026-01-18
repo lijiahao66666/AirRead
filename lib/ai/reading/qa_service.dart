@@ -81,36 +81,28 @@ String buildLocalQaPrompt({
 }) {
   final historyText = (history ?? '').trim();
   final content = contextService.getContentByScope(contentScope);
-  const outputRule = '回答要求：不要输出思考过程，直接输出最终回答正文。';
 
   switch (qaType) {
     case QAType.summary:
       return [
-        outputRule,
-        '',
         '你是阅读助手。请对以下内容做简要总结：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
         '',
-        '要求：用不超过6条要点概括，尽量引用原文信息，不要编造；最终回答控制在260字以内。',
+        '要求：列出提纲（不超过6条），然后给出总结（260字以内）。',
       ].join('\n');
     case QAType.keyPoints:
       return [
-        outputRule,
-        '',
         '你是阅读助手。请从以下内容提取关键要点：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
         '',
-        '要求：不超过5条；每条一句话；覆盖事件、人物变化、伏笔线索；最终回答控制在240字以内。',
+        '要求：筛选关键要点（不超过5条），每条一句话，覆盖事件、人物变化、伏笔线索。',
       ].join('\n');
     case QAType.general:
       final parts = <String>[
-        outputRule,
-        '',
         '你是阅读助手。请根据「当前阅读内容」回答「用户问题」。',
         '规则：参考内容与历史对话；不确定就说“文中未提及/需要更多上下文”。',
-        '要求：最终回答控制在600字以内，语句完整结束。',
         '',
         '【当前阅读内容】',
         _tailText(
@@ -221,6 +213,10 @@ class QAService {
       userText: prompt,
       maxNewTokens: caps.maxNewTokens,
       maxInputTokens: caps.maxInputTokens,
+      // Optimized parameters for Qwen3-0.6B Thinking Mode
+      temperature: 0.6,
+      topP: 0.95,
+      topK: 20,
     )) {
       if (delta.isEmpty) continue;
       yield QAStreamChunk(content: delta);

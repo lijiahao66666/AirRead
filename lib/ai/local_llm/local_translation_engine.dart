@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../translation/engines/translation_engine.dart';
 import 'local_llm_client.dart';
 
@@ -24,7 +26,52 @@ class LocalTranslationEngine extends TranslationEngine {
       targetLang: targetLang,
       contextSources: contextSources,
     );
-    return _client.chatOnce(userText: prompt).then(_postProcessModelOutput);
+    return _chatStreamOnce(prompt).then(_postProcessModelOutput);
+  }
+
+  Future<String> _chatStreamOnce(String prompt) async {
+    final stream = _client.chatStream(
+      userText: prompt,
+      maxNewTokens: 768,
+      maxInputTokens: 0,
+    );
+
+    final buffer = StringBuffer();
+    final completer = Completer<String>();
+    late final StreamSubscription<String> sub;
+
+    final timer = Timer(const Duration(seconds: 55), () async {
+      try {
+        await sub.cancel();
+      } catch (_) {}
+      if (!completer.isCompleted) {
+        completer.completeError(
+          TimeoutException('local translation stream timeout'),
+        );
+      }
+    });
+
+    sub = stream.listen(
+      (chunk) {
+        if (chunk.isEmpty) return;
+        buffer.write(chunk);
+      },
+      onError: (e, st) {
+        timer.cancel();
+        if (!completer.isCompleted) {
+          completer.completeError(e, st);
+        }
+      },
+      onDone: () {
+        timer.cancel();
+        if (!completer.isCompleted) {
+          completer.complete(buffer.toString());
+        }
+      },
+      cancelOnError: true,
+    );
+
+    return completer.future;
   }
 
   String _buildPrompt({
@@ -36,37 +83,21 @@ class LocalTranslationEngine extends TranslationEngine {
     final langFrom = _displayLang(sourceLang, isSource: true);
     final langTo = _displayLang(targetLang, isSource: false);
 
-    final ctx = contextSources.isEmpty
-        ? ''
-        : contextSources.reversed
-            .take(2)
-            .map((e) => '- ${_clip(_squashSpaces(e), 220)}')
-            .join('\n');
+    final buffer = StringBuffer();
 
-    final buffer = StringBuffer()
-      ..writeln('/no_think')
-      ..writeln()
-      ..writeln('你是翻译引擎。')
-      ..writeln('要求：')
-      ..writeln('1) 只输出译文；不要解释；不要附加任何前后缀。')
-      ..writeln('2) 不要输出<think>或思考过程。')
-      ..writeln('3) 必须用 <answer> 和 </answer> 包裹译文，且只输出这一段。');
-
-    if (ctx.isNotEmpty) {
-      buffer
-        ..writeln()
-        ..writeln('上下文（可参考）：')
-        ..writeln(ctx);
+    if (contextSources.isNotEmpty) {
+      buffer.writeln('### Context');
+      for (final ctx in contextSources) {
+        buffer.writeln(_clip(_squashSpaces(ctx), 220));
+      }
+      buffer.writeln();
     }
 
-    buffer
-      ..writeln()
-      ..writeln('源语言：$langFrom')
-      ..writeln('目标语言：$langTo')
-      ..writeln('原文：')
-      ..writeln(_clip(_squashSpaces(text), 900))
-      ..writeln()
-      ..writeln('译文：');
+    buffer.writeln(
+        'Translate the following text from $langFrom to $langTo. without additional explanation：');
+    buffer.writeln();
+
+    buffer.writeln(text);
 
     return buffer.toString().trim();
   }

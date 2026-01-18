@@ -301,6 +301,11 @@ class AiModelProvider extends ChangeNotifier {
   bool isLocalModelDownloadingByType(LocalLlmModelType type) =>
       _localModelDownloading && _activeDownloadType == type;
 
+  bool isLocalModelQueuedByType(LocalLlmModelType type) =>
+      _localModelDownloading &&
+      _activeDownloadType != type &&
+      _downloadQueue.contains(type);
+
   bool isLocalModelPausedByType(LocalLlmModelType type) =>
       _localModelPaused && _pausedDownloadType == type;
 
@@ -589,8 +594,15 @@ class AiModelProvider extends ChangeNotifier {
     LocalLlmModelType type, {
     bool forceCos = false,
   }) async {
-    if (_localModelDownloading) return;
-    if (_localModelInstalling) return;
+    if (_localModelDownloading || _localModelInstalling) {
+      if (localModelExistsByType(type)) return;
+      if (_activeDownloadType == type) return;
+      if (_downloadQueue.contains(type)) return;
+      _downloadQueue = [..._downloadQueue, type];
+      _recomputeAggregateProgress();
+      notifyListeners();
+      return;
+    }
     if (kIsWeb) {
       _localModelError = 'Web 端暂不支持下载本地模型';
       notifyListeners();

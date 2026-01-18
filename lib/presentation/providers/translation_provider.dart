@@ -333,9 +333,17 @@ class TranslationProvider extends ChangeNotifier {
           pendingChanged = true;
         }
 
-        _service
-            .translateParagraph(config: _config, paragraphText: entry.value)
-            .then((result) {
+        Future<String> f;
+        try {
+          f = _service.translateParagraph(config: _config, paragraphText: entry.value);
+        } catch (_) {
+          _failedKeys.add(cacheKey);
+          _pendingKeys.remove(cacheKey);
+          _scheduleNotify();
+          continue;
+        }
+
+        f.then((result) {
           _pendingKeys.remove(cacheKey);
           _failedKeys.remove(cacheKey); // 清除失败标记
           _scheduleNotify();
