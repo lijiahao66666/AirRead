@@ -44,9 +44,9 @@ void main() {
       contentScope: QAContentScope.currentPage,
       history: '',
     );
-    // Should not enforce tags in the prompt
-    expect(p1.contains('<think>'), false);
-    expect(p1.contains('<answer>'), false);
+    expect(p1.contains('<think>'), true);
+    expect(p1.contains('<answer>'), true);
+    expect(p1.startsWith('/think'), true);
     expect(p1.contains('你是阅读助手'), true);
     expect(p1.contains('【当前阅读内容】'), true);
   });

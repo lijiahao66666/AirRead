@@ -85,24 +85,34 @@ String buildLocalQaPrompt({
   switch (qaType) {
     case QAType.summary:
       return [
-        '你是阅读助手。请对以下内容做简要总结，避免重复表述：',
+        '/think',
+        '你是阅读助手。请对以下内容做简要总结，避免重复表述。',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
         '',
         '要求：列出提纲（不超过6条），然后给出总结（260字以内）。',
+        '输出格式：',
+        '<think>…</think>',
+        '<answer>…</answer>',
       ].join('\n');
     case QAType.keyPoints:
       return [
-        '你是阅读助手。请从以下内容提取关键要点，避免重复表述：',
+        '/think',
+        '你是阅读助手。请从以下内容提取关键要点，避免重复表述。',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
         '',
         '要求：筛选关键要点（不超过5条），每条一句话，覆盖事件、人物变化、伏笔线索。',
+        '输出格式：',
+        '<think>…</think>',
+        '<answer>…</answer>',
       ].join('\n');
     case QAType.general:
       final parts = <String>[
-        '你是阅读助手。请根据「当前阅读内容」回答「用户问题」。',
-        '规则：参考内容与历史对话；不确定就说“文中未提及/需要更多上下文”；避免重复输出相同句子。',
+        '/think',
+        '你是阅读助手。请根据「当前阅读内容」与「历史问答」回答「用户问题」。',
+        '规则：只依据给定内容作答；不确定就说“文中未提及/需要更多上下文”；避免重复输出相同句子。',
+        '输出格式：先输出 <think>…</think>，再输出 <answer>…</answer>。',
         '',
         '【当前阅读内容】',
         _tailText(
@@ -119,8 +129,6 @@ String buildLocalQaPrompt({
         '',
         '【用户问题】',
         _clipText(_squashSpaces(question), 200),
-        '',
-        '请直接给出回答：',
       ]);
       return parts.join('\n').trim();
   }

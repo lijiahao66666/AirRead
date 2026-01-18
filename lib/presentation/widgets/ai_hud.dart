@@ -1833,9 +1833,16 @@ class _QaPanelState extends State<_QaPanel> {
     if (s.isEmpty) return '';
 
     const openAnswer = '<answer>';
+    const closeAnswer = '</answer>';
     final answerStart = s.lastIndexOf(openAnswer);
     if (answerStart >= 0) {
-      s = s.substring(answerStart + openAnswer.length);
+      final afterOpen = answerStart + openAnswer.length;
+      final answerEnd = s.indexOf(closeAnswer, afterOpen);
+      if (answerEnd >= 0) {
+        s = s.substring(afterOpen, answerEnd);
+      } else {
+        s = s.substring(afterOpen);
+      }
     }
 
     s = s.replaceAll(
@@ -1846,6 +1853,7 @@ class _QaPanelState extends State<_QaPanel> {
     s = s.replaceAll(openAnswer, '').replaceAll('</answer>', '');
     s = s.replaceAll('<answer>', '').replaceAll('</answer>', '');
     s = s.replaceAll(RegExp(r'</?\[[^\]]+\]>'), '');
+    s = s.replaceAll(RegExp(r'<\|[^>]*\|>'), '');
     s = s.trim();
     return s;
   }
@@ -1863,6 +1871,15 @@ class _QaPanelState extends State<_QaPanel> {
       final ch = input[i];
       if (ch == '<') {
         final remaining = input.substring(i);
+        if (remaining.startsWith('<|')) {
+          final end = remaining.indexOf('|>');
+          if (end == -1) {
+            _localTagCarry = remaining;
+            break;
+          }
+          i += end + 2;
+          continue;
+        }
         const tags = <String>[
           '<think>',
           '</think>',
@@ -1902,7 +1919,7 @@ class _QaPanelState extends State<_QaPanel> {
   }
 
   String _sanitizeLocalThinkFinal(String input) {
-    final s = input;
+    final s = input.replaceAll(RegExp(r'<\|[^>]*\|>'), '');
     if (s.trim().isEmpty) return '';
     final buffer = StringBuffer();
 

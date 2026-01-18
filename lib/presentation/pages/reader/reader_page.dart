@@ -1845,8 +1845,15 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         double snap(double value) => (value * dpr).roundToDouble() / dpr;
         double snapDown(double value) => (value * dpr).floorToDouble() / dpr;
 
-        final double topMargin = snap(padding.top + 16);
-        final double bottomMargin = snap(padding.bottom + 24);
+        final tp = Provider.of<TranslationProvider>(context);
+        final double extraTop = _showControls ? 72 : 0;
+        double extraBottom = _showControls ? 92 : 0;
+        if (tp.aiReadAloudEnabled && extraBottom < 180) {
+          extraBottom = 180;
+        }
+
+        final double topMargin = snap(padding.top + 16 + extraTop);
+        final double bottomMargin = snap(padding.bottom + 24 + extraBottom);
 
         double viewportHeight = snapDown(
           constraints.maxHeight - topMargin - bottomMargin - (1 / dpr),
