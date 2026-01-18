@@ -10,7 +10,6 @@ import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/reading/reading_context_service.dart';
 import '../../ai/reading/qa_service.dart';
 export '../../ai/reading/qa_service.dart' show QAStreamChunk, QAType;
-import '../../ai/translation/glossary.dart';
 import '../../ai/translation/translation_types.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
@@ -18,9 +17,8 @@ import '../providers/ai_model_provider.dart';
 import '../providers/translation_provider.dart';
 import 'glass_panel.dart';
 
-enum _AiHudRoute {
+enum AiHudRoute {
   main,
-  glossary,
   qa,
   tencentSettings,
 }
@@ -34,6 +32,9 @@ enum _AiHudRoute {
 class AiHud extends StatefulWidget {
   final Color bgColor;
   final Color textColor;
+  final AiHudRoute initialRoute;
+  final String? initialQaText;
+  final bool autoSendInitialQa;
 
   /// Feature enabled state (controls whether quick actions should appear).
   final bool translateEnabled;
@@ -59,6 +60,9 @@ class AiHud extends StatefulWidget {
     super.key,
     this.bgColor = Colors.white,
     this.textColor = AppColors.deepSpace,
+    this.initialRoute = AiHudRoute.main,
+    this.initialQaText,
+    this.autoSendInitialQa = false,
     required this.translateEnabled,
     this.translateActive = false,
     this.onTranslateChanged,
@@ -76,11 +80,12 @@ class AiHud extends StatefulWidget {
 }
 
 class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
-  final List<_AiHudRoute> _stack = [_AiHudRoute.main];
+  final List<AiHudRoute> _stack = [AiHudRoute.main];
+  bool _initialQaConsumed = false;
 
-  _AiHudRoute get _route => _stack.isEmpty ? _AiHudRoute.main : _stack.last;
+  AiHudRoute get _route => _stack.isEmpty ? AiHudRoute.main : _stack.last;
 
-  void _push(_AiHudRoute next) {
+  void _push(AiHudRoute next) {
     if (next == _route) return;
     setState(() {
       _stack.add(next);
@@ -92,6 +97,14 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
     setState(() {
       _stack.removeLast();
     });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialRoute != AiHudRoute.main) {
+      _stack.add(widget.initialRoute);
+    }
   }
 
   @override
@@ -113,7 +126,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
 
           final bool reduceMotion =
               (media.disableAnimations) || media.accessibleNavigation;
-          final bool isQa = _route == _AiHudRoute.qa;
+          final bool isQa = _route == AiHudRoute.qa;
 
           // QA keeps the existing fixed tier: ~72% of screen height with clamp.
           final qaHeight = (availableH * 0.72).clamp(420.0, availableH);
@@ -201,15 +214,14 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
 
   Widget _header() {
     final title = switch (_route) {
-      _AiHudRoute.main => 'AI伴读',
-      _AiHudRoute.glossary => '术语表',
-      _AiHudRoute.qa => '问答',
-      _AiHudRoute.tencentSettings => 'AI设置',
+      AiHudRoute.main => 'AI伴读',
+      AiHudRoute.qa => '问答',
+      AiHudRoute.tencentSettings => 'AI设置',
     };
 
     return Row(
       children: [
-        if (_route != _AiHudRoute.main)
+        if (_route != AiHudRoute.main)
           IconButton(
             icon: Icon(Icons.arrow_back,
                 color: widget.textColor.withOpacity(0.8)),
@@ -218,7 +230,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           )
         else
           const Icon(Icons.auto_awesome, color: AppColors.techBlue),
-        if (_route == _AiHudRoute.main) const SizedBox(width: 8),
+        if (_route == AiHudRoute.main) const SizedBox(width: 8),
         Text(
           title,
           style: TextStyle(
@@ -228,12 +240,12 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           ),
         ),
         const Spacer(),
-        if (_route == _AiHudRoute.main)
+        if (_route == AiHudRoute.main)
           IconButton(
             tooltip: 'AI设置',
             icon: Icon(Icons.tune_rounded,
                 color: widget.textColor.withOpacity(0.75)),
-            onPressed: () => _push(_AiHudRoute.tencentSettings),
+            onPressed: () => _push(AiHudRoute.tencentSettings),
           ),
       ],
     );
@@ -241,7 +253,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
 
   Widget _buildBody({required bool isDark}) {
     return switch (_route) {
-      _AiHudRoute.main => _MainPanel(
+      AiHudRoute.main => _MainPanel(
           key: const ValueKey('main'),
           isDark: isDark,
           bgColor: widget.bgColor,
@@ -251,31 +263,33 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           onTranslateChanged: widget.onTranslateChanged,
           readAloudEnabled: widget.readAloudEnabled,
           onReadAloudChanged: widget.onReadAloudChanged,
-          onOpenQa: () => _push(_AiHudRoute.qa),
+          onOpenQa: () => _push(AiHudRoute.qa),
         ),
-      _AiHudRoute.glossary => _GlossaryPanel(
-          key: const ValueKey('glossary'),
-          isDark: isDark,
-          bgColor: widget.bgColor,
-          textColor: widget.textColor,
-        ),
-      _AiHudRoute.qa => _QaPanel(
+      AiHudRoute.qa => _QaPanel(
           key: const ValueKey('qa'),
           isDark: isDark,
           bgColor: widget.bgColor,
           textColor: widget.textColor,
+          initialQaText: _initialQaConsumed ? null : widget.initialQaText,
+          autoSendInitialQa:
+              _initialQaConsumed ? false : widget.autoSendInitialQa,
+          onInitialQaConsumed: () {
+            if (_initialQaConsumed) return;
+            setState(() {
+              _initialQaConsumed = true;
+            });
+          },
           bookId: widget.bookId,
           chapterTextCache: widget.chapterTextCache,
           currentChapterIndex: widget.currentChapterIndex,
           currentPageInChapter: widget.currentPageInChapter,
           chapterPageRanges: widget.chapterPageRanges,
         ),
-      _AiHudRoute.tencentSettings => _TencentHunyuanSettingsPanel(
+      AiHudRoute.tencentSettings => _TencentHunyuanSettingsPanel(
           key: const ValueKey('tencentSettings'),
           isDark: isDark,
           bgColor: widget.bgColor,
           textColor: widget.textColor,
-          onOpenGlossary: () => _push(_AiHudRoute.glossary),
         ),
     };
   }
@@ -285,14 +299,12 @@ class _TencentHunyuanSettingsPanel extends StatefulWidget {
   final bool isDark;
   final Color bgColor;
   final Color textColor;
-  final VoidCallback onOpenGlossary;
 
   const _TencentHunyuanSettingsPanel({
     super.key,
     required this.isDark,
     required this.bgColor,
     required this.textColor,
-    required this.onOpenGlossary,
   });
 
   @override
@@ -421,38 +433,6 @@ class _TencentHunyuanSettingsPanelState
                 textColor: widget.textColor,
               ),
             ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '自动术语提取',
-                  style: TextStyle(
-                      color: widget.textColor,
-                      fontSize: 13,
-                      fontWeight: FontWeight.normal),
-                ),
-              ),
-              Transform.scale(
-                scale: 0.75,
-                child: Switch(
-                  value: provider.autoGlossaryExtractionEnabled,
-                  activeColor: AppColors.techBlue,
-                  onChanged: (v) =>
-                      provider.setAutoGlossaryExtractionEnabled(v),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: widget.onOpenGlossary,
-              icon: const Icon(Icons.auto_fix_high, size: 18),
-              label: const Text('编辑术语表', style: TextStyle(fontSize: 14)),
-            ),
           ),
         ],
       ),
@@ -1131,7 +1111,7 @@ class _MainPanel extends StatelessWidget {
                 ? '请先在 AI设置 中启用大模型'
                 : localBlocked
                     ? localBlockedHint
-                    : '支持总结/解释/提取要点',
+                    : '支持问答/总结/提取要点',
             onTap: aiReady ? onOpenQa : () {},
           ),
         ],
@@ -1348,328 +1328,16 @@ class _MainPanel extends StatelessWidget {
   }
 }
 
-class _GlossaryPanel extends StatefulWidget {
-  final bool isDark;
-  final Color bgColor;
-  final Color textColor;
-
-  const _GlossaryPanel({
-    super.key,
-    required this.isDark,
-    required this.bgColor,
-    required this.textColor,
-  });
-
-  @override
-  State<_GlossaryPanel> createState() => _GlossaryPanelState();
-}
-
-class _GlossaryPanelState extends State<_GlossaryPanel> {
-  final TextEditingController _searchCtl = TextEditingController();
-  final TextEditingController _srcCtl = TextEditingController();
-  final TextEditingController _dstCtl = TextEditingController();
-
-  GlossaryTerm? _editing;
-
-  @override
-  void dispose() {
-    _searchCtl.dispose();
-    _srcCtl.dispose();
-    _dstCtl.dispose();
-    super.dispose();
-  }
-
-  void _startAdd() {
-    setState(() {
-      _editing = null;
-      _srcCtl.text = '';
-      _dstCtl.text = '';
-    });
-  }
-
-  void _startEdit(GlossaryTerm term) {
-    setState(() {
-      _editing = term;
-      _srcCtl.text = term.source;
-      _dstCtl.text = term.target;
-    });
-  }
-
-  void _cancelEdit() {
-    setState(() {
-      _editing = null;
-      _srcCtl.text = '';
-      _dstCtl.text = '';
-    });
-  }
-
-  Future<void> _save(TranslationProvider provider) async {
-    final src = _srcCtl.text.trim();
-    final dst = _dstCtl.text.trim();
-    if (src.isEmpty || dst.isEmpty) return;
-
-    await provider.upsertGlossaryTerm(GlossaryTerm(source: src, target: dst));
-    if (!mounted) return;
-    _cancelEdit();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final provider = context.watch<TranslationProvider>();
-    final terms = provider.glossaryTerms;
-
-    final Color cardBg =
-        widget.isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
-
-    final query = _searchCtl.text.trim().toLowerCase();
-    final filtered = query.isEmpty
-        ? terms
-        : terms
-            .where((t) =>
-                t.source.toLowerCase().contains(query) ||
-                t.target.toLowerCase().contains(query))
-            .toList();
-
-    Widget listBody;
-    if (terms.isEmpty) {
-      listBody = Center(
-        child: Text(
-          '暂无术语，建议从人物/地名/组织名开始添加。',
-          style: TextStyle(color: widget.textColor.withOpacity(0.55)),
-        ),
-      );
-    } else if (filtered.isEmpty) {
-      listBody = Center(
-        child: Text(
-          '未找到匹配项',
-          style: TextStyle(color: widget.textColor.withOpacity(0.55)),
-        ),
-      );
-    } else {
-      listBody = ListView.separated(
-        key: const PageStorageKey('ai_hud_glossary_list'),
-        shrinkWrap: true,
-        itemCount: filtered.length,
-        separatorBuilder: (_, __) =>
-            Divider(color: widget.textColor.withOpacity(0.08)),
-        itemBuilder: (context, i) {
-          final t = filtered[i];
-          return ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              t.source,
-              style: TextStyle(
-                color: widget.textColor,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            subtitle: Text(
-              t.target,
-              style: TextStyle(
-                color: widget.textColor.withOpacity(0.7),
-                height: 1.3,
-              ),
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  tooltip: '编辑',
-                  icon: Icon(Icons.edit,
-                      color: widget.textColor.withOpacity(0.75)),
-                  onPressed: () => _startEdit(t),
-                ),
-                IconButton(
-                  tooltip: '删除',
-                  icon:
-                      const Icon(Icons.delete_outline, color: Colors.redAccent),
-                  onPressed: () => provider.removeGlossaryTerm(t.source),
-                ),
-              ],
-            ),
-          );
-        },
-      );
-    }
-
-    final maxListHeight =
-        (MediaQuery.of(context).size.height * 0.38).clamp(180.0, 360.0);
-
-    return Column(
-      key: widget.key,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: cardBg,
-            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-            border: Border.all(
-                color: widget.textColor.withOpacity(0.08),
-                width: AppTokens.stroke),
-          ),
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '术语表',
-                      style: TextStyle(
-                          color: widget.textColor, fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '用于固定专有名词译法（源术语 → 目标术语）。当前共 ${terms.length} 条。',
-                      style: TextStyle(
-                        color: widget.textColor.withOpacity(0.65),
-                        fontSize: 12,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              ElevatedButton.icon(
-                onPressed: _startAdd,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('新增'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.techBlue,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          decoration: BoxDecoration(
-            color: cardBg,
-            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-            border: Border.all(
-                color: widget.textColor.withOpacity(0.08),
-                width: AppTokens.stroke),
-          ),
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _searchCtl,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  isDense: true,
-                  filled: true,
-                  fillColor: Colors.white,
-                  prefixIcon: const Icon(Icons.search, size: 18),
-                  hintText: '搜索源术语 / 目标术语',
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              if (_editing != null ||
-                  _srcCtl.text.isNotEmpty ||
-                  _dstCtl.text.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                _editor(provider),
-              ],
-              const SizedBox(height: 10),
-              ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxListHeight),
-                child: listBody,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _editor(TranslationProvider provider) {
-    final isEditing = _editing != null;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: widget.textColor.withOpacity(0.04),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            isEditing ? '编辑术语' : '新增术语',
-            style:
-                TextStyle(color: widget.textColor, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _srcCtl,
-            decoration: const InputDecoration(
-              isDense: true,
-              labelText: '源术语',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _dstCtl,
-            decoration: const InputDecoration(
-              isDense: true,
-              labelText: '目标术语',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _cancelEdit,
-                  child: const Text('取消'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => _save(provider),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.techBlue,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                  ),
-                  child: const Text('保存'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 enum _QaRole { user, assistant, divider }
 
 class _QaMsg {
   final _QaRole role;
   final String text;
-  final String? reasoningText;
-  const _QaMsg(this.role, this.text, [this.reasoningText]);
+  const _QaMsg(this.role, this.text);
 
   Map<String, dynamic> toJson() => {
         'role': role.name,
         'text': text,
-        'reasoningText': reasoningText,
       };
 
   static _QaMsg fromJson(Map<String, dynamic> json) {
@@ -1681,7 +1349,6 @@ class _QaMsg {
     return _QaMsg(
       role,
       (json['text'] ?? '').toString(),
-      json['reasoningText']?.toString(),
     );
   }
 }
@@ -1689,7 +1356,6 @@ class _QaMsg {
 enum _MessageState {
   idle,
   thinking,
-  reasoning,
   answering,
 }
 
@@ -1697,6 +1363,9 @@ class _QaPanel extends StatefulWidget {
   final bool isDark;
   final Color bgColor;
   final Color textColor;
+  final String? initialQaText;
+  final bool autoSendInitialQa;
+  final VoidCallback? onInitialQaConsumed;
   final String bookId;
   final Map<int, String> chapterTextCache;
   final int currentChapterIndex;
@@ -1708,6 +1377,9 @@ class _QaPanel extends StatefulWidget {
     required this.isDark,
     required this.bgColor,
     required this.textColor,
+    this.initialQaText,
+    this.autoSendInitialQa = false,
+    this.onInitialQaConsumed,
     required this.bookId,
     required this.chapterTextCache,
     required this.currentChapterIndex,
@@ -1725,16 +1397,99 @@ class _QaPanelState extends State<_QaPanel> {
   final TextEditingController _inputCtl = TextEditingController();
   final ScrollController _scrollCtl = ScrollController();
   final List<_QaMsg> _messages = [];
-  final Set<int> _collapsedReasoning = {};
   Timer? _persistTimer;
   int? _activeReplyIndex;
   _MessageState _messageState = _MessageState.idle;
   StreamSubscription<QAStreamChunk>? _streamSub;
+  bool _initialQaHandled = false;
 
   // Throttling for web setState
   Timer? _updateTimer;
   bool _needsUiUpdate = false;
   bool _shouldScrollToBottom = false;
+
+  bool _localInThink = false;
+  String _localTagCarry = '';
+  String _localRawText = '';
+
+  void _resetLocalStreamSanitizer() {
+    _localInThink = false;
+    _localTagCarry = '';
+    _localRawText = '';
+  }
+
+  String _sanitizeLocalFinalText(String input) {
+    var s = input.trim();
+    if (s.isEmpty) return '';
+
+    const openAnswer = '<answer>';
+    final answerStart = s.lastIndexOf(openAnswer);
+    if (answerStart >= 0) {
+      s = s.substring(answerStart + openAnswer.length);
+    }
+
+    s = s.replaceAll(
+      RegExp(r'<think>[\s\S]*?</think>', multiLine: true),
+      '',
+    );
+    s = s.replaceAll('<think>', '').replaceAll('</think>', '');
+    s = s.replaceAll(openAnswer, '').replaceAll('</answer>', '');
+    s = s.replaceAll('<answer>', '').replaceAll('</answer>', '');
+    s = s.replaceAll(RegExp(r'</?\[[^\]]+\]>'), '');
+    s = s.trim();
+    return s;
+  }
+
+  String _sanitizeLocalDelta(String delta) {
+    if (delta.isEmpty) return '';
+    var input = '$_localTagCarry$delta';
+    _localTagCarry = '';
+
+    final out = StringBuffer();
+    var i = 0;
+    while (i < input.length) {
+      final ch = input[i];
+      if (ch == '<') {
+        final remaining = input.substring(i);
+        const tags = <String>[
+          '<think>',
+          '</think>',
+          '<answer>',
+          '</answer>',
+        ];
+
+        bool matched = false;
+        for (final tag in tags) {
+          if (remaining.startsWith(tag)) {
+            matched = true;
+            if (tag == '<think>') _localInThink = true;
+            if (tag == '</think>') _localInThink = false;
+            if (tag == '<answer>') {
+              _localInThink = false;
+            }
+            i += tag.length;
+            break;
+          }
+        }
+        if (matched) {
+          continue;
+        }
+
+        final close = remaining.indexOf('>');
+        if (close == -1) {
+          _localTagCarry = remaining;
+          break;
+        }
+      }
+
+      if (!_localInThink) {
+        out.write(ch);
+      }
+      i++;
+    }
+
+    return out.toString();
+  }
 
   String get _historyKey => 'qa_history_${widget.bookId}';
 
@@ -1742,6 +1497,23 @@ class _QaPanelState extends State<_QaPanel> {
   void initState() {
     super.initState();
     _loadHistory();
+  }
+
+  void _applyInitialQaIfNeeded() {
+    if (_initialQaHandled) return;
+    final t = (widget.initialQaText ?? '').trim();
+    if (t.isEmpty) return;
+    _initialQaHandled = true;
+    widget.onInitialQaConsumed?.call();
+    _inputCtl.text = t;
+    if (widget.autoSendInitialQa) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _send();
+      });
+    } else {
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _loadHistory() async {
@@ -1767,7 +1539,9 @@ class _QaPanelState extends State<_QaPanel> {
       ));
     }
 
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    _applyInitialQaIfNeeded();
   }
 
   void _schedulePersist() {
@@ -1916,12 +1690,14 @@ class _QaPanelState extends State<_QaPanel> {
 
   Future<void> _performQa(
       String question, QAType qaType, String history) async {
-    String reasoningBuffer = '';
-
     try {
       final aiModel = context.read<AiModelProvider>();
       if (aiModel.source == AiModelSource.none) {
         throw Exception('请先选择本地或在线大模型');
+      }
+      final isLocalModel = aiModel.source == AiModelSource.local;
+      if (isLocalModel) {
+        _resetLocalStreamSanitizer();
       }
 
       final contextService = ReadingContextService(
@@ -1939,7 +1715,7 @@ class _QaPanelState extends State<_QaPanel> {
 
       final stream = qaService.askQuestion(
         question: question,
-        isLocalModel: aiModel.source == AiModelSource.local,
+        isLocalModel: isLocalModel,
         qaType: qaType,
         history: history,
       );
@@ -1950,11 +1726,18 @@ class _QaPanelState extends State<_QaPanel> {
         (QAStreamChunk chunk) {
           if (!mounted) return;
 
+          final delta = chunk.content.isNotEmpty
+              ? chunk.content
+              : (chunk.reasoningContent ?? '');
+          if (isLocalModel && delta.isNotEmpty) {
+            _localRawText += delta;
+          }
+          final sanitizedDelta =
+              isLocalModel ? _sanitizeLocalDelta(delta) : delta;
+
           if (_activeReplyIndex == null) {
             // Ignore empty chunks to maintain "Thinking..." state until content arrives
-            if (chunk.content.isEmpty &&
-                (chunk.reasoningContent == null ||
-                    chunk.reasoningContent!.isEmpty)) {
+            if (sanitizedDelta.trim().isEmpty) {
               return;
             }
 
@@ -1962,33 +1745,22 @@ class _QaPanelState extends State<_QaPanel> {
             setState(() {
               _messages.add(const _QaMsg(_QaRole.assistant, ''));
               _activeReplyIndex = _messages.length - 1;
-              if (chunk.isReasoning) {
-                _messageState = _MessageState.reasoning;
-              } else {
-                _messageState = _MessageState.answering;
-              }
+              _messageState = _MessageState.answering;
             });
           }
           final replyIndex = _activeReplyIndex!;
 
-          if (chunk.isReasoning && chunk.reasoningContent != null) {
-            reasoningBuffer += chunk.reasoningContent!;
+          var next = sanitizedDelta;
+          if (isLocalModel) {
             final current = _messages[replyIndex];
-            _updateMessage(replyIndex,
-                _QaMsg(current.role, current.text, reasoningBuffer));
-          } else if (chunk.content.isNotEmpty) {
-            if (_messageState != _MessageState.answering) {
-              setState(() {
-                _messageState = _MessageState.answering;
-                _collapsedReasoning.add(replyIndex);
-              });
+            if (current.text.isEmpty) {
+              next = next.replaceFirst(RegExp(r'^\s+'), '');
             }
-            final current = _messages[replyIndex];
-            _updateMessage(
-                replyIndex,
-                _QaMsg(current.role, current.text + chunk.content,
-                    current.reasoningText));
           }
+          if (next.isEmpty) return;
+
+          final current = _messages[replyIndex];
+          _updateMessage(replyIndex, _QaMsg(current.role, current.text + next));
         },
         onError: (error) {
           _updateTimer?.cancel();
@@ -2018,12 +1790,25 @@ class _QaPanelState extends State<_QaPanel> {
           if (!mounted) return;
 
           final replyIndex = _activeReplyIndex;
+          final localFinal =
+              isLocalModel ? _sanitizeLocalFinalText(_localRawText) : '';
           setState(() {
             _messageState = _MessageState.idle;
             _activeReplyIndex = null;
-            if (replyIndex != null && reasoningBuffer.trim().isNotEmpty) {
-              _collapsedReasoning.add(replyIndex);
+            if (!isLocalModel) return;
+
+            if (replyIndex == null) {
+              if (localFinal.trim().isNotEmpty) {
+                _messages.add(_QaMsg(_QaRole.assistant, localFinal));
+              }
+              return;
             }
+
+            final current = _messages[replyIndex];
+            final String finalText = localFinal.trim().isNotEmpty
+                ? localFinal
+                : _sanitizeLocalFinalText(current.text);
+            _messages[replyIndex] = _QaMsg(current.role, finalText);
           });
           _schedulePersist();
         },
@@ -2164,145 +1949,8 @@ class _QaPanelState extends State<_QaPanel> {
                       : widget.textColor.withOpacity(0.06);
                   final Alignment align =
                       isUser ? Alignment.centerRight : Alignment.centerLeft;
-
-                  if (!isUser &&
-                      ((m.reasoningText != null &&
-                              m.reasoningText!.isNotEmpty) ||
-                          (_activeReplyIndex == i &&
-                              _messageState == _MessageState.reasoning))) {
-                    final bool isActive = _activeReplyIndex == i;
-                    final bool collapsed = _collapsedReasoning.contains(i);
-                    final reasoningText = m.reasoningText ?? '';
-
-                    Widget reasoningBox = const SizedBox.shrink();
-                    if (reasoningText.isNotEmpty ||
-                        (isActive &&
-                            _messageState == _MessageState.reasoning)) {
-                      reasoningBox = Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
-                        constraints: const BoxConstraints(maxWidth: 340),
-                        decoration: BoxDecoration(
-                          color: widget.textColor.withOpacity(0.03),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: widget.textColor.withOpacity(0.06),
-                            width: AppTokens.stroke,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Text(
-                                  '深度思考',
-                                  style: TextStyle(
-                                    color: widget.textColor.withOpacity(0.75),
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const Spacer(),
-                                if (!isActive ||
-                                    _messageState != _MessageState.reasoning)
-                                  InkWell(
-                                    onTap: () {
-                                      setState(() {
-                                        if (collapsed) {
-                                          _collapsedReasoning.remove(i);
-                                        } else {
-                                          _collapsedReasoning.add(i);
-                                        }
-                                      });
-                                    },
-                                    child: Text(
-                                      collapsed ? '展开' : '收起',
-                                      style: const TextStyle(
-                                        color: AppColors.techBlue,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            if (collapsed)
-                              Text(
-                                '已折叠',
-                                style: TextStyle(
-                                  color: widget.textColor.withOpacity(0.55),
-                                  fontSize: 15,
-                                ),
-                              )
-                            else
-                              ConstrainedBox(
-                                constraints:
-                                    const BoxConstraints(maxHeight: 120),
-                                child: SingleChildScrollView(
-                                  child: Text(
-                                    reasoningText,
-                                    style: TextStyle(
-                                      color: widget.textColor.withOpacity(0.75),
-                                      height: 1.35,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    Widget answerBox = const SizedBox.shrink();
-                    if (m.text.isNotEmpty ||
-                        (_activeReplyIndex == i &&
-                            _messageState == _MessageState.answering)) {
-                      answerBox = Container(
-                        margin: const EdgeInsets.symmetric(vertical: 0),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                        constraints: const BoxConstraints(maxWidth: 340),
-                        decoration: BoxDecoration(
-                          color: bubbleBg,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: widget.textColor.withOpacity(0.08),
-                            width: AppTokens.stroke,
-                          ),
-                        ),
-                        child: Text(
-                          m.text.isEmpty ? '...' : m.text,
-                          style: TextStyle(
-                            color: widget.textColor,
-                            height: 1.35,
-                            fontSize: 15,
-                          ),
-                        ),
-                      );
-                    }
-
-                    return Align(
-                      key: ValueKey(
-                          'qa_msg_${i}_${m.text.hashCode}_${m.reasoningText?.hashCode ?? 0}'),
-                      alignment: align,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          reasoningBox,
-                          answerBox,
-                        ],
-                      ),
-                    );
-                  }
-
-                  // Default bubble (user messages or assistant messages without reasoning)
                   return Align(
-                    key: ValueKey(
-                        'qa_msg_${i}_${m.text.hashCode}_${m.reasoningText?.hashCode ?? 0}'),
+                    key: ValueKey('qa_msg_${i}_${m.text.hashCode}'),
                     alignment: align,
                     child: Container(
                       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -2337,7 +1985,7 @@ class _QaPanelState extends State<_QaPanel> {
                 alignment: Alignment.centerLeft,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8.0),
-                  child: Text('深度思考中...',
+                  child: Text('思考中...',
                       style: TextStyle(
                           color: widget.textColor.withOpacity(0.6),
                           fontSize: 15)),

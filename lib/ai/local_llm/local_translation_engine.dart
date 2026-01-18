@@ -1,5 +1,4 @@
 import '../translation/engines/translation_engine.dart';
-import '../translation/translation_types.dart';
 import 'local_llm_client.dart';
 
 class LocalTranslationEngine extends TranslationEngine {
@@ -17,16 +16,12 @@ class LocalTranslationEngine extends TranslationEngine {
     required String sourceLang,
     required String targetLang,
     required List<String> contextSources,
-    required Map<String, String> glossaryPlaceholders,
-    required List<TranslationReference> references,
   }) {
     final prompt = _buildPrompt(
-      text: '/no_think $text',
+      text: text,
       sourceLang: sourceLang,
       targetLang: targetLang,
       contextSources: contextSources,
-      glossaryPlaceholders: glossaryPlaceholders,
-      references: references,
     );
     return _client.chatOnce(userText: prompt).then(_postProcessModelOutput);
   }
@@ -36,18 +31,9 @@ class LocalTranslationEngine extends TranslationEngine {
     required String sourceLang,
     required String targetLang,
     required List<String> contextSources,
-    required Map<String, String> glossaryPlaceholders,
-    required List<TranslationReference> references,
   }) {
-    final langFrom = sourceLang.trim().isEmpty ? '自动' : sourceLang.trim();
-    final langTo = targetLang.trim();
-
-    final glossaryHint = glossaryPlaceholders.isEmpty
-        ? ''
-        : glossaryPlaceholders.entries
-            .take(12)
-            .map((e) => '${e.key} -> ${e.value}')
-            .join('\n');
+    final langFrom = _displayLang(sourceLang, isSource: true);
+    final langTo = _displayLang(targetLang, isSource: false);
 
     final ctx = contextSources.isEmpty
         ? ''
@@ -56,37 +42,20 @@ class LocalTranslationEngine extends TranslationEngine {
             .map((e) => '- ${_clip(_squashSpaces(e), 220)}')
             .join('\n');
 
-    final refs = references.isEmpty
-        ? ''
-        : references
-            .take(2)
-            .map((e) =>
-                '源文：${_clip(_squashSpaces(e.text), 120)}\n译文：${_clip(_squashSpaces(e.translation), 120)}')
-            .join('\n\n');
-
     final buffer = StringBuffer()
+      ..writeln('/no_think')
+      ..writeln()
       ..writeln('你是翻译引擎。')
-      ..writeln('规则：只输出译文；不要解释；不要输出<think>或思考过程；保持占位符原样不变。');
-
-    if (glossaryHint.isNotEmpty) {
-      buffer
-        ..writeln()
-        ..writeln('占位符映射（占位符必须原样保留）：')
-        ..writeln(glossaryHint);
-    }
+      ..writeln('要求：')
+      ..writeln('1) 只输出译文；不要解释；不要附加任何前后缀。')
+      ..writeln('2) 不要输出<think>或思考过程。')
+      ..writeln('3) 必须用 <answer> 和 </answer> 包裹译文，且只输出这一段。');
 
     if (ctx.isNotEmpty) {
       buffer
         ..writeln()
         ..writeln('上下文（可参考）：')
         ..writeln(ctx);
-    }
-
-    if (refs.isNotEmpty) {
-      buffer
-        ..writeln()
-        ..writeln('参考译例（可参考风格）：')
-        ..writeln(refs);
     }
 
     buffer
@@ -102,36 +71,78 @@ class LocalTranslationEngine extends TranslationEngine {
   }
 
   String _postProcessModelOutput(String input) {
-    var s = input.trim();
+    final raw = input.trim();
+    if (raw.isEmpty) return '';
 
-    final lastCloseThink = s.lastIndexOf('</think>');
-    if (lastCloseThink >= 0) {
-      s = s.substring(lastCloseThink + '</think>'.length).trim();
+    String s = raw;
+
+    final answerFromRaw = _extractAnswerTag(s);
+    if (answerFromRaw != null && answerFromRaw.trim().isNotEmpty) {
+      return _cleanupTranslation(answerFromRaw);
     }
 
-    s = s.replaceAll(
-      RegExp(r'<think>[\s\S]*?</think>', multiLine: true),
-      '',
-    );
-    s = s.replaceAll(
-      RegExp(r'<think>[\s\S]*', multiLine: true),
-      '',
-    );
-    s = s.replaceAll('</think>', '');
-    s = s.trim();
-
+    s = _stripThinkTags(s);
     final bracketTagged = _extractBracketTag(s);
     if (bracketTagged != null) {
       s = bracketTagged.trim();
     }
 
     final answer = _extractAnswerTag(s);
-    if (answer != null) return answer.trim();
+    if (answer != null && answer.trim().isNotEmpty) {
+      return _cleanupTranslation(answer);
+    }
 
+    final extracted = _extractAfterMarker(
+      s,
+      markers: const ['译文：', '译文:', 'Translation:', 'translation:'],
+    );
+    if (extracted != null && extracted.trim().isNotEmpty) {
+      return _cleanupTranslation(extracted);
+    }
+
+    return _cleanupTranslation(s);
+  }
+
+  String _cleanupTranslation(String input) {
+    var s = input.trim();
+    s = _stripThinkTags(s);
     s = s.replaceAll('<answer>', '').replaceAll('</answer>', '');
     s = s.replaceAll(RegExp(r'</?\[[^\]]+\]>'), '');
     s = s.trim();
-    return s;
+
+    final extracted = _extractAfterMarker(
+      s,
+      markers: const ['译文：', '译文:', 'Translation:', 'translation:'],
+    );
+    if (extracted != null && extracted.trim().isNotEmpty) {
+      s = extracted.trim();
+    }
+
+    return s.trim();
+  }
+
+  String _stripThinkTags(String input) {
+    var s = input;
+    s = s.replaceAll(
+      RegExp(r'<think>[\s\S]*?</think>', multiLine: true),
+      '',
+    );
+    s = s.replaceAll('<think>', '').replaceAll('</think>', '');
+    return s.trim();
+  }
+
+  String? _extractAfterMarker(String input, {required List<String> markers}) {
+    var bestIdx = -1;
+    var bestMarker = '';
+    for (final m in markers) {
+      final idx = input.lastIndexOf(m);
+      if (idx > bestIdx) {
+        bestIdx = idx;
+        bestMarker = m;
+      }
+    }
+    if (bestIdx < 0) return null;
+    return input.substring(bestIdx + bestMarker.length).trim();
   }
 
   String? _extractAnswerTag(String input) {
@@ -169,6 +180,42 @@ class LocalTranslationEngine extends TranslationEngine {
   }
 
   String _squashSpaces(String input) {
-    return input.replaceAll(RegExp(r'\\s+'), ' ').trim();
+    return input.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  String _displayLang(String input, {required bool isSource}) {
+    final s = input.trim();
+    if (s.isEmpty) return isSource ? '自动' : '';
+
+    final normalized = s.toLowerCase();
+    final Map<String, String> map = {
+      'auto': '自动',
+      'zh': '中文',
+      'zh-cn': '中文',
+      'zh-hans': '中文',
+      'zh-hant': '中文（繁体）',
+      'zh-tw': '中文（繁体）',
+      'en': '英语',
+      'en-us': '英语',
+      'en-gb': '英语',
+      'ja': '日语',
+      'jp': '日语',
+      'ko': '韩语',
+      'fr': '法语',
+      'de': '德语',
+      'es': '西班牙语',
+      'it': '意大利语',
+      'ru': '俄语',
+      'pt': '葡萄牙语',
+      'pt-br': '葡萄牙语（巴西）',
+      'ar': '阿拉伯语',
+      'hi': '印地语',
+      'th': '泰语',
+      'vi': '越南语',
+      'id': '印尼语',
+      'tr': '土耳其语',
+    };
+
+    return map[normalized] ?? s;
   }
 }

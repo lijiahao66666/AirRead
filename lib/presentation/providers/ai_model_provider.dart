@@ -35,16 +35,6 @@ class AiModelProvider extends ChangeNotifier {
   static const MethodChannel _androidLogcatChannel =
       MethodChannel('airread/local_llm');
 
-  static const bool _autoDownloadLocalModel = bool.fromEnvironment(
-    'AIRREAD_AUTO_DOWNLOAD_LOCAL_MODEL',
-    defaultValue: false,
-  );
-
-  static const bool _autoDownloadForceCos = bool.fromEnvironment(
-    'AIRREAD_AUTO_DOWNLOAD_FORCE_COS',
-    defaultValue: false,
-  );
-
   static const bool _smokeTestLocalModel = bool.fromEnvironment(
     'AIRREAD_LOCAL_MODEL_SMOKE_TEST',
     defaultValue: false,
@@ -967,16 +957,6 @@ class AiModelProvider extends ChangeNotifier {
     await refreshLocalModelStatus();
     await refreshLocalRuntimeStatus();
     notifyListeners();
-
-    if (_autoDownloadLocalModel) {
-      _debugLog(
-          'install: autoDownload enabled forceCos=$_autoDownloadForceCos');
-      unawaited(
-        Future<void>.delayed(const Duration(milliseconds: 300), () async {
-          await startLocalModelDownload(forceCos: _autoDownloadForceCos);
-        }),
-      );
-    }
   }
 }
 

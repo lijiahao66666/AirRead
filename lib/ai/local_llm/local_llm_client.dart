@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -17,6 +18,7 @@ class LocalLlmClient {
   static String? _initializedModelPath;
   static Future<void>? _initializing;
   static const int _defaultMaxNewTokens = 1024;
+  static Future<String?>? _cachedDumpConfig;
 
   Future<bool> isAvailable() async {
     if (kIsWeb) return false;
@@ -26,6 +28,114 @@ class LocalLlmClient {
     } on MissingPluginException {
       return false;
     }
+  }
+
+  Future<String> dumpConfig() async {
+    if (kIsWeb) {
+      throw UnsupportedError('本地模型不支持在 Web 平台上运行');
+    }
+    final release = await _gate.acquire();
+    try {
+      final modelPath = await _resolveModelPath();
+      await _ensureInitialized(modelPath);
+      final out = await _channel.invokeMethod<String>('dumpConfig');
+      return out ?? '';
+    } on MissingPluginException {
+      throw PlatformException(
+        code: 'LocalLlmNotAvailable',
+        message: '本地推理暂不可用（当前平台未集成本地推理）',
+      );
+    } finally {
+      release();
+    }
+  }
+
+  Future<int?> getMaxContextTokens() async {
+    if (kIsWeb) return null;
+    _cachedDumpConfig ??= () async {
+      try {
+        final s = await dumpConfig();
+        return s.trim().isEmpty ? null : s;
+      } catch (_) {
+        return null;
+      }
+    }();
+    final cfg = await _cachedDumpConfig;
+    if (cfg == null || cfg.trim().isEmpty) return null;
+
+    Object? decoded;
+    try {
+      decoded = jsonDecode(cfg);
+    } catch (_) {
+      decoded = null;
+    }
+
+    int? found;
+    if (decoded is Map) {
+      found = _findFirstIntRecursive(decoded, {
+        'max_seq_len',
+        'maxSequenceLength',
+        'max_sequence_length',
+        'max_context_length',
+        'context_length',
+        'n_ctx',
+        'max_position_embeddings',
+        'seq_len',
+      });
+    }
+
+    found ??= _findFirstIntByRegex(cfg, {
+      'max_seq_len',
+      'maxSequenceLength',
+      'max_sequence_length',
+      'max_context_length',
+      'context_length',
+      'n_ctx',
+      'max_position_embeddings',
+      'seq_len',
+    });
+
+    if (found == null || found <= 0) return null;
+    return found;
+  }
+
+  int? _findFirstIntByRegex(String input, Set<String> keys) {
+    for (final k in keys) {
+      final reg = RegExp('"${RegExp.escape(k)}"\\s*:\\s*(\\d+)');
+      final m = reg.firstMatch(input);
+      if (m != null) {
+        final v = int.tryParse(m.group(1) ?? '');
+        if (v != null && v > 0) return v;
+      }
+    }
+    return null;
+  }
+
+  int? _findFirstIntRecursive(Object? node, Set<String> keys) {
+    if (node is Map) {
+      for (final e in node.entries) {
+        final k = e.key;
+        if (k is String && keys.contains(k)) {
+          final v = e.value;
+          if (v is int) return v;
+          if (v is num) return v.toInt();
+          if (v is String) {
+            final parsed = int.tryParse(v.trim());
+            if (parsed != null) return parsed;
+          }
+        }
+      }
+      for (final e in node.values) {
+        final found = _findFirstIntRecursive(e, keys);
+        if (found != null) return found;
+      }
+    } else if (node is List) {
+      for (final e in node) {
+        final found = _findFirstIntRecursive(e, keys);
+        if (found != null) return found;
+      }
+    }
+    return null;
   }
 
   Future<String> chatOnce({
@@ -210,6 +320,7 @@ class LocalLlmClient {
       await _initializing;
       if (_initializedModelPath == modelPath) return;
     }
+    _cachedDumpConfig = null;
     final future = _init(modelPath);
     _initializing = future;
     try {

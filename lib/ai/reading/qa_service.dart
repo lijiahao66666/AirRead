@@ -11,7 +11,6 @@ enum QAType {
   general,
   summary,
   keyPoints,
-  explain,
 }
 
 /// QA流式输出块
@@ -29,12 +28,128 @@ class QAStreamChunk {
   });
 }
 
+String buildOnlineQaPrompt({
+  required ReadingContextService contextService,
+  required String question,
+  required QAType qaType,
+  required QAContentScope contentScope,
+  String? history,
+}) {
+  String prompt;
+
+  switch (qaType) {
+    case QAType.summary:
+      final content = contextService.getContentByScope(contentScope).trim();
+      prompt = '请总结以下内容，用清晰的要点列出：\n\n'
+          '${content.isEmpty ? '（当前阅读内容为空）' : content}\n\n'
+          '请从以下方面进行总结：\n'
+          '1. 核心情节发展\n'
+          '2. 关键人物及其行为动机\n'
+          '3. 重要的伏笔和线索\n'
+          '4. 情感氛围和主题思想\n\n'
+          '请用简洁、条理清晰的方式输出。';
+      break;
+    case QAType.keyPoints:
+      final content = contextService.getContentByScope(contentScope).trim();
+      prompt = '请从以下内容中提取关键要点，控制在5条以内：\n\n'
+          '${content.isEmpty ? '（当前阅读内容为空）' : content}\n\n'
+          '关键要点应包括：\n'
+          '- 核心事件\n'
+          '- 人物关系变化\n'
+          '- 重要细节和伏笔\n'
+          '- 情节转折点\n\n'
+          '每条要点请用一句话概括。';
+      break;
+    case QAType.general:
+      prompt = contextService.generateQAPrompt(
+        question,
+        contentScope,
+        history: history,
+      );
+      break;
+  }
+
+  return prompt;
+}
+
+String buildLocalQaPrompt({
+  required ReadingContextService contextService,
+  required String question,
+  required QAType qaType,
+  required QAContentScope contentScope,
+  String? history,
+}) {
+  final historyText = (history ?? '').trim();
+  final content = contextService.getContentByScope(contentScope);
+  const quickRule = '规则：不要输出思考过程；不要输出<think>或<answer>标签；直接输出最终答案。';
+  const fastThinkingTag = '/no_think';
+
+  switch (qaType) {
+    case QAType.summary:
+      return [
+        fastThinkingTag,
+        '',
+        quickRule,
+        '',
+        '你是阅读助手。请对以下内容做简要总结：',
+        _tailText(
+            _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
+        '',
+        '要求：用不超过6条要点概括，尽量引用原文信息，不要编造；最终回答控制在260字以内。',
+      ].join('\n');
+    case QAType.keyPoints:
+      return [
+        fastThinkingTag,
+        '',
+        quickRule,
+        '',
+        '你是阅读助手。请从以下内容提取关键要点：',
+        _tailText(
+            _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
+        '',
+        '要求：不超过5条；每条一句话；覆盖事件、人物变化、伏笔线索；最终回答控制在240字以内。',
+      ].join('\n');
+    case QAType.general:
+      final parts = <String>[
+        fastThinkingTag,
+        '',
+        quickRule,
+        '',
+        '你是阅读助手。请根据「当前阅读内容」回答「用户问题」。',
+        '规则：参考内容与历史对话；不确定就说“文中未提及/需要更多上下文”。',
+        '要求：最终回答控制在600字以内，语句完整结束。',
+        '',
+        '【当前阅读内容】',
+        _tailText(
+            _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1200),
+      ];
+      if (historyText.isNotEmpty) {
+        parts.addAll([
+          '',
+          '【历史问答】',
+          _tailText(_squashSpaces(historyText), 400),
+        ]);
+      }
+      parts.addAll([
+        '',
+        '【用户问题】',
+        _clipText(_squashSpaces(question), 200),
+        '',
+        '请直接给出回答：',
+      ]);
+      return parts.join('\n').trim();
+  }
+}
+
 class QAService {
   final ReadingContextService contextService;
   final TencentCredentials credentials;
   final QAContentScope contentScope;
   static const int _localQaMaxNewTokens = 1024;
-  static const int _localQaMaxInputTokens = 3072;
+  static const int _localQaMaxInputTokens = 4096;
+  static const int _localQaHardMaxNewTokens = 1536;
+  static const int _localQaHardMaxInputTokens = 6144;
+  static const int _localQaContextReserveTokens = 512;
 
   QAService({
     required this.contextService,
@@ -49,9 +164,17 @@ class QAService {
     String? history,
   }) async* {
     if (isLocalModel) {
-      yield* _askLocalModel(question, qaType, history: history);
+      yield* _askLocalModel(
+        question,
+        qaType,
+        history: history,
+      );
     } else {
-      yield* _askOnlineModel(question, qaType, history: history);
+      yield* _askOnlineModel(
+        question,
+        qaType,
+        history: history,
+      );
     }
   }
 
@@ -61,31 +184,17 @@ class QAService {
     String? history,
   }) async* {
     final client = HunyuanTextClient(credentials: credentials);
-    String prompt;
+    final prompt = buildOnlineQaPrompt(
+      contextService: contextService,
+      question: question,
+      qaType: qaType,
+      contentScope: contentScope,
+      history: history,
+    );
 
-    switch (qaType) {
-      case QAType.summary:
-        prompt = contextService.generateSummaryPrompt();
-        break;
-      case QAType.keyPoints:
-        prompt = contextService.generateKeyPointsPrompt();
-        break;
-      case QAType.general:
-        prompt = contextService.generateQAPrompt(
-          question,
-          contentScope,
-          history: history,
-        );
-        break;
-      case QAType.explain:
-        prompt = contextService.generateExplainPrompt(question, contentScope);
-        break;
-    }
-
-    // 所有在线模型调用都启用联网搜索增强
     final stream = client.chatStream(
       userText: prompt,
-      enableSearch: true, // 启用联网搜索
+      model: 'hunyuan-2.0-instruct-20251111',
     );
 
     await for (final chunk in stream) {
@@ -104,256 +213,104 @@ class QAService {
     String? history,
   }) async* {
     final client = LocalLlmClient();
-    final prompt = _buildLocalPrompt(
+    final prompt = buildLocalQaPrompt(
+      contextService: contextService,
       question: question,
       qaType: qaType,
+      contentScope: contentScope,
       history: history,
     );
 
-    final parser = _ThinkTagStreamParser();
+    final maxCtx = await client.getMaxContextTokens();
+    final caps = _computeLocalCaps(maxCtx);
+
     await for (final delta in client.chatStream(
       userText: prompt,
-      maxNewTokens: _localQaMaxNewTokens,
-      maxInputTokens: _localQaMaxInputTokens,
+      maxNewTokens: caps.maxNewTokens,
+      maxInputTokens: caps.maxInputTokens,
     )) {
-      for (final chunk in parser.consume(delta)) {
-        yield chunk;
+      if (delta.isEmpty) continue;
+      yield QAStreamChunk(content: delta);
+    }
+  }
+
+  _LocalCaps _computeLocalCaps(int? maxContextTokens) {
+    var maxInput = _localQaMaxInputTokens;
+    var maxNew = _localQaMaxNewTokens;
+
+    if (maxInput > _localQaHardMaxInputTokens) {
+      maxInput = _localQaHardMaxInputTokens;
+    }
+    if (maxNew > _localQaHardMaxNewTokens) {
+      maxNew = _localQaHardMaxNewTokens;
+    }
+
+    if (maxContextTokens != null && maxContextTokens > 0) {
+      final usable = maxContextTokens - _localQaContextReserveTokens;
+      if (usable > 0) {
+        if (maxNew > usable ~/ 3) {
+          maxNew = usable ~/ 3;
+        }
+        if (maxNew < 192) maxNew = 192;
+
+        final canUseForInput = usable - maxNew;
+        if (canUseForInput > 0) {
+          if (maxInput > canUseForInput) {
+            maxInput = canUseForInput;
+          }
+        } else {
+          maxInput = 512;
+          if (maxInput > usable) {
+            maxInput = usable;
+          }
+          maxNew = usable - maxInput;
+          if (maxNew < 64) maxNew = 64;
+        }
+      } else {
+        maxInput = 256;
+        maxNew = 64;
+      }
+    } else {
+      const usable = 4096 - _localQaContextReserveTokens;
+      if (usable > 0) {
+        if (maxNew > usable ~/ 3) maxNew = usable ~/ 3;
+        if (maxNew < 192) maxNew = 192;
+        final canUseForInput = usable - maxNew;
+        if (canUseForInput > 0 && maxInput > canUseForInput) {
+          maxInput = canUseForInput;
+        }
       }
     }
 
-    for (final chunk in parser.finish()) {
-      yield chunk;
+    if (maxInput > _localQaHardMaxInputTokens) {
+      maxInput = _localQaHardMaxInputTokens;
     }
-  }
+    if (maxNew > _localQaHardMaxNewTokens) maxNew = _localQaHardMaxNewTokens;
+    if (maxNew < 64) maxNew = 64;
+    if (maxInput < 256) maxInput = 256;
 
-  String _buildLocalPrompt({
-    required String question,
-    required QAType qaType,
-    String? history,
-  }) {
-    final historyText = (history ?? '').trim();
-    final content = contextService.getContentByScope(contentScope);
-    const thinkRule =
-        '请先在 <think>...</think> 中输出思考过程（尽量精简，控制在120字以内），然后在 <answer>...</answer> 中输出最终回答。';
-
-    switch (qaType) {
-      case QAType.summary:
-        final chapter = contextService.getCurrentChapterContent();
-        return [
-          thinkRule,
-          '',
-          '你是阅读助手。请对以下内容做简要总结：',
-          _tail(_squashSpaces(chapter), 2400),
-          '',
-          '要求：用不超过6条要点概括，尽量引用原文信息，不要编造；最终回答控制在260字以内。',
-        ].join('\n');
-      case QAType.keyPoints:
-        final chapter = contextService.getCurrentChapterContent();
-        return [
-          thinkRule,
-          '',
-          '你是阅读助手。请从以下内容提取关键要点：',
-          _tail(_squashSpaces(chapter), 2400),
-          '',
-          '要求：不超过5条；每条一句话；覆盖事件、人物变化、伏笔线索；最终回答控制在240字以内。',
-        ].join('\n');
-      case QAType.general:
-        final parts = <String>[
-          thinkRule,
-          '',
-          '你是阅读助手。请根据「当前阅读内容」回答「用户问题」。',
-          '规则：只依据内容与历史对话；不确定就说“文中未提及/需要更多上下文”。',
-          '要求：最终回答控制在600字以内，语句完整结束。',
-          '',
-          '【当前阅读内容】',
-          _tail(_squashSpaces(content), 1800),
-        ];
-        if (historyText.isNotEmpty) {
-          parts.addAll([
-            '',
-            '【历史问答】',
-            _tail(_squashSpaces(historyText), 600),
-          ]);
-        }
-        parts.addAll([
-          '',
-          '【用户问题】',
-          _clip(_squashSpaces(question), 200),
-          '',
-          '请直接给出回答：',
-        ]);
-        return parts.join('\n').trim();
-      case QAType.explain:
-        return [
-          thinkRule,
-          '',
-          '你是阅读助手。请解释「选中内容」在「上下文」中的意思。',
-          '',
-          '【选中内容】',
-          _clip(_squashSpaces(question), 400),
-          '',
-          '【上下文】',
-          _tail(_squashSpaces(content), 1500),
-          '',
-          '要求：先解释字面意思，再说明与情节的关系。控制在8句以内；最终回答控制在520字以内。',
-        ].join('\n').trim();
-    }
-  }
-
-  String _clip(String input, int maxChars) {
-    final s = input.trim();
-    if (s.length <= maxChars) return s;
-    return s.substring(0, maxChars);
-  }
-
-  String _tail(String input, int maxChars) {
-    final s = input.trim();
-    if (s.length <= maxChars) return s;
-    return s.substring(s.length - maxChars);
-  }
-
-  String _squashSpaces(String input) {
-    return input.replaceAll(RegExp(r'\\s+'), ' ').trim();
+    return _LocalCaps(maxInputTokens: maxInput, maxNewTokens: maxNew);
   }
 }
 
-class _ThinkTagStreamParser {
-  static const _open = '<think>';
-  static const _close = '</think>';
-  static const _answerOpen = '<answer>';
-  static const _answerClose = '</answer>';
-  static final RegExp _bracketTag = RegExp(r'</?\[[^\]]+\]>');
+String _clipText(String input, int maxChars) {
+  final s = input.trim();
+  if (s.length <= maxChars) return s;
+  return s.substring(0, maxChars);
+}
 
-  final StringBuffer _buffer = StringBuffer();
-  bool _inThink = false;
-  bool _inAnswer = false;
-  bool _sawAnswerTag = false;
+String _tailText(String input, int maxChars) {
+  final s = input.trim();
+  if (s.length <= maxChars) return s;
+  return s.substring(s.length - maxChars);
+}
 
-  static String _clean(String input) {
-    if (input.isEmpty) return input;
-    return input.replaceAll(_bracketTag, '');
-  }
+String _squashSpaces(String input) {
+  return input.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
 
-  Iterable<QAStreamChunk> consume(String delta) sync* {
-    if (delta.isEmpty) return;
-    _buffer.write(delta);
-    yield* _drain(force: false);
-  }
-
-  Iterable<QAStreamChunk> finish() sync* {
-    yield* _drain(force: true);
-  }
-
-  Iterable<QAStreamChunk> _drain({required bool force}) sync* {
-    var text = _buffer.toString();
-    _buffer.clear();
-
-    while (text.isNotEmpty) {
-      if (_inThink) {
-        final idx = text.indexOf(_close);
-        if (idx >= 0) {
-          final part = _clean(text.substring(0, idx));
-          if (part.isNotEmpty) {
-            yield QAStreamChunk(
-              content: '',
-              reasoningContent: part,
-              isReasoning: true,
-            );
-          }
-          text = text.substring(idx + _close.length);
-          _inThink = false;
-          continue;
-        }
-
-        const keep = _close.length - 1;
-        if (!force && text.length > keep) {
-          final emit = _clean(text.substring(0, text.length - keep));
-          if (emit.isNotEmpty) {
-            yield QAStreamChunk(
-              content: '',
-              reasoningContent: emit,
-              isReasoning: true,
-            );
-          }
-          text = text.substring(text.length - keep);
-        }
-        break;
-      } else {
-        if (_inAnswer) {
-          final closeIdx = text.indexOf(_answerClose);
-          if (closeIdx >= 0) {
-            final part = _clean(text.substring(0, closeIdx));
-            if (part.isNotEmpty) {
-              yield QAStreamChunk(content: part);
-            }
-            text = text.substring(closeIdx + _answerClose.length);
-            _inAnswer = false;
-            continue;
-          }
-
-          const keep = _answerClose.length - 1;
-          if (!force && text.length > keep) {
-            final emit = _clean(text.substring(0, text.length - keep));
-            if (emit.isNotEmpty) {
-              yield QAStreamChunk(content: emit);
-            }
-            text = text.substring(text.length - keep);
-          }
-          break;
-        }
-
-        final answerIdx = text.indexOf(_answerOpen);
-        if (answerIdx >= 0) {
-          text = text.substring(answerIdx + _answerOpen.length);
-          _inAnswer = true;
-          _sawAnswerTag = true;
-          continue;
-        }
-
-        final idx = text.indexOf(_open);
-        if (idx >= 0) {
-          final part = _clean(text.substring(0, idx));
-          if (part.isNotEmpty && !_sawAnswerTag) {
-            yield QAStreamChunk(content: part);
-          }
-          text = text.substring(idx + _open.length);
-          _inThink = true;
-          continue;
-        }
-
-        const keep = _open.length - 1;
-        if (!force && text.length > keep) {
-          final emit = _clean(text.substring(0, text.length - keep));
-          if (emit.isNotEmpty && !_sawAnswerTag) {
-            yield QAStreamChunk(content: emit);
-          }
-          text = text.substring(text.length - keep);
-        }
-        break;
-      }
-    }
-
-    if (force && text.isNotEmpty) {
-      if (_inThink) {
-        text = _clean(text);
-        yield QAStreamChunk(
-          content: '',
-          reasoningContent: text,
-          isReasoning: true,
-        );
-      } else {
-        if (!_sawAnswerTag || _inAnswer) {
-          final out = _clean(text);
-          if (out.isNotEmpty) {
-            yield QAStreamChunk(content: out);
-          }
-        }
-      }
-      text = '';
-    }
-
-    if (text.isNotEmpty) {
-      _buffer.write(text);
-    }
-  }
+class _LocalCaps {
+  final int maxInputTokens;
+  final int maxNewTokens;
+  _LocalCaps({required this.maxInputTokens, required this.maxNewTokens});
 }

@@ -57,10 +57,9 @@ class TranslationCache {
     required String engineId,
     required String sourceLang,
     required String targetLang,
-    required int glossaryVersion,
     required String text,
   }) {
-    final input = '$engineId|$sourceLang|$targetLang|$glossaryVersion|$text';
+    final input = '$engineId|$sourceLang|$targetLang|$text';
     final hash = sha1.convert(utf8.encode(input)).toString();
     return '$_keyPrefix$hash';
   }

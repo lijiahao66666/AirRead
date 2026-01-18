@@ -70,7 +70,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
   // Settings State
   double _fontSize = 18.0;
-  double _lineHeight = 1.8;
+  double _lineHeight = 1.4;
   Color _bgColor = const Color(0xFFF5F9FA); // Default (Day)
   Color _textColor = const Color(0xFF2C3E50);
 
@@ -98,7 +98,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   int _currentPageInChapter = 0;
   final Map<int, int> _chapterPageCounts = {};
   Timer? _progressSaveTimer;
-  double? _contentTopInset;
   double? _contentBottomInset;
 
   // Content Cache
@@ -108,11 +107,15 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   final Map<int, String> _chapterEffectiveText = {};
   final Map<int, List<TextRange>> _chapterPageRanges = {};
   final Map<int, String> _chapterPageRangeKeys = {};
+  final Map<int, List<TextRange>> _chapterPlainPageRanges = {};
+  final Map<int, String> _chapterPlainPageRangeKeys = {};
   final Map<int, int> _chapterPaginationLastMs = {};
   final Map<int, int> _chapterTitleLength = {};
   final Map<int, List<ReaderParagraph>> _chapterParagraphsCache = {};
 
   double _currentPageProgressInChapter = 0;
+  double? _lastPaginationViewportHeight;
+  double? _lastPaginationContentWidth;
   bool? _lastTranslationApplyToReader;
   TranslationDisplayMode? _lastTranslationDisplayMode;
   bool _relocateAfterTranslationChangeScheduled = false;
@@ -134,6 +137,9 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   late Animation<Offset> _bottomBarOffset; // Animation for Bottom Bar
   Timer? _pulseTimer;
   SharedPreferences? _prefs;
+  Offset? _tapDownPos;
+  int? _tapDownMs;
+  bool _tapMoved = false;
 
   @override
   void initState() {
@@ -198,7 +204,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     if (mounted) {
       setState(() {
         _fontSize = _prefs?.getDouble('fontSize') ?? 18.0;
-        _lineHeight = _prefs?.getDouble('lineHeight') ?? 1.8;
+        _lineHeight = _prefs?.getDouble('lineHeight') ?? 1.4;
         int? colorVal = _prefs?.getInt('bgColor');
         if (colorVal != null) _bgColor = Color(colorVal);
         int? textVal = _prefs?.getInt('textColor');
@@ -362,14 +368,13 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
   // UI Methods
   void _toggleControls() {
-    if (_controlsController.isAnimating) return;
-
+    final next = !_showControls;
     setState(() {
-      _showControls = !_showControls;
+      _showControls = next;
     });
 
     // Toggle System UI and Animation
-    if (_showControls) {
+    if (next) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge,
           overlays: SystemUiOverlay.values);
       _controlsController.forward();
@@ -377,6 +382,341 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       _controlsController.reverse();
     }
+  }
+
+  void _onReaderPointerDown(Offset pos) {
+    _tapDownPos = pos;
+    _tapDownMs = DateTime.now().millisecondsSinceEpoch;
+    _tapMoved = false;
+  }
+
+  void _onReaderPointerMove(Offset pos) {
+    final down = _tapDownPos;
+    if (down == null) return;
+    final dx = pos.dx - down.dx;
+    final dy = pos.dy - down.dy;
+    if ((dx * dx + dy * dy) > 256) {
+      _tapMoved = true;
+    }
+  }
+
+  void _onReaderPointerUp({required Offset pos, required double width}) {
+    final downMs = _tapDownMs;
+    _tapDownMs = null;
+    _tapDownPos = null;
+
+    final moved = _tapMoved;
+    _tapMoved = false;
+
+    if (moved) return;
+    if (downMs == null) return;
+    if (_showControls) return;
+    if (width <= 0) return;
+    if (!_pageController.hasClients) return;
+
+    final elapsed = DateTime.now().millisecondsSinceEpoch - downMs;
+    if (elapsed > 350) return;
+
+    final x = pos.dx.clamp(0, width);
+    if (x <= width * 0.3) {
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+    if (x >= width * 0.7) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+    _toggleControls();
+  }
+
+  Future<void> _openAiHud({
+    AiHudRoute initialRoute = AiHudRoute.main,
+    String? initialQaText,
+    bool autoSendInitialQa = false,
+  }) async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius:
+              BorderRadius.vertical(top: Radius.circular(AppTokens.radiusLg))),
+      builder: (sheetContext) {
+        return SizedBox(
+          height: MediaQuery.of(sheetContext).size.height,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    if (mounted) _hideControls();
+                  },
+                  child: Container(color: Colors.transparent),
+                ),
+              ),
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Consumer<TranslationProvider>(
+                  builder: (context, translationProvider, _) {
+                    final viewportHeight = _lastPaginationViewportHeight;
+                    final contentWidth = _lastPaginationContentWidth;
+                    if (viewportHeight != null && contentWidth != null) {
+                      _ensurePlainTextPaginationForChapter(
+                        chapterIndex: _currentChapterIndex,
+                        viewportHeight: viewportHeight,
+                        contentWidth: contentWidth,
+                      );
+                    }
+
+                    final plainRanges =
+                        _chapterPlainPageRanges[_currentChapterIndex];
+                    final plainPageIndex =
+                        plainRanges == null || plainRanges.isEmpty
+                            ? _currentPageInChapter
+                            : _plainPageIndexForProgress(
+                                _currentChapterIndex,
+                                _currentPageProgressInChapter,
+                              );
+
+                    final qaTextCache = _chapterPlainText.isNotEmpty
+                        ? Map<int, String>.from(_chapterPlainText)
+                        : Map<int, String>.from(_chapterEffectiveText);
+
+                    return AiHud(
+                      bgColor: _panelBgColor,
+                      textColor: _panelTextColor,
+                      initialRoute: initialRoute,
+                      initialQaText: initialQaText,
+                      autoSendInitialQa: autoSendInitialQa,
+                      translateEnabled: translationProvider.aiTranslateEnabled,
+                      translateActive: translationProvider.applyToReader,
+                      onTranslateChanged: (v) async {
+                        await _setAiTranslateEnabled(
+                          provider: translationProvider,
+                          enabled: v,
+                        );
+                      },
+                      readAloudEnabled: translationProvider.aiReadAloudEnabled,
+                      onReadAloudChanged: (v) async {
+                        await _setAiReadAloudEnabled(
+                          provider: translationProvider,
+                          enabled: v,
+                        );
+                      },
+                      bookId: widget.bookId,
+                      chapterTextCache: qaTextCache,
+                      currentChapterIndex: _currentChapterIndex,
+                      currentPageInChapter: plainPageIndex,
+                      chapterPageRanges: _chapterPlainPageRanges.isNotEmpty
+                          ? _chapterPlainPageRanges
+                          : _chapterPageRanges,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    ).then((_) {
+      if (mounted) _hideControls();
+    });
+  }
+
+  Future<void> _translateSelectedText(String text) async {
+    final t = text.trim();
+    if (t.isEmpty) return;
+
+    final tp = context.read<TranslationProvider>();
+    if (!mounted) return;
+    bool started = false;
+    bool done = false;
+    String translation = '';
+    String? errorText;
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetContext) {
+        final panelBg = _panelBgColor;
+        final panelText = _panelTextColor;
+        return GlassPanel.sheet(
+          surfaceColor: panelBg,
+          opacity: AppTokens.glassOpacityDense,
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: MediaQuery.of(sheetContext).size.height * 0.62,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: StatefulBuilder(
+                  builder: (context, setModalState) {
+                    if (!started) {
+                      started = true;
+                      Future<void>(() async {
+                        try {
+                          final res =
+                              await tp.translateParagraphsByIndex({0: t});
+                          translation = (res[0] ?? '').trim();
+                        } catch (e) {
+                          errorText = e.toString();
+                        }
+                        done = true;
+                        if (!sheetContext.mounted) return;
+                        setModalState(() {});
+                      });
+                    }
+
+                    final String bodyText;
+                    if (errorText != null && errorText!.trim().isNotEmpty) {
+                      bodyText = '翻译失败：$errorText';
+                    } else if (!done) {
+                      bodyText = 'ai翻译中...';
+                    } else {
+                      bodyText = translation.isEmpty ? '（无译文）' : translation;
+                    }
+
+                    final canCopyTranslation = done &&
+                        errorText == null &&
+                        translation.trim().isNotEmpty;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.translate,
+                                color: AppColors.techBlue),
+                            const SizedBox(width: 8),
+                            Text(
+                              '翻译',
+                              style: TextStyle(
+                                color: panelText,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const Spacer(),
+                            IconButton(
+                              onPressed: () => Navigator.pop(sheetContext),
+                              icon: Icon(Icons.close,
+                                  color: panelText.withOpacity(0.7)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  t,
+                                  style: TextStyle(
+                                    color: panelText.withOpacity(0.78),
+                                    height: 1.5,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                Container(
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: panelText.withOpacity(0.04),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: panelText.withOpacity(0.08),
+                                      width: AppTokens.stroke,
+                                    ),
+                                  ),
+                                  padding: const EdgeInsets.all(14),
+                                  child: Text(
+                                    bodyText,
+                                    style: TextStyle(
+                                      color: panelText,
+                                      height: 1.5,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  Clipboard.setData(ClipboardData(text: t));
+                                  ScaffoldMessenger.of(sheetContext)
+                                      .showSnackBar(
+                                    const SnackBar(content: Text('已复制原文')),
+                                  );
+                                },
+                                icon: const Icon(Icons.copy, size: 18),
+                                label: const Text('复制原文'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: canCopyTranslation
+                                    ? () {
+                                        Clipboard.setData(
+                                            ClipboardData(text: translation));
+                                        ScaffoldMessenger.of(sheetContext)
+                                            .showSnackBar(
+                                          const SnackBar(
+                                              content: Text('已复制译文')),
+                                        );
+                                      }
+                                    : null,
+                                icon: const Icon(Icons.copy, size: 18),
+                                label: const Text('复制译文'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.techBlue,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _explainSelectedText(String text) {
+    final t = text.trim();
+    if (t.isEmpty) return;
+    _openAiHud(
+      initialRoute: AiHudRoute.qa,
+      initialQaText: '解释：$t',
+      autoSendInitialQa: true,
+    );
   }
 
   void _hideControls() {
@@ -397,8 +737,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     required bool enabled,
   }) async {
     if (!mounted) return;
-
-    final source = context.read<AiModelProvider>().source;
     await provider.setAiTranslateEnabled(enabled);
 
     if (!enabled) {
@@ -407,13 +745,14 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       setState(() {});
     }
     if (enabled) {
-      if (source == AiModelSource.local) {
+      _stopContinuousPrefetch();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final next = _nextParagraphsForPrefetch(count: 10);
+        provider.prefetchParagraphs(next);
         _updatePrefetchCursorFromVisible();
         _startContinuousPrefetch();
-        provider.prefetchParagraphs(_nextParagraphsForPrefetch(count: 12));
-      } else {
-        _stopContinuousPrefetch();
-      }
+      });
     }
   }
 
@@ -707,12 +1046,14 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     return buffer.toString();
   }
 
-  TextSpan _buildPendingAwareSpan({
+  TextSpan _buildReaderSpan({
     required String text,
     required TextStyle bodyStyle,
   }) {
     const marker = 'AI 正在翻译…';
     const int markerLen = marker.length;
+    const paraSep = '\n\n';
+
     final List<InlineSpan> children = [];
 
     final placeholderStyle = bodyStyle.copyWith(
@@ -721,20 +1062,58 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       color: (bodyStyle.color ?? _textColor).withOpacity(0.55),
     );
 
+    final gapStyle = bodyStyle.copyWith(
+      height: 0.6,
+      fontSize:
+          bodyStyle.fontSize == null ? null : (bodyStyle.fontSize! * 0.58),
+    );
+
     int i = 0;
     while (i < text.length) {
-      final idx = text.indexOf(marker, i);
-      if (idx < 0) {
+      final idxMarker = text.indexOf(marker, i);
+      final idxPara = text.indexOf(paraSep, i);
+
+      int nextIdx = -1;
+      bool nextIsMarker = false;
+      bool nextIsPara = false;
+
+      if (idxMarker >= 0) {
+        nextIdx = idxMarker;
+        nextIsMarker = true;
+      }
+      if (idxPara >= 0 && (nextIdx == -1 || idxPara < nextIdx)) {
+        nextIdx = idxPara;
+        nextIsMarker = false;
+        nextIsPara = true;
+      }
+
+      if (nextIdx < 0) {
         children.add(TextSpan(text: text.substring(i), style: bodyStyle));
         break;
       }
-      if (idx > i) {
-        children.add(TextSpan(text: text.substring(i, idx), style: bodyStyle));
+
+      if (nextIdx > i) {
+        children
+            .add(TextSpan(text: text.substring(i, nextIdx), style: bodyStyle));
       }
-      final end = (idx + markerLen).clamp(0, text.length);
-      children.add(
-          TextSpan(text: text.substring(idx, end), style: placeholderStyle));
-      i = end;
+
+      if (nextIsPara) {
+        children.add(TextSpan(text: '\n', style: bodyStyle));
+        children.add(TextSpan(text: '\n', style: gapStyle));
+        i = nextIdx + paraSep.length;
+        continue;
+      }
+
+      if (nextIsMarker) {
+        final end = (nextIdx + markerLen).clamp(0, text.length);
+        children.add(
+          TextSpan(text: text.substring(nextIdx, end), style: placeholderStyle),
+        );
+        i = end;
+        continue;
+      }
+
+      i = nextIdx + 1;
     }
 
     return TextSpan(children: children, style: bodyStyle);
@@ -772,7 +1151,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     String snapKey(double v) => (v * dpr).roundToDouble().toStringAsFixed(0);
     // Key includes effective text length to invalidate on translation updates
     final String paginationKey =
-        '${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|${effectiveText.length}';
+        '${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|${effectiveText.length}|${_contentBottomInset?.toStringAsFixed(1) ?? '0'}';
 
     if (_chapterPageRangeKeys[chapterIndex] == paginationKey &&
         _chapterPageRanges[chapterIndex] != null) {
@@ -800,6 +1179,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
     final textPainter = TextPainter(
       textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.of(context).textScaler,
     );
 
     final List<TextRange> ranges = [];
@@ -820,8 +1200,10 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         // For simplicity, let's treat title styling as "First N chars of effective text if first paragraph".
         // Or simpler: Just style the whole thing as body for now, or detect first newline.
 
-        textPainter.text = TextSpan(
-            text: text.substring(start, mid), style: effectiveTextStyle);
+        textPainter.text = _buildReaderSpan(
+          text: text.substring(start, mid),
+          bodyStyle: effectiveTextStyle,
+        );
 
         textPainter.layout(minWidth: 0, maxWidth: contentWidth);
         if (textPainter.height <= viewportHeight) {
@@ -856,10 +1238,115 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     }
   }
 
+  void _ensurePlainTextPaginationForChapter({
+    required int chapterIndex,
+    required double viewportHeight,
+    required double contentWidth,
+  }) {
+    final plainText = _getPlainTextForChapter(chapterIndex);
+    if (plainText.isEmpty) {
+      _chapterPlainPageRanges[chapterIndex] = [
+        const TextRange(start: 0, end: 0)
+      ];
+      return;
+    }
+
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    String snapKey(double v) => (v * dpr).roundToDouble().toStringAsFixed(0);
+    final String paginationKey =
+        '${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|${plainText.length}|${_contentBottomInset?.toStringAsFixed(1) ?? '0'}';
+
+    if (_chapterPlainPageRangeKeys[chapterIndex] == paginationKey &&
+        _chapterPlainPageRanges[chapterIndex] != null) {
+      return;
+    }
+
+    final TextStyle textStyle =
+        (Theme.of(context).textTheme.bodyLarge ?? const TextStyle()).copyWith(
+      height: _lineHeight,
+      fontSize: _fontSize,
+      color: _textColor,
+    );
+
+    final textPainter = TextPainter(
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.of(context).textScaler,
+    );
+
+    final List<TextRange> ranges = [];
+    int start = 0;
+    final int len = plainText.length;
+
+    while (start < len) {
+      int low = start + 1;
+      int high = len;
+      int best = low;
+
+      while (low <= high) {
+        final int mid = (low + high) >> 1;
+        textPainter.text = _buildReaderSpan(
+          text: plainText.substring(start, mid),
+          bodyStyle: textStyle,
+        );
+        textPainter.layout(minWidth: 0, maxWidth: contentWidth);
+        if (textPainter.height <= viewportHeight) {
+          best = mid;
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+
+      if (best <= start) {
+        best = (start + 1).clamp(start + 1, len);
+      }
+
+      ranges.add(TextRange(start: start, end: best));
+      start = best;
+      while (start < len && plainText.codeUnitAt(start) == 10) {
+        start++;
+      }
+    }
+
+    _chapterPlainPageRanges[chapterIndex] = ranges;
+    _chapterPlainPageRangeKeys[chapterIndex] = paginationKey;
+  }
+
   void _invalidatePagination() {
     _chapterPageCounts.clear();
     _chapterPageRanges.clear();
     _chapterPageRangeKeys.clear();
+    _chapterPlainPageRanges.clear();
+    _chapterPlainPageRangeKeys.clear();
+  }
+
+  int _plainPageIndexForProgress(int chapterIndex, double progress) {
+    final ranges = _chapterPlainPageRanges[chapterIndex];
+    if (ranges == null || ranges.isEmpty) return 0;
+
+    final plainText = _getPlainTextForChapter(chapterIndex);
+    final len = plainText.length;
+    if (len <= 0) return 0;
+
+    final int target = (progress.clamp(0.0, 1.0) * len).round().clamp(0, len);
+
+    int low = 0;
+    int high = ranges.length - 1;
+    int best = 0;
+    while (low <= high) {
+      final mid = (low + high) >> 1;
+      final r = ranges[mid];
+      if (target < r.start) {
+        high = mid - 1;
+      } else if (target >= r.end) {
+        low = mid + 1;
+        best = mid;
+      } else {
+        best = mid;
+        break;
+      }
+    }
+    return best.clamp(0, ranges.length - 1);
   }
 
   void _relocateCurrentPageToProgress(double progress) {
@@ -1251,15 +1738,12 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
             final translationProvider =
                 Provider.of<TranslationProvider>(context, listen: false);
             if (translationProvider.applyToReader) {
-              final source = context.read<AiModelProvider>().source;
-              if (source == AiModelSource.local) {
+              _stopContinuousPrefetch();
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
                 _updatePrefetchCursorFromVisible();
                 _startContinuousPrefetch();
-                translationProvider
-                    .prefetchParagraphs(_nextParagraphsForPrefetch(count: 5));
-              } else {
-                _stopContinuousPrefetch();
-              }
+              });
             }
 
             // Force jump back to center to allow infinite scroll
@@ -1330,12 +1814,13 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       builder: (context, constraints) {
         final dpr = MediaQuery.of(context).devicePixelRatio;
         double snap(double value) => (value * dpr).roundToDouble() / dpr;
+        double snapDown(double value) => (value * dpr).floorToDouble() / dpr;
 
         final double topMargin = snap(padding.top + 16);
-        final double bottomMargin = snap(padding.bottom + 16);
+        final double bottomMargin = snap(padding.bottom + 24);
 
-        double viewportHeight =
-            snap(constraints.maxHeight - topMargin - bottomMargin);
+        double viewportHeight = snapDown(
+            constraints.maxHeight - topMargin - bottomMargin - (1 / dpr));
         if (viewportHeight <= 0) viewportHeight = 500;
 
         final TextStyle effectiveTextStyle =
@@ -1349,6 +1834,15 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         final double contentWidth =
             (constraints.maxWidth - 48).clamp(0, constraints.maxWidth);
 
+        _lastPaginationViewportHeight = viewportHeight;
+        _lastPaginationContentWidth = contentWidth;
+
+        _ensurePlainTextPaginationForChapter(
+          chapterIndex: chapterIndex,
+          viewportHeight: viewportHeight,
+          contentWidth: contentWidth,
+        );
+
         _ensureTextPaginationForChapter(
           chapterIndex: chapterIndex,
           viewportHeight: viewportHeight,
@@ -1361,6 +1855,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         }
         final int safeIndex = pageIndex.clamp(0, ranges.length - 1);
         final range = ranges[safeIndex];
+        final isCurrentPage = chapterIndex == _currentChapterIndex &&
+            safeIndex == _currentPageInChapter;
 
         // Use EFFECTIVE TEXT, not plain text
         final String effectiveText = _chapterEffectiveText[chapterIndex] ??
@@ -1378,7 +1874,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         final int end = range.end.clamp(0, effectiveText.length);
 
         // For mixed text, we just style it as body, title logic is too complex to preserve for now
-        final TextSpan span = _buildPendingAwareSpan(
+        final TextSpan span = _buildReaderSpan(
           text: effectiveText.substring(range.start, end),
           bodyStyle: effectiveTextStyle,
         );
@@ -1390,60 +1886,29 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
               left: 0,
               right: 0,
               bottom: bottomMargin,
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: _buildPageBody(
-                    chapterIndex: chapterIndex,
-                    range: range,
-                    end: end,
-                    effectiveText: effectiveText,
-                    bodySpan: span,
-                    bodyStyle: effectiveTextStyle,
+              child: Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: (e) => _onReaderPointerDown(e.localPosition),
+                onPointerMove: (e) => _onReaderPointerMove(e.localPosition),
+                onPointerUp: (e) => _onReaderPointerUp(
+                    pos: e.localPosition, width: constraints.maxWidth),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: _buildPageBody(
+                      chapterIndex: chapterIndex,
+                      range: range,
+                      end: end,
+                      effectiveText: effectiveText,
+                      bodySpan: span,
+                      bodyStyle: effectiveTextStyle,
+                      isCurrentPage: isCurrentPage,
+                    ),
                   ),
                 ),
               ),
             ),
-            if (!_showControls)
-              Positioned.fill(
-                child: Row(
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: () {
-                          _pageController.previousPage(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeOut);
-                        },
-                        child: Container(color: Colors.transparent),
-                      ),
-                    ),
-                    Expanded(
-                      flex: 4,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: _toggleControls,
-                        child: Container(color: Colors.transparent),
-                      ),
-                    ),
-                    Expanded(
-                      flex: 3,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: () {
-                          _pageController.nextPage(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeOut);
-                        },
-                        child: Container(color: Colors.transparent),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
           ],
         );
       },
@@ -1457,52 +1922,55 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     required String effectiveText, // Now using effective text
     required TextSpan bodySpan,
     required TextStyle bodyStyle,
+    required bool isCurrentPage,
   }) {
     final translationProvider = Provider.of<TranslationProvider>(context);
 
     // If we are in translation mode, we trigger translation requests for *visible* paragraphs.
     // But we RENDER what we have in effectiveText (which includes Cached Translations).
 
-    if (translationProvider.applyToReader) {
+    if (translationProvider.applyToReader && isCurrentPage) {
       final plainText = _getPlainTextForChapter(chapterIndex);
       final allParas = _getParagraphsForChapter(chapterIndex, plainText);
 
       if (allParas.isNotEmpty) {
-        // Estimate current paragraph index
-        final effectiveLen = effectiveText.length;
-        final double progress =
-            effectiveLen > 0 ? range.start / effectiveLen : 0;
-        int estimatedIdx = (progress * allParas.length).floor();
-        estimatedIdx = estimatedIdx.clamp(0, allParas.length - 1);
+        final visible = chapterIndex == _currentChapterIndex
+            ? _currentPageParagraphsByIndex()
+            : const <int, String>{};
+        final sorted = visible.keys.toList()..sort();
+        final int startIdx = sorted.isEmpty ? 0 : sorted.first;
+        final int lastVisibleIdx = sorted.isEmpty ? 0 : sorted.last;
+        const int extraCount = 10;
+        final int endIdx =
+            (lastVisibleIdx + extraCount).clamp(0, allParas.length - 1);
 
-        // Trigger the request here.
         WidgetsBinding.instance.addPostFrameCallback((_) {
           final Map<int, String> toRequest = {};
-          final int start = (estimatedIdx - 3).clamp(0, allParas.length);
-          final int endIdx = (start + 18).clamp(0, allParas.length);
-          for (int i = start; i < endIdx; i++) {
+          for (int i = startIdx; i <= endIdx; i++) {
             final t = allParas[i].text;
             if (translationProvider.getCachedTranslation(t) != null) continue;
             if (translationProvider.isTranslationPending(t)) continue;
+            if (translationProvider.isTranslationFailed(t)) continue;
             toRequest[i] = t;
           }
 
-          if (toRequest.length < 18 &&
-              chapterIndex < _chapters.length - 1 &&
-              estimatedIdx >= allParas.length - 3) {
+          final int remainingExtra = extraCount -
+              ((allParas.length - 1) - lastVisibleIdx)
+                  .clamp(0, extraCount)
+                  .toInt();
+          if (remainingExtra > 0 && chapterIndex < _chapters.length - 1) {
             final nextChapterIdx = chapterIndex + 1;
             final nextText = _chapterPlainText[nextChapterIdx];
             if (nextText != null && nextText.isNotEmpty) {
               final nextParas =
                   _getParagraphsForChapter(nextChapterIdx, nextText);
-              for (int i = 0;
-                  i < nextParas.length && toRequest.length < 18;
-                  i++) {
+              for (int i = 0; i < nextParas.length && i < remainingExtra; i++) {
                 final t = nextParas[i].text;
                 if (translationProvider.getCachedTranslation(t) != null) {
                   continue;
                 }
                 if (translationProvider.isTranslationPending(t)) continue;
+                if (translationProvider.isTranslationFailed(t)) continue;
                 toRequest[100000 + i] = t;
               }
             } else {
@@ -1517,7 +1985,76 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       }
     }
 
-    return SizedBox(width: double.infinity, child: Text.rich(bodySpan));
+    return SizedBox(
+      width: double.infinity,
+      child: SelectableText.rich(
+        bodySpan,
+        contextMenuBuilder: (context, state) {
+          final selection = state.textEditingValue.selection;
+          final hasSelection = !selection.isCollapsed;
+          final selectedText = hasSelection
+              ? state.textEditingValue.text
+                  .substring(selection.start, selection.end)
+                  .trim()
+              : '';
+
+          final isDarkBg = _bgColor.computeLuminance() < 0.5;
+          final toolbarBg = isDarkBg
+              ? Colors.white.withOpacity(0.94)
+              : AppColors.deepSpace.withOpacity(0.92);
+          final toolbarFg = isDarkBg ? AppColors.deepSpace : Colors.white;
+          final disabledFg = toolbarFg.withOpacity(0.38);
+          final baseTheme = Theme.of(context);
+          final themed = baseTheme.copyWith(
+            colorScheme: baseTheme.colorScheme.copyWith(
+              surface: toolbarBg,
+              onSurface: toolbarFg,
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(
+                foregroundColor: toolbarFg,
+                disabledForegroundColor: disabledFg,
+                textStyle: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          );
+
+          return Theme(
+            data: themed,
+            child: AdaptiveTextSelectionToolbar(
+              anchors: state.contextMenuAnchors,
+              children: [
+                TextButton(
+                  onPressed: () {
+                    state.copySelection(SelectionChangedCause.toolbar);
+                    state.hideToolbar();
+                  },
+                  child: const Text('复制'),
+                ),
+                TextButton(
+                  onPressed: selectedText.isEmpty
+                      ? null
+                      : () async {
+                          state.hideToolbar();
+                          await _translateSelectedText(selectedText);
+                        },
+                  child: const Text('翻译'),
+                ),
+                TextButton(
+                  onPressed: selectedText.isEmpty
+                      ? null
+                      : () {
+                          state.hideToolbar();
+                          _explainSelectedText(selectedText);
+                        },
+                  child: const Text('解释'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Map<int, String> _paragraphsByIndexForRange({
@@ -1577,13 +2114,16 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }
 
   Map<int, String> _currentPageParagraphsByIndex() {
-    final ranges = _chapterPageRanges[_currentChapterIndex];
+    final ranges = _chapterPlainPageRanges[_currentChapterIndex];
     if (ranges == null || ranges.isEmpty) return {};
 
     final plainText = _getPlainTextForChapter(_currentChapterIndex);
     if (plainText.isEmpty) return {};
 
-    final safeIndex = _currentPageInChapter.clamp(0, ranges.length - 1);
+    final safeIndex = _plainPageIndexForProgress(
+      _currentChapterIndex,
+      _currentPageProgressInChapter,
+    );
     final range = ranges[safeIndex];
     final end = range.end.clamp(0, plainText.length);
 
@@ -1602,11 +2142,16 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     final currentParas = _getParagraphsForChapter(
         _currentChapterIndex, _getPlainTextForChapter(_currentChapterIndex));
 
-    // Find the last index currently visible on screen
+    // Find indices currently visible on screen
     final currentVisible = _currentPageParagraphsByIndex();
-    int lastVisibleIdx = -1;
-    if (currentVisible.isNotEmpty) {
-      lastVisibleIdx = (currentVisible.keys.toList()..sort()).last;
+    final visibleSorted = currentVisible.keys.toList()..sort();
+    final int firstVisibleIdx = visibleSorted.isEmpty ? 0 : visibleSorted.first;
+    final int lastVisibleIdx = visibleSorted.isEmpty ? -1 : visibleSorted.last;
+
+    for (int i = firstVisibleIdx;
+        i <= lastVisibleIdx && i < currentParas.length && out.length < count;
+        i++) {
+      out.add(currentParas[i].text);
     }
 
     // Add subsequent paragraphs from current chapter
@@ -1704,7 +2249,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       int paragraphIndex = _prefetchCursorParagraphIndex;
       final out = <String>[];
 
-      while (out.length < 6 && chapterIndex < _chapters.length) {
+      while (out.length < 10 && chapterIndex < _chapters.length) {
         final plainText = _getPlainTextForChapter(chapterIndex);
         if (plainText.isEmpty) {
           _ensureChapterContentCached(chapterIndex);
@@ -1718,7 +2263,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         }
 
         int i = paragraphIndex.clamp(0, paras.length);
-        for (; i < paras.length && out.length < 6; i++) {
+        for (; i < paras.length && out.length < 10; i++) {
           final t = paras[i].text;
           if (tp.getCachedTranslation(t) != null) continue;
           if (tp.isTranslationPending(t)) continue;
@@ -1756,10 +2301,21 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     _scheduleRelocateAfterTranslationChange(tp);
 
     // IMPORTANT: Get padding from MediaQuery BEFORE removing it
-    final padding = MediaQuery.of(context).padding;
-    final viewPadding = MediaQuery.of(context).viewPadding;
-    _contentTopInset ??= viewPadding.top;
-    _contentBottomInset ??= viewPadding.bottom;
+    final mq = MediaQuery.of(context);
+    final padding = mq.padding;
+    final viewPadding = mq.viewPadding;
+    final systemGestureInsets = mq.systemGestureInsets;
+    double contentTopInset = viewPadding.top;
+    if (padding.top > contentTopInset) contentTopInset = padding.top;
+
+    double contentBottomInset = viewPadding.bottom;
+    if (padding.bottom > contentBottomInset) {
+      contentBottomInset = padding.bottom;
+    }
+    if (systemGestureInsets.bottom > contentBottomInset) {
+      contentBottomInset = systemGestureInsets.bottom;
+    }
+    _contentBottomInset = contentBottomInset;
 
     // Determine dynamic background for bars
     // Ensure fully opaque background as requested
@@ -1782,15 +2338,15 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     }
     readerContent = _buildHorizontalMode(
       EdgeInsets.only(
-        top: _contentTopInset ?? 0,
-        bottom: _contentBottomInset ?? 0,
+        top: contentTopInset,
+        bottom: contentBottomInset,
       ),
     );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarColor: barColor,
         statusBarIconBrightness: systemIconBrightness,
         systemNavigationBarIconBrightness: systemIconBrightness,
         systemNavigationBarContrastEnforced: false,
@@ -1828,9 +2384,9 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
               SlideTransition(
                 position: _topBarOffset,
                 child: Container(
-                  height: padding.top + 64,
+                  height: contentTopInset + 64,
                   padding: EdgeInsets.only(
-                      top: padding.top + 8, left: 16, right: 16),
+                      top: contentTopInset + 8, left: 16, right: 16),
                   color: barColor,
                   child: Row(
                     children: [
@@ -1857,7 +2413,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                   position: _bottomBarOffset,
                   child: Container(
                     padding: EdgeInsets.only(
-                        bottom: padding.bottom + 24,
+                        bottom: contentBottomInset + 24,
                         top: 20,
                         left: 24,
                         right: 24),
@@ -1873,88 +2429,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                         // AI Assistant Pulse Button (Center)
                         GestureDetector(
                           onTap: () {
-                            showModalBottomSheet(
-                              context: context,
-                              backgroundColor: Colors.transparent,
-                              isScrollControlled: true,
-                              isDismissible: false,
-                              enableDrag: true,
-                              shape: const RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.vertical(
-                                      top:
-                                          Radius.circular(AppTokens.radiusLg))),
-                              builder: (sheetContext) {
-                                // Full-screen hit area so a single tap on the reading area can
-                                // both dismiss the AI panel and hide reader HUD.
-                                return SizedBox(
-                                  height:
-                                      MediaQuery.of(sheetContext).size.height,
-                                  child: Stack(
-                                    children: [
-                                      Positioned.fill(
-                                        child: GestureDetector(
-                                          behavior: HitTestBehavior.opaque,
-                                          onTap: () {
-                                            Navigator.pop(sheetContext);
-                                            if (mounted) _hideControls();
-                                          },
-                                          child: Container(
-                                              color: Colors.transparent),
-                                        ),
-                                      ),
-                                      Align(
-                                        alignment: Alignment.bottomCenter,
-                                        child: Consumer<TranslationProvider>(
-                                          builder: (context,
-                                              translationProvider, _) {
-                                            final qaTextCache = <int, String>{
-                                              ..._chapterPlainText,
-                                              ..._chapterEffectiveText,
-                                            };
-
-                                            return AiHud(
-                                              bgColor: _panelBgColor,
-                                              textColor: _panelTextColor,
-                                              translateEnabled:
-                                                  translationProvider
-                                                      .aiTranslateEnabled,
-                                              translateActive:
-                                                  translationProvider
-                                                      .applyToReader,
-                                              onTranslateChanged: (v) async {
-                                                await _setAiTranslateEnabled(
-                                                  provider: translationProvider,
-                                                  enabled: v,
-                                                );
-                                              },
-                                              readAloudEnabled:
-                                                  translationProvider
-                                                      .aiReadAloudEnabled,
-                                              onReadAloudChanged: (v) async {
-                                                await _setAiReadAloudEnabled(
-                                                  provider: translationProvider,
-                                                  enabled: v,
-                                                );
-                                              },
-                                              bookId: widget.bookId,
-                                              chapterTextCache: qaTextCache,
-                                              currentChapterIndex:
-                                                  _currentChapterIndex,
-                                              currentPageInChapter:
-                                                  _currentPageInChapter,
-                                              chapterPageRanges:
-                                                  _chapterPageRanges,
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ).then((_) {
-                              if (mounted) _hideControls();
-                            });
+                            _openAiHud();
                           },
                           child: AnimatedBuilder(
                             animation: _pulseController,

@@ -43,6 +43,7 @@ class MainActivity: FlutterActivity() {
 
     external fun nativeIsAvailable(): Boolean
     external fun nativeInit(modelPath: String)
+    external fun nativeDumpConfig(): String
     external fun nativeChat(prompt: String, maxNewTokens: Int, maxInputTokens: Int): String
     external fun nativeChatStream(prompt: String, maxNewTokens: Int, maxInputTokens: Int, callback: Any)
 
@@ -190,6 +191,31 @@ class MainActivity: FlutterActivity() {
                     } catch (e: UnsatisfiedLinkError) {
                         result.success(false)
                     }
+                }
+                "dumpConfig" -> {
+                    if (!nativeLibLoaded) {
+                        result.error("NOT_AVAILABLE", "Native library not loaded", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        if (!nativeIsAvailable()) {
+                            result.error("NOT_AVAILABLE", "Local LLM not enabled", null)
+                            return@setMethodCallHandler
+                        }
+                    } catch (e: UnsatisfiedLinkError) {
+                        result.error("NOT_AVAILABLE", "Local LLM not available", e.toString())
+                        return@setMethodCallHandler
+                    }
+                    Thread {
+                        try {
+                            val cfg = nativeDumpConfig()
+                            runOnUiThread { result.success(cfg) }
+                        } catch (e: UnsatisfiedLinkError) {
+                            runOnUiThread { result.error("NATIVE_ERR", "Native dumpConfig failed", e.toString()) }
+                        } catch (e: Exception) {
+                            runOnUiThread { result.error("NATIVE_ERR", "Native dumpConfig failed", e.toString()) }
+                        }
+                    }.start()
                 }
                 "logcat" -> {
                     val tag = call.argument<String>("tag") ?: "AirRead"

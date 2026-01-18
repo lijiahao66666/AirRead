@@ -1,4 +1,3 @@
-
 import '../tencentcloud/tencent_api_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
 
@@ -8,7 +7,7 @@ class ChatStreamChunk {
   final String? reasoningContent;
   final bool isReasoning;
   final bool isComplete;
-  
+
   ChatStreamChunk({
     required this.content,
     this.reasoningContent,
@@ -35,7 +34,7 @@ class HunyuanTextClient {
   @Deprecated('Use chatStream for better UX')
   Future<String> chatOnce({
     required String userText,
-    String model = 'hunyuan-2.0-thinking-20251109',
+    String model = 'hunyuan-2.0-instruct-20251111',
   }) async {
     final resp = await _api.postJson(
       host: _host,
@@ -66,12 +65,11 @@ class HunyuanTextClient {
     }
     return '';
   }
-  
+
   Stream<ChatStreamChunk> chatStream({
     required String userText,
-    String model = 'hunyuan-2.0-thinking-20251109',
+    String model = 'hunyuan-2.0-instruct-20251111',
     List<Map<String, String>>? messages,
-    bool enableSearch = true,  // 新增：是否启用联网搜索
   }) async* {
     final stream = _api.postStream(
       host: _host,
@@ -89,7 +87,7 @@ class HunyuanTextClient {
             [
               {'Role': 'user', 'Content': userText},
             ],
-        if (enableSearch) 'ForceSearchEnhancement': true,  // 启用强制搜索增强
+        'EnableEnhancement': true,
       },
     );
 

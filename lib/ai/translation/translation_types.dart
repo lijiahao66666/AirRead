@@ -13,45 +13,24 @@ class TranslationConfig {
   /// Required.
   final String targetLang;
   final TranslationDisplayMode displayMode;
-  final bool autoExtractGlossary;
 
   const TranslationConfig({
     required this.sourceLang,
     required this.targetLang,
     required this.displayMode,
-    this.autoExtractGlossary = true,
   });
 
   TranslationConfig copyWith({
     String? sourceLang,
     String? targetLang,
     TranslationDisplayMode? displayMode,
-    bool? autoExtractGlossary,
   }) {
     return TranslationConfig(
       sourceLang: sourceLang ?? this.sourceLang,
       targetLang: targetLang ?? this.targetLang,
       displayMode: displayMode ?? this.displayMode,
-      autoExtractGlossary: autoExtractGlossary ?? this.autoExtractGlossary,
     );
   }
-}
-
-@immutable
-class TranslationRequest {
-  final String engineId;
-  final String sourceLang;
-  final String targetLang;
-  final String text;
-  final int glossaryVersion;
-
-  const TranslationRequest({
-    required this.engineId,
-    required this.sourceLang,
-    required this.targetLang,
-    required this.text,
-    required this.glossaryVersion,
-  });
 }
 
 @immutable
@@ -62,18 +41,5 @@ class TranslationResult {
   const TranslationResult({
     required this.text,
     required this.fromCache,
-  });
-}
-
-@immutable
-class TranslationReference {
-  final String type;
-  final String text;
-  final String translation;
-
-  const TranslationReference({
-    required this.type,
-    required this.text,
-    required this.translation,
   });
 }

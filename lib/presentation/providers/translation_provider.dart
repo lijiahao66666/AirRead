@@ -1,18 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
-
-import '../../ai/hunyuan/hunyuan_text_client.dart';
-
-import '../../ai/local_llm/local_llm_client.dart';
 import '../../ai/local_llm/local_translation_engine.dart';
 import '../../ai/hunyuan/hunyuan_translation_engine.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
-import '../../ai/translation/glossary.dart';
 import '../../ai/translation/translation_cache.dart';
 import '../../ai/translation/translation_service.dart';
 import '../../ai/translation/translation_types.dart';
@@ -25,11 +18,9 @@ class TranslationProvider extends ChangeNotifier {
   static const _kCfgApply = 'tr_cfg_apply';
   static const _kAiTranslateEnabled = 'tr_ai_translate_enabled';
   static const _kAiReadAloudEnabled = 'tr_ai_read_aloud_enabled';
-  static const _kAutoGlossary = 'tr_auto_glossary';
 
   final TranslationCache _cache =
       TranslationCache(ttl: const Duration(days: 30));
-  final GlossaryManager _glossary = GlossaryManager();
 
   late TranslationService _service;
   AiModelProvider? _aiModel;
@@ -41,13 +32,11 @@ class TranslationProvider extends ChangeNotifier {
     sourceLang: '',
     targetLang: 'en',
     displayMode: TranslationDisplayMode.bilingual,
-    autoExtractGlossary: true,
   );
 
   bool _applyToReader = false;
   bool _aiTranslateEnabled = false;
   bool _aiReadAloudEnabled = false;
-  bool _autoGlossaryExtractionEnabled = true;
   bool _loaded = false;
 
   Timer? _notifyTimer;
@@ -142,24 +131,8 @@ class TranslationProvider extends ChangeNotifier {
 
     _service = TranslationService(
       cache: _cache,
-      glossary: _glossary,
       engine: engine,
       backend: backend,
-      chatOnce: switch (source) {
-        AiModelSource.local => LocalLlmClient().chatOnce,
-        AiModelSource.online => ({required String userText}) async {
-            final client = HunyuanTextClient(credentials: creds);
-            final buffer = StringBuffer();
-            await for (final chunk
-                in client.chatStream(userText: userText, enableSearch: false)) {
-              if (chunk.content.isNotEmpty) {
-                buffer.write(chunk.content);
-              }
-            }
-            return buffer.toString();
-          },
-        AiModelSource.none => null,
-      },
     );
   }
 
@@ -169,12 +142,6 @@ class TranslationProvider extends ChangeNotifier {
   bool get applyToReader => _applyToReader;
   bool get aiTranslateEnabled => _aiTranslateEnabled;
   bool get aiReadAloudEnabled => _aiReadAloudEnabled;
-  bool get autoGlossaryExtractionEnabled => _autoGlossaryExtractionEnabled;
-
-  String get _glossaryKey => 'tr_glossary_terms_$_currentBookId';
-
-  UnmodifiableListView<GlossaryTerm> get glossaryTerms => _glossary.terms;
-  int get glossaryVersion => _glossary.version;
 
   @override
   void dispose() {
@@ -211,8 +178,6 @@ class TranslationProvider extends ChangeNotifier {
 
     _aiTranslateEnabled = prefs.getBool(_kAiTranslateEnabled) ?? false;
     _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
-    _autoGlossaryExtractionEnabled =
-        prefs.getBool(_kAutoGlossary) ?? _autoGlossaryExtractionEnabled;
 
     TranslationDisplayMode displayMode = _config.displayMode;
     if (mode == 'bilingual') displayMode = TranslationDisplayMode.bilingual;
@@ -225,31 +190,8 @@ class TranslationProvider extends ChangeNotifier {
       targetLang:
           (to ?? _config.targetLang).trim().isEmpty ? _config.targetLang : to,
       displayMode: displayMode,
-      autoExtractGlossary: _autoGlossaryExtractionEnabled,
     );
     _applyToReader = _aiTranslateEnabled;
-
-    if (_currentBookId.isNotEmpty) {
-      final glossaryRaw = prefs.getString(_glossaryKey);
-      if (glossaryRaw != null && glossaryRaw.isNotEmpty) {
-        try {
-          final decoded = jsonDecode(glossaryRaw);
-          if (decoded is List) {
-            final terms = decoded
-                .whereType<Map>()
-                .map((m) => GlossaryTerm.fromJson(m.cast<String, dynamic>()))
-                .toList();
-            _glossary.replaceAll(terms);
-          }
-        } catch (_) {
-          _glossary.clear();
-        }
-      } else {
-        _glossary.clear();
-      }
-    } else {
-      _glossary.clear();
-    }
 
     if (!_loaded) {
       _loaded = true;
@@ -268,15 +210,8 @@ class TranslationProvider extends ChangeNotifier {
           : 'translationOnly',
     );
     await prefs.setBool(_kCfgApply, _applyToReader);
-    if (_currentBookId.isNotEmpty) {
-      await prefs.setString(
-        _glossaryKey,
-        jsonEncode(_glossary.terms.map((e) => e.toJson()).toList()),
-      );
-    }
     await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
     await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
-    await prefs.setBool(_kAutoGlossary, _autoGlossaryExtractionEnabled);
   }
 
   Future<void> setSourceLang(String lang) async {
@@ -317,25 +252,6 @@ class TranslationProvider extends ChangeNotifier {
 
   Future<void> setAiReadAloudEnabled(bool value) async {
     _aiReadAloudEnabled = value;
-    notifyListeners();
-    await _savePrefs();
-  }
-
-  Future<void> setAutoGlossaryExtractionEnabled(bool enabled) async {
-    _autoGlossaryExtractionEnabled = enabled;
-    _config = _config.copyWith(autoExtractGlossary: enabled);
-    notifyListeners();
-    await _savePrefs();
-  }
-
-  Future<void> upsertGlossaryTerm(GlossaryTerm term) async {
-    _glossary.addOrUpdate(term);
-    notifyListeners();
-    await _savePrefs();
-  }
-
-  Future<void> removeGlossaryTerm(String source) async {
-    _glossary.removeBySource(source);
     notifyListeners();
     await _savePrefs();
   }
@@ -413,12 +329,11 @@ class TranslationProvider extends ChangeNotifier {
   /// Check if we have a cached translation for a given paragraph text
   String? getCachedTranslation(String text) {
     final normalized = _service.normalizeParagraphText(text);
-    final applied = _glossary.applyToSourceText(normalized);
     final key =
         _service.buildCacheKey(config: _config, paragraphText: normalized);
     final cached = _cache.getSynchronous(key);
     if (cached == null) return null;
-    return _glossary.applyToTranslatedText(cached, applied.placeholderToTarget);
+    return cached;
   }
 
   Future<void> prefetchParagraphs(List<String> nextParagraphs) async {

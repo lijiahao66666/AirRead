@@ -2,8 +2,6 @@ import '../tencentcloud/tencent_api_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
 import '../tencentcloud/tencent_cloud_exception.dart';
 import '../translation/engines/translation_engine.dart';
-import '../translation/translation_types.dart';
-
 
 class HunyuanTranslationEngine implements TranslationEngine {
   static const String _host = 'hunyuan.tencentcloudapi.com';
@@ -31,8 +29,6 @@ class HunyuanTranslationEngine implements TranslationEngine {
     required String sourceLang,
     required String targetLang,
     required List<String> contextSources,
-    required Map<String, String> glossaryPlaceholders,
-    required List<TranslationReference> references,
   }) async {
     final resp = await _api.postJson(
       host: _host,
@@ -59,8 +55,6 @@ class HunyuanTranslationEngine implements TranslationEngine {
     required List<String> texts,
     required String sourceLang,
     required String targetLang,
-    required Map<String, String> glossaryPlaceholders,
-    required List<TranslationReference> references,
   }) async {
     final out = <String>[];
     for (final t in texts) {
@@ -69,13 +63,10 @@ class HunyuanTranslationEngine implements TranslationEngine {
         sourceLang: sourceLang,
         targetLang: targetLang,
         contextSources: const [],
-        glossaryPlaceholders: glossaryPlaceholders,
-        references: references,
       ));
     }
     return out;
   }
-
 
   String _normalizeLang(String lang) {
     final v = lang.trim();
