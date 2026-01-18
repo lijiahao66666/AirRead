@@ -32,8 +32,11 @@ class LocalTranslationEngine extends TranslationEngine {
   Future<String> _chatStreamOnce(String prompt) async {
     final stream = _client.chatStream(
       userText: prompt,
-      maxNewTokens: 768,
+      maxNewTokens: 1024,
       maxInputTokens: 0,
+      temperature: 0.7,
+      topP: 0.6,
+      topK: 20,
     );
 
     final buffer = StringBuffer();
@@ -80,11 +83,55 @@ class LocalTranslationEngine extends TranslationEngine {
     required String targetLang,
     required List<String> contextSources,
   }) {
-    final langFrom = _displayLang(sourceLang, isSource: true);
-    final langTo = _displayLang(targetLang, isSource: false);
+    final sLang = sourceLang.toLowerCase().trim();
+    final tLang = targetLang.toLowerCase().trim();
+    final isZh = sLang.contains('zh') ||
+        sLang == 'cn' ||
+        tLang.contains('zh') ||
+        tLang == 'cn';
 
     final buffer = StringBuffer();
 
+    // 1. Contextual Translation (using Chinese template as per docs usually implies Chinese instruction for context)
+    // Note: If strictly non-ZH context, one might want English, but docs provided Contextual Template in Chinese.
+    // We will stick to Chinese instruction for Contextual if isZh is true, otherwise maybe English?
+    // However, the docs only show one Contextual Template (Chinese).
+    // Let's assume if it involves Chinese, we use Chinese template.
+    // If it's purely foreign (e.g. En->Fr) with context, we might lack a specific template,
+    // but the Non-ZH template "Translate ... into ..." is robust.
+    // Let's use Chinese Contextual Template if isZh is true.
+    if (contextSources.isNotEmpty && isZh) {
+      final langTo = _displayLang(targetLang, isSource: false);
+      for (final ctx in contextSources) {
+        buffer.writeln(_clip(_squashSpaces(ctx), 220));
+      }
+      buffer.writeln();
+      buffer.writeln('参考上面的信息，把下面的文本翻译成$langTo，注意不需要翻译上文，也不要额外解释：');
+      buffer.writeln(text);
+      return buffer.toString().trim();
+    }
+
+    // 2. ZH <=> XX Translation (or Contextual fallback for ZH)
+    if (isZh) {
+      final langTo = _displayLang(targetLang, isSource: false);
+      // If we have context but didn't use the specific template above (maybe just to be safe or if we want to merge logic)
+      // actually let's just use the standard ZH template if context is empty or we handled it.
+      // But wait, if contextSources is NOT empty, we should use context.
+      // My logic above: if (contextSources.isNotEmpty && isZh).
+      // So here isZh is true, but contextSources is empty.
+      buffer.writeln('将以下文本翻译为$langTo，注意只需要输出翻译后的结果，不要额外解释：');
+      buffer.writeln();
+      buffer.writeln(text);
+      return buffer.toString().trim();
+    }
+
+    // 3. XX <=> XX (Non-ZH) Translation
+    // Use English template
+    final langToEn = _displayLangEn(targetLang);
+
+    // If context exists for Non-ZH, we append it at top but use English instruction?
+    // The docs don't specify Non-ZH Contextual.
+    // We'll append context if present, then use standard Non-ZH instruction.
     if (contextSources.isNotEmpty) {
       buffer.writeln('### Context');
       for (final ctx in contextSources) {
@@ -94,11 +141,9 @@ class LocalTranslationEngine extends TranslationEngine {
     }
 
     buffer.writeln(
-        'Translate the following text from $langFrom to $langTo. without additional explanation：');
+        'Translate the following segment into $langToEn, without additional explanation.');
     buffer.writeln();
-
     buffer.writeln(text);
-
     return buffer.toString().trim();
   }
 
@@ -249,5 +294,46 @@ class LocalTranslationEngine extends TranslationEngine {
     };
 
     return map[normalized] ?? s;
+  }
+
+  String _displayLangEn(String input) {
+    final s = input.trim().toLowerCase();
+    if (s.isEmpty) return 'English';
+
+    final Map<String, String> map = {
+      'auto': 'Auto',
+      'zh': 'Chinese',
+      'zh-cn': 'Chinese',
+      'zh-hans': 'Chinese',
+      'zh-hant': 'Traditional Chinese',
+      'zh-tw': 'Traditional Chinese',
+      'en': 'English',
+      'en-us': 'English',
+      'en-gb': 'English',
+      'ja': 'Japanese',
+      'jp': 'Japanese',
+      'ko': 'Korean',
+      'fr': 'French',
+      'de': 'German',
+      'es': 'Spanish',
+      'it': 'Italian',
+      'ru': 'Russian',
+      'pt': 'Portuguese',
+      'pt-br': 'Portuguese',
+      'ar': 'Arabic',
+      'hi': 'Hindi',
+      'th': 'Thai',
+      'vi': 'Vietnamese',
+      'id': 'Indonesian',
+      'tr': 'Turkish',
+    };
+
+    if (map.containsKey(s)) return map[s]!;
+
+    for (final k in map.keys) {
+      if (s.startsWith(k)) return map[k]!;
+    }
+
+    return s;
   }
 }
