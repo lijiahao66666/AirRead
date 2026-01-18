@@ -52,9 +52,9 @@ class AiModelProvider extends ChangeNotifier {
 
   static const String _localModelCosBucket = 'hunyuan-mnn-1256643821';
   static const String _localModelCosRegion = 'ap-guangzhou';
-  static const String _localModelCosObjectKey = 'hunyuan-0.5b-4bit-mnn.zip';
+  static const String _localModelCosObjectKey = 'hunyuan-1.8b-4bit-mnn.zip';
   static const String _localModelModelScopeUrl =
-      'https://www.modelscope.cn/models/lijiahaojj/Hunyuan-0.5B-Instruct-mnn-int4/resolve/master/hunyuan-0.5b-4bit-mnn.zip';
+      'https://www.modelscope.cn/models/lijiahaojj/Hunyuan-0.5B-Instruct-mnn-int4/resolve/master/hunyuan-1.8b-4bit-mnn.zip';
 
   bool _loaded = false;
   AiModelSource _source = AiModelSource.none;
