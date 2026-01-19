@@ -343,20 +343,45 @@ class BookParser {
     final metaItems = ref.Schema?.Package?.Metadata?.MetaItems;
     if (metaItems != null) {
       for (var meta in metaItems) {
-        if (meta.Name == 'cover') {
+        final name = meta.Name?.toLowerCase();
+        if (name == 'cover') {
           coverId = meta.Content;
           break;
         }
       }
     }
 
+    final manifestItems = ref.Schema?.Package?.Manifest?.Items;
+
     if (coverId != null) {
-      final manifestItems = ref.Schema?.Package?.Manifest?.Items;
       if (manifestItems != null) {
+        final normalizedId = coverId.toLowerCase();
         for (var item in manifestItems) {
-          if (item.Id == coverId) {
+          final itemId = item.Id;
+          if (itemId != null && itemId.toLowerCase() == normalizedId) {
             return _readImageByHref(ref, item.Href);
           }
+        }
+      }
+    }
+
+    if (manifestItems != null) {
+      for (final item in manifestItems) {
+        final props = (item.Properties ?? '').toLowerCase();
+        if (props.contains('cover-image')) {
+          final bytes = await _readImageByHref(ref, item.Href);
+          if (bytes != null && bytes.isNotEmpty) return bytes;
+        }
+      }
+
+      for (final item in manifestItems) {
+        final id = (item.Id ?? '').toLowerCase();
+        final href = (item.Href ?? '').toLowerCase();
+        final mediaType = (item.MediaType ?? '').toLowerCase();
+        final isImage = mediaType.startsWith('image/');
+        if (isImage && (id.contains('cover') || href.contains('cover'))) {
+          final bytes = await _readImageByHref(ref, item.Href);
+          if (bytes != null && bytes.isNotEmpty) return bytes;
         }
       }
     }

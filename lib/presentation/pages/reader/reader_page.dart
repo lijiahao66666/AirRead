@@ -61,10 +61,12 @@ abstract class _ReaderChapter {
 
 class _EpubReaderChapter implements _ReaderChapter {
   final EpubChapterRef ref;
-  _EpubReaderChapter(this.ref);
+  final String? _titleOverride;
+  _EpubReaderChapter(this.ref, {String? titleOverride})
+      : _titleOverride = titleOverride;
 
   @override
-  String? get title => ref.Title;
+  String? get title => _titleOverride ?? ref.Title;
 
   @override
   Future<String> readHtmlContent() => ref.readHtmlContent();
@@ -180,15 +182,19 @@ class ReaderPage extends StatefulWidget {
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
-class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
+class _ReaderPageState extends State<ReaderPage>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   bool _showControls = false;
   bool _isLoading = true;
   String? _error;
   String? _currentBookFormat;
+  Book? _currentBook;
   bool _txtTocParsing = false;
   int _txtTocParseToken = 0;
   int? _pendingRestoreChapterIndex;
   int? _pendingRestorePageInChapter;
+  double? _pendingRestoreProgress;
+  bool _popping = false;
 
   // Settings State
   double _fontSize = 18.0;
@@ -247,6 +253,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   final Map<int, int> _chapterPaginationLastMs = {};
   final Map<int, int> _chapterTitleLength = {};
   final Map<int, List<ReaderParagraph>> _chapterParagraphsCache = {};
+  final Map<int, _ReaderChapter> _chapterPlainLoading = {};
+  final Map<int, _ReaderChapter> _chapterHtmlLoading = {};
 
   double _currentPageProgressInChapter = 0;
   double? _lastPaginationViewportHeight;
@@ -279,6 +287,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pageController = PageController(initialPage: 1000);
     _pageViewCenterIndex = 1000;
     // Hide System UI immediately on entry
@@ -319,12 +328,43 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     _loadSettingsAndBook();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _progressSaveTimer?.cancel();
+      _saveProgress();
+      _saveProgressToDb();
+    }
+  }
+
   void _startPulseTimer() {
     _pulseTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       if (mounted) {
         _pulseController.forward().then((_) => _pulseController.reverse());
       }
     });
+  }
+
+  List<_ReaderChapter> _buildEpubChapters(List<EpubChapterRef> roots) {
+    final chapters = <_ReaderChapter>[];
+
+    void walk(List<EpubChapterRef> items, int depth) {
+      for (final c in items) {
+        final rawTitle = (c.Title ?? '').trim();
+        final prefix = depth <= 0 ? '' : List.filled(depth, '　　').join();
+        final displayTitle = rawTitle.isEmpty ? null : '$prefix$rawTitle';
+        chapters.add(_EpubReaderChapter(c, titleOverride: displayTitle));
+        final subs = c.SubChapters;
+        if (subs != null && subs.isNotEmpty) {
+          walk(subs, depth + 1);
+        }
+      }
+    }
+
+    walk(roots, 0);
+    return chapters;
   }
 
   Future<void> _loadSettingsAndBook() async {
@@ -350,12 +390,34 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     if (_chapters.isNotEmpty) {
       String key = 'progress_${widget.bookId}';
       final int legacyChapter = _prefs?.getInt('${key}_index') ?? 0;
-      final int savedHChapter =
+      final int prefChapter =
           _prefs?.getInt('${key}_h_chapter') ?? legacyChapter;
-      final int savedHPage = _prefs?.getInt('${key}_h_page') ?? 0;
+      final int prefPage = _prefs?.getInt('${key}_h_page') ?? 0;
+      final double prefProgress = _prefs?.getDouble('${key}_h_progress') ?? 0.0;
+
+      final int bookChapter = _currentBook?.readingChapter ?? 0;
+      final int bookPage = _currentBook?.readingPage ?? 0;
+      final double bookProgress = _currentBook?.readingProgress ?? 0.0;
+
+      final bool prefHasProgress = prefChapter != 0 || prefPage != 0;
+      final bool bookHasProgress = bookChapter != 0 || bookPage != 0;
+      final bool prefHasProgressValue = prefHasProgress || prefProgress > 0.0;
+      final bool bookHasProgressValue = bookHasProgress || bookProgress > 0.0;
+
+      final int savedHChapter = prefHasProgressValue
+          ? prefChapter
+          : (bookHasProgressValue ? bookChapter : prefChapter);
+      final int savedHPage = prefHasProgressValue
+          ? prefPage
+          : (bookHasProgressValue ? bookPage : prefPage);
+      final double savedProgress = prefHasProgressValue
+          ? prefProgress
+          : (bookHasProgressValue ? bookProgress : prefProgress);
 
       _pendingRestoreChapterIndex = savedHChapter;
       _pendingRestorePageInChapter = savedHPage;
+      _pendingRestoreProgress =
+          savedProgress > 0.0 ? savedProgress.clamp(0.0, 1.0) : null;
       if (!(_currentBookFormat == 'txt' && _txtTocParsing)) {
         _applyPendingRestore();
       } else {
@@ -385,6 +447,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     _readAloudAnimController.dispose();
     _controlsController.dispose();
     _pulseTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
@@ -411,6 +474,27 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     String key = 'progress_${widget.bookId}';
     await _prefs!.setInt('${key}_h_chapter', _currentChapterIndex);
     await _prefs!.setInt('${key}_h_page', _currentPageInChapter);
+    await _prefs!.setDouble(
+        '${key}_h_progress', _currentPageProgressInChapter.clamp(0.0, 1.0));
+  }
+
+  Future<void> _saveProgressToDb() async {
+    if (!mounted) return;
+    try {
+      final booksProvider = Provider.of<BooksProvider>(context, listen: false);
+      await booksProvider.saveReadingProgress(
+        bookId: widget.bookId,
+        chapterIndex: _currentChapterIndex,
+        pageInChapter: _currentPageInChapter,
+        progress: _currentPageProgressInChapter.clamp(0.0, 1.0),
+      );
+      _currentBook = _currentBook?.copyWith(
+        readingChapter: _currentChapterIndex,
+        readingPage: _currentPageInChapter,
+        readingProgress: _currentPageProgressInChapter.clamp(0.0, 1.0),
+        lastRead: DateTime.now(),
+      );
+    } catch (_) {}
   }
 
   void _saveProgressDebounced() {
@@ -418,7 +502,19 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     _progressSaveTimer?.cancel();
     _progressSaveTimer = Timer(const Duration(milliseconds: 500), () {
       _saveProgress();
+      _saveProgressToDb();
     });
+  }
+
+  Future<void> _popReader() async {
+    if (_popping) return;
+    _popping = true;
+    _progressSaveTimer?.cancel();
+    await _saveProgress();
+    await _saveProgressToDb();
+    await _saveSettings();
+    if (!mounted) return;
+    Navigator.pop(context);
   }
 
   Future<void> _loadBookContent() async {
@@ -436,6 +532,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       }
       return;
     }
+    _currentBook = book;
 
     try {
       final format = book.format.toLowerCase();
@@ -471,7 +568,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
         if (epub != null) {
           final refs = await epub.getChapters();
-          final chapters = refs.map((c) => _EpubReaderChapter(c)).toList();
+          final chapters = _buildEpubChapters(refs);
           if (mounted) {
             setState(() {
               _chapters = chapters;
@@ -493,6 +590,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
               _chapterPaginationLastMs.clear();
               _chapterTitleLength.clear();
               _chapterParagraphsCache.clear();
+              _chapterPlainLoading.clear();
+              _chapterHtmlLoading.clear();
               _chapterPageCounts.clear();
               _isLoading = false;
             });
@@ -546,6 +645,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
             _chapterPaginationLastMs.clear();
             _chapterTitleLength.clear();
             _chapterParagraphsCache.clear();
+            _chapterPlainLoading.clear();
+            _chapterHtmlLoading.clear();
             _isLoading = false;
           });
         }
@@ -566,6 +667,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
             _chapterPaginationLastMs.clear();
             _chapterTitleLength.clear();
             _chapterParagraphsCache.clear();
+            _chapterPlainLoading.clear();
+            _chapterHtmlLoading.clear();
           });
           _applyPendingRestore();
           if (_pageController.hasClients) {
@@ -631,15 +734,30 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     return bomOffset;
   }
 
-  void _applyPendingRestore() {
-    if (_chapters.isEmpty) return;
+  bool _applyPendingRestore() {
+    if (_chapters.isEmpty) return false;
     final ch = _pendingRestoreChapterIndex;
     final pg = _pendingRestorePageInChapter;
-    if (ch == null || pg == null) return;
-    _currentChapterIndex = ch.clamp(0, _chapters.length - 1);
-    _currentPageInChapter = pg.clamp(0, 999999);
-    _pendingRestoreChapterIndex = null;
-    _pendingRestorePageInChapter = null;
+    if (ch == null || pg == null) return false;
+
+    final nextChapter = ch.clamp(0, _chapters.length - 1);
+    final nextPage = pg.clamp(0, 999999);
+    final changed = nextChapter != _currentChapterIndex ||
+        nextPage != _currentPageInChapter;
+
+    void apply() {
+      _currentChapterIndex = nextChapter;
+      _currentPageInChapter = nextPage;
+      _pendingRestoreChapterIndex = null;
+      _pendingRestorePageInChapter = null;
+    }
+
+    if (mounted) {
+      setState(apply);
+    } else {
+      apply();
+    }
+    return changed;
   }
 
   String _txtNormalizeHeadingTitle(String raw) {
@@ -1053,7 +1171,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
     if (moved) return;
     if (downMs == null) return;
-    if (_showControls) return;
     if (width <= 0) return;
     if (!_pageController.hasClients) return;
 
@@ -1061,21 +1178,25 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     if (elapsed > 350) return;
 
     final x = pos.dx.clamp(0, width);
-    if (x <= width * 0.3) {
+    final isLeft = x <= width * 0.3;
+    final isRight = x >= width * 0.7;
+
+    if (!isLeft && !isRight) {
+      _toggleControls();
+      return;
+    }
+
+    if (isLeft) {
       _pageController.previousPage(
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
       return;
     }
-    if (x >= width * 0.7) {
-      _pageController.nextPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-      return;
-    }
-    _toggleControls();
+    _pageController.nextPage(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
   }
 
   Future<void> _openAiHud({
@@ -1420,6 +1541,10 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
     String text = html;
 
+    text = text.replaceAll(
+      RegExp(r'<(script|style)[^>]*>[\s\S]*?</\1>', caseSensitive: false),
+      ' ',
+    );
     text = text.replaceAll(RegExp(r'</p\s*>', caseSensitive: false), '\n\n');
     text = text.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
     text =
@@ -1436,19 +1561,21 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     final parts = text.split(RegExp(r'\n+'));
     final buffer = StringBuffer();
     int titleLength = 0;
+    bool firstWritten = false;
     for (int i = 0; i < parts.length; i++) {
       final raw = parts[i].trim();
       if (raw.isEmpty) continue;
-      final bool isTitle = i == 0;
+      if (firstWritten) {
+        buffer.write('\n\n');
+      }
+      final bool isTitle = !firstWritten;
       final String indent = isTitle ? '' : '　　';
       final String paraText = indent + raw;
       if (isTitle) {
         titleLength = paraText.length;
       }
       buffer.write(paraText);
-      if (i != parts.length - 1) {
-        buffer.write('\n\n');
-      }
+      firstWritten = true;
     }
 
     final result = buffer.toString();
@@ -2114,6 +2241,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }
 
   Future<void> _ensureChapterContentCached(int chapterIndex) async {
+    if (chapterIndex < 0 || chapterIndex >= _chapters.length) return;
     if (_chapterContentCache[chapterIndex] != null ||
         _chapterPlainText[chapterIndex] != null) {
       return;
@@ -2121,27 +2249,56 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
 
     final chapter = _chapters[chapterIndex];
     if (chapter is _TextReaderChapter) {
-      final plain = await chapter.readPlainText();
-      if (!mounted) return;
-      setState(() {
-        _chapterPlainText[chapterIndex] = plain;
-        final t = (chapter.title ?? '').trim();
-        _chapterTitleLength[chapterIndex] = (t.isEmpty ? '正文' : t).length;
-        _chapterParagraphsCache.remove(chapterIndex);
-      });
+      final loading = _chapterPlainLoading[chapterIndex];
+      if (identical(loading, chapter)) return;
+      _chapterPlainLoading[chapterIndex] = chapter;
+      try {
+        final plain = await chapter.readPlainText();
+        if (!mounted) return;
+        if (chapterIndex >= _chapters.length) return;
+        if (!identical(_chapters[chapterIndex], chapter)) return;
+        setState(() {
+          _chapterPlainText[chapterIndex] = plain;
+          final t = (chapter.title ?? '').trim();
+          _chapterTitleLength[chapterIndex] = (t.isEmpty ? '正文' : t).length;
+          _chapterParagraphsCache.remove(chapterIndex);
+        });
+      } finally {
+        if (identical(_chapterPlainLoading[chapterIndex], chapter)) {
+          _chapterPlainLoading.remove(chapterIndex);
+        }
+      }
       return;
     }
 
-    final value = await chapter.readHtmlContent();
-    if (!mounted) return;
-    setState(() {
-      _chapterContentCache[chapterIndex] = value;
-    });
+    final loading = _chapterHtmlLoading[chapterIndex];
+    if (identical(loading, chapter)) return;
+    _chapterHtmlLoading[chapterIndex] = chapter;
+    try {
+      String value = '';
+      try {
+        value = await chapter.readHtmlContent();
+      } catch (_) {
+        value = '';
+      }
+      if (!mounted) return;
+      if (chapterIndex >= _chapters.length) return;
+      if (!identical(_chapters[chapterIndex], chapter)) return;
+      setState(() {
+        _chapterContentCache[chapterIndex] = value;
+      });
+    } finally {
+      if (identical(_chapterHtmlLoading[chapterIndex], chapter)) {
+        _chapterHtmlLoading.remove(chapterIndex);
+      }
+    }
   }
 
   void _showTableOfContents() {
     const double itemExtent = 56;
-    final int targetIndex = _currentChapterIndex.clamp(0, _chapters.length);
+    final int targetIndex = _chapters.isEmpty
+        ? 0
+        : _currentChapterIndex.clamp(0, _chapters.length - 1);
     final double initialOffset =
         ((targetIndex - 3).clamp(0, 999999) * itemExtent).toDouble();
     final ScrollController scrollController =
@@ -2518,14 +2675,14 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
             // Force jump back to center to allow infinite scroll
 
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (_pageController.hasClients) {
-                if (mounted && _pageViewCenterIndex != 1000) {
-                  setState(() {
-                    _pageViewCenterIndex = 1000;
-                  });
-                }
-                _pageController.jumpToPage(1000);
+              if (!_pageController.hasClients) return;
+              if (!mounted) return;
+              if (_pageViewCenterIndex != 1000) {
+                setState(() {
+                  _pageViewCenterIndex = 1000;
+                });
               }
+              _pageController.jumpToPage(1000);
             });
           },
           itemBuilder: (context, index) {
@@ -2569,15 +2726,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     if (chapter is _TextReaderChapter) {
       final cachedPlain = _chapterPlainText[chapterIndex];
       if (cachedPlain == null) {
-        chapter.readPlainText().then((value) {
-          if (!mounted) return;
-          setState(() {
-            _chapterPlainText[chapterIndex] = value;
-            final t = (chapter.title ?? '').trim();
-            _chapterTitleLength[chapterIndex] = (t.isEmpty ? '正文' : t).length;
-            _chapterParagraphsCache.remove(chapterIndex);
-          });
-        });
+        _ensureChapterContentCached(chapterIndex);
         return LayoutBuilder(
           builder: (context, constraints) {
             return Listener(
@@ -2594,12 +2743,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     } else {
       final content = _chapterContentCache[chapterIndex];
       if (content == null) {
-        chapter.readHtmlContent().then((value) {
-          if (!mounted) return;
-          setState(() {
-            _chapterContentCache[chapterIndex] = value;
-          });
-        });
+        _ensureChapterContentCached(chapterIndex);
         return LayoutBuilder(
           builder: (context, constraints) {
             return Listener(
@@ -2688,14 +2832,76 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
             );
           }
         }
+        final String effectiveText =
+            displayEffectiveText ?? _getPlainTextForChapter(chapterIndex);
+
+        final pendingProgress = _pendingRestoreProgress;
+        if (pendingProgress != null && chapterIndex == _currentChapterIndex) {
+          final len = effectiveText.length;
+          final complete =
+              _chapterTextPaginationComplete[chapterIndex] ?? false;
+          if (len > 0) {
+            final int target =
+                (pendingProgress.clamp(0.0, 1.0) * len).round().clamp(0, len);
+            final int lastEnd = displayRanges.last.end;
+            if (lastEnd < target && !complete) {
+              _scheduleTextPaginationForChapter(
+                chapterIndex: chapterIndex,
+                viewportHeight: viewportHeight,
+                contentWidth: contentWidth,
+                minPages: (displayRanges.length + 30).clamp(30, 999999),
+              );
+              return const Center(child: CircularProgressIndicator());
+            }
+          }
+
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            if (_pendingRestoreProgress != pendingProgress) return;
+            setState(() {
+              _relocateCurrentPageToProgress(pendingProgress);
+              _pageViewCenterIndex = 1000;
+              _pendingRestoreProgress = null;
+            });
+            if (_pageController.hasClients) {
+              _pageController.jumpToPage(1000);
+            }
+          });
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final bool isCenterCurrent = chapterIndex == _currentChapterIndex &&
+            pageIndex == _currentPageInChapter;
+        if (isCenterCurrent && pageIndex >= displayRanges.length) {
+          final complete =
+              _chapterTextPaginationComplete[chapterIndex] ?? false;
+          if (complete) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              if (_currentChapterIndex != chapterIndex) return;
+              final latest = _chapterPageRanges[chapterIndex] ??
+                  _chapterFallbackPageRanges[chapterIndex];
+              final int latestLen = latest?.length ?? 0;
+              if (latestLen <= 0) return;
+              final int nextPage =
+                  _currentPageInChapter.clamp(0, latestLen - 1);
+              if (nextPage == _currentPageInChapter) return;
+              setState(() {
+                _currentPageInChapter = nextPage;
+                _pageViewCenterIndex = 1000;
+              });
+              if (_pageController.hasClients) {
+                _pageController.jumpToPage(1000);
+              }
+            });
+          }
+          return const Center(child: CircularProgressIndicator());
+        }
+
         final int safeIndex = pageIndex.clamp(0, displayRanges.length - 1);
         final range = displayRanges[safeIndex];
         final isCurrentPage = chapterIndex == _currentChapterIndex &&
             safeIndex == _currentPageInChapter;
-
-        // Use EFFECTIVE TEXT, not plain text
-        final String effectiveText =
-            displayEffectiveText ?? _getPlainTextForChapter(chapterIndex);
 
         if (chapterIndex == _currentChapterIndex &&
             pageIndex == _currentPageInChapter) {
@@ -3223,131 +3429,127 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         systemNavigationBarIconBrightness: systemIconBrightness,
         systemNavigationBarContrastEnforced: false,
       ),
-      child: MediaQuery.removePadding(
-        context: context,
-        removeTop: true,
-        child: Scaffold(
-          resizeToAvoidBottomInset: false,
-          backgroundColor: Colors.transparent,
-          body: Stack(
-            children: [
-              Container(color: _bgColor),
-
-              if (_isLoading)
-                const Center(child: CircularProgressIndicator())
-              else if (_error != null)
-                Center(
-                    child: Text(_error!,
-                        style: const TextStyle(color: Colors.red)))
-              else
-                readerContent,
-
-              // Overlay to dismiss controls when clicking content
-              if (_showControls)
-                Positioned.fill(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: _toggleControls,
-                    child: Container(color: Colors.transparent),
+      child: PopScope(
+        canPop: false,
+        onPopInvoked: (didPop) {
+          if (didPop) return;
+          _popReader();
+        },
+        child: MediaQuery.removePadding(
+          context: context,
+          removeTop: true,
+          child: Scaffold(
+            resizeToAvoidBottomInset: false,
+            backgroundColor: Colors.transparent,
+            body: Stack(
+              children: [
+                Container(color: _bgColor),
+                if (_isLoading)
+                  const Center(child: CircularProgressIndicator())
+                else if (_error != null)
+                  Center(
+                      child: Text(_error!,
+                          style: const TextStyle(color: Colors.red)))
+                else
+                  readerContent,
+                if (_showControls)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: _toggleControls,
+                      child: Container(color: Colors.transparent),
+                    ),
                   ),
-                ),
-
-              // Top Bar
-              SlideTransition(
-                position: _topBarOffset,
-                child: Container(
-                  height: contentTopInset + 64,
-                  padding: EdgeInsets.only(
-                      top: contentTopInset + 8, left: 16, right: 16),
-                  color: barColor,
-                  child: Row(
-                    children: [
-                      InkWell(
-                        onTap: () => Navigator.pop(context),
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Icon(Icons.arrow_back,
-                              color: iconColor, size: 24),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Bottom Bar
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: SlideTransition(
-                  position: _bottomBarOffset,
+                SlideTransition(
+                  position: _topBarOffset,
                   child: Container(
+                    height: contentTopInset + 64,
                     padding: EdgeInsets.only(
-                        bottom: contentBottomInset + 24,
-                        top: 20,
-                        left: 24,
-                        right: 24),
+                        top: contentTopInset + 8, left: 16, right: 16),
                     color: barColor,
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _buildFlatButton(
-                            icon: Icons.menu_rounded,
-                            onTap: _showTableOfContents,
-                            tooltip: '目录'),
-
-                        // AI Assistant Pulse Button (Center)
-                        GestureDetector(
-                          onTap: () {
-                            _openAiHud();
-                          },
-                          child: AnimatedBuilder(
-                            animation: _pulseController,
-                            builder: (context, child) {
-                              return Container(
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppColors.techBlue.withOpacity(
-                                          0.4 * _pulseController.value),
-                                      blurRadius:
-                                          10 + (10 * _pulseController.value),
-                                      spreadRadius: 2 * _pulseController.value,
-                                    ),
-                                  ],
-                                ),
-                                child: child,
-                              );
-                            },
-                            child: Container(
-                              width: 48, height: 48,
-                              decoration: const BoxDecoration(
-                                color: Colors.transparent,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.auto_awesome,
-                                  size: 24,
-                                  color: AppColors.techBlue), // Standard size
-                            ),
+                        InkWell(
+                          onTap: _popReader,
+                          child: SizedBox(
+                            width: 48,
+                            height: 48,
+                            child: Icon(Icons.arrow_back,
+                                color: iconColor, size: 24),
                           ),
                         ),
-
-                        // Settings Button (Right)
-                        _buildFlatButton(
-                            icon: Icons.text_fields_rounded,
-                            onTap: _showSettings,
-                            tooltip: '阅读设置'),
                       ],
                     ),
                   ),
                 ),
-              ),
-
-              _buildReadAloudFloatingButton(),
-            ],
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: SlideTransition(
+                    position: _bottomBarOffset,
+                    child: Container(
+                      padding: EdgeInsets.only(
+                          bottom: contentBottomInset + 24,
+                          top: 20,
+                          left: 24,
+                          right: 24),
+                      color: barColor,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildFlatButton(
+                              icon: Icons.menu_rounded,
+                              onTap: _showTableOfContents,
+                              tooltip: '目录'),
+                          GestureDetector(
+                            onTap: () {
+                              _openAiHud();
+                            },
+                            child: AnimatedBuilder(
+                              animation: _pulseController,
+                              builder: (context, child) {
+                                return Container(
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: AppColors.techBlue.withOpacity(
+                                            0.4 * _pulseController.value),
+                                        blurRadius:
+                                            10 + (10 * _pulseController.value),
+                                        spreadRadius:
+                                            2 * _pulseController.value,
+                                      ),
+                                    ],
+                                  ),
+                                  child: child,
+                                );
+                              },
+                              child: Container(
+                                width: 48,
+                                height: 48,
+                                decoration: const BoxDecoration(
+                                  color: Colors.transparent,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.auto_awesome,
+                                    size: 24, color: AppColors.techBlue),
+                              ),
+                            ),
+                          ),
+                          _buildFlatButton(
+                              icon: Icons.text_fields_rounded,
+                              onTap: _showSettings,
+                              tooltip: '阅读设置'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                _buildReadAloudFloatingButton(),
+              ],
+            ),
           ),
         ),
       ),

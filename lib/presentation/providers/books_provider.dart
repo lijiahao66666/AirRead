@@ -257,4 +257,34 @@ class BooksProvider extends ChangeNotifier {
     if (kIsWeb) return;
     await _dbHelper.saveReadingSettings(fontSize, lineHeight);
   }
+
+  Future<void> saveReadingProgress({
+    required String bookId,
+    required int chapterIndex,
+    required int pageInChapter,
+    required double progress,
+  }) async {
+    final index = _books.indexWhere((b) => b.id == bookId);
+    if (index == -1) return;
+
+    final now = DateTime.now();
+    final updated = _books[index].copyWith(
+      readingChapter: chapterIndex,
+      readingPage: pageInChapter,
+      readingProgress: progress,
+      lastRead: now,
+    );
+
+    _books[index] = updated;
+
+    try {
+      if (kIsWeb) {
+        await _webDbHelper.insertBook(updated);
+      } else {
+        await _dbHelper.updateBook(updated);
+      }
+    } catch (_) {}
+
+    notifyListeners();
+  }
 }

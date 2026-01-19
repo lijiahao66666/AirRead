@@ -18,7 +18,8 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
 
-    return await openDatabase(path, version: 2, onCreate: _createDB, onUpgrade: _upgradeDB);
+    return await openDatabase(path,
+        version: 4, onCreate: _createDB, onUpgrade: _upgradeDB);
   }
 
   Future _createDB(Database db, int version) async {
@@ -34,7 +35,10 @@ class DatabaseHelper {
       import_date INTEGER NOT NULL,
       current_page INTEGER DEFAULT 0,
       percentage REAL DEFAULT 0.0,
-      last_read INTEGER
+      last_read INTEGER,
+      reading_chapter INTEGER DEFAULT 0,
+      reading_page INTEGER DEFAULT 0,
+      reading_progress REAL DEFAULT 0.0
     )
     ''';
 
@@ -58,6 +62,22 @@ class DatabaseHelper {
       )
       ''';
       await db.execute(settingsTable);
+    }
+    if (oldVersion < 3) {
+      try {
+        await db.execute(
+            'ALTER TABLE books ADD COLUMN reading_chapter INTEGER DEFAULT 0');
+      } catch (_) {}
+      try {
+        await db.execute(
+            'ALTER TABLE books ADD COLUMN reading_page INTEGER DEFAULT 0');
+      } catch (_) {}
+    }
+    if (oldVersion < 4) {
+      try {
+        await db.execute(
+            'ALTER TABLE books ADD COLUMN reading_progress REAL DEFAULT 0.0');
+      } catch (_) {}
     }
   }
 

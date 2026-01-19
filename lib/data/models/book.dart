@@ -12,6 +12,9 @@ class Book {
   final int currentPage;
   final double percentage;
   final DateTime? lastRead;
+  final int readingChapter;
+  final int readingPage;
+  final double readingProgress;
   final Uint8List? coverBytes;
   final Uint8List? fileBytes;
 
@@ -25,10 +28,13 @@ class Book {
     this.totalPages = 0,
     required this.importDate,
     this.currentPage = 0,
-      this.percentage = 0.0,
-      this.lastRead,
-      this.coverBytes,
-      this.fileBytes,
+    this.percentage = 0.0,
+    this.lastRead,
+    this.readingChapter = 0,
+    this.readingPage = 0,
+    this.readingProgress = 0.0,
+    this.coverBytes,
+    this.fileBytes,
   });
 
   // Convert to Map for Database
@@ -45,6 +51,9 @@ class Book {
       'current_page': currentPage,
       'percentage': percentage,
       'last_read': lastRead?.millisecondsSinceEpoch,
+      'reading_chapter': readingChapter,
+      'reading_page': readingPage,
+      'reading_progress': readingProgress,
     };
   }
 
@@ -64,6 +73,9 @@ class Book {
       lastRead: map['last_read'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['last_read'])
           : null,
+      readingChapter: map['reading_chapter'] ?? 0,
+      readingPage: map['reading_page'] ?? 0,
+      readingProgress: (map['reading_progress'] ?? 0.0) * 1.0,
     );
   }
 
@@ -79,6 +91,9 @@ class Book {
     int? currentPage,
     double? percentage,
     DateTime? lastRead,
+    int? readingChapter,
+    int? readingPage,
+    double? readingProgress,
     Uint8List? coverBytes,
     Uint8List? fileBytes,
   }) {
@@ -94,6 +109,9 @@ class Book {
       currentPage: currentPage ?? this.currentPage,
       percentage: percentage ?? this.percentage,
       lastRead: lastRead ?? this.lastRead,
+      readingChapter: readingChapter ?? this.readingChapter,
+      readingPage: readingPage ?? this.readingPage,
+      readingProgress: readingProgress ?? this.readingProgress,
       coverBytes: coverBytes ?? this.coverBytes,
       fileBytes: fileBytes ?? this.fileBytes,
     );
