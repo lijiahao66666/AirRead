@@ -8,6 +8,7 @@ import 'presentation/pages/bookshelf/bookshelf_page.dart';
 import 'presentation/providers/ai_model_provider.dart';
 import 'presentation/providers/books_provider.dart';
 import 'presentation/providers/translation_provider.dart';
+import 'presentation/providers/qa_stream_provider.dart';
 
 import 'package:flutter/services.dart';
 
@@ -36,6 +37,7 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => BooksProvider()),
         ChangeNotifierProvider(create: (_) => AiModelProvider()),
+        ChangeNotifierProvider(create: (_) => QaStreamProvider()),
         ChangeNotifierProxyProvider<AiModelProvider, TranslationProvider>(
           create: (_) => TranslationProvider(),
           update: (_, aiModel, provider) {

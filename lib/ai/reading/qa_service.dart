@@ -42,23 +42,15 @@ String buildOnlineQaPrompt({
       final content = contextService.getContentByScope(contentScope).trim();
       prompt = '请总结以下内容，用清晰的要点列出：\n\n'
           '${content.isEmpty ? '（当前阅读内容为空）' : content}\n\n'
-          '请从以下方面进行总结：\n'
-          '1. 核心情节发展\n'
-          '2. 关键人物及其行为动机\n'
-          '3. 重要的伏笔和线索\n'
-          '4. 情感氛围和主题思想\n\n'
-          '请用简洁、条理清晰的方式输出。';
+          '要求：仅基于内容总结，不要编造。\n'
+          '输出：先列提纲（不超过6条），再给出总结（260字以内）。';
       break;
     case QAType.keyPoints:
       final content = contextService.getContentByScope(contentScope).trim();
       prompt = '请从以下内容中提取关键要点，控制在5条以内：\n\n'
           '${content.isEmpty ? '（当前阅读内容为空）' : content}\n\n'
-          '关键要点应包括：\n'
-          '- 核心事件\n'
-          '- 人物关系变化\n'
-          '- 重要细节和伏笔\n'
-          '- 情节转折点\n\n'
-          '每条要点请用一句话概括。';
+          '要求：仅基于内容提取，不要编造；覆盖事件、人物变化、伏笔线索。\n'
+          '输出：不超过5条，每条一句话。';
       break;
     case QAType.general:
       prompt = contextService.generateQAPrompt(
@@ -86,34 +78,26 @@ String buildLocalQaPrompt({
     case QAType.summary:
       return [
         '/think',
-        '你是阅读助手。请对以下内容做简要总结，避免重复表述。',
+        '你是阅读助手。请仅基于以下内容做简要总结，避免重复表述。',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
         '',
         '要求：列出提纲（不超过6条），然后给出总结（260字以内）。',
-        '输出格式：',
-        '<think>…</think>',
-        '<answer>…</answer>',
       ].join('\n');
     case QAType.keyPoints:
       return [
         '/think',
-        '你是阅读助手。请从以下内容提取关键要点，避免重复表述。',
+        '你是阅读助手。请仅基于以下内容提取关键要点，避免重复表述。',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
         '',
         '要求：筛选关键要点（不超过5条），每条一句话，覆盖事件、人物变化、伏笔线索。',
-        '输出格式：',
-        '<think>…</think>',
-        '<answer>…</answer>',
       ].join('\n');
     case QAType.general:
       final parts = <String>[
         '/think',
         '你是阅读助手。请根据「当前阅读内容」与「历史问答」回答「用户问题」。',
-        '规则：只依据给定内容作答；不确定就说“文中未提及/需要更多上下文”；避免重复输出相同句子。',
-        '输出格式：先输出 <think>…</think>，再输出 <answer>…</answer>。',
-        '',
+        '规则：优先在内容中定位答案并直接回答，必要时引用原文短句作为依据；不要编造；只有确实找不到再说“文中未提及/需要更多上下文”。',
         '【当前阅读内容】',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1200),

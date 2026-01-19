@@ -12,9 +12,11 @@ class LocalTranslationEngine extends TranslationEngine {
 
   static const int _mtHardMaxNewTokens = 512;
   static const int _mtHardMinNewTokens = 64;
+  static const bool _debug =
+      bool.fromEnvironment('AIRREAD_LOCAL_MT_DEBUG', defaultValue: false);
 
   @override
-  String get id => 'local_hunyuan';
+  String get id => 'local_hunyuan_mt_v3';
 
   @override
   Future<String> translate({
@@ -34,8 +36,14 @@ class LocalTranslationEngine extends TranslationEngine {
       sourceLang: sourceLang,
       targetLang: targetLang,
     );
-    return _chatStreamOnce(prompt, maxNewTokens: maxNewTokens)
-        .then(_postProcessModelOutput);
+    return _chatStreamOnce(prompt, maxNewTokens: maxNewTokens).then(
+      (raw) => _postProcessModelOutput(
+        raw,
+        sourceText: text,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+      ),
+    );
   }
 
   int _estimateMaxNewTokens({
@@ -60,13 +68,14 @@ class LocalTranslationEngine extends TranslationEngine {
     String prompt, {
     required int maxNewTokens,
   }) async {
+    final caps = await _computeCaps(maxNewTokens: maxNewTokens);
     final stream = _client.chatStream(
       userText: prompt,
-      maxNewTokens: maxNewTokens <= 0 ? 256 : maxNewTokens,
-      maxInputTokens: 0,
+      maxNewTokens: caps.maxNewTokens,
+      maxInputTokens: caps.maxInputTokens,
       temperature: 0.2,
-      topP: 0.95,
-      topK: 40,
+      topP: 0.9,
+      topK: 50,
       repetitionPenalty: 1.02,
       enableThinking: false,
     );
@@ -128,6 +137,54 @@ class LocalTranslationEngine extends TranslationEngine {
     return completer.future;
   }
 
+  Future<_LocalMtCaps> _computeCaps({required int maxNewTokens}) async {
+    const reserve = 256;
+    const defaultMaxContext = 4096;
+    const hardMaxInputTokens = 3072;
+
+    final ctx = (await _client.getMaxContextTokens()) ?? defaultMaxContext;
+    final usable = ctx - reserve;
+
+    var newTok = maxNewTokens <= 0 ? 256 : maxNewTokens;
+    if (newTok > _mtHardMaxNewTokens) newTok = _mtHardMaxNewTokens;
+    if (newTok < _mtHardMinNewTokens) newTok = _mtHardMinNewTokens;
+
+    if (usable <= 0) {
+      return _LocalMtCaps(
+        maxInputTokens: 512,
+        maxNewTokens: newTok,
+      );
+    }
+
+    if (usable < 320) {
+      final inputTok = (usable * 0.7).floor().clamp(64, usable);
+      final newTok2 = (usable - inputTok).clamp(32, usable);
+      return _LocalMtCaps(
+        maxInputTokens: inputTok,
+        maxNewTokens: newTok2,
+      );
+    }
+
+    final maxNewByContext = usable ~/ 2;
+    if (newTok > maxNewByContext) newTok = maxNewByContext;
+    if (newTok < _mtHardMinNewTokens) newTok = _mtHardMinNewTokens;
+
+    var inputTok = usable - newTok;
+    if (inputTok > hardMaxInputTokens) inputTok = hardMaxInputTokens;
+    if (inputTok < 256) inputTok = 256;
+    if (inputTok + newTok > usable) {
+      newTok = usable - inputTok;
+      if (newTok < _mtHardMinNewTokens) {
+        newTok = _mtHardMinNewTokens;
+      }
+    }
+
+    return _LocalMtCaps(
+      maxInputTokens: inputTok,
+      maxNewTokens: newTok,
+    );
+  }
+
   String _buildPrompt({
     required String text,
     required String sourceLang,
@@ -135,78 +192,64 @@ class LocalTranslationEngine extends TranslationEngine {
     required List<String> contextSources,
   }) {
     final sLang = sourceLang.toLowerCase().trim();
-    final tLang = targetLang.toLowerCase().trim();
-    final isZh = sLang.contains('zh') ||
-        sLang == 'cn' ||
-        tLang.contains('zh') ||
-        tLang == 'cn';
+    final src = text.trimRight();
+    final bool srcLooksZh = RegExp(r'[\u4E00-\u9FFF]').hasMatch(src);
+    final bool srcIsZh = sLang.contains('zh') || sLang == 'cn' || srcLooksZh;
 
-    final buffer = StringBuffer();
-
-    // 1. Contextual Translation (using Chinese template as per docs usually implies Chinese instruction for context)
-    // Note: If strictly non-ZH context, one might want English, but docs provided Contextual Template in Chinese.
-    // We will stick to Chinese instruction for Contextual if isZh is true, otherwise maybe English?
-    // However, the docs only show one Contextual Template (Chinese).
-    // Let's assume if it involves Chinese, we use Chinese template.
-    // If it's purely foreign (e.g. En->Fr) with context, we might lack a specific template,
-    // but the Non-ZH template "Translate ... into ..." is robust.
-    // Let's use Chinese Contextual Template if isZh is true.
-    if (contextSources.isNotEmpty && isZh) {
-      final langTo = _displayLang(targetLang, isSource: false);
-      for (final ctx in contextSources) {
-        buffer.writeln(_clip(_squashSpaces(ctx), 140));
-      }
-      buffer.writeln();
-      buffer.writeln('参考上面的信息，把下面的文本翻译成$langTo，注意不需要翻译上文，也不要额外解释：');
-      buffer.writeln(text.trimRight());
-      return buffer.toString().trim();
-    }
-
-    // 2. ZH <=> XX Translation (or Contextual fallback for ZH)
-    if (isZh) {
-      final langTo = _displayLang(targetLang, isSource: false);
-      // If we have context but didn't use the specific template above (maybe just to be safe or if we want to merge logic)
-      // actually let's just use the standard ZH template if context is empty or we handled it.
-      // But wait, if contextSources is NOT empty, we should use context.
-      // My logic above: if (contextSources.isNotEmpty && isZh).
-      // So here isZh is true, but contextSources is empty.
-      buffer.writeln('将以下文本翻译为$langTo，注意只需要输出翻译后的结果，不要额外解释：');
-      buffer.writeln();
-      buffer.writeln(text.trimRight());
-      return buffer.toString().trim();
-    }
-
-    // 3. XX <=> XX (Non-ZH) Translation
-    // Use English template
-    final langToEn = _displayLangEn(targetLang);
-
-    // If context exists for Non-ZH, we append it at top but use English instruction?
-    // The docs don't specify Non-ZH Contextual.
-    // We'll append context if present, then use standard Non-ZH instruction.
     if (contextSources.isNotEmpty) {
-      buffer.writeln('### Context');
-      for (final ctx in contextSources) {
-        buffer.writeln(_clip(_squashSpaces(ctx), 140));
-      }
-      buffer.writeln();
+      final langTo = _displayLang(targetLang, isSource: false);
+      final ctx = contextSources
+          .map((e) => _clip(_squashSpaces(e), 140))
+          .where((e) => e.trim().isNotEmpty)
+          .join('\n');
+      return [
+        ctx,
+        '参考上面的信息，把下面的文本翻译成$langTo。只输出译文，并用<answer>...</answer>包裹，不要翻译上文，不要额外解释：',
+        src,
+      ].join('\n');
     }
 
-    buffer.writeln(
-        'Translate the following segment into $langToEn, without additional explanation.');
-    buffer.writeln();
-    buffer.writeln(text.trimRight());
-    return buffer.toString().trim();
+    if (srcIsZh) {
+      final langTo = _displayLang(targetLang, isSource: false);
+      return [
+        '将以下文本翻译为$langTo。只输出译文，并用<answer>...</answer>包裹，不要额外解释：',
+        '',
+        src,
+      ].join('\n');
+    }
+
+    final langToEn = _displayLangEn(targetLang);
+    return [
+      'Translate the following segment into $langToEn. Respond with the translation only, enclosed in <answer>...</answer>, without additional explanation.',
+      '',
+      src,
+    ].join('\n');
   }
 
-  String _postProcessModelOutput(String input) {
+  String _postProcessModelOutput(
+    String input, {
+    required String sourceText,
+    required String sourceLang,
+    required String targetLang,
+  }) {
     final raw = input.trim();
     if (raw.isEmpty) return '';
 
-    String s = raw;
+    String s = _stripSpecialTokens(raw);
+
+    if (_debug) {
+      // ignore: avoid_print
+      print('[LocalTranslationEngine] raw=${raw.length} cleaned=${s.length}');
+    }
 
     final answerFromRaw = _extractAnswerTag(s);
     if (answerFromRaw != null && answerFromRaw.trim().isNotEmpty) {
-      return _cleanupTranslation(answerFromRaw);
+      return _cleanupTranslation(
+        answerFromRaw,
+        sourceText: sourceText,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+      );
     }
 
     s = _stripThinkTags(s);
@@ -217,7 +260,12 @@ class LocalTranslationEngine extends TranslationEngine {
 
     final answer = _extractAnswerTag(s);
     if (answer != null && answer.trim().isNotEmpty) {
-      return _cleanupTranslation(answer);
+      return _cleanupTranslation(
+        answer,
+        sourceText: sourceText,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+      );
     }
 
     final extracted = _extractAfterMarker(
@@ -225,17 +273,35 @@ class LocalTranslationEngine extends TranslationEngine {
       markers: const ['译文：', '译文:', 'Translation:', 'translation:'],
     );
     if (extracted != null && extracted.trim().isNotEmpty) {
-      return _cleanupTranslation(extracted);
+      return _cleanupTranslation(
+        extracted,
+        sourceText: sourceText,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+      );
     }
 
-    return _cleanupTranslation(s);
+    s = _stripPromptEcho(s);
+    return _cleanupTranslation(
+      s,
+      sourceText: sourceText,
+      sourceLang: sourceLang,
+      targetLang: targetLang,
+    );
   }
 
-  String _cleanupTranslation(String input) {
-    var s = input.trim();
+  String _cleanupTranslation(
+    String input, {
+    required String sourceText,
+    required String sourceLang,
+    required String targetLang,
+  }) {
+    var s = _stripSpecialTokens(input.trim());
     s = _stripThinkTags(s);
     s = s.replaceAll('<answer>', '').replaceAll('</answer>', '');
     s = s.replaceAll(RegExp(r'</?\[[^\]]+\]>'), '');
+    s = _stripPromptEcho(s);
+    s = _stripSourceEcho(s, sourceText: sourceText);
     s = s.trim();
 
     final extracted = _extractAfterMarker(
@@ -246,6 +312,73 @@ class LocalTranslationEngine extends TranslationEngine {
       s = extracted.trim();
     }
 
+    s = _pickBestCandidate(
+      s,
+      sourceText: sourceText,
+      sourceLang: sourceLang,
+      targetLang: targetLang,
+    );
+
+    return s.trim();
+  }
+
+  String _stripPromptEcho(String input) {
+    var s = input.trim();
+    if (s.isEmpty) return s;
+    final markers = <String>[
+      '将以下文本翻译为',
+      '将以下文本翻译成',
+      '把下面的文本翻译成',
+      '把下面的文本翻译为',
+      'Translate the following segment into',
+      '参考上面的信息，把下面的文本翻译成',
+    ];
+    for (final m in markers) {
+      final idx = s.lastIndexOf(m);
+      if (idx >= 0) {
+        final after = s.substring(idx);
+        final sep = after.indexOf('\n\n');
+        if (sep >= 0) {
+          s = after.substring(sep + 2).trim();
+        } else {
+          final nl = after.indexOf('\n');
+          if (nl >= 0) {
+            s = after.substring(nl + 1).trim();
+          }
+        }
+      }
+    }
+    return s.trim();
+  }
+
+  String _stripSourceEcho(String input, {required String sourceText}) {
+    var s = input.trim();
+    final src = sourceText.trim();
+    if (s.isEmpty || src.isEmpty) return s;
+    if (!s.contains(src)) return s;
+
+    final removed = s.replaceAll(src, '').trim();
+    if (removed.isEmpty) return s;
+    if (_isMostlyPunctOrSpace(removed)) return s;
+    if (removed.length < 6 && removed.length < (s.length * 0.4)) return s;
+    return removed;
+  }
+
+  String _stripSpecialTokens(String input) {
+    var s = input;
+    s = s.replaceAll(RegExp(r'<\|[^>]+\|>'), '');
+    s = s.replaceAll(RegExp(r'<0x[0-9A-Fa-f]{2}>'), '');
+    s = s.replaceAll('\u0120', ' ');
+    s = s.replaceAll('\u010a', '\n');
+    s = s.replaceAll('\u2581', ' ');
+    s = s.replaceAll('\u200B', '');
+    s = s.replaceAll('\u2060', '');
+    s = s.replaceAll('\uFEFF', '');
+    s = s.replaceAll('\uFFFD', '');
+    s = s.replaceAll('\u00A0', ' ');
+    s = s.replaceAll(RegExp(r'[\u0000-\u0008\u000B\u000C\u000E-\u001F]'), '');
+    s = s.replaceAll(RegExp(r'[ \t]+'), ' ');
+    s = s.replaceAll(RegExp(r'\n{3,}'), '\n\n');
     return s.trim();
   }
 
@@ -387,4 +520,205 @@ class LocalTranslationEngine extends TranslationEngine {
 
     return s;
   }
+
+  String _pickBestCandidate(
+    String input, {
+    required String sourceText,
+    required String sourceLang,
+    required String targetLang,
+  }) {
+    final src = sourceText.trim();
+    final base = input.trim();
+    if (base.isEmpty) return base;
+
+    final baseStats = _scriptStats(base);
+
+    final candidates = <String>[];
+    void addCandidate(String? v) {
+      final s = (v ?? '').trim();
+      if (s.isEmpty) return;
+      candidates.add(s);
+    }
+
+    addCandidate(base);
+    addCandidate(_stripSourceEcho(base, sourceText: sourceText));
+
+    for (final line in base.split('\n')) {
+      addCandidate(line);
+    }
+
+    final afterMarkers = _extractAfterMarker(
+      base,
+      markers: const ['译文：', '译文:', 'Translation:', 'translation:'],
+    );
+    if (afterMarkers != null && afterMarkers.trim().isNotEmpty) {
+      addCandidate(afterMarkers);
+    }
+
+    final dedup = <String>{};
+    final cleanedCandidates = <String>[];
+    for (final c in candidates) {
+      if (!dedup.add(c)) continue;
+      var s = c.trim();
+      if (s.isEmpty) continue;
+      s = _stripSpecialTokens(s);
+      s = _stripThinkTags(s);
+      s = s.replaceAll('<answer>', '').replaceAll('</answer>', '');
+      s = s.replaceAll(RegExp(r'</?\[[^\]]+\]>'), '');
+      s = _stripPromptEcho(s);
+      s = _stripSourceEcho(s, sourceText: sourceText);
+      s = s.trim();
+      if (s.isEmpty) continue;
+      cleanedCandidates.add(s);
+    }
+    if (cleanedCandidates.isEmpty) return base;
+
+    final tl = targetLang.toLowerCase();
+    final wantEn = tl == 'en' || tl.startsWith('en-') || tl.contains('english');
+    final wantZh = tl == 'zh' ||
+        tl.startsWith('zh-') ||
+        tl == 'cn' ||
+        tl.contains('chinese');
+
+    final baseHasMultipleLines =
+        base.split('\n').where((e) => e.trim().isNotEmpty).length >= 2;
+    final baseLooksOk = wantEn
+        ? (baseStats.latinRatio >= 0.18 &&
+            baseStats.cjkRatio <= 0.28 &&
+            baseStats.weirdRatio <= 0.01)
+        : wantZh
+            ? (baseStats.cjkRatio >= 0.12 &&
+                baseStats.latinRatio <= 0.30 &&
+                baseStats.weirdRatio <= 0.01)
+            : baseStats.weirdRatio <= 0.01;
+
+    double scoreOf(String s) {
+      final stats = _scriptStats(s);
+      final cjk = stats.cjkRatio;
+      final latin = stats.latinRatio;
+      final weird = stats.weirdRatio;
+      var score = 0.0;
+      score -= weird * 6.0;
+      if (wantEn) {
+        score += latin * 2.4;
+        score -= cjk * 4.2;
+      } else if (wantZh) {
+        score += cjk * 2.2;
+        score -= latin * 1.4;
+      }
+      score += (s.length.clamp(0, 200) / 200.0) * 0.35;
+      if (src.isNotEmpty && s.trim() == src) score -= 2.0;
+      if (src.isNotEmpty && s.contains(src) && s.length > src.length) {
+        score -= 1.2;
+      }
+      if (baseLooksOk &&
+          baseHasMultipleLines &&
+          !s.contains('\n') &&
+          base.startsWith(s) &&
+          s.length < (base.length * 0.7)) {
+        score -= 0.8;
+      }
+      if (s.length < 2) score -= 0.8;
+      return score;
+    }
+
+    var best = cleanedCandidates.first;
+    var bestScore = scoreOf(best);
+    for (final c in cleanedCandidates.skip(1)) {
+      final sc = scoreOf(c);
+      if (sc > bestScore + 1e-6 ||
+          ((sc - bestScore).abs() <= 1e-6 && c.length > best.length)) {
+        best = c;
+        bestScore = sc;
+      }
+    }
+
+    if (_debug) {
+      // ignore: avoid_print
+      print(
+          '[LocalTranslationEngine] candidates=${cleanedCandidates.length} bestScore=${bestScore.toStringAsFixed(3)} bestLen=${best.length}');
+    }
+
+    return best.trim();
+  }
+
+  _ScriptStats _scriptStats(String s) {
+    int total = 0;
+    int cjk = 0;
+    int latin = 0;
+    int weird = 0;
+    for (final r in s.runes) {
+      if ((r >= 0x4E00 && r <= 0x9FFF) ||
+          (r >= 0x3400 && r <= 0x4DBF) ||
+          (r >= 0xF900 && r <= 0xFAFF)) {
+        total++;
+        cjk++;
+        continue;
+      }
+      if ((r >= 0x41 && r <= 0x5A) || (r >= 0x61 && r <= 0x7A)) {
+        total++;
+        latin++;
+        continue;
+      }
+      if (r == 0x20 || r == 0x0A || r == 0x09 || r == 0x0D) {
+        continue;
+      }
+      if (r == 0xFFFD) {
+        weird++;
+        continue;
+      }
+      if (r < 0x20 && r != 0x0A && r != 0x09 && r != 0x0D) {
+        weird++;
+        continue;
+      }
+      if (r == 0x0120 || r == 0x2581) {
+        weird++;
+        continue;
+      }
+    }
+    final t = total <= 0 ? 1 : total;
+    return _ScriptStats(
+      cjkRatio: cjk / t,
+      latinRatio: latin / t,
+      weirdRatio: weird / t,
+    );
+  }
+
+  bool _isMostlyPunctOrSpace(String s) {
+    int nonSpace = 0;
+    int punct = 0;
+    for (final r in s.runes) {
+      if (r == 0x20 || r == 0x0A || r == 0x09 || r == 0x0D) continue;
+      nonSpace++;
+      final isAlphaNum = (r >= 0x30 && r <= 0x39) ||
+          (r >= 0x41 && r <= 0x5A) ||
+          (r >= 0x61 && r <= 0x7A) ||
+          (r >= 0x4E00 && r <= 0x9FFF);
+      if (!isAlphaNum) punct++;
+    }
+    if (nonSpace == 0) return true;
+    return punct / nonSpace > 0.85;
+  }
+}
+
+class _LocalMtCaps {
+  final int maxInputTokens;
+  final int maxNewTokens;
+
+  const _LocalMtCaps({
+    required this.maxInputTokens,
+    required this.maxNewTokens,
+  });
+}
+
+class _ScriptStats {
+  final double cjkRatio;
+  final double latinRatio;
+  final double weirdRatio;
+
+  const _ScriptStats({
+    required this.cjkRatio,
+    required this.latinRatio,
+    required this.weirdRatio,
+  });
 }

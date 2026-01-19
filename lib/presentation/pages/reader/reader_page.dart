@@ -54,6 +54,123 @@ class _MeasureSizeState extends State<_MeasureSize> {
   }
 }
 
+abstract class _ReaderChapter {
+  String? get title;
+  Future<String> readHtmlContent();
+}
+
+class _EpubReaderChapter implements _ReaderChapter {
+  final EpubChapterRef ref;
+  _EpubReaderChapter(this.ref);
+
+  @override
+  String? get title => ref.Title;
+
+  @override
+  Future<String> readHtmlContent() => ref.readHtmlContent();
+}
+
+class _TextReaderChapter implements _ReaderChapter {
+  final String _title;
+  final String _sourceText;
+  final int _start;
+  final int _end;
+
+  _TextReaderChapter({
+    required String title,
+    required String sourceText,
+    required int start,
+    required int end,
+  })  : _title = title,
+        _sourceText = sourceText,
+        _start = start,
+        _end = end;
+
+  @override
+  String? get title => _title;
+
+  @override
+  Future<String> readHtmlContent() async => '';
+
+  Future<String> readPlainText() async {
+    final buffer = StringBuffer();
+    final titleText = _title.trim().isEmpty ? '正文' : _title.trim();
+    buffer.write(titleText);
+
+    final int start = _start.clamp(0, _sourceText.length);
+    final int end = _end.clamp(start, _sourceText.length);
+    if (start >= end) return buffer.toString();
+
+    final paraBuffer = StringBuffer();
+    String? prevLineInPara;
+    int processedLines = 0;
+
+    void flushPara() {
+      if (paraBuffer.isEmpty) return;
+      buffer.write('\n\n');
+      buffer.write('　　');
+      buffer.write(paraBuffer.toString());
+      paraBuffer.clear();
+      prevLineInPara = null;
+    }
+
+    int i = start;
+    while (i < end) {
+      int lineStart = i;
+      int lineEnd = i;
+      while (lineEnd < end) {
+        final int cu = _sourceText.codeUnitAt(lineEnd);
+        if (cu == 10 || cu == 13) break;
+        lineEnd++;
+      }
+
+      int next = lineEnd;
+      if (next < end) {
+        final int cu = _sourceText.codeUnitAt(next);
+        if (cu == 13) {
+          next++;
+          if (next < end && _sourceText.codeUnitAt(next) == 10) {
+            next++;
+          }
+        } else if (cu == 10) {
+          next++;
+        }
+      }
+
+      final rawLine = _sourceText.substring(lineStart, lineEnd);
+      final t = rawLine.trim();
+
+      if (t.isEmpty) {
+        flushPara();
+      } else {
+        if (paraBuffer.isNotEmpty) {
+          final glue =
+              (prevLineInPara != null && _isCjk(prevLineInPara!) && _isCjk(t))
+                  ? ''
+                  : ' ';
+          paraBuffer.write(glue);
+        }
+        paraBuffer.write(t);
+        prevLineInPara = t;
+      }
+
+      processedLines++;
+      if (processedLines % 300 == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      i = next;
+    }
+
+    flushPara();
+    return buffer.toString();
+  }
+
+  bool _isCjk(String s) {
+    return RegExp(r'[\u4E00-\u9FFF]').hasMatch(s);
+  }
+}
+
 class ReaderPage extends StatefulWidget {
   final String bookId;
 
@@ -67,6 +184,11 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   bool _showControls = false;
   bool _isLoading = true;
   String? _error;
+  String? _currentBookFormat;
+  bool _txtTocParsing = false;
+  int _txtTocParseToken = 0;
+  int? _pendingRestoreChapterIndex;
+  int? _pendingRestorePageInChapter;
 
   // Settings State
   double _fontSize = 18.0;
@@ -85,11 +207,13 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   String _readAloudAudioKey = '';
   final Map<String, Future<Map<int, String>>> _translationFutures = {};
   Timer? _continuousPrefetchTimer;
+  Timer? _prefetchKickTimer;
+  int _prefetchKickAttempts = 0;
   int? _prefetchCursorChapterIndex;
   int _prefetchCursorParagraphIndex = 0;
   bool _prefetchTickRunning = false;
 
-  List<EpubChapterRef> _chapters = [];
+  List<_ReaderChapter> _chapters = [];
   int _currentChapterIndex = 0;
 
   // Horizontal Mode State
@@ -107,8 +231,19 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   final Map<int, String> _chapterEffectiveText = {};
   final Map<int, List<TextRange>> _chapterPageRanges = {};
   final Map<int, String> _chapterPageRangeKeys = {};
+  final Map<int, String> _chapterFallbackEffectiveText = {};
+  final Map<int, List<TextRange>> _chapterFallbackPageRanges = {};
+  final Map<int, String> _chapterFallbackPageRangeKeys = {};
   final Map<int, List<TextRange>> _chapterPlainPageRanges = {};
   final Map<int, String> _chapterPlainPageRangeKeys = {};
+  final Map<int, Future<void>> _chapterTextPaginationTasks = {};
+  final Map<int, String> _chapterTextPaginationTaskKeys = {};
+  final Map<int, int> _chapterTextPaginationTargetCounts = {};
+  final Map<int, bool> _chapterTextPaginationComplete = {};
+  final Map<int, Future<void>> _chapterPlainPaginationTasks = {};
+  final Map<int, String> _chapterPlainPaginationTaskKeys = {};
+  final Map<int, int> _chapterPlainPaginationTargetCounts = {};
+  final Map<int, bool> _chapterPlainPaginationComplete = {};
   final Map<int, int> _chapterPaginationLastMs = {};
   final Map<int, int> _chapterTitleLength = {};
   final Map<int, List<ReaderParagraph>> _chapterParagraphsCache = {};
@@ -182,11 +317,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     });
 
     _loadSettingsAndBook();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      context.read<TranslationProvider>().setCurrentBookId(widget.bookId);
-    });
   }
 
   void _startPulseTimer() {
@@ -224,25 +354,20 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
           _prefs?.getInt('${key}_h_chapter') ?? legacyChapter;
       final int savedHPage = _prefs?.getInt('${key}_h_page') ?? 0;
 
-      _currentChapterIndex = savedHChapter.clamp(0, _chapters.length - 1);
-      _currentPageInChapter = savedHPage.clamp(0, 999999);
+      _pendingRestoreChapterIndex = savedHChapter;
+      _pendingRestorePageInChapter = savedHPage;
+      if (!(_currentBookFormat == 'txt' && _txtTocParsing)) {
+        _applyPendingRestore();
+      } else {
+        _currentChapterIndex = 0;
+        _currentPageInChapter = 0;
+      }
       if (mounted) setState(() {});
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (_pageController.hasClients) {
           _pageController.jumpToPage(1000);
         }
-      });
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant ReaderPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.bookId != widget.bookId) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        context.read<TranslationProvider>().setCurrentBookId(widget.bookId);
       });
     }
   }
@@ -313,42 +438,148 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     }
 
     try {
-      EpubBookRef? epub;
-      if (kIsWeb) {
-        if (book.fileBytes != null) {
-          epub = await _parser.openBookFromBytes(book.fileBytes!);
+      final format = book.format.toLowerCase();
+      _currentBookFormat = format;
+
+      if (format == 'epub') {
+        EpubBookRef? epub;
+        if (kIsWeb) {
+          if (book.fileBytes != null) {
+            epub = await _parser.openBookFromBytes(book.fileBytes!);
+          } else {
+            if (mounted) {
+              setState(() {
+                _error = 'Cannot load file';
+                _isLoading = false;
+              });
+            }
+            return;
+          }
         } else {
+          if (book.filePath.isNotEmpty) {
+            epub = await _parser.openBook(book.filePath);
+          } else {
+            if (mounted) {
+              setState(() {
+                _error = 'Cannot load file';
+                _isLoading = false;
+              });
+            }
+            return;
+          }
+        }
+
+        if (epub != null) {
+          final refs = await epub.getChapters();
+          final chapters = refs.map((c) => _EpubReaderChapter(c)).toList();
           if (mounted) {
             setState(() {
-              _error = 'Cannot load file';
+              _chapters = chapters;
+              _chapterContentCache.clear();
+              _chapterPlainText.clear();
+              _chapterEffectiveText.clear();
+              _chapterPageRanges.clear();
+              _chapterPageRangeKeys.clear();
+              _chapterPlainPageRanges.clear();
+              _chapterPlainPageRangeKeys.clear();
+              _chapterTextPaginationTasks.clear();
+              _chapterTextPaginationTaskKeys.clear();
+              _chapterTextPaginationTargetCounts.clear();
+              _chapterTextPaginationComplete.clear();
+              _chapterPlainPaginationTasks.clear();
+              _chapterPlainPaginationTaskKeys.clear();
+              _chapterPlainPaginationTargetCounts.clear();
+              _chapterPlainPaginationComplete.clear();
+              _chapterPaginationLastMs.clear();
+              _chapterTitleLength.clear();
+              _chapterParagraphsCache.clear();
+              _chapterPageCounts.clear();
               _isLoading = false;
             });
           }
-          return;
         }
-      } else {
-        if (book.filePath.isNotEmpty) {
-          epub = await _parser.openBook(book.filePath);
-        } else {
-          if (mounted) {
-            setState(() {
-              _error = 'Cannot load file';
-              _isLoading = false;
-            });
-          }
-          return;
-        }
+        return;
       }
 
-      if (epub != null) {
-        final chapters = await _flattenChapters(epub.getChapters());
+      if (format == 'txt') {
+        String? text;
+        if (kIsWeb) {
+          if (book.fileBytes != null) {
+            text = await _parser.openTxtFromBytes(book.fileBytes!);
+          }
+        } else {
+          if (book.filePath.isNotEmpty) {
+            text = await _parser.openTxt(book.filePath);
+          }
+        }
 
+        if (text == null) {
+          if (mounted) {
+            setState(() {
+              _error = 'Cannot load file';
+              _isLoading = false;
+            });
+          }
+          return;
+        }
+
+        final loadedText = text;
+        final int token = ++_txtTocParseToken;
+        final int bodyStart =
+            _txtBodyStart(text: loadedText, bookTitle: book.title);
         if (mounted) {
           setState(() {
-            _chapters = chapters;
+            _txtTocParsing = true;
+            _pageViewCenterIndex = 1000;
+            _chapters = [
+              _TextReaderChapter(
+                title: book.title.trim().isEmpty ? '正文' : book.title.trim(),
+                sourceText: loadedText,
+                start: bodyStart,
+                end: loadedText.length,
+              )
+            ];
+            _chapterContentCache.clear();
+            _chapterPlainText.clear();
+            _chapterEffectiveText.clear();
+            _invalidatePagination();
+            _chapterPaginationLastMs.clear();
+            _chapterTitleLength.clear();
+            _chapterParagraphsCache.clear();
             _isLoading = false;
           });
         }
+
+        Future<void>(() async {
+          final chapters =
+              await _buildTxtChapters(text: loadedText, bookTitle: book.title);
+          if (!mounted) return;
+          if (_txtTocParseToken != token) return;
+          setState(() {
+            _txtTocParsing = false;
+            _pageViewCenterIndex = 1000;
+            _chapters = chapters;
+            _chapterContentCache.clear();
+            _chapterPlainText.clear();
+            _chapterEffectiveText.clear();
+            _invalidatePagination();
+            _chapterPaginationLastMs.clear();
+            _chapterTitleLength.clear();
+            _chapterParagraphsCache.clear();
+          });
+          _applyPendingRestore();
+          if (_pageController.hasClients) {
+            _pageController.jumpToPage(1000);
+          }
+        });
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _error = 'Unsupported format: ${book.format}';
+          _isLoading = false;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -360,9 +591,421 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     }
   }
 
-  Future<List<EpubChapterRef>> _flattenChapters(
-      Future<List<EpubChapterRef>> chaptersFuture) async {
-    final chapters = await chaptersFuture;
+  int _txtBodyStart({required String text, required String bookTitle}) {
+    final trimmedBookTitle = bookTitle.trim();
+    final int bomOffset =
+        text.isNotEmpty && text.codeUnitAt(0) == 0xFEFF ? 1 : 0;
+    if (trimmedBookTitle.isEmpty) return bomOffset;
+    int i = bomOffset;
+    int scanned = 0;
+    while (i < text.length && scanned < 200) {
+      int lineStart = i;
+      int lineEnd = i;
+      while (lineEnd < text.length) {
+        final cu = text.codeUnitAt(lineEnd);
+        if (cu == 10 || cu == 13) break;
+        lineEnd++;
+      }
+
+      int next = lineEnd;
+      if (next < text.length) {
+        final cu = text.codeUnitAt(next);
+        if (cu == 13) {
+          next++;
+          if (next < text.length && text.codeUnitAt(next) == 10) next++;
+        } else if (cu == 10) {
+          next++;
+        }
+      }
+
+      if (lineEnd > lineStart) {
+        final t = text.substring(lineStart, lineEnd).trim();
+        if (t.isNotEmpty) {
+          if (t == trimmedBookTitle) return next;
+          return bomOffset;
+        }
+      }
+      scanned++;
+      i = next;
+    }
+    return bomOffset;
+  }
+
+  void _applyPendingRestore() {
+    if (_chapters.isEmpty) return;
+    final ch = _pendingRestoreChapterIndex;
+    final pg = _pendingRestorePageInChapter;
+    if (ch == null || pg == null) return;
+    _currentChapterIndex = ch.clamp(0, _chapters.length - 1);
+    _currentPageInChapter = pg.clamp(0, 999999);
+    _pendingRestoreChapterIndex = null;
+    _pendingRestorePageInChapter = null;
+  }
+
+  String _txtNormalizeHeadingTitle(String raw) {
+    var t = raw.trim();
+    t = t.replaceAll(RegExp(r'^[【\[\(（\s]+'), '');
+    t = t.replaceAll(RegExp(r'[】\]\)）\s]+$'), '');
+    t = t.replaceAll(RegExp(r'\s+'), ' ');
+    return t;
+  }
+
+  Future<List<_ReaderChapter>> _buildTxtChapters({
+    required String text,
+    required String bookTitle,
+  }) async {
+    final trimmedBookTitle = bookTitle.trim();
+    final headingsRe = RegExp(
+      r'^\s*(?:【\s*)?(?:第\s*(?:[0-9]{1,6}|[一二三四五六七八九十百千零〇两]{1,12})\s*[章节回卷篇节部幕]\s*.*|卷\s*(?:[0-9]{1,6}|[一二三四五六七八九十百千零〇两]{1,12})\s*.*|(CHAPTER|Chapter)\s+(?:\d+|[IVXLC]+)\b.*|序(章|言)|前言|楔子|引子)\s*(?:】)?\s*$',
+      caseSensitive: false,
+    );
+    final int bomOffset =
+        text.isNotEmpty && text.codeUnitAt(0) == 0xFEFF ? 1 : 0;
+    if (kIsWeb && text.length >= 1500000) {
+      final hasHeadings = _txtHasHeadingSample(
+        text: text,
+        headingsRe: headingsRe,
+        bomOffset: bomOffset,
+      );
+      if (!hasHeadings) {
+        return _buildTxtChaptersFast(text: text, bookTitle: bookTitle);
+      }
+    }
+
+    final List<_ReaderChapter> chapters = [];
+    String currentTitle = trimmedBookTitle.isNotEmpty ? trimmedBookTitle : '正文';
+    int bodyStart = bomOffset;
+    bool sawHeading = false;
+    bool firstNonEmptyHandled = false;
+    final splitPoints = <int>[];
+    int chunkChars = 0;
+    int contentChars = 0;
+
+    bool hasMeaningfulContent(int start, int endExclusive) {
+      final int s = start.clamp(0, text.length);
+      final int e = endExclusive.clamp(s, text.length);
+      int count = 0;
+      for (int i = s; i < e; i++) {
+        final int cu = text.codeUnitAt(i);
+        if (_isSkippableWhitespaceCu(cu)) continue;
+        count++;
+        if (count >= 12) return true;
+      }
+      return false;
+    }
+
+    void addChapter(int endExclusive) {
+      if (endExclusive <= bodyStart) return;
+      if (!hasMeaningfulContent(bodyStart, endExclusive)) return;
+      chapters.add(
+        _TextReaderChapter(
+          title: currentTitle,
+          sourceText: text,
+          start: bodyStart,
+          end: endExclusive,
+        ),
+      );
+    }
+
+    int i = bomOffset;
+    int processedLines = 0;
+    final sw = Stopwatch()..start();
+    while (i < text.length) {
+      int lineStart = i;
+      int lineEnd = i;
+      while (lineEnd < text.length) {
+        final int cu = text.codeUnitAt(lineEnd);
+        if (cu == 10 || cu == 13) break;
+        lineEnd++;
+      }
+
+      int next = lineEnd;
+      if (next < text.length) {
+        final int cu = text.codeUnitAt(next);
+        if (cu == 13) {
+          next++;
+          if (next < text.length && text.codeUnitAt(next) == 10) {
+            next++;
+          }
+        } else if (cu == 10) {
+          next++;
+        }
+      }
+
+      String? trimmed;
+      final int len = lineEnd - lineStart;
+      if (len > 0) {
+        final candidate = text.substring(lineStart, lineEnd);
+        final t = candidate.trim();
+        if (t.isNotEmpty) {
+          trimmed = t;
+        }
+      }
+
+      if (!firstNonEmptyHandled && trimmed != null) {
+        firstNonEmptyHandled = true;
+        if (trimmedBookTitle.isNotEmpty && trimmed == trimmedBookTitle) {
+          bodyStart = next;
+          splitPoints.clear();
+          chunkChars = 0;
+          contentChars = 0;
+        }
+      }
+
+      if (trimmed != null &&
+          trimmed.length <= 60 &&
+          headingsRe.hasMatch(trimmed)) {
+        sawHeading = true;
+        splitPoints.clear();
+        chunkChars = 0;
+        if (contentChars > 0) {
+          addChapter(lineStart);
+        }
+        currentTitle = _txtNormalizeHeadingTitle(trimmed);
+        bodyStart = next;
+        contentChars = 0;
+      }
+
+      if (!sawHeading && lineStart >= bodyStart) {
+        chunkChars += (next - lineStart);
+        if (chunkChars >= 220000 && next > bodyStart && next < text.length) {
+          splitPoints.add(next);
+          chunkChars = 0;
+        }
+      }
+
+      if (lineStart >= bodyStart && trimmed != null) {
+        final isHeading = trimmed.length <= 60 && headingsRe.hasMatch(trimmed);
+        if (!isHeading) {
+          contentChars += trimmed.length;
+        }
+      }
+
+      processedLines++;
+      if (processedLines % 300 == 0 && sw.elapsedMilliseconds >= 8) {
+        await Future<void>.delayed(Duration.zero);
+        sw.reset();
+      }
+      i = next;
+    }
+
+    if (!sawHeading) {
+      final baseTitle = currentTitle;
+      final boundaries = <int>[bodyStart, ...splitPoints, text.length]..sort();
+      final result = <_ReaderChapter>[];
+      int part = 1;
+      for (int b = 0; b < boundaries.length - 1; b++) {
+        final start = boundaries[b].clamp(0, text.length);
+        final end = boundaries[b + 1].clamp(start, text.length);
+        if (end <= start) continue;
+        if (!hasMeaningfulContent(start, end)) continue;
+        final t = part == 1 ? baseTitle : '$baseTitle $part';
+        result.add(
+          _TextReaderChapter(
+            title: t,
+            sourceText: text,
+            start: start,
+            end: end,
+          ),
+        );
+        part++;
+      }
+      if (result.isEmpty) {
+        return [
+          _TextReaderChapter(
+            title: baseTitle,
+            sourceText: text,
+            start: bodyStart,
+            end: text.length,
+          )
+        ];
+      }
+      return result;
+    }
+
+    if (contentChars > 0) {
+      addChapter(text.length);
+    }
+    if (chapters.isEmpty) {
+      return [
+        _TextReaderChapter(
+          title: trimmedBookTitle.isNotEmpty ? trimmedBookTitle : '正文',
+          sourceText: text,
+          start: bomOffset,
+          end: text.length,
+        )
+      ];
+    }
+    return chapters;
+  }
+
+  bool _txtHasHeadingSample({
+    required String text,
+    required RegExp headingsRe,
+    required int bomOffset,
+  }) {
+    int i = bomOffset;
+    int scanned = 0;
+    int scannedLines = 0;
+    const int maxChars = 200000;
+    const int maxLines = 4000;
+    while (i < text.length && scanned < maxChars && scannedLines < maxLines) {
+      int lineStart = i;
+      int lineEnd = i;
+      while (lineEnd < text.length) {
+        final int cu = text.codeUnitAt(lineEnd);
+        if (cu == 10 || cu == 13) break;
+        lineEnd++;
+      }
+
+      int next = lineEnd;
+      if (next < text.length) {
+        final int cu = text.codeUnitAt(next);
+        if (cu == 13) {
+          next++;
+          if (next < text.length && text.codeUnitAt(next) == 10) {
+            next++;
+          }
+        } else if (cu == 10) {
+          next++;
+        }
+      }
+
+      final int len = lineEnd - lineStart;
+      if (len > 0 && len <= 120) {
+        final t = text.substring(lineStart, lineEnd).trim();
+        if (t.isNotEmpty && t.length <= 60 && headingsRe.hasMatch(t)) {
+          return true;
+        }
+      }
+
+      scanned += (next - lineStart);
+      scannedLines++;
+      i = next;
+    }
+    return false;
+  }
+
+  Future<List<_ReaderChapter>> _buildTxtChaptersFast({
+    required String text,
+    required String bookTitle,
+  }) async {
+    final trimmedBookTitle = bookTitle.trim();
+    final baseTitle = trimmedBookTitle.isNotEmpty ? trimmedBookTitle : '正文';
+    final int bomOffset =
+        text.isNotEmpty && text.codeUnitAt(0) == 0xFEFF ? 1 : 0;
+    int bodyStart = bomOffset;
+
+    if (trimmedBookTitle.isNotEmpty) {
+      int i = bomOffset;
+      int scannedLines = 0;
+      while (i < text.length && scannedLines < 200) {
+        int lineStart = i;
+        int lineEnd = i;
+        while (lineEnd < text.length) {
+          final int cu = text.codeUnitAt(lineEnd);
+          if (cu == 10 || cu == 13) break;
+          lineEnd++;
+        }
+
+        int next = lineEnd;
+        if (next < text.length) {
+          final int cu = text.codeUnitAt(next);
+          if (cu == 13) {
+            next++;
+            if (next < text.length && text.codeUnitAt(next) == 10) {
+              next++;
+            }
+          } else if (cu == 10) {
+            next++;
+          }
+        }
+
+        if (lineEnd > lineStart) {
+          final t = text.substring(lineStart, lineEnd).trim();
+          if (t.isNotEmpty) {
+            if (t == trimmedBookTitle) {
+              bodyStart = next;
+            }
+            break;
+          }
+        }
+
+        scannedLines++;
+        i = next;
+      }
+    }
+
+    const int chunkSize = 300000;
+    const int seekWindow = 2000;
+    final chapters = <_ReaderChapter>[];
+    int start = bodyStart;
+    int part = 1;
+
+    while (start < text.length) {
+      int end = (start + chunkSize).clamp(start + 1, text.length);
+      if (end < text.length) {
+        int forward = end;
+        final forwardLimit = (end + seekWindow).clamp(0, text.length);
+        while (forward < forwardLimit) {
+          final cu = text.codeUnitAt(forward);
+          if (cu == 10 || cu == 13) break;
+          forward++;
+        }
+        if (forward < forwardLimit) {
+          int next = forward;
+          final int cu = text.codeUnitAt(next);
+          if (cu == 13) {
+            next++;
+            if (next < text.length && text.codeUnitAt(next) == 10) {
+              next++;
+            }
+          } else if (cu == 10) {
+            next++;
+          }
+          end = next.clamp(start + 1, text.length);
+        } else {
+          int back = end;
+          final backLimit = (end - seekWindow).clamp(start + 1, text.length);
+          while (back > backLimit) {
+            final cu = text.codeUnitAt(back);
+            if (cu == 10 || cu == 13) break;
+            back--;
+          }
+          if (back > backLimit) {
+            end = back.clamp(start + 1, text.length);
+          }
+        }
+      }
+
+      final title = part == 1 ? baseTitle : '$baseTitle $part';
+      if (_rangeHasNonWhitespace(text, start, end)) {
+        chapters.add(
+          _TextReaderChapter(
+            title: title,
+            sourceText: text,
+            start: start,
+            end: end,
+          ),
+        );
+      }
+      start = end;
+      part++;
+      if (part % 2 == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    if (chapters.isEmpty) {
+      return [
+        _TextReaderChapter(
+          title: baseTitle,
+          sourceText: text,
+          start: bodyStart,
+          end: text.length,
+        )
+      ];
+    }
     return chapters;
   }
 
@@ -471,7 +1114,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                     final viewportHeight = _lastPaginationViewportHeight;
                     final contentWidth = _lastPaginationContentWidth;
                     if (viewportHeight != null && contentWidth != null) {
-                      _ensurePlainTextPaginationForChapter(
+                      _schedulePlainPaginationForChapter(
                         chapterIndex: _currentChapterIndex,
                         viewportHeight: viewportHeight,
                         contentWidth: contentWidth,
@@ -488,9 +1131,10 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                                 _currentPageProgressInChapter,
                               );
 
-                    final qaTextCache = _chapterPlainText.isNotEmpty
-                        ? Map<int, String>.from(_chapterPlainText)
-                        : Map<int, String>.from(_chapterEffectiveText);
+                    final qaTextCache =
+                        Map<int, String>.from(_chapterPlainText);
+                    qaTextCache[_currentChapterIndex] =
+                        _getPlainTextForChapter(_currentChapterIndex);
 
                     return AiHud(
                       bgColor: _panelBgColor,
@@ -533,192 +1177,6 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     });
   }
 
-  Future<void> _translateSelectedText(String text) async {
-    final t = text.trim();
-    if (t.isEmpty) return;
-
-    final tp = context.read<TranslationProvider>();
-    if (!mounted) return;
-    bool started = false;
-    bool done = false;
-    String translation = '';
-    String? errorText;
-
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (sheetContext) {
-        final panelBg = _panelBgColor;
-        final panelText = _panelTextColor;
-        return GlassPanel.sheet(
-          surfaceColor: panelBg,
-          opacity: AppTokens.glassOpacityDense,
-          child: SafeArea(
-            top: false,
-            child: SizedBox(
-              height: MediaQuery.of(sheetContext).size.height * 0.62,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                child: StatefulBuilder(
-                  builder: (context, setModalState) {
-                    if (!started) {
-                      started = true;
-                      Future<void>(() async {
-                        try {
-                          final res =
-                              await tp.translateParagraphsByIndex({0: t});
-                          translation = (res[0] ?? '').trim();
-                        } catch (e) {
-                          errorText = e.toString();
-                        }
-                        done = true;
-                        if (!sheetContext.mounted) return;
-                        setModalState(() {});
-                      });
-                    }
-
-                    final String bodyText;
-                    if (errorText != null && errorText!.trim().isNotEmpty) {
-                      bodyText = '翻译失败：$errorText';
-                    } else if (!done) {
-                      bodyText = 'ai翻译中...';
-                    } else {
-                      bodyText = translation.isEmpty ? '（无译文）' : translation;
-                    }
-
-                    final canCopyTranslation = done &&
-                        errorText == null &&
-                        translation.trim().isNotEmpty;
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.translate,
-                                color: AppColors.techBlue),
-                            const SizedBox(width: 8),
-                            Text(
-                              '翻译',
-                              style: TextStyle(
-                                color: panelText,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
-                              ),
-                            ),
-                            const Spacer(),
-                            IconButton(
-                              onPressed: () => Navigator.pop(sheetContext),
-                              icon: Icon(Icons.close,
-                                  color: panelText.withOpacity(0.7)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Expanded(
-                          child: SingleChildScrollView(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  t,
-                                  style: TextStyle(
-                                    color: panelText.withOpacity(0.78),
-                                    height: 1.5,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 14),
-                                Container(
-                                  width: double.infinity,
-                                  decoration: BoxDecoration(
-                                    color: panelText.withOpacity(0.04),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                      color: panelText.withOpacity(0.08),
-                                      width: AppTokens.stroke,
-                                    ),
-                                  ),
-                                  padding: const EdgeInsets.all(14),
-                                  child: Text(
-                                    bodyText,
-                                    style: TextStyle(
-                                      color: panelText,
-                                      height: 1.5,
-                                      fontSize: 15,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () {
-                                  Clipboard.setData(ClipboardData(text: t));
-                                  ScaffoldMessenger.of(sheetContext)
-                                      .showSnackBar(
-                                    const SnackBar(content: Text('已复制原文')),
-                                  );
-                                },
-                                icon: const Icon(Icons.copy, size: 18),
-                                label: const Text('复制原文'),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: canCopyTranslation
-                                    ? () {
-                                        Clipboard.setData(
-                                            ClipboardData(text: translation));
-                                        ScaffoldMessenger.of(sheetContext)
-                                            .showSnackBar(
-                                          const SnackBar(
-                                              content: Text('已复制译文')),
-                                        );
-                                      }
-                                    : null,
-                                icon: const Icon(Icons.copy, size: 18),
-                                label: const Text('复制译文'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.techBlue,
-                                  foregroundColor: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _explainSelectedText(String text) {
-    final t = text.trim();
-    if (t.isEmpty) return;
-    _openAiHud(
-      initialRoute: AiHudRoute.qa,
-      initialQaText: '解释：$t',
-      autoSendInitialQa: true,
-    );
-  }
-
   void _hideControls() {
     if (!_showControls) return;
 
@@ -748,10 +1206,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       _stopContinuousPrefetch();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        final next = _nextParagraphsForPrefetch(count: 10);
-        provider.prefetchParagraphs(next);
-        _updatePrefetchCursorFromVisible();
-        _startContinuousPrefetch();
+        _kickoffTranslationPrefetch(provider);
       });
     }
   }
@@ -942,11 +1397,19 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }
 
   int _pageCountForChapter(int chapterIndex) {
+    final count = _chapterPageCounts[chapterIndex];
+    if (count != null) {
+      return count.clamp(1, 999999);
+    }
     final ranges = _chapterPageRanges[chapterIndex];
     if (ranges != null && ranges.isNotEmpty) {
       return ranges.length.clamp(1, 999999);
     }
-    return _chapterPageCounts[chapterIndex] ?? 9999;
+    final fallback = _chapterFallbackPageRanges[chapterIndex];
+    if (fallback != null && fallback.isNotEmpty) {
+      return fallback.length.clamp(1, 999999);
+    }
+    return 9999;
   }
 
   String _getPlainTextForChapter(int chapterIndex) {
@@ -1146,148 +1609,191 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     return TextSpan(children: children, style: bodyStyle);
   }
 
-  void _ensureTextPaginationForChapter({
-    required int chapterIndex,
+  String _paginationKey({
     required double viewportHeight,
     required double contentWidth,
+    required int textLength,
   }) {
-    // 1. Get Base Text (Original)
-    final plainText = _getPlainTextForChapter(chapterIndex);
-    if (plainText.isEmpty) {
-      _chapterPageRanges[chapterIndex] = [const TextRange(start: 0, end: 0)];
-      _chapterPageCounts[chapterIndex] = 1;
-      return;
-    }
-
-    // 2. Determine "Effective" Text (Mixed with Translation)
-    final tp = Provider.of<TranslationProvider>(context, listen: false);
-    String effectiveText = plainText;
-
-    // If translation is active, we need to construct the mixed text
-    // We check if we need to update our cached effective text
-    // A simple heuristic: check if we have any new translations for this chapter?
-    // Or just re-construct it every time we paginate (pagination is expensive anyway)
-
-    if (tp.applyToReader) {
-      effectiveText = _getEffectiveTextForChapter(chapterIndex, tp);
-    }
-
-    _chapterEffectiveText[chapterIndex] = effectiveText;
-
     final dpr = MediaQuery.of(context).devicePixelRatio;
     String snapKey(double v) => (v * dpr).roundToDouble().toStringAsFixed(0);
-    final String paginationKey =
-        'v2|${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|${effectiveText.length}|${_contentBottomInset?.toStringAsFixed(1) ?? '0'}';
+    return 'v2|${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|$textLength|${_contentBottomInset?.toStringAsFixed(1) ?? '0'}';
+  }
 
-    if (_chapterPageRangeKeys[chapterIndex] == paginationKey &&
-        _chapterPageRanges[chapterIndex] != null) {
-      return;
+  bool _isSkippableWhitespaceCu(int cu) {
+    if (cu == 10 || cu == 13 || cu == 9 || cu == 32 || cu == 12288) {
+      return true;
     }
+    if (cu == 0xFEFF) return true;
+    if (cu == 0x00A0) return true;
+    if (cu == 0x2028 || cu == 0x2029) return true;
+    if (cu >= 0x2000 && cu <= 0x200A) return true;
+    if (cu == 0x200B) return true;
+    return false;
+  }
 
-    if (tp.applyToReader && _chapterPageRanges[chapterIndex] != null) {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final last = _chapterPaginationLastMs[chapterIndex] ?? 0;
-      if (now - last < 450) {
-        return;
-      }
-      _chapterPaginationLastMs[chapterIndex] = now;
+  bool _rangeHasNonWhitespace(String text, int start, int end) {
+    final s = start.clamp(0, text.length);
+    final e = end.clamp(s, text.length);
+    for (int i = s; i < e; i++) {
+      final cu = text.codeUnitAt(i);
+      if (!_isSkippableWhitespaceCu(cu)) return true;
     }
+    return false;
+  }
 
-    // ... (rest of logic uses effectiveText instead of text)
-    final text = effectiveText; // Use effective text
-
-    final TextStyle effectiveTextStyle =
-        (Theme.of(context).textTheme.bodyLarge ?? const TextStyle()).copyWith(
-      height: _lineHeight,
-      fontSize: _fontSize,
-      color: _textColor,
-    );
-
-    final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
-      textScaler: MediaQuery.of(context).textScaler,
-      strutStyle:
-          StrutStyle.fromTextStyle(effectiveTextStyle, forceStrutHeight: true),
-    );
-
-    final List<TextRange> ranges = [];
-    int start = 0;
+  int _bestEndForPage({
+    required String text,
+    required int start,
+    required TextPainter textPainter,
+    required TextStyle textStyle,
+    required double viewportHeight,
+    required double contentWidth,
+    required int previousPageChars,
+  }) {
     final int len = text.length;
+    final int minEnd = (start + 1).clamp(0, len);
+    if (minEnd >= len) return len;
 
-    while (start < len) {
-      int low = start + 1;
-      int high = len;
-      int best = low;
+    bool fits(int end) {
+      final int safeEnd = end.clamp(minEnd, len);
+      textPainter.text = _buildReaderSpan(
+        text: text.substring(start, safeEnd),
+        bodyStyle: textStyle,
+      );
+      textPainter.layout(minWidth: 0, maxWidth: contentWidth);
+      return textPainter.height <= viewportHeight;
+    }
 
-      while (low <= high) {
-        final int mid = (low + high) >> 1;
-        // _buildStyledSpanForRange needs to handle mixed text too?
-        // Actually, since we constructed effectiveText, we just style it uniformly?
-        // Wait, Title logic relies on _chapterTitleLength of ORIGINAL text.
-        // If effective text has changed, title length might be different (if title translated).
-        // For simplicity, let's treat title styling as "First N chars of effective text if first paragraph".
-        // Or simpler: Just style the whole thing as body for now, or detect first newline.
+    int guess = previousPageChars.clamp(200, 6000);
+    int high = (start + guess).clamp(minEnd, len);
+    if (high == minEnd) {
+      high = (minEnd + 1).clamp(minEnd, len);
+    }
 
-        textPainter.text = _buildReaderSpan(
-          text: text.substring(start, mid),
-          bodyStyle: effectiveTextStyle,
-        );
+    int best = minEnd;
+    if (fits(minEnd)) {
+      best = minEnd;
+    } else {
+      return minEnd;
+    }
 
-        textPainter.layout(minWidth: 0, maxWidth: contentWidth);
-        if (textPainter.height <= viewportHeight) {
-          best = mid;
-          low = mid + 1;
+    if (high >= len) {
+      return fits(len) ? len : best;
+    }
+
+    if (fits(high)) {
+      int lastGood = high;
+      int step = guess;
+      while (lastGood < len) {
+        step = (step * 2).clamp(256, 65536);
+        final nextHigh = (lastGood + step).clamp(lastGood + 1, len);
+        if (nextHigh == lastGood) break;
+        if (fits(nextHigh)) {
+          lastGood = nextHigh;
+          best = lastGood;
+          if (lastGood == len) return len;
         } else {
-          high = mid - 1;
+          int low = lastGood + 1;
+          int hi = nextHigh;
+          int localBest = lastGood;
+          while (low <= hi) {
+            final mid = (low + hi) >> 1;
+            if (fits(mid)) {
+              localBest = mid;
+              low = mid + 1;
+            } else {
+              hi = mid - 1;
+            }
+          }
+          return localBest;
         }
       }
-
-      if (best <= start) {
-        best = (start + 1).clamp(start + 1, len);
+      return best;
+    } else {
+      int low = minEnd + 1;
+      int hi = high;
+      int localBest = best;
+      while (low <= hi) {
+        final mid = (low + hi) >> 1;
+        if (fits(mid)) {
+          localBest = mid;
+          low = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
       }
-
-      ranges.add(TextRange(start: start, end: best));
-      start = best;
-      while (start < len && text.codeUnitAt(start) == 10) {
-        start++;
-      }
-    }
-
-    _chapterPageRanges[chapterIndex] = ranges;
-    _chapterPageRangeKeys[chapterIndex] = paginationKey;
-    _chapterPaginationLastMs[chapterIndex] =
-        DateTime.now().millisecondsSinceEpoch;
-    final int pageCount = ranges.isEmpty ? 1 : ranges.length;
-    _chapterPageCounts[chapterIndex] = pageCount;
-    if (chapterIndex == _currentChapterIndex) {
-      if (_currentPageInChapter >= pageCount) {
-        _currentPageInChapter = pageCount - 1;
-      }
+      return localBest;
     }
   }
 
-  void _ensurePlainTextPaginationForChapter({
+  void _scheduleTextPaginationForChapter({
     required int chapterIndex,
     required double viewportHeight,
     required double contentWidth,
+    int minPages = 6,
   }) {
     final plainText = _getPlainTextForChapter(chapterIndex);
-    if (plainText.isEmpty) {
-      _chapterPlainPageRanges[chapterIndex] = [
-        const TextRange(start: 0, end: 0)
-      ];
+    if (plainText.isEmpty) return;
+
+    final tp = Provider.of<TranslationProvider>(context, listen: false);
+    final prevEffectiveText = _chapterEffectiveText[chapterIndex];
+    String effectiveText = plainText;
+    if (tp.applyToReader) {
+      effectiveText = _getEffectiveTextForChapter(chapterIndex, tp);
+    }
+    _chapterEffectiveText[chapterIndex] = effectiveText;
+
+    final paginationKey = _paginationKey(
+      viewportHeight: viewportHeight,
+      contentWidth: contentWidth,
+      textLength: effectiveText.length,
+    );
+
+    final prevKey = _chapterPageRangeKeys[chapterIndex];
+    final keyChanged = prevKey != paginationKey;
+    final double? anchorProgress =
+        keyChanged && chapterIndex == _currentChapterIndex
+            ? _currentPageProgressInChapter
+            : null;
+
+    if (keyChanged) {
+      final prevRanges = _chapterPageRanges[chapterIndex];
+      if (prevKey != null && prevRanges != null && prevRanges.isNotEmpty) {
+        _chapterFallbackPageRangeKeys[chapterIndex] = prevKey;
+        _chapterFallbackPageRanges[chapterIndex] = prevRanges;
+        _chapterFallbackEffectiveText[chapterIndex] =
+            prevEffectiveText ?? effectiveText;
+      }
+      _chapterPageRanges.remove(chapterIndex);
+      _chapterPageRangeKeys.remove(chapterIndex);
+      _chapterTextPaginationComplete.remove(chapterIndex);
+      _chapterPageCounts.remove(chapterIndex);
+    }
+
+    final alreadyComplete =
+        _chapterTextPaginationComplete[chapterIndex] ?? false;
+    final existingRanges = _chapterPageRanges[chapterIndex];
+    if (alreadyComplete &&
+        existingRanges != null &&
+        existingRanges.isNotEmpty) {
+      _chapterPageCounts[chapterIndex] = existingRanges.length.clamp(1, 999999);
       return;
     }
 
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    String snapKey(double v) => (v * dpr).roundToDouble().toStringAsFixed(0);
-    final String paginationKey =
-        'v2|${snapKey(contentWidth)}|${snapKey(viewportHeight)}|${_fontSize.toStringAsFixed(2)}|${_lineHeight.toStringAsFixed(2)}|${plainText.length}|${_contentBottomInset?.toStringAsFixed(1) ?? '0'}';
+    final int target = minPages.clamp(1, 999999);
+    final prevTarget = _chapterTextPaginationTargetCounts[chapterIndex] ?? 0;
+    if (target > prevTarget) {
+      _chapterTextPaginationTargetCounts[chapterIndex] = target;
+    }
 
-    if (_chapterPlainPageRangeKeys[chapterIndex] == paginationKey &&
-        _chapterPlainPageRanges[chapterIndex] != null) {
+    final taskKey = '$paginationKey|t$target';
+    final existingTaskKey = _chapterTextPaginationTaskKeys[chapterIndex];
+    if (existingTaskKey == taskKey &&
+        _chapterTextPaginationTasks[chapterIndex] != null) {
       return;
     }
+
+    _chapterTextPaginationTaskKeys[chapterIndex] = taskKey;
 
     final TextStyle textStyle =
         (Theme.of(context).textTheme.bodyLarge ?? const TextStyle()).copyWith(
@@ -1295,50 +1801,208 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
       fontSize: _fontSize,
       color: _textColor,
     );
+    final textScaler = MediaQuery.of(context).textScaler;
 
-    final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
-      textScaler: MediaQuery.of(context).textScaler,
-      strutStyle: StrutStyle.fromTextStyle(textStyle, forceStrutHeight: true),
+    _chapterTextPaginationTasks[chapterIndex] = Future<void>(() async {
+      if (!mounted) return;
+      if (_chapterTextPaginationTaskKeys[chapterIndex] != taskKey) return;
+
+      final List<TextRange> ranges =
+          List<TextRange>.from(_chapterPageRanges[chapterIndex] ?? const []);
+      int start = ranges.isEmpty ? 0 : ranges.last.end;
+      final int len = effectiveText.length;
+      final textPainter = TextPainter(
+        textDirection: TextDirection.ltr,
+        textScaler: textScaler,
+        strutStyle: StrutStyle.fromTextStyle(textStyle, forceStrutHeight: true),
+      );
+
+      while (start < len) {
+        final currentTarget =
+            _chapterTextPaginationTargetCounts[chapterIndex] ?? 6;
+        if (ranges.length >= currentTarget) break;
+
+        final prevChars =
+            ranges.isNotEmpty ? (ranges.last.end - ranges.last.start) : 800;
+        int best = _bestEndForPage(
+          text: effectiveText,
+          start: start,
+          textPainter: textPainter,
+          textStyle: textStyle,
+          viewportHeight: viewportHeight,
+          contentWidth: contentWidth,
+          previousPageChars: prevChars,
+        );
+
+        if (!_rangeHasNonWhitespace(effectiveText, start, best)) {
+          start = best;
+          while (start < len &&
+              _isSkippableWhitespaceCu(effectiveText.codeUnitAt(start))) {
+            start++;
+          }
+          continue;
+        }
+
+        ranges.add(TextRange(start: start, end: best));
+        start = best;
+        while (start < len &&
+            _isSkippableWhitespaceCu(effectiveText.codeUnitAt(start))) {
+          start++;
+        }
+
+        await Future<void>.delayed(Duration.zero);
+        if (!mounted) return;
+        if (_chapterTextPaginationTaskKeys[chapterIndex] != taskKey) return;
+      }
+
+      final complete = start >= len;
+      if (!mounted) return;
+      if (_chapterTextPaginationTaskKeys[chapterIndex] != taskKey) return;
+
+      setState(() {
+        _chapterPageRanges[chapterIndex] = ranges;
+        _chapterPageRangeKeys[chapterIndex] = paginationKey;
+        _chapterTextPaginationComplete[chapterIndex] = complete;
+        _chapterPaginationLastMs[chapterIndex] =
+            DateTime.now().millisecondsSinceEpoch;
+        if (complete) {
+          _chapterPageCounts[chapterIndex] = ranges.isEmpty ? 1 : ranges.length;
+        } else {
+          _chapterPageCounts[chapterIndex] = 999999;
+        }
+
+        final count = _chapterPageCounts[chapterIndex] ?? 999999;
+        if (chapterIndex == _currentChapterIndex &&
+            count != 999999 &&
+            _currentPageInChapter >= count) {
+          _currentPageInChapter = count - 1;
+        }
+        if (anchorProgress != null && chapterIndex == _currentChapterIndex) {
+          _relocateCurrentPageToProgress(anchorProgress);
+        }
+      });
+
+      if (keyChanged) {
+        _chapterFallbackPageRanges.remove(chapterIndex);
+        _chapterFallbackPageRangeKeys.remove(chapterIndex);
+        _chapterFallbackEffectiveText.remove(chapterIndex);
+      }
+    });
+  }
+
+  void _schedulePlainPaginationForChapter({
+    required int chapterIndex,
+    required double viewportHeight,
+    required double contentWidth,
+    int minPages = 6,
+  }) {
+    final plainText = _getPlainTextForChapter(chapterIndex);
+    if (plainText.isEmpty) return;
+
+    final paginationKey = _paginationKey(
+      viewportHeight: viewportHeight,
+      contentWidth: contentWidth,
+      textLength: plainText.length,
     );
 
-    final List<TextRange> ranges = [];
-    int start = 0;
-    final int len = plainText.length;
-
-    while (start < len) {
-      int low = start + 1;
-      int high = len;
-      int best = low;
-
-      while (low <= high) {
-        final int mid = (low + high) >> 1;
-        textPainter.text = _buildReaderSpan(
-          text: plainText.substring(start, mid),
-          bodyStyle: textStyle,
-        );
-        textPainter.layout(minWidth: 0, maxWidth: contentWidth);
-        if (textPainter.height <= viewportHeight) {
-          best = mid;
-          low = mid + 1;
-        } else {
-          high = mid - 1;
-        }
-      }
-
-      if (best <= start) {
-        best = (start + 1).clamp(start + 1, len);
-      }
-
-      ranges.add(TextRange(start: start, end: best));
-      start = best;
-      while (start < len && plainText.codeUnitAt(start) == 10) {
-        start++;
-      }
+    if (_chapterPlainPageRangeKeys[chapterIndex] != paginationKey) {
+      _chapterPlainPageRanges.remove(chapterIndex);
+      _chapterPlainPageRangeKeys.remove(chapterIndex);
+      _chapterPlainPaginationComplete.remove(chapterIndex);
     }
 
-    _chapterPlainPageRanges[chapterIndex] = ranges;
-    _chapterPlainPageRangeKeys[chapterIndex] = paginationKey;
+    final alreadyComplete =
+        _chapterPlainPaginationComplete[chapterIndex] ?? false;
+    final existingRanges = _chapterPlainPageRanges[chapterIndex];
+    if (alreadyComplete &&
+        existingRanges != null &&
+        existingRanges.isNotEmpty) {
+      return;
+    }
+
+    final int target = minPages.clamp(1, 999999);
+    final prevTarget = _chapterPlainPaginationTargetCounts[chapterIndex] ?? 0;
+    if (target > prevTarget) {
+      _chapterPlainPaginationTargetCounts[chapterIndex] = target;
+    }
+
+    final taskKey = '$paginationKey|t$target';
+    final existingTaskKey = _chapterPlainPaginationTaskKeys[chapterIndex];
+    if (existingTaskKey == taskKey &&
+        _chapterPlainPaginationTasks[chapterIndex] != null) {
+      return;
+    }
+    _chapterPlainPaginationTaskKeys[chapterIndex] = taskKey;
+
+    final TextStyle textStyle =
+        (Theme.of(context).textTheme.bodyLarge ?? const TextStyle()).copyWith(
+      height: _lineHeight,
+      fontSize: _fontSize,
+      color: _textColor,
+    );
+    final textScaler = MediaQuery.of(context).textScaler;
+
+    _chapterPlainPaginationTasks[chapterIndex] = Future<void>(() async {
+      if (!mounted) return;
+      if (_chapterPlainPaginationTaskKeys[chapterIndex] != taskKey) return;
+
+      final List<TextRange> ranges = List<TextRange>.from(
+          _chapterPlainPageRanges[chapterIndex] ?? const []);
+      int start = ranges.isEmpty ? 0 : ranges.last.end;
+      final int len = plainText.length;
+      final textPainter = TextPainter(
+        textDirection: TextDirection.ltr,
+        textScaler: textScaler,
+        strutStyle: StrutStyle.fromTextStyle(textStyle, forceStrutHeight: true),
+      );
+
+      while (start < len) {
+        final currentTarget =
+            _chapterPlainPaginationTargetCounts[chapterIndex] ?? 6;
+        if (ranges.length >= currentTarget) break;
+
+        final prevChars =
+            ranges.isNotEmpty ? (ranges.last.end - ranges.last.start) : 800;
+        int best = _bestEndForPage(
+          text: plainText,
+          start: start,
+          textPainter: textPainter,
+          textStyle: textStyle,
+          viewportHeight: viewportHeight,
+          contentWidth: contentWidth,
+          previousPageChars: prevChars,
+        );
+
+        if (!_rangeHasNonWhitespace(plainText, start, best)) {
+          start = best;
+          while (start < len &&
+              _isSkippableWhitespaceCu(plainText.codeUnitAt(start))) {
+            start++;
+          }
+          continue;
+        }
+
+        ranges.add(TextRange(start: start, end: best));
+        start = best;
+        while (start < len &&
+            _isSkippableWhitespaceCu(plainText.codeUnitAt(start))) {
+          start++;
+        }
+
+        await Future<void>.delayed(Duration.zero);
+        if (!mounted) return;
+        if (_chapterPlainPaginationTaskKeys[chapterIndex] != taskKey) return;
+      }
+
+      final complete = start >= len;
+      if (!mounted) return;
+      if (_chapterPlainPaginationTaskKeys[chapterIndex] != taskKey) return;
+      setState(() {
+        _chapterPlainPageRanges[chapterIndex] = ranges;
+        _chapterPlainPageRangeKeys[chapterIndex] = paginationKey;
+        _chapterPlainPaginationComplete[chapterIndex] = complete;
+      });
+    });
   }
 
   void _invalidatePagination() {
@@ -1347,6 +2011,14 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     _chapterPageRangeKeys.clear();
     _chapterPlainPageRanges.clear();
     _chapterPlainPageRangeKeys.clear();
+    _chapterTextPaginationTasks.clear();
+    _chapterTextPaginationTaskKeys.clear();
+    _chapterTextPaginationTargetCounts.clear();
+    _chapterTextPaginationComplete.clear();
+    _chapterPlainPaginationTasks.clear();
+    _chapterPlainPaginationTaskKeys.clear();
+    _chapterPlainPaginationTargetCounts.clear();
+    _chapterPlainPaginationComplete.clear();
   }
 
   int _plainPageIndexForProgress(int chapterIndex, double progress) {
@@ -1442,8 +2114,25 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }
 
   Future<void> _ensureChapterContentCached(int chapterIndex) async {
-    if (_chapterContentCache[chapterIndex] != null) return;
-    final value = await _chapters[chapterIndex].readHtmlContent();
+    if (_chapterContentCache[chapterIndex] != null ||
+        _chapterPlainText[chapterIndex] != null) {
+      return;
+    }
+
+    final chapter = _chapters[chapterIndex];
+    if (chapter is _TextReaderChapter) {
+      final plain = await chapter.readPlainText();
+      if (!mounted) return;
+      setState(() {
+        _chapterPlainText[chapterIndex] = plain;
+        final t = (chapter.title ?? '').trim();
+        _chapterTitleLength[chapterIndex] = (t.isEmpty ? '正文' : t).length;
+        _chapterParagraphsCache.remove(chapterIndex);
+      });
+      return;
+    }
+
+    final value = await chapter.readHtmlContent();
     if (!mounted) return;
     setState(() {
       _chapterContentCache[chapterIndex] = value;
@@ -1451,6 +2140,12 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }
 
   void _showTableOfContents() {
+    const double itemExtent = 56;
+    final int targetIndex = _currentChapterIndex.clamp(0, _chapters.length);
+    final double initialOffset =
+        ((targetIndex - 3).clamp(0, 999999) * itemExtent).toDouble();
+    final ScrollController scrollController =
+        ScrollController(initialScrollOffset: initialOffset);
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1476,38 +2171,83 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                           fontWeight: FontWeight.bold,
                           color: _panelTextColor)),
                 ),
-                Divider(color: _panelTextColor.withOpacity(0.1)),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: _chapters.length,
-                    itemBuilder: (context, index) {
-                      final chapter = _chapters[index];
-                      return ListTile(
-                        title: Text(
-                          chapter.Title ?? 'Chapter ${index + 1}',
-                          style: TextStyle(
-                            color: index == _currentChapterIndex
-                                ? AppColors.techBlue
-                                : _panelTextColor,
-                            fontWeight: index == _currentChapterIndex
-                                ? FontWeight.bold
-                                : FontWeight.normal,
+                if (_currentBookFormat == 'txt' && _txtTocParsing)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                                _panelTextColor.withOpacity(0.6)),
                           ),
                         ),
-                        onTap: () {
-                          setState(() {
-                            _currentChapterIndex = index;
-                            _currentPageInChapter = 0;
-                            _pageViewCenterIndex = 1000;
-                          });
-                          if (_pageController.hasClients) {
-                            _pageController.jumpToPage(1000);
-                          }
-                          _hideControls();
-                          Navigator.pop(context);
-                        },
-                      );
-                    },
+                        const SizedBox(width: 10),
+                        Text(
+                          '解析中…',
+                          style: TextStyle(
+                            color: _panelTextColor.withOpacity(0.7),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                Divider(color: _panelTextColor.withOpacity(0.1)),
+                Expanded(
+                  child: Scrollbar(
+                    controller: scrollController,
+                    thumbVisibility: true,
+                    child: ListView.builder(
+                      controller: scrollController,
+                      itemExtent: itemExtent,
+                      cacheExtent: itemExtent * 20,
+                      itemCount: (_currentBookFormat == 'txt' && _txtTocParsing)
+                          ? 1
+                          : _chapters.length,
+                      itemBuilder: (context, index) {
+                        if (_currentBookFormat == 'txt' && _txtTocParsing) {
+                          return ListTile(
+                            title: Text(
+                              '目录解析中…',
+                              style: TextStyle(color: _panelTextColor),
+                            ),
+                          );
+                        }
+                        final chapter = _chapters[index];
+                        return ListTile(
+                          dense: true,
+                          title: Text(
+                            chapter.title ?? 'Chapter ${index + 1}',
+                            style: TextStyle(
+                              color: index == _currentChapterIndex
+                                  ? AppColors.techBlue
+                                  : _panelTextColor,
+                              fontWeight: index == _currentChapterIndex
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () {
+                            setState(() {
+                              _currentChapterIndex = index;
+                              _currentPageInChapter = 0;
+                              _pageViewCenterIndex = 1000;
+                            });
+                            if (_pageController.hasClients) {
+                              _pageController.jumpToPage(1000);
+                            }
+                            _hideControls();
+                            Navigator.pop(context);
+                          },
+                        );
+                      },
+                    ),
                   ),
                 ),
               ],
@@ -1806,7 +2546,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                 targetChapter++;
                 targetPage = 0;
               } else {
-                return null;
+                return const SizedBox.shrink();
               }
             } else if (targetPage < 0) {
               if (targetChapter > 0) {
@@ -1814,7 +2554,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
                 int prevCount = _pageCountForChapter(targetChapter);
                 targetPage = prevCount - 1;
               } else {
-                return null;
+                return const SizedBox.shrink();
               }
             }
 
@@ -1824,19 +2564,55 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   }
 
   Widget _buildSinglePage(int chapterIndex, int pageIndex, EdgeInsets padding) {
-    // 1. Check Cache
-    String? content = _chapterContentCache[chapterIndex];
+    final chapter = _chapters[chapterIndex];
 
-    if (content == null) {
-      // Trigger load if not loading
-      _chapters[chapterIndex].readHtmlContent().then((value) {
-        if (mounted) {
+    if (chapter is _TextReaderChapter) {
+      final cachedPlain = _chapterPlainText[chapterIndex];
+      if (cachedPlain == null) {
+        chapter.readPlainText().then((value) {
+          if (!mounted) return;
+          setState(() {
+            _chapterPlainText[chapterIndex] = value;
+            final t = (chapter.title ?? '').trim();
+            _chapterTitleLength[chapterIndex] = (t.isEmpty ? '正文' : t).length;
+            _chapterParagraphsCache.remove(chapterIndex);
+          });
+        });
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            return Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (e) => _onReaderPointerDown(e.localPosition),
+              onPointerMove: (e) => _onReaderPointerMove(e.localPosition),
+              onPointerUp: (e) => _onReaderPointerUp(
+                  pos: e.localPosition, width: constraints.maxWidth),
+              child: const Center(child: CircularProgressIndicator()),
+            );
+          },
+        );
+      }
+    } else {
+      final content = _chapterContentCache[chapterIndex];
+      if (content == null) {
+        chapter.readHtmlContent().then((value) {
+          if (!mounted) return;
           setState(() {
             _chapterContentCache[chapterIndex] = value;
           });
-        }
-      });
-      return const Center(child: CircularProgressIndicator());
+        });
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            return Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (e) => _onReaderPointerDown(e.localPosition),
+              onPointerMove: (e) => _onReaderPointerMove(e.localPosition),
+              onPointerUp: (e) => _onReaderPointerUp(
+                  pos: e.localPosition, width: constraints.maxWidth),
+              child: const Center(child: CircularProgressIndicator()),
+            );
+          },
+        );
+      }
     }
 
     return LayoutBuilder(
@@ -1845,15 +2621,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         double snap(double value) => (value * dpr).roundToDouble() / dpr;
         double snapDown(double value) => (value * dpr).floorToDouble() / dpr;
 
-        final tp = Provider.of<TranslationProvider>(context);
-        final double extraTop = _showControls ? 72 : 0;
-        double extraBottom = _showControls ? 92 : 0;
-        if (tp.aiReadAloudEnabled && extraBottom < 180) {
-          extraBottom = 180;
-        }
-
-        final double topMargin = snap(padding.top + 16 + extraTop);
-        final double bottomMargin = snap(padding.bottom + 24 + extraBottom);
+        final double topMargin = snap(padding.top + 16);
+        final double bottomMargin = snap(padding.bottom + 8);
 
         double viewportHeight = snapDown(
           constraints.maxHeight - topMargin - bottomMargin - (1 / dpr),
@@ -1874,30 +2643,59 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         _lastPaginationViewportHeight = viewportHeight;
         _lastPaginationContentWidth = contentWidth;
 
-        _ensurePlainTextPaginationForChapter(
+        _scheduleTextPaginationForChapter(
           chapterIndex: chapterIndex,
           viewportHeight: viewportHeight,
           contentWidth: contentWidth,
+          minPages: (pageIndex + 3).clamp(6, 999999),
         );
-
-        _ensureTextPaginationForChapter(
-          chapterIndex: chapterIndex,
-          viewportHeight: viewportHeight,
-          contentWidth: contentWidth,
-        );
+        final tp = Provider.of<TranslationProvider>(context, listen: false);
+        if (tp.applyToReader) {
+          _schedulePlainPaginationForChapter(
+            chapterIndex: chapterIndex,
+            viewportHeight: viewportHeight,
+            contentWidth: contentWidth,
+            minPages: (pageIndex + 3).clamp(6, 999999),
+          );
+        }
 
         final ranges = _chapterPageRanges[chapterIndex];
-        if (ranges == null || ranges.isEmpty) {
+        List<TextRange>? displayRanges = ranges;
+        String? displayEffectiveText = _chapterEffectiveText[chapterIndex];
+        if (displayRanges == null || displayRanges.isEmpty) {
+          final fallbackRanges = _chapterFallbackPageRanges[chapterIndex];
+          if (fallbackRanges != null && fallbackRanges.isNotEmpty) {
+            displayRanges = fallbackRanges;
+            displayEffectiveText = _chapterFallbackEffectiveText[chapterIndex];
+          }
+        }
+        if (displayRanges == null || displayRanges.isEmpty) {
           return const Center(child: CircularProgressIndicator());
         }
-        final int safeIndex = pageIndex.clamp(0, ranges.length - 1);
-        final range = ranges[safeIndex];
+        if (pageIndex >= displayRanges.length) {
+          _scheduleTextPaginationForChapter(
+            chapterIndex: chapterIndex,
+            viewportHeight: viewportHeight,
+            contentWidth: contentWidth,
+            minPages: (pageIndex + 3).clamp(6, 999999),
+          );
+          if (tp.applyToReader) {
+            _schedulePlainPaginationForChapter(
+              chapterIndex: chapterIndex,
+              viewportHeight: viewportHeight,
+              contentWidth: contentWidth,
+              minPages: (pageIndex + 3).clamp(6, 999999),
+            );
+          }
+        }
+        final int safeIndex = pageIndex.clamp(0, displayRanges.length - 1);
+        final range = displayRanges[safeIndex];
         final isCurrentPage = chapterIndex == _currentChapterIndex &&
             safeIndex == _currentPageInChapter;
 
         // Use EFFECTIVE TEXT, not plain text
-        final String effectiveText = _chapterEffectiveText[chapterIndex] ??
-            _getPlainTextForChapter(chapterIndex);
+        final String effectiveText =
+            displayEffectiveText ?? _getPlainTextForChapter(chapterIndex);
 
         if (chapterIndex == _currentChapterIndex &&
             pageIndex == _currentPageInChapter) {
@@ -1905,14 +2703,12 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
           _currentPageProgressInChapter = len > 0 ? range.start / len : 0;
         }
 
-        if (range.start >= effectiveText.length) {
-          return const SizedBox.shrink();
-        }
-        final int end = range.end.clamp(0, effectiveText.length);
+        final int start = range.start.clamp(0, effectiveText.length);
+        final int end = range.end.clamp(start, effectiveText.length);
 
         // For mixed text, we just style it as body, title logic is too complex to preserve for now
         final TextSpan span = _buildReaderSpan(
-          text: effectiveText.substring(range.start, end),
+          text: effectiveText.substring(start, end),
           bodyStyle: effectiveTextStyle,
         );
 
@@ -1961,7 +2757,8 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     required TextStyle bodyStyle,
     required bool isCurrentPage,
   }) {
-    final translationProvider = Provider.of<TranslationProvider>(context);
+    final translationProvider =
+        Provider.of<TranslationProvider>(context, listen: false);
 
     // If we are in translation mode, we trigger translation requests for *visible* paragraphs.
     // But we RENDER what we have in effectiveText (which includes Cached Translations).
@@ -1975,50 +2772,55 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
             ? _currentPageParagraphsByIndex()
             : const <int, String>{};
         final sorted = visible.keys.toList()..sort();
-        final int startIdx = sorted.isEmpty ? 0 : sorted.first;
-        final int lastVisibleIdx = sorted.isEmpty ? 0 : sorted.last;
-        const int extraCount = 10;
-        final int endIdx =
-            (lastVisibleIdx + extraCount).clamp(0, allParas.length - 1);
+        if (sorted.isNotEmpty) {
+          final int startIdx = sorted.first;
+          final int lastVisibleIdx = sorted.last;
+          const int extraCount = 10;
+          final int endIdx =
+              (lastVisibleIdx + extraCount).clamp(0, allParas.length - 1);
 
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          final Map<int, String> toRequest = {};
-          for (int i = startIdx; i <= endIdx; i++) {
-            final t = allParas[i].text;
-            if (translationProvider.getCachedTranslation(t) != null) continue;
-            if (translationProvider.isTranslationPending(t)) continue;
-            if (translationProvider.isTranslationFailed(t)) continue;
-            toRequest[i] = t;
-          }
-
-          final int remainingExtra = extraCount -
-              ((allParas.length - 1) - lastVisibleIdx)
-                  .clamp(0, extraCount)
-                  .toInt();
-          if (remainingExtra > 0 && chapterIndex < _chapters.length - 1) {
-            final nextChapterIdx = chapterIndex + 1;
-            final nextText = _chapterPlainText[nextChapterIdx];
-            if (nextText != null && nextText.isNotEmpty) {
-              final nextParas =
-                  _getParagraphsForChapter(nextChapterIdx, nextText);
-              for (int i = 0; i < nextParas.length && i < remainingExtra; i++) {
-                final t = nextParas[i].text;
-                if (translationProvider.getCachedTranslation(t) != null) {
-                  continue;
-                }
-                if (translationProvider.isTranslationPending(t)) continue;
-                if (translationProvider.isTranslationFailed(t)) continue;
-                toRequest[100000 + i] = t;
-              }
-            } else {
-              _ensureChapterContentCached(nextChapterIdx);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final Map<int, String> toRequest = {};
+            for (int i = startIdx; i <= endIdx; i++) {
+              final t = allParas[i].text;
+              if (translationProvider.getCachedTranslation(t) != null) continue;
+              if (translationProvider.isTranslationPending(t)) continue;
+              if (translationProvider.isTranslationFailed(t)) continue;
+              toRequest[i] = t;
             }
-          }
 
-          if (toRequest.isNotEmpty) {
-            translationProvider.requestTranslationForParagraphs(toRequest);
-          }
-        });
+            final int remainingExtra = extraCount -
+                ((allParas.length - 1) - lastVisibleIdx)
+                    .clamp(0, extraCount)
+                    .toInt();
+            if (remainingExtra > 0 && chapterIndex < _chapters.length - 1) {
+              final nextChapterIdx = chapterIndex + 1;
+              final nextText = _chapterPlainText[nextChapterIdx];
+              if (nextText != null && nextText.isNotEmpty) {
+                final nextParas =
+                    _getParagraphsForChapter(nextChapterIdx, nextText);
+                for (int i = 0;
+                    i < nextParas.length && i < remainingExtra;
+                    i++) {
+                  final t = nextParas[i].text;
+                  if (translationProvider.getCachedTranslation(t) != null) {
+                    continue;
+                  }
+                  if (translationProvider.isTranslationPending(t)) continue;
+                  if (translationProvider.isTranslationFailed(t)) continue;
+                  toRequest[100000 + i] = t;
+                }
+              } else {
+                _ensureChapterContentCached(nextChapterIdx);
+              }
+            }
+
+            if (toRequest.isNotEmpty) {
+              translationProvider.requestTranslationForParagraphs(toRequest);
+            }
+          });
+        }
       }
     }
 
@@ -2063,43 +2865,24 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
             child: AdaptiveTextSelectionToolbar(
               anchors: state.contextMenuAnchors,
               children: [
-                ...() {
-                  final aiModel = context.watch<AiModelProvider>();
-                  final source = aiModel.source;
-                  final bool showTranslate = source != AiModelSource.local ||
-                      aiModel.isLocalTranslationModelReady;
-                  final bool showExplain = source != AiModelSource.local ||
-                      aiModel.isLocalQaModelReady;
-                  return [
-                    TextButton(
-                      onPressed: () {
-                        state.copySelection(SelectionChangedCause.toolbar);
-                        state.hideToolbar();
-                      },
-                      child: const Text('复制'),
-                    ),
-                    if (showTranslate)
-                      TextButton(
-                        onPressed: selectedText.isEmpty
-                            ? null
-                            : () async {
-                                state.hideToolbar();
-                                await _translateSelectedText(selectedText);
-                              },
-                        child: const Text('翻译'),
-                      ),
-                    if (showExplain)
-                      TextButton(
-                        onPressed: selectedText.isEmpty
-                            ? null
-                            : () {
-                                state.hideToolbar();
-                                _explainSelectedText(selectedText);
-                              },
-                        child: const Text('解释'),
-                      ),
-                  ];
-                }(),
+                TextButton(
+                  onPressed: selectedText.isEmpty
+                      ? null
+                      : () {
+                          Clipboard.setData(ClipboardData(text: selectedText));
+                          final selection = state.textEditingValue.selection;
+                          state.hideToolbar();
+                          state.userUpdateTextEditingValue(
+                            state.textEditingValue.copyWith(
+                              selection: TextSelection.collapsed(
+                                offset: selection.end,
+                              ),
+                            ),
+                            SelectionChangedCause.toolbar,
+                          );
+                        },
+                  child: const Text('复制'),
+                ),
               ],
             ),
           );
@@ -2196,8 +2979,9 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     // Find indices currently visible on screen
     final currentVisible = _currentPageParagraphsByIndex();
     final visibleSorted = currentVisible.keys.toList()..sort();
-    final int firstVisibleIdx = visibleSorted.isEmpty ? 0 : visibleSorted.first;
-    final int lastVisibleIdx = visibleSorted.isEmpty ? -1 : visibleSorted.last;
+    if (visibleSorted.isEmpty) return out;
+    final int firstVisibleIdx = visibleSorted.first;
+    final int lastVisibleIdx = visibleSorted.last;
 
     for (int i = firstVisibleIdx;
         i <= lastVisibleIdx && i < currentParas.length && out.length < count;
@@ -2233,6 +3017,34 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     return out;
   }
 
+  void _kickoffTranslationPrefetch(TranslationProvider provider) {
+    _prefetchKickTimer?.cancel();
+    _prefetchKickTimer = null;
+    _prefetchKickAttempts = 0;
+
+    void attempt() {
+      if (!mounted) return;
+      final visible = _currentPageParagraphsByIndex();
+      if (visible.isEmpty) {
+        _prefetchKickAttempts++;
+        if (_prefetchKickAttempts < 12) {
+          _prefetchKickTimer =
+              Timer(const Duration(milliseconds: 120), attempt);
+        }
+        return;
+      }
+
+      final next = _nextParagraphsForPrefetch(count: 10);
+      if (next.isNotEmpty) {
+        provider.prefetchParagraphs(next);
+      }
+      _updatePrefetchCursorFromVisible();
+      _startContinuousPrefetch();
+    }
+
+    attempt();
+  }
+
   void _startContinuousPrefetch() {
     _continuousPrefetchTimer?.cancel();
     _continuousPrefetchTimer = Timer.periodic(
@@ -2246,6 +3058,9 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
   void _stopContinuousPrefetch() {
     _continuousPrefetchTimer?.cancel();
     _continuousPrefetchTimer = null;
+    _prefetchKickTimer?.cancel();
+    _prefetchKickTimer = null;
+    _prefetchKickAttempts = 0;
     _prefetchCursorChapterIndex = null;
     _prefetchCursorParagraphIndex = 0;
     _prefetchTickRunning = false;
@@ -2259,6 +3074,7 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
     if (currentParas.isEmpty) return;
 
     final currentVisible = _currentPageParagraphsByIndex();
+    if (currentVisible.isEmpty) return;
     int lastVisibleIdx = -1;
     if (currentVisible.isNotEmpty) {
       lastVisibleIdx = (currentVisible.keys.toList()..sort()).last;
@@ -2296,7 +3112,12 @@ class _ReaderPageState extends State<ReaderPage> with TickerProviderStateMixin {
         return;
       }
 
-      int chapterIndex = _prefetchCursorChapterIndex ?? _currentChapterIndex;
+      if (_prefetchCursorChapterIndex == null) {
+        _updatePrefetchCursorFromVisible();
+      }
+      final cursorChapter = _prefetchCursorChapterIndex;
+      if (cursorChapter == null) return;
+      int chapterIndex = cursorChapter;
       int paragraphIndex = _prefetchCursorParagraphIndex;
       final out = <String>[];
 

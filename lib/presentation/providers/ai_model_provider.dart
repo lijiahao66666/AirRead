@@ -40,21 +40,14 @@ class AiModelProvider extends ChangeNotifier {
 
   static const Map<LocalLlmModelType, String> _localModelModelScopeUrlByType = {
     LocalLlmModelType.qa:
-        'https://www.modelscope.cn/models/lijiahaojj/Hunyuan-0.5B-Instruct-mnn-int4/resolve/master/Hunyuan-1.8B-Instruct.zip',
+        'https://www.modelscope.cn/models/lijiahaojj/HY1.8B-MNN/resolve/master/Hunyuan-1.8B-Instruct.zip',
     LocalLlmModelType.translation:
-        'https://www.modelscope.cn/models/lijiahaojj/Hunyuan-0.5B-Instruct-mnn-int4/resolve/master/HY-MT1.5-1.8B.zip',
-  };
-
-  static const String _localModelIdFileName = '.airread_model_id';
-  static const Map<LocalLlmModelType, String> _localModelIdByType = {
-    LocalLlmModelType.qa: 'hunyuan-1.8b-instruct',
-    LocalLlmModelType.translation: 'hy-mt1.5-1.8b',
+        'https://www.modelscope.cn/models/lijiahaojj/HY1.8B-MNN/resolve/master/HY-MT1.5-1.8B.zip',
   };
 
   bool _loaded = false;
   AiModelSource _source = AiModelSource.none;
 
-  bool _localModelExists = false;
   final Map<LocalLlmModelType, bool> _localModelExistsByType = {
     for (final t in LocalLlmModelType.values) t: false,
   };
@@ -184,16 +177,6 @@ class AiModelProvider extends ChangeNotifier {
     return Uri.parse(url);
   }
 
-  Future<bool> _matchesExpectedModelId(LocalLlmModelType type) async {
-    final expected = _localModelIdByType[type];
-    if (expected == null || expected.trim().isEmpty) return true;
-    final dir = await getLocalModelDir(type);
-    final f = File(p.join(dir.path, _localModelIdFileName));
-    if (!await f.exists()) return false;
-    final s = await f.readAsString().catchError((_) => '');
-    return s.trim() == expected.trim();
-  }
-
   QAContentScope get qaContentScope => _qaContentScope;
 
   bool get loaded => _loaded;
@@ -201,7 +184,6 @@ class AiModelProvider extends ChangeNotifier {
 
   bool get isModelEnabled => _source != AiModelSource.none;
 
-  bool get localModelExists => _localModelExists;
   bool get localModelDownloading => _localModelDownloading;
   bool get localModelPaused => _localModelPaused;
   bool get localModelInstalling => _localModelInstalling;
@@ -314,14 +296,6 @@ class AiModelProvider extends ChangeNotifier {
     };
   }
 
-  Future<File> getLocalModelFile() async {
-    return getLocalModelConfigFile(LocalLlmModelType.qa);
-  }
-
-  Future<File> getLocalModelPartialFile() async {
-    return getLocalModelZipPartialFile(LocalLlmModelType.qa);
-  }
-
   Future<Directory> getLocalModelBaseDir() async {
     if (kIsWeb) {
       throw UnsupportedError('Local model not supported on Web');
@@ -354,49 +328,96 @@ class AiModelProvider extends ChangeNotifier {
     return File('${file.path}.partial');
   }
 
-  Future<bool> _localModelFilesExist(LocalLlmModelType type) async {
+  Future<List<File>> _resolveLocalModelFiles(LocalLlmModelType type) async {
     final dir = await getLocalModelDir(type);
     final config = File(p.join(dir.path, 'config.json'));
-    final llm = File(p.join(dir.path, 'llm.mnn'));
-    final weight = File(p.join(dir.path, 'llm.mnn.weight'));
-    final llmConfig = File(p.join(dir.path, 'llm_config.json'));
-    final tokenizer = File(p.join(dir.path, 'tokenizer.txt'));
+    if (!await config.exists()) return const [];
+    if (await config.length().catchError((_) => 0) <= 0) return const [];
 
-    final exists = await config.exists() &&
-        await llm.exists() &&
-        await weight.exists() &&
-        await llmConfig.exists() &&
-        await tokenizer.exists();
-    if (!exists) return false;
+    final raw = await config.readAsString().catchError((_) => '');
+    if (raw.trim().isEmpty) return const [];
 
-    final lengths = await Future.wait<int>([
-      config.length(),
-      llm.length(),
-      weight.length(),
-      llmConfig.length(),
-      tokenizer.length(),
-    ]);
-    final size = lengths.fold<int>(0, (a, b) => a + b);
+    final referencedNames = <String>{};
+    final referencedRelPaths = <String>{};
+    void collectFrom(dynamic v) {
+      if (v is String) {
+        final s = v.trim();
+        if (s.isEmpty) return;
+        if (!RegExp(r'\.(mnn|weight|json|txt)$', caseSensitive: false)
+            .hasMatch(s)) return;
+
+        if (s.contains('/') || s.contains('\\')) {
+          var rel = s.replaceAll('\\', '/');
+          rel = p.posix.normalize(rel);
+          if (rel.startsWith('/') || rel.startsWith('..')) return;
+          if (rel.startsWith('./')) rel = rel.substring(2);
+          if (rel.isEmpty) return;
+          referencedRelPaths.add(rel);
+          return;
+        }
+
+        if (!RegExp(r'^[\w.\-]+$').hasMatch(s)) return;
+        referencedNames.add(s);
+        return;
+      }
+      if (v is List) {
+        for (final e in v) {
+          collectFrom(e);
+        }
+        return;
+      }
+      if (v is Map) {
+        for (final e in v.values) {
+          collectFrom(e);
+        }
+      }
+    }
+
+    try {
+      final obj = jsonDecode(raw);
+      collectFrom(obj);
+    } catch (_) {
+      return const [];
+    }
+
+    final files = <File>[config];
+    for (final name in referencedNames) {
+      if (name == 'config.json') continue;
+      files.add(File(p.join(dir.path, name)));
+    }
+    for (final rel in referencedRelPaths) {
+      if (rel == 'config.json') continue;
+      files.add(File(p.joinAll(<String>[dir.path, ...rel.split('/')])));
+    }
+    return files;
+  }
+
+  Future<bool> _localModelFilesExist(LocalLlmModelType type) async {
+    final files = await _resolveLocalModelFiles(type);
+    if (files.isEmpty) return false;
+
+    bool hasMnn = false;
+    int size = 0;
+    for (final f in files) {
+      if (!await f.exists()) return false;
+      final len = await f.length().catchError((_) => 0);
+      if (len <= 0) return false;
+      if (f.path.toLowerCase().endsWith('.mnn')) hasMnn = true;
+      size += len;
+    }
+    if (!hasMnn) return false;
     if (size <= 0) return false;
-    return _matchesExpectedModelId(type);
+    return true;
   }
 
   Future<int> _calcLocalModelSize(LocalLlmModelType type) async {
-    final dir = await getLocalModelDir(type);
-    final config = File(p.join(dir.path, 'config.json'));
-    final llm = File(p.join(dir.path, 'llm.mnn'));
-    final weight = File(p.join(dir.path, 'llm.mnn.weight'));
-    final llmConfig = File(p.join(dir.path, 'llm_config.json'));
-    final tokenizer = File(p.join(dir.path, 'tokenizer.txt'));
-
-    final lengths = await Future.wait<int>([
-      config.length().catchError((_) => 0),
-      llm.length().catchError((_) => 0),
-      weight.length().catchError((_) => 0),
-      llmConfig.length().catchError((_) => 0),
-      tokenizer.length().catchError((_) => 0),
-    ]);
-    return lengths.fold<int>(0, (a, b) => a + b);
+    final files = await _resolveLocalModelFiles(type);
+    if (files.isEmpty) return 0;
+    int size = 0;
+    for (final f in files) {
+      size += await f.length().catchError((_) => 0);
+    }
+    return size;
   }
 
   void _recomputeAggregateProgress() {
@@ -420,7 +441,6 @@ class AiModelProvider extends ChangeNotifier {
 
   Future<void> refreshLocalModelStatus() async {
     if (kIsWeb) {
-      _localModelExists = false;
       for (final t in LocalLlmModelType.values) {
         _localModelExistsByType[t] = false;
         _installedBytesByType[t] = 0;
@@ -451,8 +471,7 @@ class AiModelProvider extends ChangeNotifier {
       totalSize += size;
     }
 
-    _localModelExists = anyExists && totalSize > 0;
-    if (_localModelExists) {
+    if (anyExists && totalSize > 0) {
       _localModelError = '';
     }
     _recomputeAggregateProgress();
@@ -700,6 +719,7 @@ class AiModelProvider extends ChangeNotifier {
             } catch (_) {}
 
             final size = await _calcLocalModelSize(type);
+            _localModelExistsByType[type] = true;
             _installedBytesByType[type] = size;
             _downloadedBytesByType[type] = size;
             _totalBytesByType[type] = size;
@@ -810,6 +830,10 @@ class AiModelProvider extends ChangeNotifier {
     if (!await _looksLikeZip(zipFile)) {
       final preview = await _readFilePreview(zipFile);
       _debugLog('install: not a zip, preview=${preview.replaceAll('\n', ' ')}');
+      final modelScopeMsg = _tryParseModelScopeErrorMessage(preview);
+      if (modelScopeMsg != null && modelScopeMsg.trim().isNotEmpty) {
+        throw Exception('模型下载失败：$modelScopeMsg');
+      }
       throw Exception('模型安装失败：下载内容不是 zip 压缩包');
     }
     if (!await _looksLikeCompleteZip(zipFile)) {
@@ -840,11 +864,6 @@ class AiModelProvider extends ChangeNotifier {
         } catch (_) {}
       }
       await rootDir.rename(modelDir.path);
-      final expectedId = _localModelIdByType[type];
-      if (expectedId != null && expectedId.trim().isNotEmpty) {
-        final f = File(p.join(modelDir.path, _localModelIdFileName));
-        await f.writeAsString(expectedId, flush: true).catchError((_) => f);
-      }
       if (await tmpDir.exists()) {
         try {
           await tmpDir.delete(recursive: true);
@@ -862,6 +881,19 @@ class AiModelProvider extends ChangeNotifier {
         } catch (_) {}
       }
     }
+  }
+
+  String? _tryParseModelScopeErrorMessage(String preview) {
+    final s = preview.trim();
+    if (!s.startsWith('{') && !s.startsWith('[')) return null;
+    try {
+      final obj = jsonDecode(s);
+      if (obj is Map) {
+        final msg = obj['Message'];
+        if (msg is String && msg.trim().isNotEmpty) return msg.trim();
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<String> _extractZipToTmpAndFindRootWithProgress({

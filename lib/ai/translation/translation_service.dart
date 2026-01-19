@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:flutter/foundation.dart';
-
 import 'engines/translation_engine.dart';
 
 import 'translation_cache.dart';
@@ -106,10 +104,14 @@ class TranslationService {
               contextSources: context,
             )
             .timeout(_translateTimeout);
-        if (out.trim().isEmpty) {
+        final cleaned = out.trim();
+        if (cleaned.isEmpty) {
           throw StateError('empty translation');
         }
-        return out.trim();
+        if (_looksLikeBadTranslation(cleaned, normalized, config)) {
+          throw StateError('bad translation');
+        }
+        return cleaned;
       });
 
       await cache.set(cacheKey, translated);
@@ -189,14 +191,116 @@ class TranslationService {
         return await task();
       } on TimeoutException catch (e, st) {
         logger?.call('translate timeout (attempt $attempt/$maxRetries)', e, st);
-        debugPrint('translate timeout (attempt $attempt/$maxRetries): $e');
         if (attempt >= maxRetries) rethrow;
       } catch (e, st) {
         logger?.call('translate error (attempt $attempt/$maxRetries)', e, st);
-        debugPrint('translate error (attempt $attempt/$maxRetries): $e');
         if (attempt >= maxRetries) rethrow;
       }
       await Future.delayed(Duration(milliseconds: 200 * attempt));
     }
   }
+
+  bool _looksLikeBadTranslation(
+    String translated,
+    String source,
+    TranslationConfig config,
+  ) {
+    final t = translated.trim().toLowerCase();
+    if (t.isEmpty) return true;
+    if (t.contains("i can't seem to get anything meaningful") ||
+        t.contains("i cant seem to get anything meaningful") ||
+        t.contains('random characters') ||
+        t.contains('no coherent meaning') ||
+        t.contains('could you please provide') && t.contains('more context')) {
+      return true;
+    }
+
+    final s = source.trim();
+    if (s.isNotEmpty && translated.trim() == s) {
+      if (s.length <= 8) return false;
+      int alpha = 0;
+      int cjk = 0;
+      for (final r in s.runes) {
+        if ((r >= 0x4E00 && r <= 0x9FFF) ||
+            (r >= 0x3400 && r <= 0x4DBF) ||
+            (r >= 0xF900 && r <= 0xFAFF)) {
+          cjk++;
+          continue;
+        }
+        if ((r >= 0x41 && r <= 0x5A) || (r >= 0x61 && r <= 0x7A)) {
+          alpha++;
+          continue;
+        }
+      }
+      if (alpha < 4 && cjk < 4) return false;
+      return true;
+    }
+
+    final stats = _scriptStats(translated);
+    final target = config.targetLang.toLowerCase().trim();
+    final wantEn = target == 'en' ||
+        target.startsWith('en-') ||
+        target.contains('english');
+    final wantZh = target == 'zh' ||
+        target.startsWith('zh-') ||
+        target == 'cn' ||
+        target.contains('chinese');
+
+    if (wantEn && stats.cjkRatio > 0.22 && stats.latinRatio < 0.18) {
+      return true;
+    }
+    if (wantZh && stats.cjkRatio < 0.12 && stats.latinRatio > 0.22) {
+      return true;
+    }
+
+    int weird = 0;
+    int total = 0;
+    for (final r in translated.runes) {
+      total++;
+      if (r == 0xFFFD) {
+        weird++;
+        continue;
+      }
+      if (r < 0x20 && r != 0x0A && r != 0x09 && r != 0x0D) {
+        weird++;
+        continue;
+      }
+    }
+    if (total > 0 && weird / total > 0.02) return true;
+    return false;
+  }
+
+  _ScriptStats _scriptStats(String s) {
+    int total = 0;
+    int cjk = 0;
+    int latin = 0;
+    for (final r in s.runes) {
+      total++;
+      if ((r >= 0x4E00 && r <= 0x9FFF) ||
+          (r >= 0x3400 && r <= 0x4DBF) ||
+          (r >= 0xF900 && r <= 0xFAFF)) {
+        cjk++;
+        continue;
+      }
+      if ((r >= 0x41 && r <= 0x5A) || (r >= 0x61 && r <= 0x7A)) {
+        latin++;
+        continue;
+      }
+    }
+    final t = total <= 0 ? 1 : total;
+    return _ScriptStats(
+      cjkRatio: cjk / t,
+      latinRatio: latin / t,
+    );
+  }
+}
+
+class _ScriptStats {
+  final double cjkRatio;
+  final double latinRatio;
+
+  const _ScriptStats({
+    required this.cjkRatio,
+    required this.latinRatio,
+  });
 }

@@ -53,7 +53,7 @@ class Book {
     return Book(
       id: map['id'],
       title: map['title'],
-      author: map['author'] ?? 'Unknown',
+      author: map['author'] ?? '',
       coverPath: map['cover_path'] ?? '',
       filePath: map['file_path'] ?? '',
       format: map['format'] ?? 'unknown',

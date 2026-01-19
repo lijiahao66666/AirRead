@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/local_llm/local_llm_client.dart';
 import '../../ai/reading/reading_context_service.dart';
 import '../../ai/reading/qa_service.dart';
@@ -16,6 +15,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../providers/ai_model_provider.dart';
 import '../providers/translation_provider.dart';
+import '../providers/qa_stream_provider.dart';
 import 'glass_panel.dart';
 
 enum AiHudRoute {
@@ -966,15 +966,15 @@ class _TencentHunyuanSettingsPanelState
           aiModel,
           type: LocalLlmModelType.translation,
           title: 'HY-MT1.5-1.8B',
-          sizeText: '860M',
+          sizeText: '830M',
           capabilityText: '翻译',
         ),
         const SizedBox(height: 10),
         _localModelStatusRow(
           aiModel,
           type: LocalLlmModelType.qa,
-          title: 'Qwen3-0.6B',
-          sizeText: '280M',
+          title: 'Hunyuan-1.8B-Instruct',
+          sizeText: '830M',
           capabilityText: '问答',
         ),
       ],
@@ -1796,7 +1796,6 @@ class _QaPanelState extends State<_QaPanel> {
   Timer? _persistTimer;
   int? _activeReplyIndex;
   _MessageState _messageState = _MessageState.idle;
-  StreamSubscription<QAStreamChunk>? _streamSub;
   bool _initialQaHandled = false;
 
   // Throttling for web setState
@@ -1804,140 +1803,10 @@ class _QaPanelState extends State<_QaPanel> {
   bool _needsUiUpdate = false;
   bool _shouldScrollToBottom = false;
 
-  bool _localInThink = false;
-  String _localTagCarry = '';
-  String _localRawText = '';
-
-  void _resetLocalStreamSanitizer() {
-    _localInThink = false;
-    _localTagCarry = '';
-    _localRawText = '';
-  }
-
-  String _sanitizeLocalDelta(String input) {
-    if (input.isEmpty) return '';
-    final buffer = StringBuffer();
-    for (final r in input.runes) {
-      if (r == 0x09 || r == 0x0A || r == 0x0D) {
-        buffer.writeCharCode(r);
-        continue;
-      }
-      if (r < 0x20 || r == 0x7F) continue;
-      buffer.writeCharCode(r);
-    }
-    return buffer.toString();
-  }
-
-  String _sanitizeLocalFinalText(String input) {
-    var s = input.trim();
-    if (s.isEmpty) return '';
-
-    const openAnswer = '<answer>';
-    const closeAnswer = '</answer>';
-    final answerStart = s.lastIndexOf(openAnswer);
-    if (answerStart >= 0) {
-      final afterOpen = answerStart + openAnswer.length;
-      final answerEnd = s.indexOf(closeAnswer, afterOpen);
-      if (answerEnd >= 0) {
-        s = s.substring(afterOpen, answerEnd);
-      } else {
-        s = s.substring(afterOpen);
-      }
-    }
-
-    s = s.replaceAll(
-      RegExp(r'<think>[\s\S]*?</think>', multiLine: true),
-      '',
-    );
-    s = s.replaceAll('<think>', '').replaceAll('</think>', '');
-    s = s.replaceAll(openAnswer, '').replaceAll('</answer>', '');
-    s = s.replaceAll('<answer>', '').replaceAll('</answer>', '');
-    s = s.replaceAll(RegExp(r'</?\[[^\]]+\]>'), '');
-    s = s.replaceAll(RegExp(r'<\|[^>]*\|>'), '');
-    s = s.trim();
-    return s;
-  }
-
-  ({String answer, String think}) _splitLocalDelta(String delta) {
-    if (delta.isEmpty) return (answer: '', think: '');
-    var input = '$_localTagCarry$delta';
-    _localTagCarry = '';
-
-    final answer = StringBuffer();
-    final think = StringBuffer();
-
-    var i = 0;
-    while (i < input.length) {
-      final ch = input[i];
-      if (ch == '<') {
-        final remaining = input.substring(i);
-        if (remaining.startsWith('<|')) {
-          final end = remaining.indexOf('|>');
-          if (end == -1) {
-            _localTagCarry = remaining;
-            break;
-          }
-          i += end + 2;
-          continue;
-        }
-        const tags = <String>[
-          '<think>',
-          '</think>',
-          '<answer>',
-          '</answer>',
-        ];
-
-        bool matched = false;
-        for (final tag in tags) {
-          if (remaining.startsWith(tag)) {
-            matched = true;
-            if (tag == '<think>') _localInThink = true;
-            if (tag == '</think>') _localInThink = false;
-            if (tag == '<answer>') _localInThink = false;
-            i += tag.length;
-            break;
-          }
-        }
-        if (matched) continue;
-
-        final close = remaining.indexOf('>');
-        if (close == -1) {
-          _localTagCarry = remaining;
-          break;
-        }
-      }
-
-      if (_localInThink) {
-        think.write(ch);
-      } else {
-        answer.write(ch);
-      }
-      i++;
-    }
-
-    return (answer: answer.toString(), think: think.toString());
-  }
-
-  String _sanitizeLocalThinkFinal(String input) {
-    final s = input.replaceAll(RegExp(r'<\|[^>]*\|>'), '');
-    if (s.trim().isEmpty) return '';
-    final buffer = StringBuffer();
-
-    var idx = 0;
-    while (true) {
-      final start = s.indexOf('<think>', idx);
-      if (start < 0) break;
-      final end = s.indexOf('</think>', start + 7);
-      if (end < 0) break;
-      final chunk = s.substring(start + 7, end);
-      if (chunk.trim().isNotEmpty) {
-        if (buffer.isNotEmpty) buffer.write('\n');
-        buffer.write(chunk.trim());
-      }
-      idx = end + 8;
-    }
-    return buffer.toString().trim();
-  }
+  QaStreamProvider? _qaStream;
+  VoidCallback? _qaStreamListener;
+  int? _activeStreamId;
+  int? _activeStreamReplyIndex;
 
   String get _historyKey => 'qa_history_${widget.bookId}';
 
@@ -1945,6 +1814,13 @@ class _QaPanelState extends State<_QaPanel> {
   void initState() {
     super.initState();
     _loadHistory();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _qaStream = context.read<QaStreamProvider>();
+      _qaStreamListener = _onQaStreamUpdated;
+      _qaStream?.addListener(_qaStreamListener!);
+      _attachActiveStreamIfAny();
+    });
   }
 
   void _applyInitialQaIfNeeded() {
@@ -2040,7 +1916,7 @@ class _QaPanelState extends State<_QaPanel> {
       _messageState = _MessageState.idle;
       _activeReplyIndex = null;
     });
-    _streamSub?.cancel();
+    _qaStream?.cancel(widget.bookId);
     _schedulePersist();
     _scrollToBottom();
   }
@@ -2079,8 +1955,141 @@ class _QaPanelState extends State<_QaPanel> {
     _persistTimer?.cancel();
     _inputCtl.dispose();
     _scrollCtl.dispose();
-    _streamSub?.cancel();
+    if (_qaStreamListener != null) {
+      _qaStream?.removeListener(_qaStreamListener!);
+    }
     super.dispose();
+  }
+
+  void _attachActiveStreamIfAny() {
+    final s = _qaStream?.stateFor(widget.bookId);
+    if (s == null) return;
+    final hasAny = s.think.trim().isNotEmpty || s.answer.trim().isNotEmpty;
+    if (!s.isStreaming && !hasAny && !s.hasError) return;
+
+    final lastUserText =
+        _messages.lastIndexWhere((m) => m.role == _QaRole.user);
+    if (lastUserText < 0 || _messages[lastUserText].text.trim() != s.question) {
+      _messages.add(_QaMsg(_QaRole.user, s.question));
+    }
+    final replyIndex = _messages.length;
+    _messages.add(_QaMsg(
+      _QaRole.assistant,
+      s.answer,
+      reasoning: s.think,
+      reasoningCollapsed: s.answer.trim().isNotEmpty,
+    ));
+    _activeStreamId = s.streamId;
+    _activeStreamReplyIndex = replyIndex;
+    _activeReplyIndex = s.isStreaming ? replyIndex : null;
+    _messageState = s.isStreaming
+        ? (s.answer.trim().isNotEmpty
+            ? _MessageState.answering
+            : _MessageState.thinking)
+        : _MessageState.idle;
+    _needsUiUpdate = true;
+    _shouldScrollToBottom = true;
+    _throttledUpdate();
+  }
+
+  void _onQaStreamUpdated() {
+    if (!mounted) return;
+    final s = _qaStream?.stateFor(widget.bookId);
+    if (s == null) return;
+
+    if (_activeStreamId != s.streamId) {
+      _attachActiveStreamIfAny();
+      return;
+    }
+
+    final hasAny = s.think.trim().isNotEmpty || s.answer.trim().isNotEmpty;
+
+    if (_activeStreamReplyIndex == null) {
+      if (s.hasError) {
+        setState(() {
+          _messages.add(_QaMsg(_QaRole.assistant, '错误: ${s.error}'));
+          _messageState = _MessageState.idle;
+          _activeReplyIndex = null;
+        });
+        _schedulePersist();
+        _scrollToBottom();
+        return;
+      }
+
+      if (!hasAny) {
+        if (!s.isStreaming) {
+          setState(() {
+            _messageState = _MessageState.idle;
+            _activeReplyIndex = null;
+          });
+        }
+        return;
+      }
+
+      final idx = _messages.length;
+      setState(() {
+        _messages.add(_QaMsg(
+          _QaRole.assistant,
+          s.answer,
+          reasoning: s.think,
+          reasoningCollapsed: s.answer.trim().isNotEmpty,
+        ));
+        _activeStreamReplyIndex = idx;
+        _activeReplyIndex = s.isStreaming ? idx : null;
+        _messageState = s.isStreaming
+            ? (s.answer.trim().isNotEmpty
+                ? _MessageState.answering
+                : _MessageState.thinking)
+            : _MessageState.idle;
+      });
+      _schedulePersist();
+      _scrollToBottom();
+      return;
+    }
+
+    final idx = _activeStreamReplyIndex!;
+    if (idx < 0 || idx >= _messages.length) {
+      _activeStreamReplyIndex = null;
+      _onQaStreamUpdated();
+      return;
+    }
+
+    if (s.hasError) {
+      _updateMessage(idx, _QaMsg(_QaRole.assistant, '错误: ${s.error}'));
+      _messageState = _MessageState.idle;
+      _activeReplyIndex = null;
+      _schedulePersist();
+      return;
+    }
+
+    final cur = _messages[idx];
+    var collapsed = cur.reasoningCollapsed;
+    if (cur.reasoning.trim().isNotEmpty &&
+        !collapsed &&
+        s.answer.trim().isNotEmpty) {
+      collapsed = true;
+    }
+    _updateMessage(
+      idx,
+      _QaMsg(
+        _QaRole.assistant,
+        s.answer,
+        reasoning: s.think,
+        reasoningCollapsed: collapsed,
+      ),
+    );
+
+    if (s.isStreaming) {
+      _activeReplyIndex = idx;
+      _messageState = s.answer.trim().isNotEmpty
+          ? _MessageState.answering
+          : _MessageState.thinking;
+      return;
+    }
+
+    _activeReplyIndex = null;
+    _messageState = _MessageState.idle;
+    _schedulePersist();
   }
 
   void _sendQuickAction(QAType qaType) async {
@@ -2136,227 +2145,48 @@ class _QaPanelState extends State<_QaPanel> {
     _performQa(text, QAType.general, historyText);
   }
 
+  Future<void> _cancelActive() async {
+    await (_qaStream ?? context.read<QaStreamProvider>()).cancel(widget.bookId);
+    if (!mounted) return;
+    setState(() {
+      _messageState = _MessageState.idle;
+      _activeReplyIndex = null;
+      _activeStreamReplyIndex = null;
+    });
+    _schedulePersist();
+  }
+
   Future<void> _performQa(
       String question, QAType qaType, String history) async {
-    try {
-      final aiModel = context.read<AiModelProvider>();
-      if (aiModel.source == AiModelSource.none) {
-        throw Exception('请先选择本地或在线大模型');
-      }
-      final isLocalModel = aiModel.source == AiModelSource.local;
-      if (isLocalModel) {
-        _resetLocalStreamSanitizer();
-      }
+    final qaStream = _qaStream ?? context.read<QaStreamProvider>();
+    _qaStream ??= qaStream;
 
-      final contextService = ReadingContextService(
-        chapterContentCache: widget.chapterTextCache,
-        currentChapterIndex: widget.currentChapterIndex,
-        currentPageInChapter: widget.currentPageInChapter,
-        chapterPageRanges: widget.chapterPageRanges,
-      );
+    setState(() {
+      _activeReplyIndex = null;
+      _activeStreamReplyIndex = null;
+      _messageState = _MessageState.thinking;
+    });
+    _schedulePersist();
+    _scrollToBottom();
 
-      final qaService = QAService(
-        contextService: contextService,
-        credentials: getEmbeddedPublicHunyuanCredentials(),
-        contentScope: aiModel.qaContentScope,
-      );
+    final aiModel = context.read<AiModelProvider>();
+    final contextService = ReadingContextService(
+      chapterContentCache: widget.chapterTextCache,
+      currentChapterIndex: widget.currentChapterIndex,
+      currentPageInChapter: widget.currentPageInChapter,
+      chapterPageRanges: widget.chapterPageRanges,
+    );
 
-      final stream = qaService.askQuestion(
-        question: question,
-        isLocalModel: isLocalModel,
-        qaType: qaType,
-        history: history,
-      );
-
-      _streamSub?.cancel();
-
-      _streamSub = stream.listen(
-        (QAStreamChunk chunk) {
-          if (!mounted) return;
-
-          String answerDelta = '';
-          String thinkDelta = '';
-
-          if (isLocalModel) {
-            final raw = _sanitizeLocalDelta(chunk.content);
-            if (raw.isNotEmpty) {
-              _localRawText += raw;
-              if (_localRawText.length > 30000) {
-                _streamSub?.cancel();
-              }
-            }
-            final split = _splitLocalDelta(raw);
-            answerDelta = split.answer;
-            thinkDelta = split.think;
-          } else {
-            thinkDelta = (chunk.reasoningContent ?? '');
-            answerDelta = chunk.content;
-          }
-
-          if (_activeReplyIndex == null) {
-            final hasAny =
-                thinkDelta.trim().isNotEmpty || answerDelta.trim().isNotEmpty;
-            if (!hasAny) return;
-            setState(() {
-              _messages.add(const _QaMsg(
-                _QaRole.assistant,
-                '',
-                reasoningCollapsed: false,
-              ));
-              _activeReplyIndex = _messages.length - 1;
-              _messageState = answerDelta.trim().isNotEmpty
-                  ? _MessageState.answering
-                  : _MessageState.thinking;
-            });
-          }
-
-          final replyIndex = _activeReplyIndex!;
-          final current = _messages[replyIndex];
-
-          if (thinkDelta.isNotEmpty) {
-            final nextThink = current.reasoning + thinkDelta;
-            _updateMessage(
-              replyIndex,
-              _QaMsg(
-                current.role,
-                current.text,
-                reasoning: nextThink,
-                reasoningCollapsed: false,
-              ),
-            );
-            _messageState = _MessageState.thinking;
-          }
-
-          if (answerDelta.isNotEmpty) {
-            var nextAnswer = answerDelta;
-            if (isLocalModel && current.text.isEmpty) {
-              nextAnswer = nextAnswer.replaceFirst(RegExp(r'^\s+'), '');
-            }
-            if (nextAnswer.isNotEmpty) {
-              final latest = _messages[replyIndex];
-              if (latest.reasoning.trim().isNotEmpty &&
-                  !latest.reasoningCollapsed) {
-                _updateMessage(
-                  replyIndex,
-                  _QaMsg(
-                    latest.role,
-                    latest.text,
-                    reasoning: latest.reasoning,
-                    reasoningCollapsed: true,
-                  ),
-                );
-              }
-              _updateMessage(
-                replyIndex,
-                _QaMsg(
-                  current.role,
-                  current.text + nextAnswer,
-                  reasoning: _messages[replyIndex].reasoning,
-                  reasoningCollapsed: _messages[replyIndex].reasoningCollapsed,
-                ),
-              );
-              _messageState = _MessageState.answering;
-            }
-          }
-        },
-        onError: (error) {
-          _updateTimer?.cancel();
-          _throttledUpdate();
-          if (!mounted) return;
-
-          final int errorIndex = _activeReplyIndex ?? _messages.length;
-          final errorMessage = _QaMsg(
-            _QaRole.assistant,
-            '错误: ${error.toString()}',
-          );
-
-          setState(() {
-            if (_activeReplyIndex == null) {
-              _messages.add(errorMessage);
-            } else {
-              _messages[errorIndex] = errorMessage;
-            }
-            _messageState = _MessageState.idle;
-            _activeReplyIndex = null;
-          });
-          _schedulePersist();
-        },
-        onDone: () {
-          _updateTimer?.cancel();
-          _throttledUpdate();
-          if (!mounted) return;
-
-          final replyIndex = _activeReplyIndex;
-          final localFinal =
-              isLocalModel ? _sanitizeLocalFinalText(_localRawText) : '';
-          final localThinkFinal =
-              isLocalModel ? _sanitizeLocalThinkFinal(_localRawText) : '';
-          setState(() {
-            _messageState = _MessageState.idle;
-            _activeReplyIndex = null;
-            if (!isLocalModel) {
-              if (replyIndex != null) {
-                final m = _messages[replyIndex];
-                _messages[replyIndex] = _QaMsg(
-                  m.role,
-                  m.text,
-                  reasoning: m.reasoning,
-                  reasoningCollapsed: true,
-                );
-              }
-              return;
-            }
-
-            if (replyIndex == null) {
-              if (localFinal.trim().isNotEmpty) {
-                _messages.add(_QaMsg(
-                  _QaRole.assistant,
-                  localFinal,
-                  reasoning: localThinkFinal,
-                  reasoningCollapsed: true,
-                ));
-              }
-              return;
-            }
-
-            final current = _messages[replyIndex];
-            final String finalText = localFinal.trim().isNotEmpty
-                ? localFinal
-                : _sanitizeLocalFinalText(current.text);
-            final String finalThink = localThinkFinal.trim().isNotEmpty
-                ? localThinkFinal
-                : current.reasoning.trim();
-            _messages[replyIndex] = _QaMsg(
-              current.role,
-              finalText,
-              reasoning: finalThink,
-              reasoningCollapsed: true,
-            );
-          });
-          _schedulePersist();
-        },
-      );
-    } catch (e) {
-      _updateTimer?.cancel();
-      _throttledUpdate();
-      if (!mounted) return;
-
-      final int errorIndex = _activeReplyIndex ?? _messages.length;
-      final errorMessage = _QaMsg(
-        _QaRole.assistant,
-        '错误: ${e.toString()}',
-      );
-      setState(() {
-        if (_activeReplyIndex == null) {
-          _messages.add(errorMessage);
-        } else {
-          _messages[errorIndex] = errorMessage;
-        }
-        _messageState = _MessageState.idle;
-        _activeReplyIndex = null;
-      });
-      _schedulePersist();
-    }
+    final streamId = await qaStream.start(
+      bookId: widget.bookId,
+      question: question,
+      qaType: qaType,
+      aiModel: aiModel,
+      contextService: contextService,
+      history: history,
+    );
+    _activeStreamId = streamId;
+    _onQaStreamUpdated();
   }
 
   void _scrollToBottom() {
@@ -2570,7 +2400,9 @@ class _QaPanelState extends State<_QaPanel> {
                                   ],
                                 ],
                                 Text(
-                                  m.text.isEmpty && _activeReplyIndex == i
+                                  m.text.isEmpty &&
+                                          _activeReplyIndex == i &&
+                                          m.reasoning.trim().isEmpty
                                       ? '...'
                                       : m.text,
                                   style: TextStyle(
@@ -2586,7 +2418,15 @@ class _QaPanelState extends State<_QaPanel> {
                 },
               ),
             ),
-            if (_messageState == _MessageState.thinking)
+            if (_messageState == _MessageState.thinking &&
+                (_activeReplyIndex == null ||
+                    (_activeReplyIndex! >= 0 &&
+                        _activeReplyIndex! < _messages.length &&
+                        _messages[_activeReplyIndex!].text.trim().isEmpty &&
+                        _messages[_activeReplyIndex!]
+                            .reasoning
+                            .trim()
+                            .isEmpty)))
               Align(
                 alignment: Alignment.centerLeft,
                 child: Padding(
@@ -2634,7 +2474,11 @@ class _QaPanelState extends State<_QaPanel> {
                               .contains(LogicalKeyboardKey.shiftLeft) &&
                           !ServicesBinding.instance.keyboard.logicalKeysPressed
                               .contains(LogicalKeyboardKey.shiftRight)) {
-                        _send();
+                        if (_messageState == _MessageState.idle) {
+                          _send();
+                        } else {
+                          _cancelActive();
+                        }
                         return KeyEventResult.handled;
                       }
                       return KeyEventResult.ignored;
@@ -2655,13 +2499,21 @@ class _QaPanelState extends State<_QaPanel> {
                         border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12)),
                       ),
-                      onSubmitted: (_) => _send(),
+                      onSubmitted: (_) {
+                        if (_messageState == _MessageState.idle) {
+                          _send();
+                        } else {
+                          _cancelActive();
+                        }
+                      },
                     ),
                   ),
                 ),
                 const SizedBox(width: 10),
                 ElevatedButton(
-                  onPressed: _send,
+                  onPressed: _messageState == _MessageState.idle
+                      ? _send
+                      : _cancelActive,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.techBlue,
                     foregroundColor: Colors.white,
@@ -2672,7 +2524,8 @@ class _QaPanelState extends State<_QaPanel> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text('发送'),
+                  child:
+                      Text(_messageState == _MessageState.idle ? '发送' : '取消'),
                 ),
               ],
             ),

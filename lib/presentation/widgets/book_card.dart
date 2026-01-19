@@ -1,9 +1,10 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'dart:io';
+import 'dart:math';
 import '../../data/models/book.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
+import 'local_file_image.dart'
+    if (dart.library.js_interop) 'local_file_image_web.dart';
 
 class BookCard extends StatefulWidget {
   final Book book;
@@ -11,7 +12,7 @@ class BookCard extends StatefulWidget {
   final int itemIndex;
   final int totalColumns;
   final double childAspectRatio;
-  
+
   // Selection Control
   final bool isSelectionMode;
   final bool isSelected;
@@ -68,10 +69,14 @@ class _BookCardState extends State<BookCard> {
                           width: 22,
                           height: 22,
                           decoration: BoxDecoration(
-                            color: widget.isSelected ? AppColors.techBlue : Colors.white.withOpacity(0.8),
+                            color: widget.isSelected
+                                ? AppColors.techBlue
+                                : Colors.white.withOpacity(0.8),
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: widget.isSelected ? AppColors.techBlue : Colors.grey.withOpacity(0.6),
+                              color: widget.isSelected
+                                  ? AppColors.techBlue
+                                  : Colors.grey.withOpacity(0.6),
                               width: 1.5,
                             ),
                             boxShadow: [
@@ -83,8 +88,9 @@ class _BookCardState extends State<BookCard> {
                                 )
                             ],
                           ),
-                          child: widget.isSelected 
-                              ? const Icon(Icons.check, size: 14, color: Colors.white)
+                          child: widget.isSelected
+                              ? const Icon(Icons.check,
+                                  size: 14, color: Colors.white)
                               : null,
                         ),
                       ),
@@ -102,21 +108,41 @@ class _BookCardState extends State<BookCard> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 4),
-          Text(
-            widget.book.author,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.softGrey,
-                ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          Builder(
+            builder: (context) {
+              final author = widget.book.author.trim();
+              final isUnknown =
+                  author.isEmpty || author.toLowerCase() == 'unknown';
+              final style = Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.softGrey,
+                  );
+              final reservedHeight = (style?.fontSize ?? 12) *
+                      ((style?.height ?? 1.25).clamp(1.0, 2.0)).toDouble() +
+                  4;
+              return SizedBox(
+                height: reservedHeight,
+                child: isUnknown
+                    ? null
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          author,
+                          style: style,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+              );
+            },
           ),
           const SizedBox(height: 8),
           LinearProgressIndicator(
             value: widget.book.percentage,
             backgroundColor: AppColors.mistWhite,
             valueColor: AlwaysStoppedAnimation<Color>(
-              widget.book.percentage > 0 ? AppColors.techBlue : Colors.transparent,
+              widget.book.percentage > 0
+                  ? AppColors.techBlue
+                  : Colors.transparent,
             ),
             borderRadius: BorderRadius.circular(2),
             minHeight: 2,
@@ -135,7 +161,8 @@ class _BookCardState extends State<BookCard> {
                   return const SizedBox.shrink();
                 }
                 final double ratio = current / total;
-                final String percent = (ratio * 100).clamp(0, 100).toStringAsFixed(0);
+                final String percent =
+                    (ratio * 100).clamp(0, 100).toStringAsFixed(0);
                 return Text(
                   '$percent%',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -161,32 +188,81 @@ class _BookCardState extends State<BookCard> {
         errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
       );
     }
-    
+
     if (widget.book.coverPath.isNotEmpty) {
-      if (kIsWeb) return _buildPlaceholder();
-      return Image.file(
-        File(widget.book.coverPath),
+      final image = buildLocalFileImage(
+        path: widget.book.coverPath,
         fit: BoxFit.cover,
         width: double.infinity,
         height: double.infinity,
         errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
       );
+      if (image != null) return image;
     }
 
     return _buildPlaceholder();
   }
 
   Widget _buildPlaceholder() {
+    final int seed = widget.book.id.hashCode ^ widget.book.title.hashCode;
+    final random = Random(seed);
+    final double hueA = (seed.abs() % 360).toDouble();
+    final double hueB = ((hueA + 48 + (seed.abs() % 24)) % 360).toDouble();
+
+    final Color a = HSLColor.fromAHSL(1, hueA, 0.55, 0.82).toColor();
+    final Color b = HSLColor.fromAHSL(1, hueB, 0.58, 0.74).toColor();
+    final Color c =
+        HSLColor.fromAHSL(1, (hueA + 120) % 360, 0.40, 0.90).toColor();
+
+    final begin = random.nextBool() ? Alignment.topLeft : Alignment.topRight;
+    final end =
+        random.nextBool() ? Alignment.bottomRight : Alignment.bottomLeft;
     return Container(
-      color: AppColors.mistWhite,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [a, b, c],
+          stops: const [0.0, 0.55, 1.0],
+          begin: begin,
+          end: end,
+        ),
+      ),
       width: double.infinity,
       height: double.infinity,
-      child: Center(
-        child: Icon(
-          Icons.book_outlined,
-          size: 48,
-          color: AppColors.techBlue.withOpacity(0.3),
-        ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned(
+            left: -40,
+            top: -40,
+            child: Container(
+              width: 140,
+              height: 140,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.18),
+              ),
+            ),
+          ),
+          Positioned(
+            right: -60,
+            bottom: -60,
+            child: Container(
+              width: 180,
+              height: 180,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.12),
+              ),
+            ),
+          ),
+          Center(
+            child: Icon(
+              Icons.book_outlined,
+              size: 48,
+              color: Colors.white.withOpacity(0.85),
+            ),
+          ),
+        ],
       ),
     );
   }

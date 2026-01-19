@@ -265,11 +265,11 @@ class ReadingContextService {
     final historyText = (history ?? '').trim();
 
     final buffer = StringBuffer()
-      ..writeln('你是用户的阅读助手。请结合当前阅读内容与历史问答上下文作答。')
+      ..writeln('你是阅读助手。请仅基于【当前阅读内容】与【历史问答】作答。')
       ..writeln('要求：')
-      ..writeln('1) 参考当前阅读内容。')
-      ..writeln('2) 可结合历史问答补充，但不要凭空编造。')
-      ..writeln('3) 若问题超出当前阅读内容范围，请明确说明。')
+      ..writeln('1) 优先在内容中定位答案并直接回答。')
+      ..writeln('2) 必要时引用原文短句作为依据（可简短摘录）。')
+      ..writeln('3) 不要编造；只有确实找不到再说“文中未提及/需要更多上下文”。')
       ..writeln()
       ..writeln('【当前阅读内容】')
       ..writeln(content.isEmpty ? '（当前阅读内容为空）' : content)

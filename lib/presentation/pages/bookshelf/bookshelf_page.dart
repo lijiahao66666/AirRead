@@ -44,7 +44,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       try {
         final result = await FilePicker.platform.pickFiles(
           type: FileType.custom,
-          allowedExtensions: ['epub', 'txt', 'pdf'],
+          allowedExtensions: ['epub', 'txt'],
           allowMultiple: true,
           withData: true,
         );

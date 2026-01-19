@@ -30,8 +30,8 @@ void main() {
       contentScope: QAContentScope.currentPage,
       history: '',
     );
-    expect(p1.contains('你是用户的阅读助手。请结合当前阅读内容与历史问答上下文作答。'), true);
-    expect(p1.contains('1) 参考当前阅读内容。'), true);
+    expect(p1.contains('你是阅读助手。请仅基于【当前阅读内容】与【历史问答】作答。'), true);
+    expect(p1.contains('1) 优先在内容中定位答案并直接回答。'), true);
   });
 
   test('buildLocalQaPrompt outputs simple instructions', () {
@@ -44,9 +44,7 @@ void main() {
       contentScope: QAContentScope.currentPage,
       history: '',
     );
-    expect(p1.contains('<think>'), true);
-    expect(p1.contains('<answer>'), true);
-    expect(p1.startsWith('/think'), true);
+    expect(p1.contains('/think'), true);
     expect(p1.contains('你是阅读助手'), true);
     expect(p1.contains('【当前阅读内容】'), true);
   });

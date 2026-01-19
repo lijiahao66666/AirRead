@@ -16,7 +16,6 @@ class TranslationProvider extends ChangeNotifier {
   static const _kCfgFrom = 'tr_cfg_from';
   static const _kCfgTo = 'tr_cfg_to';
   static const _kCfgMode = 'tr_cfg_mode';
-  static const _kCfgApply = 'tr_cfg_apply';
   static const _kAiTranslateEnabled = 'tr_ai_translate_enabled';
   static const _kAiReadAloudEnabled = 'tr_ai_read_aloud_enabled';
   static const _kTtsVoiceType = 'tr_tts_voice_type';
@@ -29,15 +28,12 @@ class TranslationProvider extends ChangeNotifier {
   AiModelProvider? _aiModel;
   VoidCallback? _aiModelListener;
 
-  String _currentBookId = '';
-
   TranslationConfig _config = const TranslationConfig(
     sourceLang: '',
     targetLang: 'en',
     displayMode: TranslationDisplayMode.bilingual,
   );
 
-  bool _applyToReader = false;
   bool _aiTranslateEnabled = false;
   bool _aiReadAloudEnabled = false;
   bool _loaded = false;
@@ -91,10 +87,6 @@ class TranslationProvider extends ChangeNotifier {
         _aiReadAloudEnabled = false;
         changed = true;
       }
-      if (_applyToReader) {
-        _applyToReader = false;
-        changed = true;
-      }
     }
 
     if (source == AiModelSource.local) {
@@ -106,10 +98,6 @@ class TranslationProvider extends ChangeNotifier {
       if (!ready) {
         if (_aiTranslateEnabled) {
           _aiTranslateEnabled = false;
-          changed = true;
-        }
-        if (_applyToReader) {
-          _applyToReader = false;
           changed = true;
         }
       }
@@ -145,7 +133,7 @@ class TranslationProvider extends ChangeNotifier {
   bool get loaded => _loaded;
 
   TranslationConfig get config => _config;
-  bool get applyToReader => _applyToReader;
+  bool get applyToReader => _aiTranslateEnabled;
   bool get aiTranslateEnabled => _aiTranslateEnabled;
   bool get aiReadAloudEnabled => _aiReadAloudEnabled;
   int get ttsVoiceType => _ttsVoiceType;
@@ -158,13 +146,6 @@ class TranslationProvider extends ChangeNotifier {
       _aiModel?.removeListener(_aiModelListener!);
     }
     super.dispose();
-  }
-
-  Future<void> setCurrentBookId(String bookId) async {
-    if (_currentBookId == bookId) return;
-    await _savePrefs();
-    _currentBookId = bookId;
-    await _loadFromPrefs();
   }
 
   void _scheduleNotify([Duration delay = const Duration(milliseconds: 50)]) {
@@ -201,7 +182,6 @@ class TranslationProvider extends ChangeNotifier {
           (to ?? _config.targetLang).trim().isEmpty ? _config.targetLang : to,
       displayMode: displayMode,
     );
-    _applyToReader = _aiTranslateEnabled;
 
     if (!_loaded) {
       _loaded = true;
@@ -219,7 +199,6 @@ class TranslationProvider extends ChangeNotifier {
           ? 'bilingual'
           : 'translationOnly',
     );
-    await prefs.setBool(_kCfgApply, _applyToReader);
     await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
     await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
     await prefs.setInt(_kTtsVoiceType, _ttsVoiceType);
@@ -259,19 +238,11 @@ class TranslationProvider extends ChangeNotifier {
     await _savePrefs();
   }
 
-  Future<void> setApplyToReader(bool value) async {
-    _applyToReader = value;
-    notifyListeners();
-    await _savePrefs();
-  }
-
   Future<void> setAiTranslateEnabled(bool value) async {
     if (value) {
       _validateEngineConfig();
     }
     _aiTranslateEnabled = value;
-    // Sync applyToReader
-    _applyToReader = value;
     notifyListeners();
     await _savePrefs();
   }
