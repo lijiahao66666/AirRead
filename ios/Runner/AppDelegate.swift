@@ -245,6 +245,8 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
         case "stop":
           ttsStreamHandler.stop()
           result(nil)
+        case "isAvailable":
+          result(true)
         default:
           result(FlutterMethodNotImplemented)
         }

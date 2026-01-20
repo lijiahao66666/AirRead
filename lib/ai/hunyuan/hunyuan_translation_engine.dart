@@ -1,6 +1,7 @@
 import '../tencentcloud/tencent_api_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
 import '../tencentcloud/tencent_cloud_exception.dart';
+import '../tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../translation/engines/translation_engine.dart';
 
 class HunyuanTranslationEngine implements TranslationEngine {
@@ -38,6 +39,7 @@ class HunyuanTranslationEngine implements TranslationEngine {
       region: _region,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
+      useScfProxy: !usingPersonalTencentKeys(),
       payload: {
         'Model': model,
         'Stream': false,

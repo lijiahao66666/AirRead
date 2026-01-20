@@ -464,6 +464,7 @@ class _TencentHunyuanSettingsPanelState
       _userSecretIdController.text = secretId;
       _userSecretKeyController.text = secretKey;
     });
+    setUserTencentKeysEnabledOverride(enabled);
 
     if (enabled && secretId.isNotEmpty && secretKey.isNotEmpty) {
       setTencentCredentialsOverride(
@@ -476,6 +477,7 @@ class _TencentHunyuanSettingsPanelState
   Future<void> _setUserTencentKeysEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kUserTencentKeysEnabled, enabled);
+    setUserTencentKeysEnabledOverride(enabled);
 
     if (!mounted) return;
     setState(() => _userKeysEnabled = enabled);
@@ -504,6 +506,7 @@ class _TencentHunyuanSettingsPanelState
     await prefs.setBool(_kUserTencentKeysEnabled, true);
     await prefs.setString(_kUserTencentSecretId, secretId);
     await prefs.setString(_kUserTencentSecretKey, secretKey);
+    setUserTencentKeysEnabledOverride(true);
     setTencentCredentialsOverride(
       TencentCredentials(appId: '', secretId: secretId, secretKey: secretKey),
     );
@@ -521,6 +524,7 @@ class _TencentHunyuanSettingsPanelState
     await prefs.setBool(_kUserTencentKeysEnabled, false);
     await prefs.remove(_kUserTencentSecretId);
     await prefs.remove(_kUserTencentSecretKey);
+    setUserTencentKeysEnabledOverride(false);
     setTencentCredentialsOverride(null);
     if (!mounted) return;
     setState(() {
@@ -701,16 +705,19 @@ class _TencentHunyuanSettingsPanelState
     final y = dt.year.toString().padLeft(4, '0');
     final m = dt.month.toString().padLeft(2, '0');
     final d = dt.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    final ss = dt.second.toString().padLeft(2, '0');
+    return '$y-$m-$d $hh:$mm:$ss';
   }
 
-  Future<void> _redeemCode(AiModelProvider aiModel, String code) async {
+  Future<bool> _redeemCode(AiModelProvider aiModel, String code) async {
     final trimmed = code.trim();
     if (trimmed.isEmpty) {
       setState(() => _redeemHint = '请输入卡密');
-      return;
+      return false;
     }
-    if (_redeemBusy) return;
+    if (_redeemBusy) return false;
     setState(() {
       _redeemBusy = true;
       _redeemHint = '';
@@ -724,10 +731,12 @@ class _TencentHunyuanSettingsPanelState
       final merged = baseMs + Duration(days: payload.days).inMilliseconds;
       await aiModel.setOnlineEntitlementExpiryMs(merged);
       setState(() {
-        _redeemHint = '已兑换，+${payload.days}天';
+        _redeemHint = '';
       });
+      return true;
     } catch (e) {
       setState(() => _redeemHint = e.toString());
+      return false;
     } finally {
       if (mounted) {
         setState(() => _redeemBusy = false);
@@ -794,10 +803,8 @@ class _TencentHunyuanSettingsPanelState
           const SizedBox(height: 8),
           Text(
             hint,
-            style: TextStyle(
-              color: hint.startsWith('已兑换')
-                  ? widget.textColor.withOpacity(0.65)
-                  : Colors.redAccent,
+            style: const TextStyle(
+              color: Colors.redAccent,
               fontSize: 13,
               height: 1.35,
             ),
@@ -869,9 +876,9 @@ class _TencentHunyuanSettingsPanelState
               style: TextStyle(color: widget.textColor, fontSize: 13),
               onSubmitted: (_) async {
                 final navigator = Navigator.of(dialogContext);
-                await _redeemCode(aiModel, controller.text);
+                final ok = await _redeemCode(aiModel, controller.text);
                 if (!mounted) return;
-                if (_redeemHint.startsWith('已兑换')) {
+                if (ok) {
                   if (navigator.canPop()) navigator.pop();
                 }
               },
@@ -891,9 +898,9 @@ class _TencentHunyuanSettingsPanelState
                   ? null
                   : () async {
                       final navigator = Navigator.of(dialogContext);
-                      await _redeemCode(aiModel, controller.text);
+                      final ok = await _redeemCode(aiModel, controller.text);
                       if (!mounted) return;
-                      if (_redeemHint.startsWith('已兑换')) {
+                      if (ok) {
                         if (navigator.canPop()) navigator.pop();
                       }
                     },
@@ -977,7 +984,7 @@ class _TencentHunyuanSettingsPanelState
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: widget.textColor.withOpacity(0.14),
+          color: Colors.transparent,
           width: AppTokens.stroke,
         ),
       ),
@@ -1071,7 +1078,8 @@ class _TencentHunyuanSettingsPanelState
                     ),
                   ] else ...[
                     Text(
-                      '使用腾讯混元翻译大模型，需要购买时长后使用',
+                      '使用腾讯混元翻译大模型'
+                      '${aiModel.onlineEntitlementActive ? '' : '，需要购买时长后使用'}',
                       style: TextStyle(
                         color: widget.textColor.withOpacity(0.65),
                         fontSize: 13,
@@ -1088,6 +1096,7 @@ class _TencentHunyuanSettingsPanelState
           const SizedBox(height: 10),
           _itemBox(
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: _dropdown(
@@ -1161,6 +1170,7 @@ class _TencentHunyuanSettingsPanelState
     final provider = context.watch<TranslationProvider>();
     final aiModel = context.watch<AiModelProvider>();
     final engine = provider.readAloudEngine;
+    final localAvailable = provider.localReadAloudAvailable;
     final isLocal = engine == ReadAloudEngine.local;
     final voiceItems = <String, String>{
       for (final e in _ttsLargeModelVoices.entries) e.key.toString(): e.value,
@@ -1213,12 +1223,18 @@ class _TencentHunyuanSettingsPanelState
                   spacing: 12,
                   runSpacing: 10,
                   children: [
-                    _chip(
-                      label: '本地',
-                      active: engine == ReadAloudEngine.local,
-                      onTap: () =>
-                          provider.setReadAloudEngine(ReadAloudEngine.local),
-                      textColor: widget.textColor,
+                    Opacity(
+                      opacity: localAvailable ? 1 : 0.45,
+                      child: IgnorePointer(
+                        ignoring: !localAvailable,
+                        child: _chip(
+                          label: '本地',
+                          active: engine == ReadAloudEngine.local,
+                          onTap: () => provider
+                              .setReadAloudEngine(ReadAloudEngine.local),
+                          textColor: widget.textColor,
+                        ),
+                      ),
                     ),
                     _chip(
                       label: '在线',
@@ -1229,6 +1245,17 @@ class _TencentHunyuanSettingsPanelState
                     ),
                   ],
                 ),
+                if (!localAvailable) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    '本地朗读不可用',
+                    style: TextStyle(
+                      color: widget.textColor.withOpacity(0.65),
+                      fontSize: 13,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
                 if (!isLocal) ...[
                   const SizedBox(height: 12),
                   if (provider.usingPersonalTencentKeys) ...[
@@ -1242,7 +1269,8 @@ class _TencentHunyuanSettingsPanelState
                     ),
                   ] else ...[
                     Text(
-                      '使用腾讯大模型朗读，需要购买时长后使用',
+                      '使用腾讯大模型朗读'
+                      '${aiModel.onlineEntitlementActive ? '' : '，需要购买时长后使用'}',
                       style: TextStyle(
                         color: widget.textColor.withOpacity(0.65),
                         fontSize: 13,
@@ -1318,11 +1346,11 @@ class _TencentHunyuanSettingsPanelState
     required VoidCallback onTap,
     required Color textColor,
   }) {
+    const double chipHeight = 32;
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: onTap,
       child: Container(
-        height: 44,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: active
@@ -1334,14 +1362,20 @@ class _TencentHunyuanSettingsPanelState
             width: AppTokens.stroke,
           ),
         ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            color: active ? AppColors.techBlue : textColor.withOpacity(0.75),
-            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-            height: 1.2,
+        child: SizedBox(
+          height: chipHeight,
+          child: Center(
+            widthFactor: 1,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                color:
+                    active ? AppColors.techBlue : textColor.withOpacity(0.75),
+                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                height: 1.1,
+              ),
+            ),
           ),
         ),
       ),
@@ -1363,9 +1397,9 @@ class _TencentHunyuanSettingsPanelState
         Text(label,
             style: TextStyle(
                 color: textColor, fontWeight: FontWeight.normal, fontSize: 13)),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         SizedBox(
-          height: 44,
+          height: 32,
           child: DropdownButtonFormField<String>(
             value: items.containsKey(value) ? value : items.keys.first,
             dropdownColor: bg,
@@ -1376,7 +1410,7 @@ class _TencentHunyuanSettingsPanelState
               filled: true,
               fillColor: bg,
               contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               border:
                   OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               enabledBorder: OutlineInputBorder(
@@ -1443,7 +1477,7 @@ class _TencentHunyuanSettingsPanelState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '问答引擎',
+                      '问答大模型',
                       style: TextStyle(
                         color: widget.textColor,
                         fontSize: 13,
@@ -1492,7 +1526,8 @@ class _TencentHunyuanSettingsPanelState
                         ),
                       ] else ...[
                         Text(
-                          '使用腾讯混元大模型，需要购买时长后使用',
+                          '使用腾讯混元大模型'
+                          '${aiModel.onlineEntitlementActive ? '' : '，需要购买时长后使用'}',
                           style: TextStyle(
                             color: widget.textColor.withOpacity(0.65),
                             fontSize: 13,
@@ -1587,11 +1622,11 @@ class _TencentHunyuanSettingsPanelState
     required ValueChanged<QAContentScope> onChanged,
   }) {
     final bool active = value == groupValue;
+    const double chipHeight = 32;
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () => onChanged(value),
       child: Container(
-        height: 44,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: active
@@ -1605,16 +1640,21 @@ class _TencentHunyuanSettingsPanelState
             width: AppTokens.stroke,
           ),
         ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            color: active
-                ? AppColors.techBlue
-                : widget.textColor.withOpacity(0.75),
-            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-            height: 1.2,
+        child: SizedBox(
+          height: chipHeight,
+          child: Center(
+            widthFactor: 1,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                color: active
+                    ? AppColors.techBlue
+                    : widget.textColor.withOpacity(0.75),
+                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                height: 1.1,
+              ),
+            ),
           ),
         ),
       ),
@@ -1813,6 +1853,21 @@ class _MainPanel extends StatelessWidget {
       AiModelSource.local => aiModel.isLocalQaModelReady,
     };
 
+    final String localQaSubtitle = switch (source) {
+      AiModelSource.local when !qaReady =>
+        aiModel.isLocalModelInstallingByType(LocalLlmModelType.qa)
+            ? '模型安装中，安装后可使用'
+            : (aiModel.isLocalModelDownloadingByType(LocalLlmModelType.qa) ||
+                    aiModel.isLocalModelQueuedByType(LocalLlmModelType.qa))
+                ? '模型下载中，下载后可使用'
+                : aiModel.isLocalModelPausedByType(LocalLlmModelType.qa)
+                    ? '模型下载已暂停，继续后可使用'
+                    : !aiModel.localModelExistsByType(LocalLlmModelType.qa)
+                        ? '模型未下载，下载后可使用'
+                        : '模型准备中，稍后可使用',
+      _ => '',
+    };
+
     final bool translationBlocked =
         translationProvider.translationMode == TranslationMode.bigModel &&
             !onlineEntitled &&
@@ -1827,13 +1882,21 @@ class _MainPanel extends StatelessWidget {
             ? (translateActive ? '翻译中...' : '翻译中...')
             : '打开后将实时对内容进行翻译');
 
-    final readAloudBlocked =
+    final localReadAloudBlocked =
+        translationProvider.readAloudEngine == ReadAloudEngine.local &&
+            !translationProvider.localReadAloudAvailable;
+    final onlineReadAloudBlocked =
         translationProvider.readAloudEngine == ReadAloudEngine.online &&
             !onlineEntitled &&
             !usingPersonalKeys;
-    final readAloudSubtitle = readAloudBlocked
-        ? '在线朗读需要购买时长后使用'
-        : (readAloudEnabled ? '已开启' : '开启后，可朗读当前页');
+    final readAloudBlocked = localReadAloudBlocked || onlineReadAloudBlocked;
+    final readAloudSubtitle = localReadAloudBlocked
+        ? '本地朗读引擎不可用，可切换到在线引擎'
+        : (onlineReadAloudBlocked
+            ? '在线朗读需要购买时长后使用'
+            : (readAloudEnabled ? '已开启' : '开启后，可朗读当前页'));
+    final bool readAloudValue =
+        localReadAloudBlocked ? false : readAloudEnabled;
 
     return SingleChildScrollView(
       key: const PageStorageKey('ai_hud_main_scroll'),
@@ -1855,16 +1918,16 @@ class _MainPanel extends StatelessWidget {
             icon: Icons.volume_up,
             title: '朗读',
             subtitle: readAloudSubtitle,
-            value: readAloudEnabled,
+            value: readAloudValue,
             onChanged: readAloudBlocked ? null : onReadAloudChanged,
           ),
           const SizedBox(height: 14),
           _qaEntry(
             enabled: qaReady,
             subtitle: source == AiModelSource.none
-                ? '需要选择大模型后使用'
+                ? '需要选择问答大模型后使用'
                 : (source == AiModelSource.local && !qaReady)
-                    ? '模型下载中，下载后可使用'
+                    ? localQaSubtitle
                     : (source == AiModelSource.online &&
                             !onlineEntitled &&
                             !usingPersonalKeys)

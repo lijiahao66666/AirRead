@@ -322,6 +322,11 @@ class MainActivity: FlutterActivity() {
                     } catch (_: Exception) {}
                     result.success(null)
                 }
+                "isAvailable" -> {
+                    ensureTts { ok, _ ->
+                        result.success(ok)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }

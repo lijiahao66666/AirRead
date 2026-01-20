@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../ai/hunyuan/hunyuan_translation_engine.dart';
@@ -33,8 +34,9 @@ class TranslationProvider extends ChangeNotifier {
   static const _kReadAloudEngine = 'tr_read_aloud_engine';
 
   static const _kUserTencentKeysEnabled = 'user_tencent_keys_enabled';
-  static const _kUserTencentSecretId = 'user_tencent_secret_id';
-  static const _kUserTencentSecretKey = 'user_tencent_secret_key';
+
+  static const MethodChannel _localTtsChannel =
+      MethodChannel('airread/local_tts');
 
   final TranslationCache _cache =
       TranslationCache(ttl: const Duration(days: 30));
@@ -59,6 +61,7 @@ class TranslationProvider extends ChangeNotifier {
   int _ttsVoiceType = 601003;
   double _ttsSpeed = 1.0;
   bool _usingPersonalTencentKeys = false;
+  bool _localReadAloudAvailable = true;
 
   Timer? _notifyTimer;
   bool _notifyScheduled = false;
@@ -96,6 +99,13 @@ class TranslationProvider extends ChangeNotifier {
   void _syncFeatureFlagsToModel() {
     final entitled = _aiModel?.onlineEntitlementActive ?? false;
     bool changed = false;
+
+    if (_aiReadAloudEnabled &&
+        _readAloudEngine == ReadAloudEngine.local &&
+        !_localReadAloudAvailable) {
+      _aiReadAloudEnabled = false;
+      changed = true;
+    }
 
     if (_aiReadAloudEnabled &&
         _readAloudEngine == ReadAloudEngine.online &&
@@ -150,6 +160,7 @@ class TranslationProvider extends ChangeNotifier {
   int get ttsVoiceType => _ttsVoiceType;
   double get ttsSpeed => _ttsSpeed;
   bool get usingPersonalTencentKeys => _usingPersonalTencentKeys;
+  bool get localReadAloudAvailable => _localReadAloudAvailable;
 
   @override
   void dispose() {
@@ -212,11 +223,30 @@ class TranslationProvider extends ChangeNotifier {
 
     _rebuildService();
     _syncFeatureFlagsToModel();
+    await _refreshLocalReadAloudAvailability();
 
     if (!_loaded) {
       _loaded = true;
     }
     notifyListeners();
+  }
+
+  Future<void> _refreshLocalReadAloudAvailability() async {
+    if (kIsWeb) {
+      _localReadAloudAvailable = true;
+      return;
+    }
+    bool ok = true;
+    try {
+      ok = await _localTtsChannel
+              .invokeMethod<bool>('isAvailable')
+              .timeout(const Duration(seconds: 2)) ==
+          true;
+    } catch (_) {
+      ok = false;
+    }
+    if (_localReadAloudAvailable == ok) return;
+    _localReadAloudAvailable = ok;
   }
 
   Future<void> _savePrefs() async {
@@ -238,16 +268,13 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   bool _readUsingPersonalTencentKeys(SharedPreferences prefs) {
-    final enabled = prefs.getBool(_kUserTencentKeysEnabled) ?? false;
-    if (!enabled) return false;
-    final secretId = (prefs.getString(_kUserTencentSecretId) ?? '').trim();
-    final secretKey = (prefs.getString(_kUserTencentSecretKey) ?? '').trim();
-    return secretId.isNotEmpty && secretKey.isNotEmpty;
+    return prefs.getBool(_kUserTencentKeysEnabled) ?? false;
   }
 
   Future<void> _refreshPersonalKeyState() async {
     final prefs = await SharedPreferences.getInstance();
     _usingPersonalTencentKeys = _readUsingPersonalTencentKeys(prefs);
+    setUserTencentKeysEnabledOverride(_usingPersonalTencentKeys);
   }
 
   Future<void> setTranslationMode(TranslationMode mode) async {
@@ -260,6 +287,7 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   Future<void> setReadAloudEngine(ReadAloudEngine engine) async {
+    if (engine == ReadAloudEngine.local && !_localReadAloudAvailable) return;
     if (_readAloudEngine == engine) return;
     _readAloudEngine = engine;
     _syncFeatureFlagsToModel();

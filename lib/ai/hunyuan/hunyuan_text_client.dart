@@ -1,5 +1,6 @@
 import '../tencentcloud/tencent_api_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
+import '../tencentcloud/embedded_public_hunyuan_credentials.dart';
 
 /// 流式输出返回的数据结构
 class ChatStreamChunk {
@@ -44,6 +45,7 @@ class HunyuanTextClient {
       region: _region,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
+      useScfProxy: !usingPersonalTencentKeys(),
       payload: {
         'Model': model,
         'Stream': false,
@@ -79,6 +81,7 @@ class HunyuanTextClient {
       region: _region,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
+      useScfProxy: !usingPersonalTencentKeys(),
       timeout: null,
       payload: {
         'Model': model,

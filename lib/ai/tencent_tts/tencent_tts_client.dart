@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 
 import '../tencentcloud/tencent_api_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
+import '../tencentcloud/embedded_public_hunyuan_credentials.dart';
 import 'tts_ws.dart';
 
 class TencentTtsResult {
@@ -58,6 +59,7 @@ class TencentTtsClient {
       version: _version,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
+      useScfProxy: !usingPersonalTencentKeys(),
       payload: payload,
       timeout: const Duration(seconds: 30),
     );
@@ -77,6 +79,19 @@ class TencentTtsClient {
     bool enableSubtitle = false,
     Duration timeout = const Duration(seconds: 90),
   }) async {
+    if (!usingPersonalTencentKeys()) {
+      final res = await textToVoice(
+        text: text,
+        codec: codec,
+        voiceType: voiceType,
+        speed: speed,
+      );
+      final audioBase64 = res.audioBase64.trim();
+      if (audioBase64.isEmpty) {
+        throw StateError('腾讯语音合成返回空音频');
+      }
+      return base64Decode(audioBase64);
+    }
     final appIdText = _credentials.appId.trim();
     if (appIdText.isEmpty) {
       throw const FormatException('缺少 AppId，无法调用流式语音合成接口');

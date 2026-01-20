@@ -1,6 +1,7 @@
 import 'dart:collection';
 
 import '../translation/engines/translation_engine.dart';
+import 'embedded_public_hunyuan_credentials.dart';
 import 'tencent_api_client.dart';
 import 'tencent_credentials.dart';
 import 'tencent_cloud_exception.dart';
@@ -73,6 +74,7 @@ class TmtTranslationEngine implements TranslationEngine {
       region: _region,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
+      useScfProxy: !usingPersonalTencentKeys(),
       payload: <String, dynamic>{
         'SourceText': clipped,
         'Source': src,

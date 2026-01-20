@@ -3,9 +3,18 @@ import 'dart:convert';
 import 'tencent_credentials.dart';
 
 TencentCredentials? _overrideCredentials;
+bool _userTencentKeysEnabled = false;
 
 void setTencentCredentialsOverride(TencentCredentials? credentials) {
   _overrideCredentials = credentials;
+}
+
+void setUserTencentKeysEnabledOverride(bool enabled) {
+  _userTencentKeysEnabled = enabled;
+}
+
+bool usingPersonalTencentKeys() {
+  return _userTencentKeysEnabled;
 }
 
 String _decodeObfuscated(String enc) {

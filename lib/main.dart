@@ -58,6 +58,7 @@ Future<void> main() async {
       TencentCredentials(appId: '', secretId: secretId, secretKey: secretKey),
     );
   }
+  setUserTencentKeysEnabledOverride(enabled);
 
   runApp(
     MultiProvider(

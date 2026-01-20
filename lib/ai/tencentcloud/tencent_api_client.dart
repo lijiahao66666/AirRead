@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'http_client_factory.dart'
     if (dart.library.js_interop) 'http_client_factory_web.dart';
@@ -80,12 +81,129 @@ class TencentApiClient {
   TencentApiClient({http.Client? client})
       : _client = client ?? createStreamingHttpClient();
 
+  static const String _scfUrl =
+      String.fromEnvironment('AIRREAD_TENCENT_SCF_URL', defaultValue: '');
+
   static final _ConcurrencyGate _chatTranslationsGate =
       _ConcurrencyGate(maxConcurrent: 3);
   static final _Pacer _chatTranslationsPacer =
       _Pacer(interval: const Duration(milliseconds: 50));
   static final _ConcurrencyGate _chatCompletionsGate =
       _ConcurrencyGate(maxConcurrent: 5);
+
+  static const String _kOnlineEntitlementExpiryMs =
+      'online_entitlement_expiry_ms';
+
+  Future<void> _requireOnlineEntitlementForScf(String action) async {
+    if (action != 'ChatCompletions' &&
+        action != 'ChatTranslations' &&
+        action != 'TextToVoice') {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final expiryMs = prefs.getInt(_kOnlineEntitlementExpiryMs) ?? 0;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if ((expiryMs ~/ 1000) > (nowMs ~/ 1000)) return;
+    throw TencentCloudException(
+      code: 'EntitlementExpired',
+      message: '在线大模型需要购买时长后使用',
+    );
+  }
+
+  Uri _resolveScfUri() {
+    final raw = _scfUrl.trim();
+    if (raw.isEmpty) {
+      throw TencentCloudException(
+        code: 'NoScfUrl',
+        message:
+            'AIRREAD_TENCENT_SCF_URL is empty. Configure SCF HTTP trigger URL or provide personal keys.',
+      );
+    }
+    return Uri.parse(raw);
+  }
+
+  Map<String, dynamic> _normalizeScfJsonResponse(dynamic decoded) {
+    dynamic obj = decoded;
+    if (obj is Map && obj['body'] is String) {
+      final body = (obj['body'] as String).trim();
+      if (body.isNotEmpty) {
+        try {
+          obj = jsonDecode(body);
+        } catch (_) {
+          obj = decoded;
+        }
+      }
+    }
+
+    if (obj is! Map) {
+      throw TencentCloudException(
+        code: 'InvalidResponse',
+        message: 'Response is not a JSON object',
+      );
+    }
+
+    final rawResponse =
+        obj['Response'] ?? obj['response'] ?? obj['data'] ?? obj['result'];
+    if (rawResponse is Map) {
+      return rawResponse.cast<String, dynamic>();
+    }
+    return obj.cast<String, dynamic>();
+  }
+
+  void _throwIfTencentError(Map<String, dynamic> response) {
+    final err = response['Error'];
+    if (err is Map) {
+      final code = err['Code']?.toString() ?? 'TencentCloudError';
+      final msg = err['Message']?.toString() ?? 'Unknown error';
+      final rid = response['RequestId']?.toString();
+      throw TencentCloudException(code: code, message: msg, requestId: rid);
+    }
+  }
+
+  Stream<StreamChunk> _singleShotStreamFromResponse(
+    Map<String, dynamic> response,
+  ) async* {
+    String reasoning = '';
+    String content = '';
+
+    final choices = response['Choices'];
+    if (choices is List && choices.isNotEmpty) {
+      final first = choices.first;
+      if (first is Map) {
+        final msg = first['Message'];
+        if (msg is Map) {
+          reasoning = msg['ReasoningContent']?.toString() ?? '';
+          content = msg['Content']?.toString() ?? '';
+        } else {
+          final delta = first['Delta'];
+          if (delta is Map) {
+            reasoning = delta['ReasoningContent']?.toString() ?? '';
+            content = delta['Content']?.toString() ?? '';
+          } else {
+            content = first['Content']?.toString() ?? '';
+          }
+        }
+      }
+    }
+
+    if (reasoning.trim().isNotEmpty) {
+      yield StreamChunk(
+        content: '',
+        reasoningContent: reasoning,
+        isReasoning: true,
+        isComplete: false,
+      );
+    }
+    if (content.trim().isNotEmpty) {
+      yield StreamChunk(
+        content: content,
+        reasoningContent: null,
+        isReasoning: false,
+        isComplete: false,
+      );
+    }
+    yield StreamChunk(content: '', isComplete: true);
+  }
 
   Future<Map<String, dynamic>> postJson({
     required String host,
@@ -96,6 +214,7 @@ class TencentApiClient {
     required String secretId,
     required String secretKey,
     required Map<String, dynamic> payload,
+    bool useScfProxy = false,
     Duration timeout = const Duration(seconds: 30),
     int maxRetries = 5,
   }) async {
@@ -111,9 +230,68 @@ class TencentApiClient {
           release = await _chatCompletionsGate.acquire();
         }
 
+        final usingScf = useScfProxy;
+        if (!usingScf &&
+            (secretId.trim().isEmpty || secretKey.trim().isEmpty)) {
+          throw TencentCloudException(
+            code: 'MissingCredentials',
+            message: '已开启个人密钥，但未填写 SecretId/SecretKey',
+          );
+        }
+
         final now = DateTime.now().toUtc();
         final ts = now.millisecondsSinceEpoch ~/ 1000;
         final payloadJson = jsonEncode(payload);
+
+        if (usingScf) {
+          await _requireOnlineEntitlementForScf(action);
+          final uri = _resolveScfUri();
+          final scfPayload = jsonEncode(<String, dynamic>{
+            'host': host,
+            'service': service,
+            'action': action,
+            'version': version,
+            if (region != null && region.trim().isNotEmpty) 'region': region,
+            'payload': payload,
+            'stream': false,
+            'timestamp': ts,
+          });
+
+          final resp = await _client
+              .post(
+                uri,
+                headers: const <String, String>{
+                  'Content-Type': 'application/json; charset=utf-8',
+                },
+                body: scfPayload,
+              )
+              .timeout(timeout);
+
+          if (resp.statusCode < 200 || resp.statusCode >= 300) {
+            throw TencentCloudException(
+              code: 'HttpError',
+              message: 'HTTP ${resp.statusCode}: ${resp.body}',
+            );
+          }
+
+          final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+          final response = _normalizeScfJsonResponse(decoded);
+          final err = response['Error'];
+          if (err is Map) {
+            final code = err['Code']?.toString() ?? 'TencentCloudError';
+            final msg = err['Message']?.toString() ?? 'Unknown error';
+            final rid = response['RequestId']?.toString();
+            if (_shouldRetry(code) && retryCount < maxRetries) {
+              retryCount++;
+              final delay = Duration(milliseconds: 200 * (1 << retryCount));
+              await Future.delayed(delay);
+              continue;
+            }
+            throw TencentCloudException(
+                code: code, message: msg, requestId: rid);
+          }
+          return response;
+        }
 
         final signer = Tc3Signer.signJson(
           secretId: secretId,
@@ -235,6 +413,7 @@ class TencentApiClient {
     required String secretId,
     required String secretKey,
     required Map<String, dynamic> payload,
+    bool useScfProxy = false,
     Duration? timeout,
   }) async* {
     void Function()? release;
@@ -248,6 +427,132 @@ class TencentApiClient {
       final now = DateTime.now().toUtc();
       final ts = now.millisecondsSinceEpoch ~/ 1000;
       final payloadJson = jsonEncode(payload);
+
+      final usingScf = useScfProxy;
+      if (!usingScf && (secretId.trim().isEmpty || secretKey.trim().isEmpty)) {
+        throw TencentCloudException(
+          code: 'MissingCredentials',
+          message: '已开启个人密钥，但未填写 SecretId/SecretKey',
+        );
+      }
+
+      if (usingScf) {
+        await _requireOnlineEntitlementForScf(action);
+        final uri = _resolveScfUri();
+        final request = http.Request('POST', uri);
+        request.headers.addAll(const <String, String>{
+          'Content-Type': 'application/json; charset=utf-8',
+          'Accept': 'text/event-stream',
+        });
+        request.body = jsonEncode(<String, dynamic>{
+          'host': host,
+          'service': service,
+          'action': action,
+          'version': version,
+          if (region != null && region.trim().isNotEmpty) 'region': region,
+          'payload': payload,
+          'stream': true,
+          'timestamp': ts,
+        });
+
+        final streamedResponse = timeout != null
+            ? await _client.send(request).timeout(timeout)
+            : await _client.send(request);
+
+        if (streamedResponse.statusCode < 200 ||
+            streamedResponse.statusCode >= 300) {
+          final content = await streamedResponse.stream.toBytes();
+          final body = utf8.decode(content);
+          throw TencentCloudException(
+            code: 'HttpError',
+            message: 'HTTP ${streamedResponse.statusCode}: $body',
+          );
+        }
+
+        final contentType =
+            streamedResponse.headers['content-type']?.toLowerCase() ?? '';
+        if (contentType.contains('text/event-stream')) {
+          final transformer = utf8.decoder;
+          String buffer = '';
+
+          await for (final chunk
+              in streamedResponse.stream.transform(transformer)) {
+            buffer += chunk;
+
+            while (true) {
+              final lineIndex = buffer.indexOf('\n');
+              if (lineIndex == -1) break;
+
+              final line = buffer.substring(0, lineIndex).trim();
+              buffer = buffer.substring(lineIndex + 1);
+              if (line.isEmpty) continue;
+
+              if (!line.startsWith('data: ')) continue;
+              final jsonStr = line.substring(6).trim();
+
+              if (jsonStr == '[DONE]') {
+                yield StreamChunk(content: '', isComplete: true);
+                return;
+              }
+
+              try {
+                final json = jsonDecode(jsonStr);
+                if (json is! Map) continue;
+
+                final choices = json['Choices'];
+                if (choices is! List || choices.isEmpty) continue;
+
+                final choice = choices.first;
+                if (choice is! Map) continue;
+
+                final delta = choice['Delta'];
+                if (delta is! Map) continue;
+
+                final reasoningContent = delta['ReasoningContent'];
+                if (reasoningContent != null &&
+                    reasoningContent.toString().isNotEmpty) {
+                  yield StreamChunk(
+                    content: '',
+                    reasoningContent: reasoningContent.toString(),
+                    isReasoning: true,
+                    isComplete: false,
+                  );
+                }
+
+                final content = delta['Content'];
+                if (content != null && content.toString().isNotEmpty) {
+                  yield StreamChunk(
+                    content: content.toString(),
+                    isReasoning: false,
+                    isComplete: false,
+                  );
+                }
+
+                final finishReason = choice['FinishReason'];
+                if (finishReason != null &&
+                    finishReason.toString().isNotEmpty &&
+                    finishReason.toString() != 'null') {
+                  yield StreamChunk(content: '', isComplete: true);
+                  return;
+                }
+              } catch (_) {
+                continue;
+              }
+            }
+          }
+
+          yield StreamChunk(content: '', isComplete: true);
+          return;
+        }
+
+        final content = await streamedResponse.stream.toBytes();
+        final body = utf8.decode(content);
+        final decoded = jsonDecode(body);
+        final response = _normalizeScfJsonResponse(decoded);
+        _throwIfTencentError(response);
+        yield* _singleShotStreamFromResponse(response);
+        return;
+      }
 
       final signer = Tc3Signer.signJson(
         secretId: secretId,

@@ -81,6 +81,7 @@ class TranslationSheet extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
                             child: _dropdown(
@@ -219,9 +220,9 @@ class TranslationSheet extends StatelessWidget {
       children: [
         Text(label,
             style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         SizedBox(
-          height: 48,
+          height: 50,
           child: DropdownButtonFormField<String>(
             value: items.containsKey(value) ? value : items.keys.first,
             dropdownColor: dropdownColor,
@@ -230,7 +231,7 @@ class TranslationSheet extends StatelessWidget {
               filled: true,
               fillColor: Colors.white,
               contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               border:
                   OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),

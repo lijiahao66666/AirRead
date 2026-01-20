@@ -183,9 +183,12 @@ class AiModelProvider extends ChangeNotifier {
   int get onlineEntitlementExpiryMs => _onlineEntitlementExpiryMs;
   DateTime? get onlineEntitlementExpiresAt => _onlineEntitlementExpiryMs <= 0
       ? null
-      : DateTime.fromMillisecondsSinceEpoch(_onlineEntitlementExpiryMs);
+      : DateTime.fromMillisecondsSinceEpoch(
+          (_onlineEntitlementExpiryMs ~/ 1000) * 1000,
+        );
   bool get onlineEntitlementActive =>
-      _onlineEntitlementExpiryMs > DateTime.now().millisecondsSinceEpoch;
+      (_onlineEntitlementExpiryMs ~/ 1000) >
+      (DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
   bool get loaded => _loaded;
   AiModelSource get source => _source;
@@ -298,11 +301,12 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   Future<void> setOnlineEntitlementExpiryMs(int expiryMs) async {
-    if (_onlineEntitlementExpiryMs == expiryMs) return;
-    _onlineEntitlementExpiryMs = expiryMs;
+    final normalized = (expiryMs ~/ 1000) * 1000;
+    if (_onlineEntitlementExpiryMs == normalized) return;
+    _onlineEntitlementExpiryMs = normalized;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_kOnlineEntitlementExpiryMs, expiryMs);
+    await prefs.setInt(_kOnlineEntitlementExpiryMs, normalized);
   }
 
   String _modelDirName(LocalLlmModelType type) {
