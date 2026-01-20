@@ -224,6 +224,7 @@ class TranslationProvider extends ChangeNotifier {
     _rebuildService();
     _syncFeatureFlagsToModel();
     await _refreshLocalReadAloudAvailability();
+    _syncFeatureFlagsToModel();
 
     if (!_loaded) {
       _loaded = true;
@@ -287,7 +288,6 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   Future<void> setReadAloudEngine(ReadAloudEngine engine) async {
-    if (engine == ReadAloudEngine.local && !_localReadAloudAvailable) return;
     if (_readAloudEngine == engine) return;
     _readAloudEngine = engine;
     _syncFeatureFlagsToModel();
@@ -339,6 +339,10 @@ class TranslationProvider extends ChangeNotifier {
 
   Future<void> setAiReadAloudEnabled(bool value) async {
     if (value) {
+      if (_readAloudEngine == ReadAloudEngine.local &&
+          !_localReadAloudAvailable) {
+        throw TranslationConfigException('本地朗读不可用');
+      }
       if (_readAloudEngine == ReadAloudEngine.online &&
           !_usingPersonalTencentKeys) {
         final entitled = _aiModel?.onlineEntitlementActive ?? false;

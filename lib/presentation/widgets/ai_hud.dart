@@ -1223,18 +1223,12 @@ class _TencentHunyuanSettingsPanelState
                   spacing: 12,
                   runSpacing: 10,
                   children: [
-                    Opacity(
-                      opacity: localAvailable ? 1 : 0.45,
-                      child: IgnorePointer(
-                        ignoring: !localAvailable,
-                        child: _chip(
-                          label: '本地',
-                          active: engine == ReadAloudEngine.local,
-                          onTap: () => provider
-                              .setReadAloudEngine(ReadAloudEngine.local),
-                          textColor: widget.textColor,
-                        ),
-                      ),
+                    _chip(
+                      label: '本地',
+                      active: engine == ReadAloudEngine.local,
+                      onTap: () =>
+                          provider.setReadAloudEngine(ReadAloudEngine.local),
+                      textColor: widget.textColor,
                     ),
                     _chip(
                       label: '在线',
@@ -1245,7 +1239,7 @@ class _TencentHunyuanSettingsPanelState
                     ),
                   ],
                 ),
-                if (!localAvailable) ...[
+                if (isLocal && !localAvailable) ...[
                   const SizedBox(height: 10),
                   Text(
                     '本地朗读不可用',
@@ -1891,7 +1885,7 @@ class _MainPanel extends StatelessWidget {
             !usingPersonalKeys;
     final readAloudBlocked = localReadAloudBlocked || onlineReadAloudBlocked;
     final readAloudSubtitle = localReadAloudBlocked
-        ? '本地朗读引擎不可用，可切换到在线引擎'
+        ? '本地朗读不可用，可切换在线'
         : (onlineReadAloudBlocked
             ? '在线朗读需要购买时长后使用'
             : (readAloudEnabled ? '已开启' : '开启后，可朗读当前页'));
