@@ -1316,7 +1316,15 @@ class _ReaderPageState extends State<ReaderPage>
     required bool enabled,
   }) async {
     if (!mounted) return;
-    await provider.setAiTranslateEnabled(enabled);
+    try {
+      await provider.setAiTranslateEnabled(enabled);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+      return;
+    }
 
     if (!enabled) {
       _translationFutures.clear();
@@ -1338,7 +1346,15 @@ class _ReaderPageState extends State<ReaderPage>
   }) async {
     if (!mounted) return;
 
-    await provider.setAiReadAloudEnabled(enabled);
+    try {
+      await provider.setAiReadAloudEnabled(enabled);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+      return;
+    }
 
     if (!enabled) {
       setState(() {
@@ -1359,11 +1375,19 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   Future<bool> _startReadAloud() async {
-    final source = context.read<AiModelProvider>().source;
+    final aiModel = context.read<AiModelProvider>();
+    final source = aiModel.source;
     if (source != AiModelSource.online) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('朗读仅支持在线模式')),
       );
+      return false;
+    }
+    if (!aiModel.onlineEntitlementActive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('在线大模型需要购买时长后使用')),
+      );
+      unawaited(_openAiHud(initialRoute: AiHudRoute.tencentSettings));
       return false;
     }
 

@@ -29,6 +29,7 @@ enum QAContentScope {
 class AiModelProvider extends ChangeNotifier {
   static const _kModelSource = 'ai_model_source';
   static const _kQAContentScope = 'qa_content_scope';
+  static const _kOnlineEntitlementExpiryMs = 'online_entitlement_expiry_ms';
 
   static const MethodChannel _androidLogcatChannel =
       MethodChannel('airread/local_llm');
@@ -84,6 +85,7 @@ class AiModelProvider extends ChangeNotifier {
   Timer? _installWatchdog;
 
   QAContentScope _qaContentScope = QAContentScope.slidingWindow; // 默认滑动窗口
+  int _onlineEntitlementExpiryMs = 0;
 
   AiModelProvider() {
     _load();
@@ -178,6 +180,12 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   QAContentScope get qaContentScope => _qaContentScope;
+  int get onlineEntitlementExpiryMs => _onlineEntitlementExpiryMs;
+  DateTime? get onlineEntitlementExpiresAt => _onlineEntitlementExpiryMs <= 0
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(_onlineEntitlementExpiryMs);
+  bool get onlineEntitlementActive =>
+      _onlineEntitlementExpiryMs > DateTime.now().millisecondsSinceEpoch;
 
   bool get loaded => _loaded;
   AiModelSource get source => _source;
@@ -287,6 +295,14 @@ class AiModelProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kQAContentScope, value.name);
+  }
+
+  Future<void> setOnlineEntitlementExpiryMs(int expiryMs) async {
+    if (_onlineEntitlementExpiryMs == expiryMs) return;
+    _onlineEntitlementExpiryMs = expiryMs;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kOnlineEntitlementExpiryMs, expiryMs);
   }
 
   String _modelDirName(LocalLlmModelType type) {
@@ -1040,6 +1056,8 @@ class AiModelProvider extends ChangeNotifier {
       (e) => e.name == scopeRaw,
       orElse: () => QAContentScope.slidingWindow,
     );
+
+    _onlineEntitlementExpiryMs = prefs.getInt(_kOnlineEntitlementExpiryMs) ?? 0;
 
     _loaded = true;
     await refreshLocalModelStatus();

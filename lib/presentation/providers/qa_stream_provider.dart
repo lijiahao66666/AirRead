@@ -64,7 +64,24 @@ class QaStreamProvider extends ChangeNotifier {
         isStreaming: false,
         answer: '',
         think: '',
-        error: '请先选择本地或在线大模型',
+        error: '请先选择本地模型或在线大模型',
+      );
+      notifyListeners();
+      return streamId;
+    }
+
+    if (aiModel.source == AiModelSource.online &&
+        !aiModel.onlineEntitlementActive) {
+      _stateByBookId[bookId] = QaStreamState(
+        streamId: streamId,
+        bookId: bookId,
+        question: question,
+        qaType: qaType,
+        isLocalModel: false,
+        isStreaming: false,
+        answer: '',
+        think: '',
+        error: '在线大模型需要购买时长后使用',
       );
       notifyListeners();
       return streamId;

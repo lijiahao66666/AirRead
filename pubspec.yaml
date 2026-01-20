@@ -58,6 +58,8 @@ dependencies:
   fetch_client: ^1.1.4
   archive: ^3.6.1
   web_socket_channel: ^3.0.3
+  url_launcher: ^6.3.1
+  cryptography: ^2.7.0
 
 
 dev_dependencies:

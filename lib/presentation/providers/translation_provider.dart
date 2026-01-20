@@ -3,19 +3,24 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../ai/local_llm/local_llm_client.dart';
-import '../../ai/local_llm/local_translation_engine.dart';
 import '../../ai/hunyuan/hunyuan_translation_engine.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
+import '../../ai/tencentcloud/tmt_translation_engine.dart';
 import '../../ai/translation/translation_cache.dart';
 import '../../ai/translation/translation_service.dart';
 import '../../ai/translation/translation_types.dart';
 import 'ai_model_provider.dart';
 
+enum TranslationMode {
+  machine,
+  bigModel,
+}
+
 class TranslationProvider extends ChangeNotifier {
   static const _kCfgFrom = 'tr_cfg_from';
   static const _kCfgTo = 'tr_cfg_to';
   static const _kCfgMode = 'tr_cfg_mode';
+  static const _kTranslationMode = 'tr_translation_mode';
   static const _kAiTranslateEnabled = 'tr_ai_translate_enabled';
   static const _kAiReadAloudEnabled = 'tr_ai_read_aloud_enabled';
   static const _kTtsVoiceType = 'tr_tts_voice_type';
@@ -33,6 +38,8 @@ class TranslationProvider extends ChangeNotifier {
     targetLang: 'en',
     displayMode: TranslationDisplayMode.bilingual,
   );
+
+  TranslationMode _translationMode = TranslationMode.machine;
 
   bool _aiTranslateEnabled = false;
   bool _aiReadAloudEnabled = false;
@@ -76,31 +83,13 @@ class TranslationProvider extends ChangeNotifier {
 
   void _syncFeatureFlagsToModel() {
     final source = _aiModel?.source ?? AiModelSource.none;
+    final entitled = _aiModel?.onlineEntitlementActive ?? false;
     bool changed = false;
 
-    if (source == AiModelSource.none) {
-      if (_aiTranslateEnabled) {
-        _aiTranslateEnabled = false;
-        changed = true;
-      }
-      if (_aiReadAloudEnabled) {
-        _aiReadAloudEnabled = false;
-        changed = true;
-      }
-    }
-
-    if (source == AiModelSource.local) {
-      if (_aiReadAloudEnabled) {
-        _aiReadAloudEnabled = false;
-        changed = true;
-      }
-      final ready = _aiModel?.isLocalTranslationModelReady ?? false;
-      if (!ready) {
-        if (_aiTranslateEnabled) {
-          _aiTranslateEnabled = false;
-          changed = true;
-        }
-      }
+    if ((_aiReadAloudEnabled) &&
+        (source != AiModelSource.online || !entitled)) {
+      _aiReadAloudEnabled = false;
+      changed = true;
     }
 
     if (changed) {
@@ -109,24 +98,17 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   void _rebuildService() {
-    final source = _aiModel?.source ?? AiModelSource.none;
     final creds = getEmbeddedPublicHunyuanCredentials();
 
-    final engine = switch (source) {
-      AiModelSource.local => LocalTranslationEngine(),
-      AiModelSource.online => HunyuanTranslationEngine(credentials: creds),
-      AiModelSource.none => HunyuanTranslationEngine(credentials: creds),
-    };
-    final backend = switch (source) {
-      AiModelSource.local => TranslationBackend.local,
-      AiModelSource.online => TranslationBackend.online,
-      AiModelSource.none => TranslationBackend.online,
+    final engine = switch (_translationMode) {
+      TranslationMode.machine => TmtTranslationEngine(credentials: creds),
+      TranslationMode.bigModel => HunyuanTranslationEngine(credentials: creds),
     };
 
     _service = TranslationService(
       cache: _cache,
       engine: engine,
-      backend: backend,
+      backend: TranslationBackend.online,
     );
   }
 
@@ -136,6 +118,7 @@ class TranslationProvider extends ChangeNotifier {
   bool get applyToReader => _aiTranslateEnabled;
   bool get aiTranslateEnabled => _aiTranslateEnabled;
   bool get aiReadAloudEnabled => _aiReadAloudEnabled;
+  TranslationMode get translationMode => _translationMode;
   int get ttsVoiceType => _ttsVoiceType;
   double get ttsSpeed => _ttsSpeed;
 
@@ -164,11 +147,18 @@ class TranslationProvider extends ChangeNotifier {
     final from = prefs.getString(_kCfgFrom);
     final to = prefs.getString(_kCfgTo);
     final mode = prefs.getString(_kCfgMode);
+    final trMode = prefs.getString(_kTranslationMode);
 
     _aiTranslateEnabled = prefs.getBool(_kAiTranslateEnabled) ?? false;
     _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
     _ttsVoiceType = prefs.getInt(_kTtsVoiceType) ?? _ttsVoiceType;
     _ttsSpeed = prefs.getDouble(_kTtsSpeed) ?? _ttsSpeed;
+
+    if (trMode == TranslationMode.machine.name) {
+      _translationMode = TranslationMode.machine;
+    } else if (trMode == TranslationMode.bigModel.name) {
+      _translationMode = TranslationMode.bigModel;
+    }
 
     TranslationDisplayMode displayMode = _config.displayMode;
     if (mode == 'bilingual') displayMode = TranslationDisplayMode.bilingual;
@@ -182,6 +172,8 @@ class TranslationProvider extends ChangeNotifier {
           (to ?? _config.targetLang).trim().isEmpty ? _config.targetLang : to,
       displayMode: displayMode,
     );
+
+    _rebuildService();
 
     if (!_loaded) {
       _loaded = true;
@@ -199,10 +191,19 @@ class TranslationProvider extends ChangeNotifier {
           ? 'bilingual'
           : 'translationOnly',
     );
+    await prefs.setString(_kTranslationMode, _translationMode.name);
     await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
     await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
     await prefs.setInt(_kTtsVoiceType, _ttsVoiceType);
     await prefs.setDouble(_kTtsSpeed, _ttsSpeed);
+  }
+
+  Future<void> setTranslationMode(TranslationMode mode) async {
+    if (_translationMode == mode) return;
+    _translationMode = mode;
+    _rebuildService();
+    notifyListeners();
+    await _savePrefs();
   }
 
   Future<void> setTtsVoiceType(int voiceType) async {
@@ -248,6 +249,16 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   Future<void> setAiReadAloudEnabled(bool value) async {
+    if (value) {
+      final source = _aiModel?.source ?? AiModelSource.none;
+      if (source != AiModelSource.online) {
+        throw TranslationConfigException('朗读仅支持在线模式');
+      }
+      final entitled = _aiModel?.onlineEntitlementActive ?? false;
+      if (!entitled) {
+        throw TranslationConfigException('朗读需要购买时长后使用');
+      }
+    }
     _aiReadAloudEnabled = value;
     notifyListeners();
     await _savePrefs();
@@ -361,36 +372,13 @@ class TranslationProvider extends ChangeNotifier {
     if (_config.targetLang.trim().isEmpty) {
       throw TranslationConfigException('请选择目标语言');
     }
-    final source = _aiModel?.source ?? AiModelSource.none;
-    if (source == AiModelSource.none) {
-      throw TranslationConfigException('请先在 AI伴读面板选择本地或在线大模型');
+    if (!getEmbeddedPublicHunyuanCredentials().isUsable) {
+      throw TranslationConfigException('翻译服务暂不可用');
     }
-    if (source == AiModelSource.online &&
-        !getEmbeddedPublicHunyuanCredentials().isUsable) {
-      throw TranslationConfigException('在线大模型暂不可用');
-    }
-    if (source == AiModelSource.local) {
-      final model = _aiModel;
-      if (model == null) {
-        throw TranslationConfigException('本地模型未就绪');
-      }
-      if (model.isLocalModelInstallingByType(LocalLlmModelType.translation)) {
-        throw TranslationConfigException('翻译模型安装中…');
-      }
-      if (model.isLocalModelDownloadingByType(LocalLlmModelType.translation)) {
-        throw TranslationConfigException('翻译模型下载中…');
-      }
-      if (model.isLocalModelPausedByType(LocalLlmModelType.translation)) {
-        throw TranslationConfigException('翻译模型下载已暂停');
-      }
-      if (!model.localModelExistsByType(LocalLlmModelType.translation)) {
-        throw TranslationConfigException('翻译模型未下载');
-      }
-      if (!model.localRuntimeAvailable) {
-        throw TranslationConfigException('本地推理后端未就绪');
-      }
-      if (!model.isLocalTranslationModelReady) {
-        throw TranslationConfigException('翻译模型未就绪');
+    if (_translationMode == TranslationMode.bigModel) {
+      final ok = _aiModel?.onlineEntitlementActive ?? false;
+      if (!ok) {
+        throw TranslationConfigException('大模型翻译需要购买时长后使用');
       }
     }
   }
