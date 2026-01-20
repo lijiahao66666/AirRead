@@ -20,6 +20,8 @@ import 'widgets/reader_paragraph.dart';
 import '../../../ai/translation/translation_types.dart';
 import '../../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../../ai/tencent_tts/tencent_tts_client.dart';
+import 'tts_web_speech.dart'
+    if (dart.library.js_interop) 'tts_web_speech_web.dart';
 
 class _MeasureSize extends StatefulWidget {
   final Widget child;
@@ -184,6 +186,10 @@ class ReaderPage extends StatefulWidget {
 
 class _ReaderPageState extends State<ReaderPage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  static const MethodChannel _localTtsChannel =
+      MethodChannel('airread/local_tts');
+  static const EventChannel _localTtsEvents =
+      EventChannel('airread/local_tts_events');
   bool _showControls = false;
   bool _isLoading = true;
   String? _error;
@@ -207,10 +213,22 @@ class _ReaderPageState extends State<ReaderPage>
   // We split "feature enabled" vs "active" so the right-side quick actions can
   // temporarily pause/resume without fully disabling the feature.
   bool _aiReadAloudPlaying = false;
+  bool _aiReadAloudPreparing = false;
+  int _readAloudSession = 0;
+  List<MapEntry<int, String>> _readAloudQueue = const [];
+  int _readAloudQueuePos = 0;
+  int? _readAloudResumeParagraphIndex;
+  String? _readAloudHighlightText;
+  StreamSubscription<dynamic>? _localTtsSub;
+  int? _readAloudAutoContinueSession;
+  int _readAloudAutoSkipRemaining = 0;
+  ReadAloudEngine? _lastReadAloudEngine;
+  Offset? _readAloudFabOffset;
 
   final AudioPlayer _readAloudPlayer = AudioPlayer();
   final Map<String, Uint8List> _readAloudAudioCache = {};
-  String _readAloudAudioKey = '';
+  TencentTtsClient? _tencentTtsClient;
+  final WebSpeechTts _webSpeechTts = createWebSpeechTts();
   final Map<String, Future<Map<int, String>>> _translationFutures = {};
   Timer? _continuousPrefetchTimer;
   Timer? _prefetchKickTimer;
@@ -320,10 +338,32 @@ class _ReaderPageState extends State<ReaderPage>
 
     _readAloudPlayer.onPlayerComplete.listen((_) {
       if (!mounted) return;
-      setState(() {
-        _aiReadAloudPlaying = false;
-      });
+      _onReadAloudPlayerComplete();
     });
+
+    if (!kIsWeb) {
+      try {
+        _localTtsSub = _localTtsEvents.receiveBroadcastStream().listen((event) {
+          if (!mounted) return;
+          if (event is Map) {
+            final type = event['type'];
+            final int? session = switch (event['session']) {
+              int v => v,
+              num v => v.toInt(),
+              String v => int.tryParse(v),
+              _ => null,
+            };
+            if (session != null && session != _readAloudSession) return;
+            if (type == 'done') {
+              _onLocalTtsDone();
+            } else if (type == 'error') {
+              final msg = (event['message'] ?? '').toString();
+              _onLocalTtsError(msg);
+            }
+          }
+        });
+      } catch (_) {}
+    }
 
     _loadSettingsAndBook();
   }
@@ -440,6 +480,8 @@ class _ReaderPageState extends State<ReaderPage>
     _saveProgress();
     _progressSaveTimer?.cancel();
     _stopContinuousPrefetch();
+    _localTtsSub?.cancel();
+    unawaited(_webSpeechTts.stop());
     _readAloudPlayer.dispose();
     _pageController.dispose();
     // for (var c in _chapterControllers.values) c.dispose(); // Removed
@@ -1357,129 +1399,374 @@ class _ReaderPageState extends State<ReaderPage>
     }
 
     if (!enabled) {
-      setState(() {
-        _aiReadAloudPlaying = false;
-      });
-      _readAloudAnimController.stop();
-      _readAloudAnimController.reset();
-      await _stopReadAloud();
+      await _stopReadAloud(keepResume: false);
     }
   }
 
-  String _readAloudTextForCurrentPage({int maxChars = 150}) {
-    final paragraphs = _currentPageParagraphsByIndex();
-    final raw = paragraphs.values.join('\n');
-    final t = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (t.isEmpty) return '';
-    return t.length > maxChars ? t.substring(0, maxChars) : t;
+  List<MapEntry<int, String>> _buildReadAloudQueue() {
+    final entries = _currentPageParagraphsByIndex().entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return entries.where((e) => e.value.trim().isNotEmpty).toList();
+  }
+
+  void _setReadAloudHighlight(MapEntry<int, String>? entry) {
+    if (!mounted) return;
+    setState(() {
+      _readAloudHighlightText = entry?.value;
+    });
+  }
+
+  void _clearReadAloudHighlight() {
+    if (!mounted) return;
+    setState(() {
+      _readAloudHighlightText = null;
+    });
+  }
+
+  Future<Uint8List> _getOnlineTtsBytes({
+    required String text,
+    required int voiceType,
+    required double speed,
+  }) async {
+    final key = 'v2|${text.hashCode}|$voiceType|${speed.toStringAsFixed(2)}';
+    final cached = _readAloudAudioCache[key];
+    if (cached != null) return cached;
+
+    final client = _tencentTtsClient ??= TencentTtsClient(
+      credentials: getEmbeddedPublicHunyuanCredentials(),
+    );
+    Uint8List bytes;
+    try {
+      bytes = await client.streamTextToVoiceBytes(
+        text: text,
+        codec: 'mp3',
+        voiceType: voiceType > 0 ? voiceType : null,
+        speed: speed,
+      );
+    } on FormatException {
+      final res = await client.textToVoice(
+        text: text,
+        codec: 'mp3',
+        voiceType: voiceType > 0 ? voiceType : null,
+        speed: speed,
+      );
+      bytes = base64Decode(res.audioBase64);
+    } on UnsupportedError {
+      final res = await client.textToVoice(
+        text: text,
+        codec: 'mp3',
+        voiceType: voiceType > 0 ? voiceType : null,
+        speed: speed,
+      );
+      bytes = base64Decode(res.audioBase64);
+    }
+    _readAloudAudioCache[key] = bytes;
+    return bytes;
+  }
+
+  Future<void> _playOnlineQueueItem(int session) async {
+    if (!mounted) return;
+    if (session != _readAloudSession) return;
+    if (_readAloudQueuePos < 0 ||
+        _readAloudQueuePos >= _readAloudQueue.length) {
+      await _stopReadAloud(keepResume: false);
+      return;
+    }
+
+    final cfg = context.read<TranslationProvider>();
+    final entry = _readAloudQueue[_readAloudQueuePos];
+    _readAloudResumeParagraphIndex = entry.key;
+    _setReadAloudHighlight(entry);
+
+    setState(() {
+      _aiReadAloudPlaying = true;
+      _aiReadAloudPreparing = true;
+    });
+    _readAloudAnimController.repeat(reverse: true);
+
+    try {
+      final bytes = await _getOnlineTtsBytes(
+        text: entry.value,
+        voiceType: cfg.ttsVoiceType,
+        speed: cfg.ttsSpeed,
+      );
+      if (!mounted) return;
+      if (session != _readAloudSession) return;
+
+      setState(() {
+        _aiReadAloudPreparing = false;
+      });
+      await _readAloudPlayer.stop();
+      await _readAloudPlayer.play(BytesSource(bytes));
+
+      if (_readAloudQueuePos + 1 < _readAloudQueue.length) {
+        final next = _readAloudQueue[_readAloudQueuePos + 1];
+        unawaited(() async {
+          try {
+            await _getOnlineTtsBytes(
+              text: next.value,
+              voiceType: cfg.ttsVoiceType,
+              speed: cfg.ttsSpeed,
+            );
+          } catch (_) {}
+        }());
+      }
+    } catch (e) {
+      if (!mounted) return;
+      if (session != _readAloudSession) return;
+      await _stopReadAloud(keepResume: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('朗读失败：$e')));
+    }
+  }
+
+  Future<void> _speakLocalQueueItem(int session) async {
+    if (!mounted) return;
+    if (session != _readAloudSession) return;
+    if (_readAloudQueuePos < 0 ||
+        _readAloudQueuePos >= _readAloudQueue.length) {
+      await _stopReadAloud(keepResume: false);
+      return;
+    }
+    final cfg = context.read<TranslationProvider>();
+    final entry = _readAloudQueue[_readAloudQueuePos];
+    _readAloudResumeParagraphIndex = entry.key;
+    _setReadAloudHighlight(entry);
+
+    setState(() {
+      _aiReadAloudPlaying = true;
+      _aiReadAloudPreparing = true;
+    });
+    _readAloudAnimController.repeat(reverse: true);
+
+    try {
+      if (kIsWeb) {
+        if (!_webSpeechTts.supported) {
+          throw UnsupportedError('当前浏览器不支持本地朗读');
+        }
+        await _webSpeechTts.speak(
+          text: entry.value,
+          rate: cfg.ttsSpeed,
+          session: session,
+          onDone: (s) {
+            if (!mounted) return;
+            if (s != _readAloudSession) return;
+            _onLocalTtsDone();
+          },
+          onError: (s, msg) {
+            if (!mounted) return;
+            if (s != _readAloudSession) return;
+            _onLocalTtsError(msg);
+          },
+        );
+        if (!mounted) return;
+        if (session != _readAloudSession) return;
+        setState(() {
+          _aiReadAloudPreparing = false;
+        });
+      } else {
+        await _localTtsChannel.invokeMethod('speak', {
+          'text': entry.value,
+          'rate': cfg.ttsSpeed,
+          'session': session,
+        });
+        if (!mounted) return;
+        if (session != _readAloudSession) return;
+        setState(() {
+          _aiReadAloudPreparing = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      if (session != _readAloudSession) return;
+      await _stopReadAloud(keepResume: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('朗读失败：$e')));
+    }
   }
 
   Future<bool> _startReadAloud() async {
-    final aiModel = context.read<AiModelProvider>();
-    final source = aiModel.source;
-    if (source != AiModelSource.online) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('朗读仅支持在线模式')),
-      );
-      return false;
-    }
-    if (!aiModel.onlineEntitlementActive) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('在线大模型需要购买时长后使用')),
-      );
-      unawaited(_openAiHud(initialRoute: AiHudRoute.tencentSettings));
-      return false;
+    final cfg = context.read<TranslationProvider>();
+    final queue = _buildReadAloudQueue();
+    if (queue.isEmpty) return false;
+
+    int pos = 0;
+    final resume = _readAloudResumeParagraphIndex;
+    if (resume != null) {
+      final idx = queue.indexWhere((e) => e.key == resume);
+      if (idx >= 0) pos = idx;
     }
 
-    final ttsCfg = context.read<TranslationProvider>();
-    final text = _readAloudTextForCurrentPage();
-    if (text.isEmpty) return false;
+    final session = ++_readAloudSession;
+    _readAloudQueue = queue;
+    _readAloudQueuePos = pos;
 
-    final voiceType = ttsCfg.ttsVoiceType;
-    final speed = ttsCfg.ttsSpeed;
-    final key =
-        '$_currentChapterIndex|$_currentPageInChapter|${text.hashCode}|$voiceType|${speed.toStringAsFixed(2)}';
-    try {
-      setState(() {
-        _aiReadAloudPlaying = true;
-      });
-      _readAloudAnimController.repeat(reverse: true);
-
-      if (_readAloudAudioKey != key) {
-        _readAloudAudioKey = key;
-        await _readAloudPlayer.stop();
-
-        final cached = _readAloudAudioCache[key];
-        if (cached != null) {
-          await _readAloudPlayer.play(BytesSource(cached));
-          return true;
-        }
-
-        final client = TencentTtsClient(
-          credentials: getEmbeddedPublicHunyuanCredentials(),
-        );
-        Uint8List bytes;
-        try {
-          bytes = await client.streamTextToVoiceBytes(
-            text: text,
-            codec: 'mp3',
-            voiceType: voiceType > 0 ? voiceType : null,
-            speed: speed,
-          );
-        } on FormatException {
-          final res = await client.textToVoice(
-            text: text,
-            codec: 'mp3',
-            voiceType: voiceType > 0 ? voiceType : null,
-            speed: speed,
-          );
-          bytes = base64Decode(res.audioBase64);
-        } on UnsupportedError {
-          final res = await client.textToVoice(
-            text: text,
-            codec: 'mp3',
-            voiceType: voiceType > 0 ? voiceType : null,
-            speed: speed,
-          );
-          bytes = base64Decode(res.audioBase64);
-        }
-        _readAloudAudioCache[key] = bytes;
-        await _readAloudPlayer.play(BytesSource(bytes));
-        return true;
-      }
-
-      await _readAloudPlayer.resume();
+    if (cfg.readAloudEngine == ReadAloudEngine.local) {
+      await _readAloudPlayer.stop();
+      await _speakLocalQueueItem(session);
       return true;
-    } catch (e) {
-      if (!mounted) return false;
-      setState(() {
-        _aiReadAloudPlaying = false;
-      });
-      _readAloudAnimController.stop();
-      _readAloudAnimController.reset();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('朗读失败：$e')));
-      return false;
+    }
+
+    await _playOnlineQueueItem(session);
+    return true;
+  }
+
+  Future<void> _stopReadAloud({required bool keepResume}) async {
+    _readAloudSession++;
+    if (!keepResume) {
+      _readAloudResumeParagraphIndex = null;
+    }
+    _readAloudQueue = const [];
+    _readAloudQueuePos = 0;
+    _readAloudAnimController.stop();
+    _readAloudAnimController.reset();
+    try {
+      if (kIsWeb) {
+        await _webSpeechTts.stop();
+      } else {
+        await _localTtsChannel.invokeMethod('stop');
+      }
+    } catch (_) {}
+    await _readAloudPlayer.stop();
+    if (!mounted) return;
+    setState(() {
+      _aiReadAloudPlaying = false;
+      _aiReadAloudPreparing = false;
+    });
+    _clearReadAloudHighlight();
+  }
+
+  void _onReadAloudPlayerComplete() {
+    if (!mounted) return;
+    final cfg = context.read<TranslationProvider>();
+    if (!_aiReadAloudPlaying) return;
+    if (cfg.readAloudEngine != ReadAloudEngine.online) return;
+
+    final session = _readAloudSession;
+    final nextPos = _readAloudQueuePos + 1;
+    if (nextPos >= _readAloudQueue.length) {
+      unawaited(_continueReadAloudToNextPage(session));
+      return;
+    }
+    _readAloudQueuePos = nextPos;
+    unawaited(_playOnlineQueueItem(session));
+  }
+
+  void _onLocalTtsDone() {
+    if (!mounted) return;
+    final cfg = context.read<TranslationProvider>();
+    if (cfg.readAloudEngine != ReadAloudEngine.local) return;
+    if (!_aiReadAloudPlaying) return;
+
+    final session = _readAloudSession;
+    final nextPos = _readAloudQueuePos + 1;
+    if (nextPos >= _readAloudQueue.length) {
+      unawaited(_continueReadAloudToNextPage(session));
+      return;
+    }
+    _readAloudQueuePos = nextPos;
+    unawaited(_speakLocalQueueItem(session));
+  }
+
+  bool _hasNextReadingPage() {
+    if (_chapters.isEmpty) return false;
+    final total = _pageCountForChapter(_currentChapterIndex);
+    if (_currentPageInChapter + 1 < total) return true;
+    if (_currentChapterIndex + 1 < _chapters.length) return true;
+    return false;
+  }
+
+  Future<void> _continueReadAloudToNextPage(int session) async {
+    if (!mounted) return;
+    if (session != _readAloudSession) return;
+
+    if (!_hasNextReadingPage()) {
+      await _stopReadAloud(keepResume: false);
+      return;
+    }
+
+    if (_readAloudAutoContinueSession != session) {
+      _readAloudAutoContinueSession = session;
+      _readAloudAutoSkipRemaining = 10;
+    }
+
+    if (_pageController.hasClients) {
+      await _pageController.nextPage(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+
+    int nextChapter = _currentChapterIndex;
+    int nextPage = _currentPageInChapter + 1;
+    final total = _pageCountForChapter(nextChapter);
+    if (nextPage >= total) {
+      nextChapter++;
+      nextPage = 0;
+    }
+    if (nextChapter >= _chapters.length) {
+      await _stopReadAloud(keepResume: false);
+      return;
+    }
+
+    setState(() {
+      _currentChapterIndex = nextChapter;
+      _currentPageInChapter = nextPage;
+    });
+    _saveProgressDebounced();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _maybeAutoContinueReadAloudAfterPageTurn();
+    });
+  }
+
+  void _maybeAutoContinueReadAloudAfterPageTurn() {
+    final session = _readAloudAutoContinueSession;
+    if (session == null) return;
+    if (session != _readAloudSession) {
+      _readAloudAutoContinueSession = null;
+      _readAloudAutoSkipRemaining = 0;
+      return;
+    }
+    if (!_aiReadAloudPlaying) {
+      _readAloudAutoContinueSession = null;
+      _readAloudAutoSkipRemaining = 0;
+      return;
+    }
+
+    final queue = _buildReadAloudQueue();
+    if (queue.isEmpty) {
+      if (_readAloudAutoSkipRemaining > 0) {
+        _readAloudAutoSkipRemaining--;
+        unawaited(_continueReadAloudToNextPage(session));
+      } else {
+        unawaited(_stopReadAloud(keepResume: false));
+      }
+      return;
+    }
+
+    _readAloudQueue = queue;
+    _readAloudQueuePos = 0;
+    _readAloudResumeParagraphIndex = null;
+
+    final cfg = context.read<TranslationProvider>();
+    if (cfg.readAloudEngine == ReadAloudEngine.local) {
+      unawaited(_speakLocalQueueItem(session));
+    } else {
+      unawaited(_playOnlineQueueItem(session));
     }
   }
 
-  Future<void> _pauseReadAloud() async {
-    setState(() {
-      _aiReadAloudPlaying = false;
-    });
-    _readAloudAnimController.stop();
-    _readAloudAnimController.reset();
-    await _readAloudPlayer.pause();
-  }
-
-  Future<void> _stopReadAloud() async {
-    setState(() {
-      _aiReadAloudPlaying = false;
-    });
-    _readAloudAnimController.stop();
-    _readAloudAnimController.reset();
-    _readAloudAudioKey = '';
-    await _readAloudPlayer.stop();
+  void _onLocalTtsError(String message) {
+    if (!mounted) return;
+    if (!_aiReadAloudPlaying) return;
+    unawaited(_stopReadAloud(keepResume: true));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message.isEmpty ? '朗读失败' : '朗读失败：$message')),
+    );
   }
 
   Widget _buildReadAloudFloatingButton() {
@@ -1491,47 +1778,123 @@ class _ReaderPageState extends State<ReaderPage>
     final Color surface = _panelBgColor;
     final Color onSurface = _panelTextColor;
 
+    final mq = MediaQuery.of(context);
+    final size = mq.size;
+    const fabSize = 48.0;
+    const margin = 12.0;
+    final bottomInset = _contentBottomInset ?? mq.viewPadding.bottom;
+    final topInset = mq.viewPadding.top;
+
+    final defaultX = size.width - 14 - fabSize;
+    final defaultY = size.height - bottomInset - 120 - fabSize;
+    final current = _readAloudFabOffset ?? Offset(defaultX, defaultY);
+
+    final maxX = size.width - margin - fabSize;
+    final maxY = size.height - bottomInset - 80 - fabSize;
+    final clamped = Offset(
+      current.dx.clamp(margin, maxX),
+      current.dy.clamp(topInset + margin, maxY),
+    );
+
+    final isDarkBg = _bgColor.computeLuminance() < 0.5;
+    final shadow = <BoxShadow>[
+      BoxShadow(
+        color: Colors.black.withOpacity(isDarkBg ? 0.55 : 0.22),
+        blurRadius: 18,
+        offset: const Offset(0, 10),
+      ),
+      BoxShadow(
+        color: Colors.white.withOpacity(isDarkBg ? 0.06 : 0.75),
+        blurRadius: 10,
+        offset: const Offset(0, -4),
+      ),
+    ];
+
     return Positioned(
-      right: 14,
-      bottom: (_contentBottomInset ?? 0) + 120,
-      child: AnimatedScale(
-        duration: const Duration(milliseconds: 160),
-        scale:
-            context.watch<TranslationProvider>().aiReadAloudEnabled ? 1 : 0.9,
-        child: GlassPanel(
-          borderRadius: BorderRadius.circular(999),
-          surfaceColor: surface,
-          opacity: 0.86,
-          border: Border.all(
-              color: onSurface.withOpacity(0.08), width: AppTokens.stroke),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(999),
-            onTap: () {
-              if (_aiReadAloudPlaying) {
-                _pauseReadAloud();
-              } else {
-                _startReadAloud();
-              }
-            },
-            child: SizedBox(
-              width: 48,
-              height: 48,
-              child: AnimatedBuilder(
-                animation: _readAloudAnimController,
-                builder: (context, child) {
-                  // Breathing effect: scale between 1.0 and 1.2
-                  final scale = 1.0 + (_readAloudAnimController.value * 0.2);
-                  return Transform.scale(
-                    scale: scale,
-                    child: child,
-                  );
-                },
-                child: Icon(
-                  Icons.volume_up_rounded,
-                  color: _aiReadAloudPlaying
-                      ? AppColors.techBlue
-                      : onSurface.withOpacity(0.5),
-                  size: 24,
+      left: clamped.dx,
+      top: clamped.dy,
+      child: GestureDetector(
+        onPanUpdate: (details) {
+          final base = _readAloudFabOffset ?? Offset(defaultX, defaultY);
+          final next = base + details.delta;
+          final nextClamped = Offset(
+            next.dx.clamp(margin, maxX),
+            next.dy.clamp(topInset + margin, maxY),
+          );
+          setState(() => _readAloudFabOffset = nextClamped);
+        },
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 160),
+          scale:
+              context.watch<TranslationProvider>().aiReadAloudEnabled ? 1 : 0.9,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              boxShadow: shadow,
+            ),
+            child: Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.identity()
+                ..setEntry(3, 2, 0.002)
+                ..rotateX(-0.12)
+                ..rotateY(0.10),
+              child: GlassPanel(
+                borderRadius: BorderRadius.circular(999),
+                surfaceColor: surface,
+                opacity: 0.92,
+                blurSigma: 14,
+                border: Border.all(
+                  color: onSurface.withOpacity(0.08),
+                  width: AppTokens.stroke,
+                ),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: () {
+                    if (_aiReadAloudPlaying || _aiReadAloudPreparing) {
+                      _stopReadAloud(keepResume: true);
+                      return;
+                    }
+                    _startReadAloud();
+                  },
+                  child: SizedBox(
+                    width: fabSize,
+                    height: fabSize,
+                    child: AnimatedBuilder(
+                      animation: _readAloudAnimController,
+                      builder: (context, child) {
+                        final active =
+                            _aiReadAloudPlaying || _aiReadAloudPreparing;
+                        final scale = active
+                            ? 1.0 + (_readAloudAnimController.value * 0.2)
+                            : 1.0;
+                        return Transform.scale(scale: scale, child: child);
+                      },
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Icon(
+                            Icons.volume_up_rounded,
+                            color:
+                                (_aiReadAloudPlaying || _aiReadAloudPreparing)
+                                    ? AppColors.techBlue
+                                    : onSurface.withOpacity(0.5),
+                            size: 24,
+                          ),
+                          if (_aiReadAloudPreparing)
+                            SizedBox(
+                              width: 34,
+                              height: 34,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  AppColors.techBlue.withOpacity(0.7),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1653,11 +2016,11 @@ class _ReaderPageState extends State<ReaderPage>
         if (isTransOnly) {
           buffer.write(p.text);
           buffer.write('\n');
-          buffer.write('${indent}AI 正在翻译…');
+          buffer.write('$indent翻译中...');
         } else if (isBilingual) {
           buffer.write(p.text);
           buffer.write('\n');
-          buffer.write('${indent}AI 正在翻译…');
+          buffer.write('$indent翻译中...');
         } else {
           buffer.write(p.text);
         }
@@ -1691,16 +2054,30 @@ class _ReaderPageState extends State<ReaderPage>
     required String text,
     required TextStyle bodyStyle,
   }) {
-    const marker = 'AI 正在翻译…';
+    const marker = '翻译中...';
     const int markerLen = marker.length;
     const paraSep = '\n\n';
 
     final List<InlineSpan> children = [];
 
+    final highlightText = _readAloudHighlightText;
+    int hiStart = -1;
+    int hiEnd = -1;
+    if (highlightText != null && highlightText.trim().isNotEmpty) {
+      hiStart = text.indexOf(highlightText);
+      if (hiStart >= 0) {
+        hiEnd = (hiStart + highlightText.length).clamp(0, text.length);
+      }
+    }
+
     final placeholderStyle = bodyStyle.copyWith(
       fontStyle: FontStyle.italic,
       fontSize: bodyStyle.fontSize == null ? null : bodyStyle.fontSize! * 0.92,
       color: (bodyStyle.color ?? _textColor).withOpacity(0.55),
+    );
+
+    final highlightStyle = bodyStyle.copyWith(
+      backgroundColor: AppColors.techBlue.withOpacity(0.12),
     );
 
     final gapStyle = bodyStyle.copyWith(
@@ -1713,10 +2090,13 @@ class _ReaderPageState extends State<ReaderPage>
     while (i < text.length) {
       final idxMarker = text.indexOf(marker, i);
       final idxPara = text.indexOf(paraSep, i);
+      final idxHiStart = hiStart > i ? hiStart : -1;
+      final idxHiEnd = hiEnd > i ? hiEnd : -1;
 
       int nextIdx = -1;
       bool nextIsMarker = false;
       bool nextIsPara = false;
+      bool nextIsHighlightBoundary = false;
 
       if (idxMarker >= 0) {
         nextIdx = idxMarker;
@@ -1727,15 +2107,36 @@ class _ReaderPageState extends State<ReaderPage>
         nextIsMarker = false;
         nextIsPara = true;
       }
+      if (idxHiStart >= 0 && (nextIdx == -1 || idxHiStart < nextIdx)) {
+        nextIdx = idxHiStart;
+        nextIsMarker = false;
+        nextIsPara = false;
+        nextIsHighlightBoundary = true;
+      }
+      if (idxHiEnd >= 0 && (nextIdx == -1 || idxHiEnd < nextIdx)) {
+        nextIdx = idxHiEnd;
+        nextIsMarker = false;
+        nextIsPara = false;
+        nextIsHighlightBoundary = true;
+      }
 
       if (nextIdx < 0) {
-        children.add(TextSpan(text: text.substring(i), style: bodyStyle));
+        final inHighlight =
+            hiStart >= 0 && hiEnd > hiStart && i >= hiStart && i < hiEnd;
+        children.add(TextSpan(
+          text: text.substring(i),
+          style: inHighlight ? highlightStyle : bodyStyle,
+        ));
         break;
       }
 
       if (nextIdx > i) {
-        children
-            .add(TextSpan(text: text.substring(i, nextIdx), style: bodyStyle));
+        final inHighlight =
+            hiStart >= 0 && hiEnd > hiStart && i >= hiStart && i < hiEnd;
+        children.add(TextSpan(
+          text: text.substring(i, nextIdx),
+          style: inHighlight ? highlightStyle : bodyStyle,
+        ));
       }
 
       if (nextIsPara) {
@@ -1751,6 +2152,11 @@ class _ReaderPageState extends State<ReaderPage>
           TextSpan(text: text.substring(nextIdx, end), style: placeholderStyle),
         );
         i = end;
+        continue;
+      }
+
+      if (nextIsHighlightBoundary) {
+        i = nextIdx;
         continue;
       }
 
@@ -2707,6 +3113,7 @@ class _ReaderPageState extends State<ReaderPage>
                 });
               }
               _pageController.jumpToPage(1000);
+              _maybeAutoContinueReadAloudAfterPageTurn();
             });
           },
           itemBuilder: (context, index) {
@@ -3400,6 +3807,22 @@ class _ReaderPageState extends State<ReaderPage>
   @override
   Widget build(BuildContext context) {
     final tp = context.watch<TranslationProvider>();
+    final currentReadAloudEngine = tp.readAloudEngine;
+    final lastReadAloudEngine = _lastReadAloudEngine;
+    if (lastReadAloudEngine == null) {
+      _lastReadAloudEngine = currentReadAloudEngine;
+    } else if (lastReadAloudEngine != currentReadAloudEngine) {
+      _lastReadAloudEngine = currentReadAloudEngine;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (!_aiReadAloudPlaying && !_aiReadAloudPreparing) return;
+        unawaited(() async {
+          await _stopReadAloud(keepResume: true);
+          if (!mounted) return;
+          await _startReadAloud();
+        }());
+      });
+    }
     _scheduleRelocateAfterTranslationChange(tp);
 
     // IMPORTANT: Get padding from MediaQuery BEFORE removing it

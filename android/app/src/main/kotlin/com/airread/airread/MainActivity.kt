@@ -1,16 +1,24 @@
 package com.airread.airread
 
+import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.annotation.Keep
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "airread/local_llm"
     private val STREAM_CHANNEL = "airread/local_llm_stream"
+    private val TTS_CHANNEL = "airread/local_tts"
+    private val TTS_STREAM_CHANNEL = "airread/local_tts_events"
     private val DEFAULT_MAX_NEW_TOKENS = 1024
     private val llmExecutor = Executors.newSingleThreadExecutor()
 
@@ -19,6 +27,159 @@ class MainActivity: FlutterActivity() {
 
     @Volatile
     private var streamCancelled: Boolean = false
+
+    @Volatile
+    private var ttsSink: EventChannel.EventSink? = null
+
+    @Volatile
+    private var ttsReady: Boolean = false
+
+    @Volatile
+    private var ttsInitInProgress: Boolean = false
+
+    private var tts: TextToSpeech? = null
+    private val ttsWaiters: MutableList<(Boolean, String?) -> Unit> = mutableListOf()
+
+    private fun ensureTts(onReady: (Boolean, String?) -> Unit) {
+        val existing = tts
+        if (existing != null && ttsReady) {
+            onReady(true, null)
+            return
+        }
+        if (existing != null && !ttsReady) {
+            try {
+                existing.stop()
+                existing.shutdown()
+            } catch (_: Exception) {}
+            tts = null
+        }
+        synchronized(ttsWaiters) {
+            ttsWaiters.add(onReady)
+        }
+        if (ttsInitInProgress) {
+            return
+        }
+        ttsInitInProgress = true
+        val engineCandidates: List<String?> = run {
+            val out = mutableListOf<String?>()
+            out.add(null)
+            try {
+                val intent = Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE)
+                val services = packageManager.queryIntentServices(intent, 0)
+                for (s in services) {
+                    val pkg = s.serviceInfo?.packageName ?: continue
+                    if (!out.contains(pkg)) out.add(pkg)
+                }
+            } catch (_: Exception) {}
+            out
+        }
+
+        fun notifyWaiters(ok: Boolean, err: String?) {
+            ttsInitInProgress = false
+            val waiters: List<(Boolean, String?) -> Unit>
+            synchronized(ttsWaiters) {
+                waiters = ttsWaiters.toList()
+                ttsWaiters.clear()
+            }
+            for (w in waiters) {
+                try {
+                    w(ok, err)
+                } catch (_: Exception) {}
+            }
+        }
+
+        fun attachListener() {
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                private fun parseSession(id: String?): Int? {
+                    if (id == null) return null
+                    val prefix = "airread_tts_"
+                    if (!id.startsWith(prefix)) return null
+                    val rest = id.substring(prefix.length)
+                    val parts = rest.split("_", limit = 2)
+                    return parts.firstOrNull()?.toIntOrNull()
+                }
+
+                override fun onStart(utteranceId: String?) {}
+
+                override fun onDone(utteranceId: String?) {
+                    val session = parseSession(utteranceId)
+                    val sink = ttsSink ?: return
+                    runOnUiThread {
+                        sink.success(mapOf("type" to "done", "session" to session))
+                    }
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) {
+                    val session = parseSession(utteranceId)
+                    val sink = ttsSink ?: return
+                    runOnUiThread {
+                        sink.success(mapOf("type" to "error", "message" to "朗读失败", "session" to session))
+                    }
+                }
+
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    val session = parseSession(utteranceId)
+                    val sink = ttsSink ?: return
+                    runOnUiThread {
+                        sink.success(mapOf("type" to "error", "message" to "朗读失败", "session" to session))
+                    }
+                }
+            })
+        }
+
+        fun setupLanguage() {
+            try {
+                val locale = Locale.getDefault()
+                val r = tts?.setLanguage(locale)
+                if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    val r2 = tts?.setLanguage(Locale.CHINESE)
+                    if (r2 == TextToSpeech.LANG_MISSING_DATA || r2 == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        tts?.setLanguage(Locale.ENGLISH)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        fun tryInitAt(index: Int) {
+            if (index >= engineCandidates.size) {
+                ttsReady = false
+                notifyWaiters(false, "本地朗读不可用（TTS初始化失败）")
+                return
+            }
+            val enginePkg = engineCandidates[index]
+            val listener = TextToSpeech.OnInitListener { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    ttsReady = true
+                    setupLanguage()
+                    attachListener()
+                    notifyWaiters(true, null)
+                    return@OnInitListener
+                }
+                ttsReady = false
+                try {
+                    tts?.stop()
+                    tts?.shutdown()
+                } catch (_: Exception) {}
+                tts = null
+                tryInitAt(index + 1)
+            }
+            try {
+                tts = if (enginePkg != null &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
+                ) {
+                    TextToSpeech(applicationContext, listener, enginePkg)
+                } else {
+                    TextToSpeech(applicationContext, listener)
+                }
+            } catch (_: Exception) {
+                tts = null
+                tryInitAt(index + 1)
+            }
+        }
+
+        tryInitAt(0)
+    }
 
     companion object {
         private var nativeLibLoaded: Boolean = false
@@ -109,6 +270,62 @@ class MainActivity: FlutterActivity() {
                 }
             }
         )
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, TTS_STREAM_CHANNEL).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    ttsSink = events
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    ttsSink = null
+                }
+            }
+        )
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, TTS_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "speak" -> {
+                    val text = call.argument<String>("text") ?: ""
+                    val rate = call.argument<Number>("rate")?.toFloat() ?: 1.0f
+                    val session = call.argument<Int>("session") ?: 0
+                    if (text.isBlank()) {
+                        result.success(null)
+                        return@setMethodCallHandler
+                    }
+                    ensureTts { ok, err ->
+                        if (!ok) {
+                            result.error("NOT_AVAILABLE", err ?: "TTS not ready", null)
+                            return@ensureTts
+                        }
+                        val engine = tts
+                        if (engine == null) {
+                            result.error("NOT_AVAILABLE", "TTS not ready", null)
+                            return@ensureTts
+                        }
+                        try {
+                            engine.stop()
+                            engine.setSpeechRate(rate.coerceIn(0.1f, 3.0f))
+                            val params = Bundle()
+                            params.putInt("session", session)
+                            val utteranceId = "airread_tts_${session}_${System.currentTimeMillis()}"
+                            engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+                            result.success(null)
+                        } catch (e: Exception) {
+                            result.error("NATIVE_ERR", "TTS speak failed", e.toString())
+                        }
+                    }
+                }
+                "stop" -> {
+                    try {
+                        tts?.stop()
+                    } catch (_: Exception) {}
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "init" -> {
@@ -288,5 +505,14 @@ class MainActivity: FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onDestroy() {
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (_: Exception) {}
+        tts = null
+        super.onDestroy()
     }
 }

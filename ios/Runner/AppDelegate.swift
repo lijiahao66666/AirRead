@@ -1,5 +1,6 @@
 import UIKit
 import Flutter
+import AVFoundation
 
 final class LocalLlmStreamHandler: NSObject, FlutterStreamHandler {
   private var eventSink: FlutterEventSink?
@@ -26,6 +27,62 @@ final class LocalLlmStreamHandler: NSObject, FlutterStreamHandler {
 
   func cancel() {
     cancelled = true
+  }
+}
+
+final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynthesizerDelegate {
+  private var eventSink: FlutterEventSink?
+  private var cancelled: Bool = false
+  private let synthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer()
+  private var currentSession: Int = 0
+
+  override init() {
+    super.init()
+    synthesizer.delegate = self
+  }
+
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    eventSink = events
+    cancelled = false
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    cancelled = true
+    eventSink = nil
+    return nil
+  }
+
+  private func send(_ event: Any) {
+    if cancelled { return }
+    if let sink = eventSink {
+      sink(event)
+    }
+  }
+
+  func speak(text: String, rate: Double, session: Int) {
+    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
+    currentSession = session
+    if synthesizer.isSpeaking {
+      synthesizer.stopSpeaking(at: .immediate)
+    }
+    let utterance = AVSpeechUtterance(string: text)
+    let base = AVSpeechUtteranceDefaultSpeechRate
+    let scaled = Float(base) * Float(rate)
+    utterance.rate = min(max(scaled, AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
+    synthesizer.speak(utterance)
+  }
+
+  func stop() {
+    synthesizer.stopSpeaking(at: .immediate)
+  }
+
+  func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+    send(["type": "done", "session": currentSession])
+  }
+
+  func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+    send(["type": "done", "session": currentSession])
   }
 }
 
@@ -167,6 +224,27 @@ final class LocalLlmStreamHandler: NSObject, FlutterStreamHandler {
               }
             }
           }
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
+
+      let ttsStreamHandler = LocalTtsStreamHandler()
+      let ttsEventChannel = FlutterEventChannel(name: "airread/local_tts_events", binaryMessenger: controller.binaryMessenger)
+      ttsEventChannel.setStreamHandler(ttsStreamHandler)
+      let ttsChannel = FlutterMethodChannel(name: "airread/local_tts", binaryMessenger: controller.binaryMessenger)
+      ttsChannel.setMethodCallHandler { call, result in
+        switch call.method {
+        case "speak":
+          let args = call.arguments as? [String: Any]
+          let text = args?["text"] as? String ?? ""
+          let rate = (args?["rate"] as? NSNumber)?.doubleValue ?? 1.0
+          let session = (args?["session"] as? NSNumber)?.intValue ?? 0
+          ttsStreamHandler.speak(text: text, rate: rate, session: session)
+          result(nil)
+        case "stop":
+          ttsStreamHandler.stop()
+          result(nil)
         default:
           result(FlutterMethodNotImplemented)
         }

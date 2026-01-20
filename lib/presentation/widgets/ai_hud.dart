@@ -12,6 +12,8 @@ import '../../ai/local_llm/local_llm_client.dart';
 import '../../ai/reading/reading_context_service.dart';
 import '../../ai/reading/qa_service.dart';
 export '../../ai/reading/qa_service.dart' show QAStreamChunk, QAType;
+import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
+import '../../ai/tencentcloud/tencent_credentials.dart';
 import '../../ai/translation/translation_types.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
@@ -323,9 +325,18 @@ class _TencentHunyuanSettingsPanel extends StatefulWidget {
 
 class _TencentHunyuanSettingsPanelState
     extends State<_TencentHunyuanSettingsPanel> {
+  static const String _kUserTencentKeysEnabled = 'user_tencent_keys_enabled';
+  static const String _kUserTencentSecretId = 'user_tencent_secret_id';
+  static const String _kUserTencentSecretKey = 'user_tencent_secret_key';
+  static const String _kLegacyDevTencentSecretId = 'dev_tencent_secret_id';
+  static const String _kLegacyDevTencentSecretKey = 'dev_tencent_secret_key';
+
   int? _voiceType;
   double? _speed;
-  final TextEditingController _redeemController = TextEditingController();
+  final TextEditingController _userSecretIdController = TextEditingController();
+  final TextEditingController _userSecretKeyController =
+      TextEditingController();
+  bool _userKeysEnabled = false;
   bool _redeemBusy = false;
   String _redeemHint = '';
 
@@ -392,8 +403,15 @@ class _TencentHunyuanSettingsPanelState
   }
 
   @override
+  void initState() {
+    super.initState();
+    _loadUserTencentCredentials();
+  }
+
+  @override
   void dispose() {
-    _redeemController.dispose();
+    _userSecretIdController.dispose();
+    _userSecretKeyController.dispose();
     super.dispose();
   }
 
@@ -412,6 +430,268 @@ class _TencentHunyuanSettingsPanelState
           _readAloudSettings(cardBg: cardBg),
           const SizedBox(height: 10),
           _qaContentScopeSettings(cardBg: cardBg),
+          const SizedBox(height: 10),
+          _userTencentCredentialsSettings(cardBg: cardBg),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _loadUserTencentCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    bool enabled = prefs.getBool(_kUserTencentKeysEnabled) ?? false;
+    String secretId = (prefs.getString(_kUserTencentSecretId) ?? '').trim();
+    String secretKey = (prefs.getString(_kUserTencentSecretKey) ?? '').trim();
+
+    if (secretId.isEmpty && secretKey.isEmpty) {
+      final legacyId =
+          (prefs.getString(_kLegacyDevTencentSecretId) ?? '').trim();
+      final legacyKey =
+          (prefs.getString(_kLegacyDevTencentSecretKey) ?? '').trim();
+      if (legacyId.isNotEmpty && legacyKey.isNotEmpty) {
+        secretId = legacyId;
+        secretKey = legacyKey;
+        await prefs.setString(_kUserTencentSecretId, secretId);
+        await prefs.setString(_kUserTencentSecretKey, secretKey);
+        enabled = true;
+        await prefs.setBool(_kUserTencentKeysEnabled, true);
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _userKeysEnabled = enabled;
+      _userSecretIdController.text = secretId;
+      _userSecretKeyController.text = secretKey;
+    });
+
+    if (enabled && secretId.isNotEmpty && secretKey.isNotEmpty) {
+      setTencentCredentialsOverride(
+        TencentCredentials(appId: '', secretId: secretId, secretKey: secretKey),
+      );
+      await context.read<TranslationProvider>().reloadTencentCredentials();
+    }
+  }
+
+  Future<void> _setUserTencentKeysEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kUserTencentKeysEnabled, enabled);
+
+    if (!mounted) return;
+    setState(() => _userKeysEnabled = enabled);
+
+    if (enabled) {
+      final secretId = _userSecretIdController.text.trim();
+      final secretKey = _userSecretKeyController.text.trim();
+      if (secretId.isNotEmpty && secretKey.isNotEmpty) {
+        setTencentCredentialsOverride(
+          TencentCredentials(
+              appId: '', secretId: secretId, secretKey: secretKey),
+        );
+      }
+    } else {
+      setTencentCredentialsOverride(null);
+    }
+
+    if (!mounted) return;
+    await context.read<TranslationProvider>().reloadTencentCredentials();
+  }
+
+  Future<void> _saveUserTencentCredentials() async {
+    final secretId = _userSecretIdController.text.trim();
+    final secretKey = _userSecretKeyController.text.trim();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kUserTencentKeysEnabled, true);
+    await prefs.setString(_kUserTencentSecretId, secretId);
+    await prefs.setString(_kUserTencentSecretKey, secretKey);
+    setTencentCredentialsOverride(
+      TencentCredentials(appId: '', secretId: secretId, secretKey: secretKey),
+    );
+    if (!mounted) return;
+    setState(() => _userKeysEnabled = true);
+    await context.read<TranslationProvider>().reloadTencentCredentials();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已保存个人密钥')),
+    );
+  }
+
+  Future<void> _clearUserTencentCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kUserTencentKeysEnabled, false);
+    await prefs.remove(_kUserTencentSecretId);
+    await prefs.remove(_kUserTencentSecretKey);
+    setTencentCredentialsOverride(null);
+    if (!mounted) return;
+    setState(() {
+      _userKeysEnabled = false;
+      _userSecretIdController.clear();
+      _userSecretKeyController.clear();
+    });
+    await context.read<TranslationProvider>().reloadTencentCredentials();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已清除个人密钥')),
+    );
+  }
+
+  Widget _userTencentCredentialsSettings({required Color cardBg}) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+        border: Border.all(
+            color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                '个人密钥',
+                style: TextStyle(
+                  color: widget.textColor,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                height: 44,
+                child: Center(
+                  child: Transform.scale(
+                    scale: 0.9,
+                    child: Switch(
+                      value: _userKeysEnabled,
+                      activeColor: AppColors.techBlue,
+                      onChanged: _setUserTencentKeysEnabled,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_userKeysEnabled) ...[
+            Text(
+              '可填写腾讯个人开发者的SecretId,SecretKey，会操作的看官自己操作，请放心，app内部不会盗用和泄露此信息，可自己通过控制台查看用量，需要开通混元大模型，机器翻译，语音合成完整使用AI伴读功能，无需购买时长。',
+              style: TextStyle(
+                color: widget.textColor.withOpacity(0.65),
+                fontSize: 13,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _userSecretIdController,
+              decoration: InputDecoration(
+                hintText: 'SecretId',
+                isDense: true,
+                filled: true,
+                fillColor: cardBg,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: widget.textColor.withOpacity(0.18),
+                    width: AppTokens.stroke,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: widget.textColor.withOpacity(0.18),
+                    width: AppTokens.stroke,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: AppColors.techBlue.withOpacity(0.6),
+                    width: AppTokens.stroke,
+                  ),
+                ),
+              ),
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _userSecretKeyController,
+              obscureText: true,
+              decoration: InputDecoration(
+                hintText: 'SecretKey',
+                isDense: true,
+                filled: true,
+                fillColor: cardBg,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: widget.textColor.withOpacity(0.18),
+                    width: AppTokens.stroke,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: widget.textColor.withOpacity(0.18),
+                    width: AppTokens.stroke,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: AppColors.techBlue.withOpacity(0.6),
+                    width: AppTokens.stroke,
+                  ),
+                ),
+              ),
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Wrap(
+                spacing: 16,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  InkWell(
+                    onTap: _saveUserTencentCredentials,
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                      child: Text(
+                        '保存',
+                        style: TextStyle(
+                          color: AppColors.techBlue,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: _clearUserTencentCredentials,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 6),
+                      child: Text(
+                        '清除',
+                        style: TextStyle(
+                          color: widget.textColor.withOpacity(0.7),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -424,9 +704,9 @@ class _TencentHunyuanSettingsPanelState
     return '$y-$m-$d';
   }
 
-  Future<void> _redeemCard(AiModelProvider aiModel) async {
-    final code = _redeemController.text.trim();
-    if (code.isEmpty) {
+  Future<void> _redeemCode(AiModelProvider aiModel, String code) async {
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) {
       setState(() => _redeemHint = '请输入卡密');
       return;
     }
@@ -436,16 +716,15 @@ class _TencentHunyuanSettingsPanelState
       _redeemHint = '';
     });
     try {
-      final payload = await LicenseCodec.verifyAndParse(code);
-      final nextExpiry = payload.expiryAtMs;
-      final merged = nextExpiry > aiModel.onlineEntitlementExpiryMs
-          ? nextExpiry
-          : aiModel.onlineEntitlementExpiryMs;
+      final payload = await LicenseCodec.verifyAndParse(trimmed);
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final baseMs = aiModel.onlineEntitlementExpiryMs > nowMs
+          ? aiModel.onlineEntitlementExpiryMs
+          : nowMs;
+      final merged = baseMs + Duration(days: payload.days).inMilliseconds;
       await aiModel.setOnlineEntitlementExpiryMs(merged);
-      final dt = DateTime.fromMillisecondsSinceEpoch(merged);
       setState(() {
-        _redeemHint = '已激活，至 ${_formatYmd(dt)}';
-        _redeemController.clear();
+        _redeemHint = '已兑换，+${payload.days}天';
       });
     } catch (e) {
       setState(() => _redeemHint = e.toString());
@@ -459,69 +738,56 @@ class _TencentHunyuanSettingsPanelState
   Widget _redeemRow(AiModelProvider aiModel, {required Color cardBg}) {
     final expiresAt = aiModel.onlineEntitlementExpiresAt;
     final active = aiModel.onlineEntitlementActive;
-    final status =
-        active && expiresAt != null ? '已激活，至 ${_formatYmd(expiresAt)}' : '';
-    final hint = _redeemHint.trim().isNotEmpty ? _redeemHint.trim() : status;
+    final hint = _redeemHint.trim();
+    final expiryText =
+        active && expiresAt != null ? '到期时间：${_formatYmd(expiresAt)}' : '';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Expanded(
-              child: SizedBox(
-                height: 40,
-                child: TextField(
-                  controller: _redeemController,
-                  enabled: !_redeemBusy,
-                  decoration: InputDecoration(
-                    hintText: '输入卡密',
-                    isDense: true,
-                    filled: true,
-                    fillColor: cardBg,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: widget.textColor.withOpacity(0.18),
-                        width: AppTokens.stroke,
-                      ),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: widget.textColor.withOpacity(0.18),
-                        width: AppTokens.stroke,
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: AppColors.techBlue.withOpacity(0.6),
-                        width: AppTokens.stroke,
-                      ),
-                    ),
-                  ),
-                  style: const TextStyle(fontSize: 13),
-                  onSubmitted: (_) => _redeemCard(aiModel),
-                ),
+            TextButton(
+              onPressed: () => _showPurchaseDialog(cardBg: cardBg),
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 0),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: AppColors.techBlue,
+              ),
+              child: const Text(
+                '购买',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
             ),
-            const SizedBox(width: 12),
-            InkWell(
-              onTap: _redeemBusy ? null : () => _redeemCard(aiModel),
+            const SizedBox(width: 14),
+            TextButton(
+              onPressed: _redeemBusy
+                  ? null
+                  : () => _showRedeemDialog(aiModel, cardBg: cardBg),
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 0),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: AppColors.techBlue,
+              ),
               child: Text(
                 _redeemBusy ? '处理中…' : '兑换',
-                style: TextStyle(
-                  color: _redeemBusy
-                      ? widget.textColor.withOpacity(0.45)
-                      : AppColors.techBlue,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
+                style:
+                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
             ),
+            if (expiryText.isNotEmpty) ...[
+              const SizedBox(width: 14),
+              Text(
+                expiryText,
+                style: TextStyle(
+                  color: widget.textColor.withOpacity(0.65),
+                  fontSize: 13,
+                  height: 1.2,
+                ),
+              ),
+            ],
           ],
         ),
         if (hint.isNotEmpty) ...[
@@ -529,7 +795,7 @@ class _TencentHunyuanSettingsPanelState
           Text(
             hint,
             style: TextStyle(
-              color: hint.startsWith('已激活')
+              color: hint.startsWith('已兑换')
                   ? widget.textColor.withOpacity(0.65)
                   : Colors.redAccent,
               fontSize: 13,
@@ -546,12 +812,114 @@ class _TencentHunyuanSettingsPanelState
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  Future<void> _showPurchaseDialog() async {
+  Future<void> _showRedeemDialog(
+    AiModelProvider aiModel, {
+    required Color cardBg,
+  }) async {
+    final controller = TextEditingController();
+    final dialogBg = widget.isDark ? const Color(0xFF262626) : Colors.white;
+    final fieldBg =
+        widget.isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF2F2F2);
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('购买时长'),
+          backgroundColor: dialogBg,
+          surfaceTintColor: Colors.transparent,
+          title: Text(
+            '兑换卡密',
+            style: TextStyle(color: widget.textColor, fontSize: 14),
+          ),
+          content: SizedBox(
+            width: 320,
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              enabled: !_redeemBusy,
+              decoration: InputDecoration(
+                hintText: '输入卡密',
+                isDense: true,
+                filled: true,
+                fillColor: fieldBg,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: widget.textColor.withOpacity(0.18),
+                    width: AppTokens.stroke,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: widget.textColor.withOpacity(0.18),
+                    width: AppTokens.stroke,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: AppColors.techBlue.withOpacity(0.6),
+                    width: AppTokens.stroke,
+                  ),
+                ),
+                hintStyle: TextStyle(color: widget.textColor.withOpacity(0.45)),
+              ),
+              style: TextStyle(color: widget.textColor, fontSize: 13),
+              onSubmitted: (_) async {
+                final navigator = Navigator.of(dialogContext);
+                await _redeemCode(aiModel, controller.text);
+                if (!mounted) return;
+                if (_redeemHint.startsWith('已兑换')) {
+                  if (navigator.canPop()) navigator.pop();
+                }
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed:
+                  _redeemBusy ? null : () => Navigator.of(dialogContext).pop(),
+              style: TextButton.styleFrom(
+                foregroundColor: widget.textColor.withOpacity(0.75),
+              ),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: _redeemBusy
+                  ? null
+                  : () async {
+                      final navigator = Navigator.of(dialogContext);
+                      await _redeemCode(aiModel, controller.text);
+                      if (!mounted) return;
+                      if (_redeemHint.startsWith('已兑换')) {
+                        if (navigator.canPop()) navigator.pop();
+                      }
+                    },
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.techBlue,
+              ),
+              child: Text(_redeemBusy ? '处理中…' : '确认'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showPurchaseDialog({required Color cardBg}) async {
+    final dialogBg = widget.isDark ? const Color(0xFF262626) : Colors.white;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: dialogBg,
+          surfaceTintColor: Colors.transparent,
+          title: Text(
+            '购买时长',
+            style: TextStyle(color: widget.textColor, fontSize: 14),
+          ),
           content: SizedBox(
             width: 320,
             child: ListView(
@@ -560,7 +928,12 @@ class _TencentHunyuanSettingsPanelState
                 for (final sku in _purchaseSkus)
                   ListTile(
                     dense: true,
-                    title: Text(sku.label),
+                    textColor: widget.textColor,
+                    iconColor: widget.textColor.withOpacity(0.75),
+                    title: Text(
+                      sku.label,
+                      style: const TextStyle(fontSize: 13),
+                    ),
                     trailing: const Icon(Icons.open_in_new_rounded, size: 18),
                     onTap: () async {
                       Navigator.of(dialogContext).pop();
@@ -573,6 +946,9 @@ class _TencentHunyuanSettingsPanelState
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
+              style: TextButton.styleFrom(
+                foregroundColor: widget.textColor.withOpacity(0.75),
+              ),
               child: const Text('关闭'),
             ),
           ],
@@ -592,6 +968,22 @@ class _TencentHunyuanSettingsPanelState
     'es': '西班牙语',
     'ru': '俄语',
   };
+
+  Widget _itemBox(Widget child) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: widget.textColor.withOpacity(0.14),
+          width: AppTokens.stroke,
+        ),
+      ),
+      child: child,
+    );
+  }
 
   Widget _translationSettings(
     BuildContext context, {
@@ -622,131 +1014,144 @@ class _TencentHunyuanSettingsPanelState
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _dropdown(
-                  label: '源语言（可选）',
-                  value: cfg.sourceLang,
-                  items: _langs,
-                  onChanged: (v) => provider.setSourceLang(v ?? ''),
-                  textColor: widget.textColor,
-                  dropdownColor: cardBg,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _dropdown(
-                  label: '目标语言（必选）',
-                  value: cfg.targetLang,
-                  items: Map<String, String>.from(_langs)..remove(''),
-                  onChanged: (v) => provider.setTargetLang(v ?? 'en'),
-                  textColor: widget.textColor,
-                  dropdownColor: cardBg,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '显示模式',
-            style: TextStyle(
-              color: widget.textColor,
-              fontSize: 13,
-              fontWeight: FontWeight.normal,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 12,
-            children: [
-              _chip(
-                label: '仅显示译文',
-                active:
-                    cfg.displayMode == TranslationDisplayMode.translationOnly,
-                onTap: () => provider
-                    .setDisplayMode(TranslationDisplayMode.translationOnly),
-                textColor: widget.textColor,
-              ),
-              _chip(
-                label: '双语对照',
-                active: cfg.displayMode == TranslationDisplayMode.bilingual,
-                onTap: () =>
-                    provider.setDisplayMode(TranslationDisplayMode.bilingual),
-                textColor: widget.textColor,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '翻译模式',
-            style: TextStyle(
-              color: widget.textColor,
-              fontSize: 13,
-              fontWeight: FontWeight.normal,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 12,
-            runSpacing: 10,
-            children: [
-              _chip(
-                label: '机器翻译',
-                active: provider.translationMode == TranslationMode.machine,
-                onTap: () =>
-                    provider.setTranslationMode(TranslationMode.machine),
-                textColor: widget.textColor,
-              ),
-              _chip(
-                label: '大模型翻译',
-                active: provider.translationMode == TranslationMode.bigModel,
-                onTap: () =>
-                    provider.setTranslationMode(TranslationMode.bigModel),
-                textColor: widget.textColor,
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (provider.translationMode == TranslationMode.machine)
-            Text(
-              '使用腾讯机器翻译',
-              style: TextStyle(
-                color: widget.textColor.withOpacity(0.65),
-                fontSize: 13,
-                height: 1.35,
-              ),
-            )
-          else ...[
-            Row(
+          _itemBox(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(
-                    '使用腾讯混元翻译大模型，需要购买时长后使用',
+                Text(
+                  '翻译引擎',
+                  style: TextStyle(
+                    color: widget.textColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  children: [
+                    _chip(
+                      label: '机器',
+                      active:
+                          provider.translationMode == TranslationMode.machine,
+                      onTap: () =>
+                          provider.setTranslationMode(TranslationMode.machine),
+                      textColor: widget.textColor,
+                    ),
+                    _chip(
+                      label: '大模型',
+                      active:
+                          provider.translationMode == TranslationMode.bigModel,
+                      onTap: () =>
+                          provider.setTranslationMode(TranslationMode.bigModel),
+                      textColor: widget.textColor,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (provider.translationMode == TranslationMode.machine)
+                  Text(
+                    '使用腾讯机器翻译',
                     style: TextStyle(
                       color: widget.textColor.withOpacity(0.65),
                       fontSize: 13,
                       height: 1.35,
                     ),
+                  )
+                else ...[
+                  if (provider.usingPersonalTencentKeys) ...[
+                    Text(
+                      '使用腾讯混元翻译大模型（个人密钥）',
+                      style: TextStyle(
+                        color: widget.textColor.withOpacity(0.65),
+                        fontSize: 13,
+                        height: 1.35,
+                      ),
+                    ),
+                  ] else ...[
+                    Text(
+                      '使用腾讯混元翻译大模型，需要购买时长后使用',
+                      style: TextStyle(
+                        color: widget.textColor.withOpacity(0.65),
+                        fontSize: 13,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _redeemRow(aiModel, cardBg: cardBg),
+                  ],
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          _itemBox(
+            Row(
+              children: [
+                Expanded(
+                  child: _dropdown(
+                    label: '源语言（可选）',
+                    value: cfg.sourceLang,
+                    items: _langs,
+                    onChanged: (v) => provider.setSourceLang(v ?? ''),
+                    textColor: widget.textColor,
+                    dropdownColor: cardBg,
                   ),
                 ),
                 const SizedBox(width: 12),
-                InkWell(
-                  onTap: _showPurchaseDialog,
-                  child: const Text(
-                    '购买',
-                    style: TextStyle(
-                      color: AppColors.techBlue,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
+                Expanded(
+                  child: _dropdown(
+                    label: '目标语言（必选）',
+                    value: cfg.targetLang,
+                    items: Map<String, String>.from(_langs)..remove(''),
+                    onChanged: (v) => provider.setTargetLang(v ?? 'en'),
+                    textColor: widget.textColor,
+                    dropdownColor: cardBg,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            _redeemRow(aiModel, cardBg: cardBg),
-          ],
+          ),
+          const SizedBox(height: 10),
+          _itemBox(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '显示模式',
+                  style: TextStyle(
+                    color: widget.textColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  children: [
+                    _chip(
+                      label: '仅显示译文',
+                      active: cfg.displayMode ==
+                          TranslationDisplayMode.translationOnly,
+                      onTap: () => provider.setDisplayMode(
+                          TranslationDisplayMode.translationOnly),
+                      textColor: widget.textColor,
+                    ),
+                    _chip(
+                      label: '双语对照',
+                      active:
+                          cfg.displayMode == TranslationDisplayMode.bilingual,
+                      onTap: () => provider
+                          .setDisplayMode(TranslationDisplayMode.bilingual),
+                      textColor: widget.textColor,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -754,11 +1159,21 @@ class _TencentHunyuanSettingsPanelState
 
   Widget _readAloudSettings({required Color cardBg}) {
     final provider = context.watch<TranslationProvider>();
+    final aiModel = context.watch<AiModelProvider>();
+    final engine = provider.readAloudEngine;
+    final isLocal = engine == ReadAloudEngine.local;
     final voiceItems = <String, String>{
       for (final e in _ttsLargeModelVoices.entries) e.key.toString(): e.value,
     };
     final voiceValue = (_voiceType ?? provider.ttsVoiceType).toString();
     final speedValue = _speed ?? provider.ttsSpeed;
+    final displayedVoiceItems =
+        isLocal ? const <String, String>{'0': '无'} : voiceItems;
+    final displayedVoiceValue = isLocal
+        ? '0'
+        : (voiceItems.containsKey(voiceValue)
+            ? voiceValue
+            : voiceItems.keys.first);
 
     return Container(
       width: double.infinity,
@@ -781,41 +1196,116 @@ class _TencentHunyuanSettingsPanelState
             ),
           ),
           const SizedBox(height: 12),
-          _dropdown(
-            label: '音色选择',
-            value: voiceItems.containsKey(voiceValue)
-                ? voiceValue
-                : voiceItems.keys.first,
-            items: voiceItems,
-            onChanged: (v) async {
-              final parsed = int.tryParse(v ?? '');
-              if (parsed == null) return;
-              setState(() {
-                _voiceType = parsed;
-              });
-              await provider.setTtsVoiceType(parsed);
-            },
-            textColor: widget.textColor,
-            dropdownColor: cardBg,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '语速',
-            style: TextStyle(
-              color: widget.textColor,
-              fontSize: 13,
-              fontWeight: FontWeight.normal,
+          _itemBox(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '朗读引擎',
+                  style: TextStyle(
+                    color: widget.textColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  children: [
+                    _chip(
+                      label: '本地',
+                      active: engine == ReadAloudEngine.local,
+                      onTap: () =>
+                          provider.setReadAloudEngine(ReadAloudEngine.local),
+                      textColor: widget.textColor,
+                    ),
+                    _chip(
+                      label: '在线',
+                      active: engine == ReadAloudEngine.online,
+                      onTap: () =>
+                          provider.setReadAloudEngine(ReadAloudEngine.online),
+                      textColor: widget.textColor,
+                    ),
+                  ],
+                ),
+                if (!isLocal) ...[
+                  const SizedBox(height: 12),
+                  if (provider.usingPersonalTencentKeys) ...[
+                    Text(
+                      '使用腾讯大模型朗读（个人密钥）',
+                      style: TextStyle(
+                        color: widget.textColor.withOpacity(0.65),
+                        fontSize: 13,
+                        height: 1.35,
+                      ),
+                    ),
+                  ] else ...[
+                    Text(
+                      '使用腾讯大模型朗读，需要购买时长后使用',
+                      style: TextStyle(
+                        color: widget.textColor.withOpacity(0.65),
+                        fontSize: 13,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _redeemRow(aiModel, cardBg: cardBg),
+                  ],
+                ],
+              ],
             ),
           ),
-          Slider(
-            value: speedValue.clamp(0.6, 1.6),
-            min: 0.6,
-            max: 1.6,
-            divisions: 10,
-            activeColor: AppColors.techBlue,
-            label: speedValue.toStringAsFixed(1),
-            onChanged: (v) => setState(() => _speed = v),
-            onChangeEnd: (v) => provider.setTtsSpeed(v),
+          const SizedBox(height: 10),
+          _itemBox(
+            Opacity(
+              opacity: isLocal ? 0.45 : 1,
+              child: IgnorePointer(
+                ignoring: isLocal,
+                child: _dropdown(
+                  label: '音色选择',
+                  value: displayedVoiceValue,
+                  items: displayedVoiceItems,
+                  onChanged: (v) async {
+                    if (isLocal) return;
+                    final parsed = int.tryParse(v ?? '');
+                    if (parsed == null) return;
+                    setState(() {
+                      _voiceType = parsed;
+                    });
+                    await provider.setTtsVoiceType(parsed);
+                  },
+                  textColor: widget.textColor,
+                  dropdownColor: cardBg,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          _itemBox(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '语速',
+                  style: TextStyle(
+                    color: widget.textColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
+                  ),
+                ),
+                Slider(
+                  value: speedValue.clamp(0.6, 1.6),
+                  min: 0.6,
+                  max: 1.6,
+                  divisions: 10,
+                  activeColor: AppColors.techBlue,
+                  label: speedValue.toStringAsFixed(1),
+                  onChanged: (v) => setState(() => _speed = v),
+                  onChangeEnd: (v) => provider.setTtsSpeed(v),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -829,35 +1319,30 @@ class _TencentHunyuanSettingsPanelState
     required Color textColor,
   }) {
     return InkWell(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: BorderRadius.circular(12),
       onTap: onTap,
       child: Container(
-        height: 28,
+        height: 44,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: active
               ? AppColors.techBlue.withOpacity(0.12)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: active ? AppColors.techBlue : textColor.withOpacity(0.18),
             width: AppTokens.stroke,
           ),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                color:
-                    active ? AppColors.techBlue : textColor.withOpacity(0.75),
-                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                height: 1.2,
-              ),
-            ),
-          ],
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: active ? AppColors.techBlue : textColor.withOpacity(0.75),
+            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+            height: 1.2,
+          ),
         ),
       ),
     );
@@ -871,6 +1356,7 @@ class _TencentHunyuanSettingsPanelState
     required Color textColor,
     required Color dropdownColor,
   }) {
+    final bg = widget.isDark ? const Color(0xFF2A2A2A) : Colors.white;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -882,11 +1368,13 @@ class _TencentHunyuanSettingsPanelState
           height: 44,
           child: DropdownButtonFormField<String>(
             value: items.containsKey(value) ? value : items.keys.first,
-            dropdownColor: dropdownColor,
+            dropdownColor: bg,
+            style: TextStyle(color: textColor, fontSize: 13),
+            iconEnabledColor: textColor.withOpacity(0.75),
             decoration: InputDecoration(
               isDense: true,
               filled: true,
-              fillColor: dropdownColor,
+              fillColor: bg,
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
               border:
@@ -910,7 +1398,8 @@ class _TencentHunyuanSettingsPanelState
                 .map(
                   (e) => DropdownMenuItem<String>(
                     value: e.key,
-                    child: Text(e.value, style: const TextStyle(fontSize: 13)),
+                    child: Text(e.value,
+                        style: TextStyle(fontSize: 13, color: textColor)),
                   ),
                 )
                 .toList(),
@@ -926,6 +1415,7 @@ class _TencentHunyuanSettingsPanelState
   }) {
     return Consumer<AiModelProvider>(
       builder: (context, aiModel, child) {
+        final tp = context.watch<TranslationProvider>();
         return Container(
           width: double.infinity,
           decoration: BoxDecoration(
@@ -948,72 +1438,73 @@ class _TencentHunyuanSettingsPanelState
                 ),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '本地模型',
+              _itemBox(
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '问答引擎',
                       style: TextStyle(
                         color: widget.textColor,
                         fontSize: 13,
                         fontWeight: FontWeight.normal,
                       ),
                     ),
-                  ),
-                  SizedBox(
-                    height: 24,
-                    child: Transform.scale(
-                      scale: 0.75,
-                      child: Switch(
-                        value: aiModel.source == AiModelSource.local,
-                        activeColor: AppColors.techBlue,
-                        onChanged: (v) {
-                          if (v) {
-                            unawaited(aiModel.setSource(AiModelSource.local));
-                          } else {
-                            if (aiModel.source == AiModelSource.local) {
-                              unawaited(aiModel.setSource(AiModelSource.none));
-                            }
-                          }
-                        },
-                      ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 10,
+                      children: [
+                        _chip(
+                          label: '本地',
+                          active: aiModel.source == AiModelSource.local,
+                          onTap: () {
+                            final next = aiModel.source == AiModelSource.local
+                                ? AiModelSource.none
+                                : AiModelSource.local;
+                            unawaited(aiModel.setSource(next));
+                          },
+                          textColor: widget.textColor,
+                        ),
+                        _chip(
+                          label: '在线',
+                          active: aiModel.source == AiModelSource.online,
+                          onTap: () {
+                            final next = aiModel.source == AiModelSource.online
+                                ? AiModelSource.none
+                                : AiModelSource.online;
+                            unawaited(aiModel.setSource(next));
+                          },
+                          textColor: widget.textColor,
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '在线大模型',
-                      style: TextStyle(
-                        color: widget.textColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.normal,
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    height: 24,
-                    child: Transform.scale(
-                      scale: 0.75,
-                      child: Switch(
-                        value: aiModel.source == AiModelSource.online,
-                        activeColor: AppColors.techBlue,
-                        onChanged: (v) {
-                          if (v) {
-                            unawaited(aiModel.setSource(AiModelSource.online));
-                          } else {
-                            if (aiModel.source == AiModelSource.online) {
-                              unawaited(aiModel.setSource(AiModelSource.none));
-                            }
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                ],
+                    if (aiModel.source == AiModelSource.online) ...[
+                      const SizedBox(height: 12),
+                      if (tp.usingPersonalTencentKeys) ...[
+                        Text(
+                          '使用腾讯混元大模型（个人密钥）',
+                          style: TextStyle(
+                            color: widget.textColor.withOpacity(0.65),
+                            fontSize: 13,
+                            height: 1.35,
+                          ),
+                        ),
+                      ] else ...[
+                        Text(
+                          '使用腾讯混元大模型，需要购买时长后使用',
+                          style: TextStyle(
+                            color: widget.textColor.withOpacity(0.65),
+                            fontSize: 13,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _redeemRow(aiModel, cardBg: cardBg),
+                      ],
+                    ],
+                  ],
+                ),
               ),
               const SizedBox(height: 10),
               if (aiModel.source == AiModelSource.local) ...[
@@ -1038,69 +1529,49 @@ class _TencentHunyuanSettingsPanelState
                   ),
                 ],
               ],
-              if (aiModel.source == AiModelSource.online) ...[
-                Row(
+              const SizedBox(height: 10),
+              _itemBox(
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        '使用腾讯混元大模型，需要购买时长后使用',
-                        style: TextStyle(
-                          color: widget.textColor.withOpacity(0.65),
-                          fontSize: 13,
-                          height: 1.35,
-                        ),
+                    Text(
+                      '问答内容范围',
+                      style: TextStyle(
+                        color: widget.textColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.normal,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    InkWell(
-                      onTap: _showPurchaseDialog,
-                      child: const Text(
-                        '购买',
-                        style: TextStyle(
-                          color: AppColors.techBlue,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        _scopeChip(
+                          label: '当前页',
+                          value: QAContentScope.currentPage,
+                          groupValue: aiModel.qaContentScope,
+                          onChanged: (scope) =>
+                              aiModel.setQAContentScope(scope),
                         ),
-                      ),
+                        _scopeChip(
+                          label: '本章至当前',
+                          value: QAContentScope.currentChapterToPage,
+                          groupValue: aiModel.qaContentScope,
+                          onChanged: (scope) =>
+                              aiModel.setQAContentScope(scope),
+                        ),
+                        _scopeChip(
+                          label: '前后5页',
+                          value: QAContentScope.slidingWindow,
+                          groupValue: aiModel.qaContentScope,
+                          onChanged: (scope) =>
+                              aiModel.setQAContentScope(scope),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                _redeemRow(aiModel, cardBg: cardBg),
-              ],
-              const SizedBox(height: 16),
-              Text(
-                '问答内容范围',
-                style: TextStyle(
-                  color: widget.textColor,
-                  fontSize: 13,
-                  fontWeight: FontWeight.normal,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  _scopeChip(
-                    label: '当前页',
-                    value: QAContentScope.currentPage,
-                    groupValue: aiModel.qaContentScope,
-                    onChanged: (scope) => aiModel.setQAContentScope(scope),
-                  ),
-                  _scopeChip(
-                    label: '本章至当前',
-                    value: QAContentScope.currentChapterToPage,
-                    groupValue: aiModel.qaContentScope,
-                    onChanged: (scope) => aiModel.setQAContentScope(scope),
-                  ),
-                  _scopeChip(
-                    label: '前后5页',
-                    value: QAContentScope.slidingWindow,
-                    groupValue: aiModel.qaContentScope,
-                    onChanged: (scope) => aiModel.setQAContentScope(scope),
-                  ),
-                ],
               ),
             ],
           ),
@@ -1117,16 +1588,16 @@ class _TencentHunyuanSettingsPanelState
   }) {
     final bool active = value == groupValue;
     return InkWell(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: BorderRadius.circular(12),
       onTap: () => onChanged(value),
       child: Container(
-        height: 28,
+        height: 44,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: active
               ? AppColors.techBlue.withOpacity(0.12)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: active
                 ? AppColors.techBlue
@@ -1134,21 +1605,17 @@ class _TencentHunyuanSettingsPanelState
             width: AppTokens.stroke,
           ),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                color: active
-                    ? AppColors.techBlue
-                    : widget.textColor.withOpacity(0.75),
-                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                height: 1.2,
-              ),
-            ),
-          ],
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: active
+                ? AppColors.techBlue
+                : widget.textColor.withOpacity(0.75),
+            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+            height: 1.2,
+          ),
         ),
       ),
     );
@@ -1335,44 +1802,38 @@ class _MainPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final aiModel = context.watch<AiModelProvider>();
+    final translationProvider = context.watch<TranslationProvider>();
     final source = aiModel.source;
     final onlineEntitled = aiModel.onlineEntitlementActive;
+    final usingPersonalKeys = translationProvider.usingPersonalTencentKeys;
 
-    final bool modelEnabled = source != AiModelSource.none;
     final bool qaReady = switch (source) {
       AiModelSource.none => false,
-      AiModelSource.online => onlineEntitled,
+      AiModelSource.online => onlineEntitled || usingPersonalKeys,
       AiModelSource.local => aiModel.isLocalQaModelReady,
     };
 
-    String localBlockedHintFor(LocalLlmModelType type, String modelName) {
-      if (source != AiModelSource.local) return '';
-      if (aiModel.isLocalModelInstallingByType(type)) return '$modelName安装中…';
-      if (aiModel.isLocalModelDownloadingByType(type)) return '$modelName下载中…';
-      if (aiModel.isLocalModelPausedByType(type)) return '$modelName下载已暂停';
-      if (!aiModel.localModelExistsByType(type)) return '$modelName未下载，下载后可用';
-      if (!aiModel.localRuntimeAvailable) return '本地推理后端未就绪';
-      return '本地模型未就绪';
-    }
+    final bool translationBlocked =
+        translationProvider.translationMode == TranslationMode.bigModel &&
+            !onlineEntitled &&
+            !usingPersonalKeys;
+    final bool translateValue = translationBlocked ? false : translateEnabled;
+    final ValueChanged<bool>? translateOnChanged =
+        translationBlocked ? null : onTranslateChanged;
 
-    final translateSubtitle =
-        translateEnabled ? (translateActive ? '翻译中' : '已暂停') : '开启后，自动应用到正文';
+    final translateSubtitle = translationBlocked
+        ? '大模型翻译需购买时长后使用'
+        : (translateValue
+            ? (translateActive ? '翻译中...' : '翻译中...')
+            : '打开后将实时对内容进行翻译');
 
-    final readAloudSubtitle = !modelEnabled
-        ? '请先在 AI设置 中选择在线大模型'
-        : source != AiModelSource.online
-            ? '朗读仅支持在线模式'
-            : !onlineEntitled
-                ? '在线大模型需要购买时长后使用'
-                : (readAloudEnabled ? '已开启' : '开启后，可朗读当前页');
-
-    final perfEnabled =
-        source == AiModelSource.local && aiModel.localRuntimeAvailable;
-    final perfSubtitle = source != AiModelSource.local
-        ? '仅本地模式可用'
-        : !aiModel.localRuntimeAvailable
-            ? '本地推理后端未就绪'
-            : '查看当前配置并跑一次小测试';
+    final readAloudBlocked =
+        translationProvider.readAloudEngine == ReadAloudEngine.online &&
+            !onlineEntitled &&
+            !usingPersonalKeys;
+    final readAloudSubtitle = readAloudBlocked
+        ? '在线朗读需要购买时长后使用'
+        : (readAloudEnabled ? '已开启' : '开启后，可朗读当前页');
 
     return SingleChildScrollView(
       key: const PageStorageKey('ai_hud_main_scroll'),
@@ -1380,14 +1841,13 @@ class _MainPanel extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (!modelEnabled) ...[_disabledHint(), const SizedBox(height: 10)],
           _featureRow(
             context,
             icon: Icons.translate,
             title: '翻译',
             subtitle: translateSubtitle,
-            value: translateEnabled,
-            onChanged: onTranslateChanged,
+            value: translateValue,
+            onChanged: translateOnChanged,
           ),
           const SizedBox(height: 10),
           _featureRow(
@@ -1396,247 +1856,21 @@ class _MainPanel extends StatelessWidget {
             title: '朗读',
             subtitle: readAloudSubtitle,
             value: readAloudEnabled,
-            onChanged: source == AiModelSource.online && onlineEntitled
-                ? onReadAloudChanged
-                : null,
+            onChanged: readAloudBlocked ? null : onReadAloudChanged,
           ),
           const SizedBox(height: 14),
           _qaEntry(
             enabled: qaReady,
-            subtitle: !modelEnabled
-                ? '请先在 AI设置 中选择本地模型或在线大模型'
-                : (source == AiModelSource.online && !onlineEntitled)
-                    ? '在线大模型需要购买时长后使用'
-                    : (source == AiModelSource.local && !qaReady)
-                        ? localBlockedHintFor(LocalLlmModelType.qa, '本地模型')
+            subtitle: source == AiModelSource.none
+                ? '需要选择大模型后使用'
+                : (source == AiModelSource.local && !qaReady)
+                    ? '模型下载中，下载后可使用'
+                    : (source == AiModelSource.online &&
+                            !onlineEntitled &&
+                            !usingPersonalKeys)
+                        ? '在线大模型需要购买时长后使用'
                         : '支持问答/总结/提取要点',
-            onTap: qaReady ? onOpenQa : () {},
-          ),
-          const SizedBox(height: 10),
-          _perfEntry(
-            enabled: perfEnabled,
-            subtitle: perfSubtitle,
-            onTap: perfEnabled ? () => _openLocalPerfCheck(context) : () {},
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _openLocalPerfCheck(BuildContext context) async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        var started = false;
-        String report = '';
-        var running = false;
-
-        return StatefulBuilder(
-          builder: (context, setState) {
-            Future<void> run() async {
-              if (running) return;
-              setState(() {
-                running = true;
-                report = '运行中…';
-              });
-
-              final aiModel = dialogContext.read<AiModelProvider>();
-              final buf = StringBuffer();
-              buf.writeln('time=${DateTime.now().toIso8601String()}');
-              buf.writeln('platform=${defaultTargetPlatform.name}');
-              buf.writeln('source=${aiModel.source.name}');
-              buf.writeln(
-                  'localRuntimeAvailable=${aiModel.localRuntimeAvailable}');
-              buf.writeln('qaReady=${aiModel.isLocalQaModelReady}');
-              buf.writeln(
-                  'translationReady=${aiModel.isLocalTranslationModelReady}');
-              buf.writeln();
-
-              Future<void> dump(LocalLlmModelType type) async {
-                final sw = Stopwatch()..start();
-                try {
-                  final client = LocalLlmClient(modelType: type);
-                  final cfg = await client.dumpConfig();
-                  sw.stop();
-                  buf.writeln(
-                      '[${type.name}] dumpConfigMs=${sw.elapsedMilliseconds}');
-                  buf.writeln(cfg.trim().isEmpty ? '(empty)' : cfg.trim());
-                } catch (e) {
-                  sw.stop();
-                  buf.writeln(
-                      '[${type.name}] dumpConfigMs=${sw.elapsedMilliseconds}');
-                  buf.writeln('error=${e.toString()}');
-                }
-                buf.writeln();
-              }
-
-              Future<void> streamTest({
-                required LocalLlmModelType type,
-                required String label,
-                required String prompt,
-              }) async {
-                final client = LocalLlmClient(modelType: type);
-                final swAll = Stopwatch()..start();
-                final swFirst = Stopwatch()..start();
-                var firstMs = -1;
-                var outLen = 0;
-                var chunkCount = 0;
-                try {
-                  await for (final chunk in client.chatStream(
-                    userText: prompt,
-                    maxNewTokens: 96,
-                    maxInputTokens: 0,
-                    temperature: 0.2,
-                    topP: 0.95,
-                    topK: 40,
-                    repetitionPenalty: 1.02,
-                    enableThinking: false,
-                  )) {
-                    if (chunk.isEmpty) continue;
-                    chunkCount += 1;
-                    outLen += chunk.length;
-                    if (firstMs < 0) {
-                      swFirst.stop();
-                      firstMs = swFirst.elapsedMilliseconds;
-                    }
-                    if (outLen >= 256) break;
-                  }
-                  swAll.stop();
-                  buf.writeln(
-                      '[$label] firstChunkMs=$firstMs totalMs=${swAll.elapsedMilliseconds} chunks=$chunkCount outLen=$outLen');
-                } catch (e) {
-                  swAll.stop();
-                  final t = firstMs < 0 ? swFirst.elapsedMilliseconds : firstMs;
-                  buf.writeln(
-                      '[$label] firstChunkMs=$t totalMs=${swAll.elapsedMilliseconds} error=${e.toString()}');
-                }
-                buf.writeln();
-              }
-
-              await dump(LocalLlmModelType.translation);
-              await dump(LocalLlmModelType.qa);
-
-              if (aiModel.source == AiModelSource.local &&
-                  aiModel.localRuntimeAvailable) {
-                if (aiModel.isLocalQaModelReady) {
-                  await streamTest(
-                    type: LocalLlmModelType.qa,
-                    label: 'qa',
-                    prompt: '你好，请只回复“OK”。',
-                  );
-                } else {
-                  buf.writeln('[qa] skipped=not_ready');
-                  buf.writeln();
-                }
-
-                if (aiModel.isLocalTranslationModelReady) {
-                  await streamTest(
-                    type: LocalLlmModelType.translation,
-                    label: 'translation',
-                    prompt: '将以下文本翻译为英语，注意只需要输出翻译后的结果，不要额外解释：\n\n你好，世界。',
-                  );
-                } else {
-                  buf.writeln('[translation] skipped=not_ready');
-                  buf.writeln();
-                }
-              }
-
-              setState(() {
-                running = false;
-                report = buf.toString().trimRight();
-              });
-            }
-
-            if (!started) {
-              started = true;
-              scheduleMicrotask(run);
-            }
-
-            final theme = Theme.of(dialogContext);
-            final isDarkBg = theme.colorScheme.surface.computeLuminance() < 0.5;
-            final fg = isDarkBg ? Colors.white : AppColors.deepSpace;
-
-            return AlertDialog(
-              title: const Text('本地推理性能自检'),
-              content: SizedBox(
-                width: 560,
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    report.isEmpty ? '准备中…' : report,
-                    style: TextStyle(
-                      fontSize: 12,
-                      height: 1.35,
-                      color: fg.withOpacity(0.9),
-                    ),
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: running
-                      ? null
-                      : () {
-                          Clipboard.setData(ClipboardData(text: report));
-                          Navigator.of(dialogContext).pop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('已复制并关闭')),
-                          );
-                        },
-                  child: const Text('复制并关闭'),
-                ),
-                TextButton(
-                  onPressed: running ? null : run,
-                  child: Text(running ? '运行中…' : '重新运行'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('关闭'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _disabledHint() {
-    final Color cardBg =
-        isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
-    return Container(
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-        border: Border.all(
-            color: textColor.withOpacity(0.08), width: AppTokens.stroke),
-      ),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: textColor.withOpacity(0.06),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              Icons.lock_outline_rounded,
-              color: textColor.withOpacity(0.7),
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              '问答未选择模型：请先进入 AI设置 选择本地/在线模型',
-              style: TextStyle(
-                color: textColor.withOpacity(0.75),
-                fontSize: 12,
-                height: 1.35,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            onTap: onOpenQa,
           ),
         ],
       ),
@@ -1788,74 +2022,6 @@ class _MainPanel extends StatelessWidget {
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: textColor.withOpacity(0.65),
-                      fontSize: 12,
-                      height: 1.35,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right, color: textColor.withOpacity(0.6)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _perfEntry({
-    required bool enabled,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    final Color cardBg =
-        isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
-
-    return InkWell(
-      onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-      child: Container(
-        decoration: BoxDecoration(
-          color: cardBg,
-          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-          border: Border.all(
-              color: textColor.withOpacity(0.08), width: AppTokens.stroke),
-        ),
-        padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: enabled
-                    ? AppColors.techBlue.withOpacity(0.12)
-                    : textColor.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                Icons.speed,
-                color:
-                    enabled ? AppColors.techBlue : textColor.withOpacity(0.7),
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '性能自检',
-                    style: TextStyle(
-                      color: textColor,
-                      fontWeight: FontWeight.w700,
-                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(

@@ -16,6 +16,11 @@ enum TranslationMode {
   bigModel,
 }
 
+enum ReadAloudEngine {
+  local,
+  online,
+}
+
 class TranslationProvider extends ChangeNotifier {
   static const _kCfgFrom = 'tr_cfg_from';
   static const _kCfgTo = 'tr_cfg_to';
@@ -25,6 +30,11 @@ class TranslationProvider extends ChangeNotifier {
   static const _kAiReadAloudEnabled = 'tr_ai_read_aloud_enabled';
   static const _kTtsVoiceType = 'tr_tts_voice_type';
   static const _kTtsSpeed = 'tr_tts_speed';
+  static const _kReadAloudEngine = 'tr_read_aloud_engine';
+
+  static const _kUserTencentKeysEnabled = 'user_tencent_keys_enabled';
+  static const _kUserTencentSecretId = 'user_tencent_secret_id';
+  static const _kUserTencentSecretKey = 'user_tencent_secret_key';
 
   final TranslationCache _cache =
       TranslationCache(ttl: const Duration(days: 30));
@@ -40,6 +50,7 @@ class TranslationProvider extends ChangeNotifier {
   );
 
   TranslationMode _translationMode = TranslationMode.machine;
+  ReadAloudEngine _readAloudEngine = ReadAloudEngine.local;
 
   bool _aiTranslateEnabled = false;
   bool _aiReadAloudEnabled = false;
@@ -47,6 +58,7 @@ class TranslationProvider extends ChangeNotifier {
 
   int _ttsVoiceType = 601003;
   double _ttsSpeed = 1.0;
+  bool _usingPersonalTencentKeys = false;
 
   Timer? _notifyTimer;
   bool _notifyScheduled = false;
@@ -82,13 +94,22 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   void _syncFeatureFlagsToModel() {
-    final source = _aiModel?.source ?? AiModelSource.none;
     final entitled = _aiModel?.onlineEntitlementActive ?? false;
     bool changed = false;
 
-    if ((_aiReadAloudEnabled) &&
-        (source != AiModelSource.online || !entitled)) {
+    if (_aiReadAloudEnabled &&
+        _readAloudEngine == ReadAloudEngine.online &&
+        !_usingPersonalTencentKeys &&
+        !entitled) {
       _aiReadAloudEnabled = false;
+      changed = true;
+    }
+
+    if (_aiTranslateEnabled &&
+        _translationMode == TranslationMode.bigModel &&
+        !_usingPersonalTencentKeys &&
+        !entitled) {
+      _aiTranslateEnabled = false;
       changed = true;
     }
 
@@ -112,6 +133,12 @@ class TranslationProvider extends ChangeNotifier {
     );
   }
 
+  Future<void> reloadTencentCredentials() async {
+    await _refreshPersonalKeyState();
+    _rebuildService();
+    notifyListeners();
+  }
+
   bool get loaded => _loaded;
 
   TranslationConfig get config => _config;
@@ -119,8 +146,10 @@ class TranslationProvider extends ChangeNotifier {
   bool get aiTranslateEnabled => _aiTranslateEnabled;
   bool get aiReadAloudEnabled => _aiReadAloudEnabled;
   TranslationMode get translationMode => _translationMode;
+  ReadAloudEngine get readAloudEngine => _readAloudEngine;
   int get ttsVoiceType => _ttsVoiceType;
   double get ttsSpeed => _ttsSpeed;
+  bool get usingPersonalTencentKeys => _usingPersonalTencentKeys;
 
   @override
   void dispose() {
@@ -153,6 +182,14 @@ class TranslationProvider extends ChangeNotifier {
     _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
     _ttsVoiceType = prefs.getInt(_kTtsVoiceType) ?? _ttsVoiceType;
     _ttsSpeed = prefs.getDouble(_kTtsSpeed) ?? _ttsSpeed;
+    _usingPersonalTencentKeys = _readUsingPersonalTencentKeys(prefs);
+
+    final engine = prefs.getString(_kReadAloudEngine);
+    if (engine == ReadAloudEngine.online.name) {
+      _readAloudEngine = ReadAloudEngine.online;
+    } else {
+      _readAloudEngine = ReadAloudEngine.local;
+    }
 
     if (trMode == TranslationMode.machine.name) {
       _translationMode = TranslationMode.machine;
@@ -174,6 +211,7 @@ class TranslationProvider extends ChangeNotifier {
     );
 
     _rebuildService();
+    _syncFeatureFlagsToModel();
 
     if (!_loaded) {
       _loaded = true;
@@ -196,12 +234,35 @@ class TranslationProvider extends ChangeNotifier {
     await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
     await prefs.setInt(_kTtsVoiceType, _ttsVoiceType);
     await prefs.setDouble(_kTtsSpeed, _ttsSpeed);
+    await prefs.setString(_kReadAloudEngine, _readAloudEngine.name);
+  }
+
+  bool _readUsingPersonalTencentKeys(SharedPreferences prefs) {
+    final enabled = prefs.getBool(_kUserTencentKeysEnabled) ?? false;
+    if (!enabled) return false;
+    final secretId = (prefs.getString(_kUserTencentSecretId) ?? '').trim();
+    final secretKey = (prefs.getString(_kUserTencentSecretKey) ?? '').trim();
+    return secretId.isNotEmpty && secretKey.isNotEmpty;
+  }
+
+  Future<void> _refreshPersonalKeyState() async {
+    final prefs = await SharedPreferences.getInstance();
+    _usingPersonalTencentKeys = _readUsingPersonalTencentKeys(prefs);
   }
 
   Future<void> setTranslationMode(TranslationMode mode) async {
     if (_translationMode == mode) return;
     _translationMode = mode;
     _rebuildService();
+    _syncFeatureFlagsToModel();
+    notifyListeners();
+    await _savePrefs();
+  }
+
+  Future<void> setReadAloudEngine(ReadAloudEngine engine) async {
+    if (_readAloudEngine == engine) return;
+    _readAloudEngine = engine;
+    _syncFeatureFlagsToModel();
     notifyListeners();
     await _savePrefs();
   }
@@ -250,13 +311,12 @@ class TranslationProvider extends ChangeNotifier {
 
   Future<void> setAiReadAloudEnabled(bool value) async {
     if (value) {
-      final source = _aiModel?.source ?? AiModelSource.none;
-      if (source != AiModelSource.online) {
-        throw TranslationConfigException('朗读仅支持在线模式');
-      }
-      final entitled = _aiModel?.onlineEntitlementActive ?? false;
-      if (!entitled) {
-        throw TranslationConfigException('朗读需要购买时长后使用');
+      if (_readAloudEngine == ReadAloudEngine.online &&
+          !_usingPersonalTencentKeys) {
+        final entitled = _aiModel?.onlineEntitlementActive ?? false;
+        if (!entitled) {
+          throw TranslationConfigException('朗读需要购买时长后使用');
+        }
       }
     }
     _aiReadAloudEnabled = value;
@@ -373,12 +433,14 @@ class TranslationProvider extends ChangeNotifier {
       throw TranslationConfigException('请选择目标语言');
     }
     if (!getEmbeddedPublicHunyuanCredentials().isUsable) {
-      throw TranslationConfigException('翻译服务暂不可用');
+      throw TranslationConfigException('未配置翻译服务密钥');
     }
     if (_translationMode == TranslationMode.bigModel) {
-      final ok = _aiModel?.onlineEntitlementActive ?? false;
-      if (!ok) {
-        throw TranslationConfigException('大模型翻译需要购买时长后使用');
+      if (!_usingPersonalTencentKeys) {
+        final ok = _aiModel?.onlineEntitlementActive ?? false;
+        if (!ok) {
+          throw TranslationConfigException('大模型翻译需购买时长后使用');
+        }
       }
     }
   }

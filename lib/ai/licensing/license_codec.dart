@@ -29,7 +29,7 @@ class LicenseCodec {
 
   static const String publicKeyB64 = String.fromEnvironment(
     'AIRREAD_LICENSE_PUBLIC_KEY_B64',
-    defaultValue: '',
+    defaultValue: 'Z+RpD1T+mPNA3EDYVl8jJwpCTn5oEWeXbhy+rbmObpc=',
   );
 
   static final Ed25519 _algo = Ed25519();
@@ -117,7 +117,7 @@ class LicenseCodec {
     final kp = await _algo.newKeyPairFromSeed(seed);
     final t = (now ?? DateTime.now()).toUtc();
     final issuedAtMs = t.millisecondsSinceEpoch;
-    final expiryAtMs = t.add(Duration(days: d)).millisecondsSinceEpoch;
+    final expiryAtMs = t.add(const Duration(days: 3650)).millisecondsSinceEpoch;
     final nonceBytes = _randomBytes(12);
     final nonce = base64Url.encode(nonceBytes).replaceAll('=', '');
 
