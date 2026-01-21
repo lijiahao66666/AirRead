@@ -17,7 +17,7 @@ class HunyuanTranslationEngine implements TranslationEngine {
   HunyuanTranslationEngine({
     TencentApiClient? api,
     required TencentCredentials credentials,
-    this.model = 'hunyuan-translation',
+    this.model = 'hunyuan-translation-lite',
   })  : _api = api ?? TencentApiClient(),
         _credentials = credentials;
 
@@ -72,8 +72,11 @@ class HunyuanTranslationEngine implements TranslationEngine {
 
   String _normalizeLang(String lang) {
     final v = lang.trim();
+    if (v == 'zh') return 'zh';
+    if (v == 'zh-TR') return 'zh-TR';
     if (v == 'zh-Hans') return 'zh';
     if (v == 'zh-Hant') return 'zh-TR';
+    if (v == 'zh-TW') return 'zh-TR';
     return v;
   }
 

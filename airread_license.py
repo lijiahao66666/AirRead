@@ -45,6 +45,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 PREFIX = "AR1"
+SHORT_PREFIX = "AR2"
 ALLOWED_DAYS = {1, 7, 15, 30, 60, 180, 360}
 
 
@@ -69,6 +70,10 @@ def gen_keypair_seed() -> tuple[str, str]:
 
 
 def generate_license(private_seed_b64: str, days: int, now_ms: int | None = None) -> str:
+    return generate_short_license(days)
+
+
+def generate_signed_license(private_seed_b64: str, days: int, now_ms: int | None = None) -> str:
     if days not in ALLOWED_DAYS:
         raise ValueError(f"days not supported: {days}")
 
@@ -100,10 +105,28 @@ def generate_license(private_seed_b64: str, days: int, now_ms: int | None = None
     return f"{PREFIX}.{p}.{s}"
 
 
+def generate_short_license(days: int) -> str:
+    if days not in ALLOWED_DAYS:
+        raise ValueError(f"days not supported: {days}")
+    return f"{SHORT_PREFIX}{days}"
+
+
 def verify_and_parse(code: str, public_key_b64: str) -> dict:
     code = code.strip()
     if not code:
         raise ValueError("empty code")
+
+    if not code.startswith(PREFIX):
+        s = code.upper()
+        if s.startswith(SHORT_PREFIX):
+            s = s[len(SHORT_PREFIX) :]
+        s = s.strip()
+        if s.startswith(("-", "_", ".")):
+            s = s[1:].strip()
+        days = int(s)
+        if days not in ALLOWED_DAYS:
+            raise ValueError("days not supported")
+        return {"days": days}
 
     parts = code.split(".")
     if len(parts) != 3:
@@ -157,6 +180,7 @@ def main():
     sp.add_argument("--seed", required=True, help="privateSeedB64 (keep secret)")
     sp.add_argument("--days", type=int, required=True, choices=sorted(ALLOWED_DAYS))
     sp.add_argument("--now-ms", type=int, default=0, help="optional fixed now (ms)")
+    sp.add_argument("--signed", action="store_true", help="generate signed AR1 code")
 
     sp = sub.add_parser("verify", help="verify and parse license code")
     sp.add_argument("--pub", required=True, help="publicKeyB64")
@@ -175,7 +199,10 @@ def main():
 
     if args.cmd == "gen":
         now_ms = args.now_ms if args.now_ms > 0 else None
-        code = generate_license(args.seed, args.days, now_ms=now_ms)
+        if args.signed:
+            code = generate_signed_license(args.seed, args.days, now_ms=now_ms)
+        else:
+            code = generate_short_license(args.days)
         print(code)
         return
 

@@ -83,6 +83,10 @@ class TencentApiClient {
 
   static const String _scfUrl =
       String.fromEnvironment('AIRREAD_TENCENT_SCF_URL', defaultValue: '');
+  static const String _scfToken =
+      String.fromEnvironment('AIRREAD_TENCENT_SCF_TOKEN', defaultValue: '');
+
+  static bool get hasScfProxyUrl => _scfUrl.trim().isNotEmpty;
 
   static final _ConcurrencyGate _chatTranslationsGate =
       _ConcurrencyGate(maxConcurrent: 3);
@@ -246,6 +250,13 @@ class TencentApiClient {
         if (usingScf) {
           await _requireOnlineEntitlementForScf(action);
           final uri = _resolveScfUri();
+          final headers = <String, String>{
+            'Content-Type': 'application/json; charset=utf-8',
+          };
+          final token = _scfToken.trim();
+          if (token.isNotEmpty) {
+            headers['X-Airread-Token'] = token;
+          }
           final scfPayload = jsonEncode(<String, dynamic>{
             'host': host,
             'service': service,
@@ -260,9 +271,7 @@ class TencentApiClient {
           final resp = await _client
               .post(
                 uri,
-                headers: const <String, String>{
-                  'Content-Type': 'application/json; charset=utf-8',
-                },
+                headers: headers,
                 body: scfPayload,
               )
               .timeout(timeout);
@@ -440,10 +449,14 @@ class TencentApiClient {
         await _requireOnlineEntitlementForScf(action);
         final uri = _resolveScfUri();
         final request = http.Request('POST', uri);
-        request.headers.addAll(const <String, String>{
+        request.headers.addAll(<String, String>{
           'Content-Type': 'application/json; charset=utf-8',
           'Accept': 'text/event-stream',
         });
+        final token = _scfToken.trim();
+        if (token.isNotEmpty) {
+          request.headers['X-Airread-Token'] = token;
+        }
         request.body = jsonEncode(<String, dynamic>{
           'host': host,
           'service': service,

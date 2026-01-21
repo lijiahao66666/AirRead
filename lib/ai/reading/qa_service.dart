@@ -171,7 +171,7 @@ class QAService {
 
     final stream = client.chatStream(
       userText: prompt,
-      model: 'hunyuan-2.0-thinking-20251109',
+      model: 'Hunyuan-a13b',
     );
 
     await for (final chunk in stream) {

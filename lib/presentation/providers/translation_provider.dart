@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../ai/hunyuan/hunyuan_translation_engine.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
+import '../../ai/tencentcloud/tencent_api_client.dart';
 import '../../ai/tencentcloud/tmt_translation_engine.dart';
 import '../../ai/translation/translation_cache.dart';
 import '../../ai/translation/translation_service.dart';
@@ -53,6 +54,142 @@ class TranslationProvider extends ChangeNotifier {
 
   TranslationMode _translationMode = TranslationMode.machine;
   ReadAloudEngine _readAloudEngine = ReadAloudEngine.local;
+
+  static const Set<String> _bigModelLangs = {
+    'zh',
+    'zh-TR',
+    'yue',
+    'en',
+    'fr',
+    'pt',
+    'es',
+    'ja',
+    'tr',
+    'ru',
+    'ar',
+    'ko',
+    'th',
+    'it',
+    'de',
+    'vi',
+    'ms',
+    'id',
+  };
+
+  static const Set<String> _machineSourceLangs = {
+    '',
+    'zh',
+    'zh-TW',
+    'en',
+    'ja',
+    'ko',
+    'fr',
+    'es',
+    'it',
+    'de',
+    'tr',
+    'ru',
+    'pt',
+    'vi',
+    'id',
+    'th',
+    'ms',
+    'ar',
+    'hi',
+  };
+
+  static const Map<String, List<String>> _machineTargetsBySource = {
+    'zh': [
+      'zh-TW',
+      'en',
+      'ja',
+      'ko',
+      'fr',
+      'es',
+      'it',
+      'de',
+      'tr',
+      'ru',
+      'pt',
+      'vi',
+      'id',
+      'th',
+      'ms',
+      'ar',
+    ],
+    'zh-TW': [
+      'zh',
+      'en',
+      'ja',
+      'ko',
+      'fr',
+      'es',
+      'it',
+      'de',
+      'tr',
+      'ru',
+      'pt',
+      'vi',
+      'id',
+      'th',
+      'ms',
+      'ar',
+    ],
+    'en': [
+      'zh',
+      'zh-TW',
+      'ja',
+      'ko',
+      'fr',
+      'es',
+      'it',
+      'de',
+      'tr',
+      'ru',
+      'pt',
+      'vi',
+      'id',
+      'th',
+      'ms',
+      'ar',
+      'hi',
+    ],
+    'ja': ['zh', 'zh-TW', 'en', 'ko'],
+    'ko': ['zh', 'zh-TW', 'en', 'ja'],
+    'fr': ['zh', 'zh-TW', 'en', 'es', 'it', 'de', 'tr', 'ru', 'pt'],
+    'es': ['zh', 'zh-TW', 'en', 'fr', 'it', 'de', 'tr', 'ru', 'pt'],
+    'it': ['zh', 'zh-TW', 'en', 'fr', 'es', 'de', 'tr', 'ru', 'pt'],
+    'de': ['zh', 'zh-TW', 'en', 'fr', 'es', 'it', 'tr', 'ru', 'pt'],
+    'tr': ['zh', 'zh-TW', 'en', 'fr', 'es', 'it', 'de', 'ru', 'pt'],
+    'ru': ['zh', 'zh-TW', 'en', 'fr', 'es', 'it', 'de', 'tr', 'pt'],
+    'pt': ['zh', 'zh-TW', 'en', 'fr', 'es', 'it', 'de', 'tr', 'ru'],
+    'vi': ['zh', 'zh-TW', 'en'],
+    'id': ['zh', 'zh-TW', 'en'],
+    'th': ['zh', 'zh-TW', 'en'],
+    'ms': ['zh', 'zh-TW', 'en'],
+    'ar': ['zh', 'zh-TW', 'en'],
+    'hi': ['en'],
+    '': [
+      'zh',
+      'zh-TW',
+      'en',
+      'ja',
+      'ko',
+      'fr',
+      'es',
+      'it',
+      'de',
+      'tr',
+      'ru',
+      'pt',
+      'vi',
+      'id',
+      'th',
+      'ms',
+      'ar',
+      'hi',
+    ],
+  };
 
   bool _aiTranslateEnabled = false;
   bool _aiReadAloudEnabled = false;
@@ -184,8 +321,6 @@ class TranslationProvider extends ChangeNotifier {
   Future<void> _loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
 
-    final from = prefs.getString(_kCfgFrom);
-    final to = prefs.getString(_kCfgTo);
     final mode = prefs.getString(_kCfgMode);
     final trMode = prefs.getString(_kTranslationMode);
 
@@ -208,17 +343,22 @@ class TranslationProvider extends ChangeNotifier {
       _translationMode = TranslationMode.bigModel;
     }
 
+    final from = prefs.getString(_kCfgFrom) ?? _config.sourceLang;
+    final to = prefs.getString(_kCfgTo) ?? _config.targetLang;
+
     TranslationDisplayMode displayMode = _config.displayMode;
     if (mode == 'bilingual') displayMode = TranslationDisplayMode.bilingual;
     if (mode == 'translationOnly') {
       displayMode = TranslationDisplayMode.translationOnly;
     }
 
-    _config = _config.copyWith(
-      sourceLang: from ?? _config.sourceLang,
-      targetLang:
-          (to ?? _config.targetLang).trim().isEmpty ? _config.targetLang : to,
-      displayMode: displayMode,
+    _config = _sanitizeConfig(
+      _config.copyWith(
+        sourceLang: from,
+        targetLang: to,
+        displayMode: displayMode,
+      ),
+      _translationMode,
     );
 
     _rebuildService();
@@ -230,6 +370,52 @@ class TranslationProvider extends ChangeNotifier {
       _loaded = true;
     }
     notifyListeners();
+  }
+
+  String _normalizeLangForMode(
+    String lang,
+    TranslationMode mode, {
+    required bool isSource,
+  }) {
+    var v = lang.trim();
+    if (v.toLowerCase() == 'auto') v = '';
+    if (v.isEmpty) return isSource ? '' : v;
+    if (v == 'zh-Hans') return 'zh';
+    if (v == 'zh-Hant' || v == 'zh-TW' || v == 'zh-TR') {
+      return mode == TranslationMode.bigModel ? 'zh-TR' : 'zh-TW';
+    }
+    return v;
+  }
+
+  TranslationConfig _sanitizeConfig(
+    TranslationConfig cfg,
+    TranslationMode mode,
+  ) {
+    final source = _normalizeLangForMode(
+      cfg.sourceLang,
+      mode,
+      isSource: true,
+    );
+    var target = _normalizeLangForMode(
+      cfg.targetLang,
+      mode,
+      isSource: false,
+    );
+
+    if (mode == TranslationMode.bigModel) {
+      final s = source.isEmpty || _bigModelLangs.contains(source) ? source : '';
+      if (target.isEmpty || !_bigModelLangs.contains(target)) {
+        target = 'en';
+      }
+      return cfg.copyWith(sourceLang: s, targetLang: target);
+    }
+
+    final s = _machineSourceLangs.contains(source) ? source : '';
+    final allowed = _machineTargetsBySource[s] ?? _machineTargetsBySource['']!;
+    if (target.isEmpty || !allowed.contains(target)) {
+      target = allowed.isNotEmpty ? allowed.first : 'en';
+    }
+    return cfg.copyWith(sourceLang: s, targetLang: target);
   }
 
   Future<void> _refreshLocalReadAloudAvailability() async {
@@ -281,6 +467,7 @@ class TranslationProvider extends ChangeNotifier {
   Future<void> setTranslationMode(TranslationMode mode) async {
     if (_translationMode == mode) return;
     _translationMode = mode;
+    _config = _sanitizeConfig(_config, _translationMode);
     _rebuildService();
     _syncFeatureFlagsToModel();
     notifyListeners();
@@ -310,14 +497,19 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   Future<void> setSourceLang(String lang) async {
-    _config = _config.copyWith(sourceLang: lang);
+    _config = _sanitizeConfig(
+      _config.copyWith(sourceLang: lang),
+      _translationMode,
+    );
     notifyListeners();
     await _savePrefs();
   }
 
   Future<void> setTargetLang(String lang) async {
-    if (lang.trim().isEmpty) return;
-    _config = _config.copyWith(targetLang: lang);
+    _config = _sanitizeConfig(
+      _config.copyWith(targetLang: lang),
+      _translationMode,
+    );
     notifyListeners();
     await _savePrefs();
   }
@@ -464,8 +656,14 @@ class TranslationProvider extends ChangeNotifier {
     if (_config.targetLang.trim().isEmpty) {
       throw TranslationConfigException('请选择目标语言');
     }
-    if (!getEmbeddedPublicHunyuanCredentials().isUsable) {
-      throw TranslationConfigException('未配置翻译服务密钥');
+    if (_usingPersonalTencentKeys) {
+      if (!getEmbeddedPublicHunyuanCredentials().isUsable) {
+        throw TranslationConfigException('未配置翻译服务密钥');
+      }
+    } else {
+      if (!TencentApiClient.hasScfProxyUrl) {
+        throw TranslationConfigException('未配置在线翻译服务地址');
+      }
     }
     if (_translationMode == TranslationMode.bigModel) {
       if (!_usingPersonalTencentKeys) {

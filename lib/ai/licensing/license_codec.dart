@@ -3,16 +3,10 @@ import 'dart:math';
 import 'package:cryptography/cryptography.dart';
 
 class LicensePayload {
-  final int issuedAtMs;
-  final int expiryAtMs;
   final int days;
-  final String nonce;
 
   const LicensePayload({
-    required this.issuedAtMs,
-    required this.expiryAtMs,
     required this.days,
-    required this.nonce,
   });
 }
 
@@ -51,6 +45,11 @@ class LicenseCodec {
     final raw = code.trim();
     if (raw.isEmpty) throw const LicenseException('请输入卡密');
 
+    if (!raw.startsWith(_prefix)) {
+      final days = _parseShortDays(raw);
+      return LicensePayload(days: days);
+    }
+
     final parts = raw.split('.');
     if (parts.length != 3) throw const LicenseException('卡密格式错误');
     if (parts[0] != _prefix) throw const LicenseException('卡密版本不支持');
@@ -71,19 +70,10 @@ class LicenseCodec {
       throw const LicenseException('卡密内容无效');
     }
 
-    final issuedAtMs = _asInt(payload['iat']);
-    final expiryAtMs = _asInt(payload['exp']);
     final days = _asInt(payload['days']);
-    final nonce = (payload['nonce'] ?? '').toString();
 
-    if (issuedAtMs <= 0 || expiryAtMs <= 0) {
-      throw const LicenseException('卡密内容缺失');
-    }
     if (!_allowedDays.contains(days)) {
       throw const LicenseException('卡密时长不支持');
-    }
-    if (nonce.trim().isEmpty) {
-      throw const LicenseException('卡密内容缺失');
     }
 
     final pk = _resolvePublicKey();
@@ -93,18 +83,20 @@ class LicenseCodec {
     );
     if (!ok) throw const LicenseException('卡密校验失败');
 
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    if (expiryAtMs <= nowMs) throw const LicenseException('卡密已过期');
-
-    return LicensePayload(
-      issuedAtMs: issuedAtMs,
-      expiryAtMs: expiryAtMs,
-      days: days,
-      nonce: nonce,
-    );
+    return LicensePayload(days: days);
   }
 
   static Future<String> generateFromSeed({
+    required String privateSeedB64,
+    required int days,
+    DateTime? now,
+  }) async {
+    privateSeedB64.trim();
+    now ??= DateTime.now();
+    return generateShort(days: days);
+  }
+
+  static Future<String> generateSignedFromSeed({
     required String privateSeedB64,
     required int days,
     DateTime? now,
@@ -136,10 +128,37 @@ class LicenseCodec {
     return '$_prefix.$p.$s';
   }
 
+  static String generateShort({required int days}) {
+    if (!_allowedDays.contains(days)) {
+      throw const LicenseException('卡密时长不支持');
+    }
+    return 'AR2$days';
+  }
+
   static int _asInt(dynamic v) {
     if (v is int) return v;
     if (v is num) return v.toInt();
     return int.tryParse((v ?? '').toString()) ?? 0;
+  }
+
+  static int _parseShortDays(String rawCode) {
+    var s = rawCode.trim();
+    if (s.isEmpty) throw const LicenseException('请输入卡密');
+    final up = s.toUpperCase();
+    if (up.startsWith('AR2')) {
+      s = s.substring(3);
+    }
+    s = s.trim();
+    if (s.startsWith('-') || s.startsWith('_') || s.startsWith('.')) {
+      s = s.substring(1).trim();
+    }
+    if (s.isEmpty) throw const LicenseException('卡密格式错误');
+    final days = int.tryParse(s);
+    if (days == null) throw const LicenseException('卡密格式错误');
+    if (!_allowedDays.contains(days)) {
+      throw const LicenseException('卡密时长不支持');
+    }
+    return days;
   }
 
   static String _padB64(String s) {

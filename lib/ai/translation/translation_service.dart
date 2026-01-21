@@ -77,6 +77,9 @@ class TranslationService {
     required String paragraphText,
   }) async {
     final normalized = normalizeParagraphText(paragraphText);
+    if (!_shouldTranslateSource(normalized)) {
+      return paragraphText;
+    }
 
     final cacheKey = cache.buildKey(
       engineId: engine.id,
@@ -129,6 +132,26 @@ class TranslationService {
     return future.whenComplete(() {
       _inFlight.remove(cacheKey);
     });
+  }
+
+  bool _shouldTranslateSource(String text) {
+    final s = text.trim();
+    if (s.isEmpty) return false;
+    for (final r in s.runes) {
+      if (r >= 0x30 && r <= 0x39) return true;
+      if ((r >= 0x41 && r <= 0x5A) || (r >= 0x61 && r <= 0x7A)) return true;
+      if (r >= 0x00C0 && r <= 0x024F) return true;
+      if (r >= 0x0370 && r <= 0x03FF) return true;
+      if (r >= 0x0400 && r <= 0x04FF) return true;
+      if (r >= 0x3040 && r <= 0x30FF) return true;
+      if (r >= 0xAC00 && r <= 0xD7AF) return true;
+      if ((r >= 0x4E00 && r <= 0x9FFF) ||
+          (r >= 0x3400 && r <= 0x4DBF) ||
+          (r >= 0xF900 && r <= 0xFAFF)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<Map<int, String>> translateParagraphs({

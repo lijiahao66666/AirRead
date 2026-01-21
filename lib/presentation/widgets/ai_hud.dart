@@ -711,39 +711,6 @@ class _TencentHunyuanSettingsPanelState
     return '$y-$m-$d $hh:$mm:$ss';
   }
 
-  Future<bool> _redeemCode(AiModelProvider aiModel, String code) async {
-    final trimmed = code.trim();
-    if (trimmed.isEmpty) {
-      setState(() => _redeemHint = '请输入卡密');
-      return false;
-    }
-    if (_redeemBusy) return false;
-    setState(() {
-      _redeemBusy = true;
-      _redeemHint = '';
-    });
-    try {
-      final payload = await LicenseCodec.verifyAndParse(trimmed);
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      final baseMs = aiModel.onlineEntitlementExpiryMs > nowMs
-          ? aiModel.onlineEntitlementExpiryMs
-          : nowMs;
-      final merged = baseMs + Duration(days: payload.days).inMilliseconds;
-      await aiModel.setOnlineEntitlementExpiryMs(merged);
-      setState(() {
-        _redeemHint = '';
-      });
-      return true;
-    } catch (e) {
-      setState(() => _redeemHint = e.toString());
-      return false;
-    } finally {
-      if (mounted) {
-        setState(() => _redeemBusy = false);
-      }
-    }
-  }
-
   Widget _redeemRow(AiModelProvider aiModel, {required Color cardBg}) {
     final expiresAt = aiModel.onlineEntitlementExpiresAt;
     final active = aiModel.onlineEntitlementActive;
@@ -827,89 +794,159 @@ class _TencentHunyuanSettingsPanelState
     final dialogBg = widget.isDark ? const Color(0xFF262626) : Colors.white;
     final fieldBg =
         widget.isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF2F2F2);
+    bool dialogBusy = _redeemBusy;
+    String dialogHint = _redeemHint;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: dialogBg,
-          surfaceTintColor: Colors.transparent,
-          title: Text(
-            '兑换卡密',
-            style: TextStyle(color: widget.textColor, fontSize: 14),
-          ),
-          content: SizedBox(
-            width: 320,
-            child: TextField(
-              controller: controller,
-              autofocus: true,
-              enabled: !_redeemBusy,
-              decoration: InputDecoration(
-                hintText: '输入卡密',
-                isDense: true,
-                filled: true,
-                fillColor: fieldBg,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: widget.textColor.withOpacity(0.18),
-                    width: AppTokens.stroke,
-                  ),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: widget.textColor.withOpacity(0.18),
-                    width: AppTokens.stroke,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: AppColors.techBlue.withOpacity(0.6),
-                    width: AppTokens.stroke,
-                  ),
-                ),
-                hintStyle: TextStyle(color: widget.textColor.withOpacity(0.45)),
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            Future<bool> submit() async {
+              final trimmed = controller.text.trim();
+              if (trimmed.isEmpty) {
+                setDialogState(() => dialogHint = '请输入卡密');
+                if (mounted) setState(() => _redeemHint = '请输入卡密');
+                return false;
+              }
+              if (dialogBusy) return false;
+
+              setDialogState(() {
+                dialogBusy = true;
+                dialogHint = '';
+              });
+              if (mounted) {
+                setState(() {
+                  _redeemBusy = true;
+                  _redeemHint = '';
+                });
+              }
+
+              try {
+                final payload = await LicenseCodec.verifyAndParse(trimmed);
+                final nowMs = DateTime.now().millisecondsSinceEpoch;
+                final baseMs = aiModel.onlineEntitlementExpiryMs > nowMs
+                    ? aiModel.onlineEntitlementExpiryMs
+                    : nowMs;
+                final merged =
+                    baseMs + Duration(days: payload.days).inMilliseconds;
+                await aiModel.setOnlineEntitlementExpiryMs(merged);
+                setDialogState(() => dialogHint = '');
+                if (mounted) setState(() => _redeemHint = '');
+                return true;
+              } catch (e) {
+                final msg = e.toString();
+                setDialogState(() => dialogHint = msg);
+                if (mounted) setState(() => _redeemHint = msg);
+                return false;
+              } finally {
+                setDialogState(() => dialogBusy = false);
+                if (mounted) setState(() => _redeemBusy = false);
+              }
+            }
+
+            final hint = dialogHint.trim();
+
+            return AlertDialog(
+              backgroundColor: dialogBg,
+              surfaceTintColor: Colors.transparent,
+              title: Text(
+                '兑换卡密',
+                style: TextStyle(color: widget.textColor, fontSize: 14),
               ),
-              style: TextStyle(color: widget.textColor, fontSize: 13),
-              onSubmitted: (_) async {
-                final navigator = Navigator.of(dialogContext);
-                final ok = await _redeemCode(aiModel, controller.text);
-                if (!mounted) return;
-                if (ok) {
-                  if (navigator.canPop()) navigator.pop();
-                }
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed:
-                  _redeemBusy ? null : () => Navigator.of(dialogContext).pop(),
-              style: TextButton.styleFrom(
-                foregroundColor: widget.textColor.withOpacity(0.75),
+              content: SizedBox(
+                width: 320,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: controller,
+                      autofocus: true,
+                      enabled: !dialogBusy,
+                      decoration: InputDecoration(
+                        hintText: '输入卡密',
+                        isDense: true,
+                        filled: true,
+                        fillColor: fieldBg,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 12),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: widget.textColor.withOpacity(0.18),
+                            width: AppTokens.stroke,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: widget.textColor.withOpacity(0.18),
+                            width: AppTokens.stroke,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: AppColors.techBlue.withOpacity(0.6),
+                            width: AppTokens.stroke,
+                          ),
+                        ),
+                        hintStyle: TextStyle(
+                            color: widget.textColor.withOpacity(0.45)),
+                      ),
+                      style: TextStyle(color: widget.textColor, fontSize: 13),
+                      onSubmitted: (_) async {
+                        final navigator = Navigator.of(dialogContext);
+                        final ok = await submit();
+                        if (!mounted) return;
+                        if (ok) {
+                          if (navigator.canPop()) navigator.pop();
+                        }
+                      },
+                    ),
+                    if (hint.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        hint,
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 13,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: _redeemBusy
-                  ? null
-                  : () async {
-                      final navigator = Navigator.of(dialogContext);
-                      final ok = await _redeemCode(aiModel, controller.text);
-                      if (!mounted) return;
-                      if (ok) {
-                        if (navigator.canPop()) navigator.pop();
-                      }
-                    },
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.techBlue,
-              ),
-              child: Text(_redeemBusy ? '处理中…' : '确认'),
-            ),
-          ],
+              actions: [
+                TextButton(
+                  onPressed: dialogBusy
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  style: TextButton.styleFrom(
+                    foregroundColor: widget.textColor.withOpacity(0.75),
+                  ),
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  onPressed: dialogBusy
+                      ? null
+                      : () async {
+                          final navigator = Navigator.of(dialogContext);
+                          final ok = await submit();
+                          if (!mounted) return;
+                          if (ok) {
+                            if (navigator.canPop()) navigator.pop();
+                          }
+                        },
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.techBlue,
+                  ),
+                  child: Text(dialogBusy ? '处理中…' : '确认'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -964,17 +1001,194 @@ class _TencentHunyuanSettingsPanelState
     );
   }
 
-  static const _langs = <String, String>{
-    '': '自动',
-    'zh-Hans': '中文',
+  static const _bigModelSourceLangs = <String, String>{
+    '': 'auto',
+    'zh': '简体中文',
+    'zh-TR': '繁体中文',
+    'yue': '粤语',
+    'en': '英语',
+    'fr': '法语',
+    'pt': '葡萄牙语',
+    'es': '西班牙语',
+    'ja': '日语',
+    'tr': '土耳其语',
+    'ru': '俄语',
+    'ar': '阿拉伯语',
+    'ko': '韩语',
+    'th': '泰语',
+    'it': '意大利语',
+    'de': '德语',
+    'vi': '越南语',
+    'ms': '马来语',
+    'id': '印尼语',
+  };
+
+  static const _bigModelTargetLangs = <String, String>{
+    'zh': '简体中文',
+    'zh-TR': '繁体中文',
+    'yue': '粤语',
+    'en': '英语',
+    'fr': '法语',
+    'pt': '葡萄牙语',
+    'es': '西班牙语',
+    'ja': '日语',
+    'tr': '土耳其语',
+    'ru': '俄语',
+    'ar': '阿拉伯语',
+    'ko': '韩语',
+    'th': '泰语',
+    'it': '意大利语',
+    'de': '德语',
+    'vi': '越南语',
+    'ms': '马来语',
+    'id': '印尼语',
+  };
+
+  static const _machineSourceLangs = <String, String>{
+    '': 'auto',
+    'zh': '简体中文',
+    'zh-TW': '繁体中文',
     'en': '英语',
     'ja': '日语',
     'ko': '韩语',
     'fr': '法语',
-    'de': '德语',
     'es': '西班牙语',
+    'it': '意大利语',
+    'de': '德语',
+    'tr': '土耳其语',
     'ru': '俄语',
+    'pt': '葡萄牙语',
+    'vi': '越南语',
+    'id': '印尼语',
+    'th': '泰语',
+    'ms': '马来语',
+    'ar': '阿拉伯语',
+    'hi': '印地语',
   };
+
+  static const _machineLangLabels = <String, String>{
+    'zh': '简体中文',
+    'zh-TW': '繁体中文',
+    'en': '英语',
+    'ja': '日语',
+    'ko': '韩语',
+    'fr': '法语',
+    'es': '西班牙语',
+    'it': '意大利语',
+    'de': '德语',
+    'tr': '土耳其语',
+    'ru': '俄语',
+    'pt': '葡萄牙语',
+    'vi': '越南语',
+    'id': '印尼语',
+    'th': '泰语',
+    'ms': '马来语',
+    'ar': '阿拉伯语',
+    'hi': '印地语',
+  };
+
+  static const _machineTargetsBySource = <String, List<String>>{
+    'zh': [
+      'zh-TW',
+      'en',
+      'ja',
+      'ko',
+      'fr',
+      'es',
+      'it',
+      'de',
+      'tr',
+      'ru',
+      'pt',
+      'vi',
+      'id',
+      'th',
+      'ms',
+      'ar',
+    ],
+    'zh-TW': [
+      'zh',
+      'en',
+      'ja',
+      'ko',
+      'fr',
+      'es',
+      'it',
+      'de',
+      'tr',
+      'ru',
+      'pt',
+      'vi',
+      'id',
+      'th',
+      'ms',
+      'ar',
+    ],
+    'en': [
+      'zh',
+      'zh-TW',
+      'ja',
+      'ko',
+      'fr',
+      'es',
+      'it',
+      'de',
+      'tr',
+      'ru',
+      'pt',
+      'vi',
+      'id',
+      'th',
+      'ms',
+      'ar',
+      'hi',
+    ],
+    'ja': ['zh', 'zh-TW', 'en', 'ko'],
+    'ko': ['zh', 'zh-TW', 'en', 'ja'],
+    'fr': ['zh', 'zh-TW', 'en', 'es', 'it', 'de', 'tr', 'ru', 'pt'],
+    'es': ['zh', 'zh-TW', 'en', 'fr', 'it', 'de', 'tr', 'ru', 'pt'],
+    'it': ['zh', 'zh-TW', 'en', 'fr', 'es', 'de', 'tr', 'ru', 'pt'],
+    'de': ['zh', 'zh-TW', 'en', 'fr', 'es', 'it', 'tr', 'ru', 'pt'],
+    'tr': ['zh', 'zh-TW', 'en', 'fr', 'es', 'it', 'de', 'ru', 'pt'],
+    'ru': ['zh', 'zh-TW', 'en', 'fr', 'es', 'it', 'de', 'tr', 'pt'],
+    'pt': ['zh', 'zh-TW', 'en', 'fr', 'es', 'it', 'de', 'tr', 'ru'],
+    'vi': ['zh', 'zh-TW', 'en'],
+    'id': ['zh', 'zh-TW', 'en'],
+    'th': ['zh', 'zh-TW', 'en'],
+    'ms': ['zh', 'zh-TW', 'en'],
+    'ar': ['zh', 'zh-TW', 'en'],
+    'hi': ['en'],
+    '': [
+      'zh',
+      'zh-TW',
+      'en',
+      'ja',
+      'ko',
+      'fr',
+      'es',
+      'it',
+      'de',
+      'tr',
+      'ru',
+      'pt',
+      'vi',
+      'id',
+      'th',
+      'ms',
+      'ar',
+      'hi',
+    ],
+  };
+
+  Map<String, String> _machineTargetItems(String sourceLang) {
+    final src = sourceLang.trim().isEmpty ? '' : sourceLang.trim();
+    final allow = _machineTargetsBySource[src] ?? _machineTargetsBySource['']!;
+    final out = <String, String>{};
+    for (final code in allow) {
+      out[code] = _machineLangLabels[code] ?? code;
+    }
+    return out;
+  }
 
   Widget _itemBox(Widget child) {
     return Container(
@@ -1102,7 +1316,9 @@ class _TencentHunyuanSettingsPanelState
                   child: _dropdown(
                     label: '源语言（可选）',
                     value: cfg.sourceLang,
-                    items: _langs,
+                    items: provider.translationMode == TranslationMode.machine
+                        ? _machineSourceLangs
+                        : _bigModelSourceLangs,
                     onChanged: (v) => provider.setSourceLang(v ?? ''),
                     textColor: widget.textColor,
                     dropdownColor: cardBg,
@@ -1113,7 +1329,9 @@ class _TencentHunyuanSettingsPanelState
                   child: _dropdown(
                     label: '目标语言（必选）',
                     value: cfg.targetLang,
-                    items: Map<String, String>.from(_langs)..remove(''),
+                    items: provider.translationMode == TranslationMode.machine
+                        ? _machineTargetItems(cfg.sourceLang)
+                        : _bigModelTargetLangs,
                     onChanged: (v) => provider.setTargetLang(v ?? 'en'),
                     textColor: widget.textColor,
                     dropdownColor: cardBg,
