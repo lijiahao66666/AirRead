@@ -71,6 +71,24 @@ class QaStreamProvider extends ChangeNotifier {
     }
 
     if (aiModel.source == AiModelSource.online &&
+        usingPersonalTencentKeys() &&
+        !getEmbeddedPublicHunyuanCredentials().isUsable) {
+      _stateByBookId[bookId] = QaStreamState(
+        streamId: streamId,
+        bookId: bookId,
+        question: question,
+        qaType: qaType,
+        isLocalModel: false,
+        isStreaming: false,
+        answer: '',
+        think: '',
+        error: '已开启使用个人密钥，但未正确设置个人密钥',
+      );
+      notifyListeners();
+      return streamId;
+    }
+
+    if (aiModel.source == AiModelSource.online &&
         !aiModel.onlineEntitlementActive) {
       _stateByBookId[bookId] = QaStreamState(
         streamId: streamId,

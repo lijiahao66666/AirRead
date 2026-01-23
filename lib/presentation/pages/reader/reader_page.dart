@@ -41,7 +41,6 @@ class _MeasureSizeState extends State<_MeasureSize> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Schedule callback
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (context.mounted) {
             final size = context.size;
@@ -218,6 +217,8 @@ class _ReaderPageState extends State<ReaderPage>
   bool _showControls = false;
   bool _isLoading = true;
   String? _error;
+  DateTime? _lastErrorTime;
+  String? _lastErrorMessage;
   String? _currentBookFormat;
   Book? _currentBook;
   bool _txtTocParsing = false;
@@ -337,6 +338,14 @@ class _ReaderPageState extends State<ReaderPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // Setup TranslationProvider error handler
+    final transProvider = context.read<TranslationProvider>();
+    transProvider.onError = (msg) {
+      if (!mounted) return;
+      _showTopError(msg);
+    };
+
     _pageController = PageController(initialPage: 1000);
     _pageViewCenterIndex = 1000;
     // Hide System UI immediately on entry
@@ -507,6 +516,9 @@ class _ReaderPageState extends State<ReaderPage>
 
   @override
   void dispose() {
+    try {
+      context.read<TranslationProvider>().onError = null;
+    } catch (_) {}
     _saveSettings();
     _saveProgress();
     _progressSaveTimer?.cancel();
@@ -1279,7 +1291,7 @@ class _ReaderPageState extends State<ReaderPage>
   }) async {
     await showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent,
+      backgroundColor: _panelBgColor,
       isScrollControlled: true,
       isDismissible: true,
       enableDrag: true,
@@ -1339,6 +1351,7 @@ class _ReaderPageState extends State<ReaderPage>
               chapterPageRanges: _chapterPlainPageRanges.isNotEmpty
                   ? _chapterPlainPageRanges
                   : _chapterPageRanges,
+              onShowTopMessage: _showTopError,
             );
           },
         );
@@ -1370,9 +1383,7 @@ class _ReaderPageState extends State<ReaderPage>
       await provider.setAiTranslateEnabled(enabled);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      _showTopError(e.toString());
       return;
     }
 
@@ -1400,9 +1411,7 @@ class _ReaderPageState extends State<ReaderPage>
       await provider.setAiReadAloudEnabled(enabled);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      _showTopError(e.toString());
       return;
     }
 
@@ -1877,8 +1886,7 @@ class _ReaderPageState extends State<ReaderPage>
       if (session != _readAloudSession) return;
       await _stopReadAloud(keepResume: true);
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('朗读失败：$e')));
+      _showTopError('朗读失败：$e');
     }
   }
 
@@ -1900,6 +1908,14 @@ class _ReaderPageState extends State<ReaderPage>
       _readAloudHighlightText = entry.highlightText;
     });
     _readAloudAnimController.repeat(reverse: true);
+
+    String? lang;
+    if (cfg.readTranslationEnabled) {
+      lang = cfg.config.targetLang;
+    } else {
+      lang = cfg.config.sourceLang;
+    }
+    if (lang.trim().isEmpty) lang = null;
 
     try {
       if (kIsWeb) {
@@ -1927,11 +1943,21 @@ class _ReaderPageState extends State<ReaderPage>
           _aiReadAloudPreparing = false;
         });
       } else {
-        await _localTtsChannel.invokeMethod('speak', {
+        final args = {
           'text': entry.speechText,
           'rate': cfg.ttsSpeed,
           'session': session,
-        });
+          'lang': lang,
+        };
+        try {
+          await _localTtsChannel.invokeMethod('speak', args);
+        } on PlatformException catch (e) {
+          if (e.code != 'NOT_AVAILABLE') rethrow;
+          final ok =
+              await _localTtsChannel.invokeMethod<bool>('isAvailable') ?? false;
+          if (!ok) rethrow;
+          await _localTtsChannel.invokeMethod('speak', args);
+        }
         if (!mounted) return;
         if (session != _readAloudSession) return;
         setState(() {
@@ -1943,8 +1969,7 @@ class _ReaderPageState extends State<ReaderPage>
       if (session != _readAloudSession) return;
       await _stopReadAloud(keepResume: true);
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('朗读失败：$e')));
+      _showTopError('朗读失败：$e');
     }
   }
 
@@ -2127,9 +2152,45 @@ class _ReaderPageState extends State<ReaderPage>
     if (!mounted) return;
     if (!_aiReadAloudPlaying) return;
     unawaited(_stopReadAloud(keepResume: true));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message.isEmpty ? '朗读失败' : '朗读失败：$message')),
+    final text = message.isEmpty ? '朗读失败' : '朗读失败：$message';
+    _showTopError(text);
+  }
+
+  void _showTopError(String message, {bool isError = true}) {
+    if (_lastErrorMessage == message &&
+        _lastErrorTime != null &&
+        DateTime.now().difference(_lastErrorTime!) <
+            const Duration(seconds: 3)) {
+      return;
+    }
+    _lastErrorMessage = message;
+    _lastErrorTime = DateTime.now();
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentMaterialBanner();
+
+    final bgColor =
+        isError ? Colors.red.withOpacity(0.95) : Colors.green.withOpacity(0.95);
+
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: bgColor,
+        content: Text(
+          message,
+          style: const TextStyle(color: Colors.white),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => messenger.hideCurrentMaterialBanner(),
+            child: const Text('关闭', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
     );
+    Future.delayed(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      messenger.hideCurrentMaterialBanner();
+    });
   }
 
   Widget _buildReadAloudFloatingButton() {
@@ -2679,10 +2740,15 @@ class _ReaderPageState extends State<ReaderPage>
 
     final prevKey = _chapterPageRangeKeys[chapterIndex];
     final keyChanged = prevKey != paginationKey;
-    final double? anchorProgress =
-        keyChanged && chapterIndex == _currentChapterIndex
-            ? _currentPageProgressInChapter
-            : null;
+    int? anchorIndex;
+    if (keyChanged && chapterIndex == _currentChapterIndex) {
+      final ranges = _chapterPageRanges[chapterIndex];
+      if (ranges != null &&
+          ranges.isNotEmpty &&
+          _currentPageInChapter < ranges.length) {
+        anchorIndex = ranges[_currentPageInChapter].start;
+      }
+    }
 
     if (keyChanged) {
       final prevRanges = _chapterPageRanges[chapterIndex];
@@ -2805,8 +2871,23 @@ class _ReaderPageState extends State<ReaderPage>
             _currentPageInChapter >= count) {
           _currentPageInChapter = count - 1;
         }
-        if (anchorProgress != null && chapterIndex == _currentChapterIndex) {
-          _relocateCurrentPageToProgress(anchorProgress);
+        if (anchorIndex != null &&
+            chapterIndex == _currentChapterIndex &&
+            ranges.isNotEmpty) {
+          int best = 0;
+          for (int i = 0; i < ranges.length; i++) {
+            if (anchorIndex! >= ranges[i].start &&
+                anchorIndex! < ranges[i].end) {
+              best = i;
+              break;
+            }
+            if (ranges[i].start > anchorIndex!) {
+              best = (i - 1).clamp(0, ranges.length - 1);
+              break;
+            }
+            if (i == ranges.length - 1) best = i;
+          }
+          _currentPageInChapter = best;
         }
       });
 

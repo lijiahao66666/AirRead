@@ -121,8 +121,18 @@ class MainActivity: FlutterActivity() {
                 override fun onError(utteranceId: String?, errorCode: Int) {
                     val session = parseSession(utteranceId)
                     val sink = ttsSink ?: return
+                    val msg = when (errorCode) {
+                        TextToSpeech.ERROR_INVALID_REQUEST -> "无效请求"
+                        TextToSpeech.ERROR_NETWORK -> "网络错误"
+                        TextToSpeech.ERROR_NETWORK_TIMEOUT -> "网络超时"
+                        TextToSpeech.ERROR_NOT_INSTALLED_YET -> "语音包未安装"
+                        TextToSpeech.ERROR_OUTPUT -> "输出错误"
+                        TextToSpeech.ERROR_SERVICE -> "服务错误"
+                        TextToSpeech.ERROR_SYNTHESIS -> "合成错误"
+                        else -> "朗读失败($errorCode)"
+                    }
                     runOnUiThread {
-                        sink.success(mapOf("type" to "error", "message" to "朗读失败", "session" to session))
+                        sink.success(mapOf("type" to "error", "message" to msg, "session" to session))
                     }
                 }
             })
@@ -289,6 +299,7 @@ class MainActivity: FlutterActivity() {
                     val text = call.argument<String>("text") ?: ""
                     val rate = call.argument<Number>("rate")?.toFloat() ?: 1.0f
                     val session = call.argument<Int>("session") ?: 0
+                    val lang = call.argument<String>("lang")
                     if (text.isBlank()) {
                         result.success(null)
                         return@setMethodCallHandler
@@ -305,6 +316,15 @@ class MainActivity: FlutterActivity() {
                         }
                         try {
                             engine.stop()
+                            if (lang != null && lang.isNotEmpty()) {
+                                try {
+                                    val loc = Locale.forLanguageTag(lang)
+                                    val r = engine.setLanguage(loc)
+                                    if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+                                        // Fallback to default if not supported
+                                    }
+                                } catch (_: Exception) {}
+                            }
                             engine.setSpeechRate(rate.coerceIn(0.1f, 3.0f))
                             val params = Bundle()
                             params.putInt("session", session)

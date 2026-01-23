@@ -9,6 +9,12 @@ class TencentCredentials {
     required this.secretKey,
   });
 
-  bool get isUsable => secretId.trim().isNotEmpty && secretKey.trim().isNotEmpty;
-}
+  factory TencentCredentials.empty() => const TencentCredentials(
+        appId: '',
+        secretId: '',
+        secretKey: '',
+      );
 
+  bool get isUsable =>
+      secretId.trim().isNotEmpty && secretKey.trim().isNotEmpty;
+}

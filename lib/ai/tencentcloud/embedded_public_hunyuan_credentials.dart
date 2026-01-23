@@ -35,6 +35,10 @@ const String _publicSecretIdEnc = '';
 const String _publicSecretKeyEnc = '';
 
 TencentCredentials getEmbeddedPublicHunyuanCredentials() {
+  if (_userTencentKeysEnabled) {
+    return _overrideCredentials ?? TencentCredentials.empty();
+  }
+
   final override = _overrideCredentials;
   if (override != null && override.isUsable) return override;
 

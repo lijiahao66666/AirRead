@@ -68,6 +68,8 @@ class AiHud extends StatefulWidget {
   final int currentPageInChapter;
   final Map<int, List<TextRange>> chapterPageRanges;
 
+  final void Function(String, {bool isError})? onShowTopMessage;
+
   const AiHud({
     super.key,
     this.bgColor = Colors.white,
@@ -85,6 +87,7 @@ class AiHud extends StatefulWidget {
     required this.currentChapterIndex,
     required this.currentPageInChapter,
     required this.chapterPageRanges,
+    this.onShowTopMessage,
   });
 
   @override
@@ -282,6 +285,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           readAloudEnabled: widget.readAloudEnabled,
           onReadAloudChanged: widget.onReadAloudChanged,
           onOpenQa: () => _push(AiHudRoute.qa),
+          onShowTopMessage: widget.onShowTopMessage,
         ),
       AiHudRoute.qa => _QaPanel(
           key: const ValueKey('qa'),
@@ -302,12 +306,14 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           currentChapterIndex: widget.currentChapterIndex,
           currentPageInChapter: widget.currentPageInChapter,
           chapterPageRanges: widget.chapterPageRanges,
+          onShowTopMessage: widget.onShowTopMessage,
         ),
       AiHudRoute.tencentSettings => _TencentHunyuanSettingsPanel(
           key: const ValueKey('tencentSettings'),
           isDark: isDark,
           bgColor: widget.bgColor,
           textColor: widget.textColor,
+          onShowTopMessage: widget.onShowTopMessage,
         ),
     };
   }
@@ -317,12 +323,14 @@ class _TencentHunyuanSettingsPanel extends StatefulWidget {
   final bool isDark;
   final Color bgColor;
   final Color textColor;
+  final void Function(String, {bool isError})? onShowTopMessage;
 
   const _TencentHunyuanSettingsPanel({
     super.key,
     required this.isDark,
     required this.bgColor,
     required this.textColor,
+    this.onShowTopMessage,
   });
 
   @override
@@ -541,9 +549,13 @@ class _TencentHunyuanSettingsPanelState
     });
     await context.read<TranslationProvider>().reloadTencentCredentials();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已清除个人密钥')),
-    );
+    if (widget.onShowTopMessage != null) {
+      widget.onShowTopMessage!('已清除个人密钥', isError: false);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已清除个人密钥')),
+      );
+    }
   }
 
   Widget _userTencentCredentialsSettings({required Color cardBg}) {
@@ -2080,6 +2092,7 @@ class _MainPanel extends StatelessWidget {
   final ValueChanged<bool>? onReadAloudChanged;
 
   final VoidCallback onOpenQa;
+  final void Function(String, {bool isError})? onShowTopMessage;
 
   const _MainPanel({
     super.key,
@@ -2092,6 +2105,7 @@ class _MainPanel extends StatelessWidget {
     required this.readAloudEnabled,
     required this.onReadAloudChanged,
     required this.onOpenQa,
+    this.onShowTopMessage,
   });
 
   @override
@@ -2101,10 +2115,13 @@ class _MainPanel extends StatelessWidget {
     final source = aiModel.source;
     final onlineEntitled = aiModel.onlineEntitlementActive;
     final usingPersonalKeys = translationProvider.usingPersonalTencentKeys;
+    final personalKeysUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
+    final personalKeysMissing = usingPersonalKeys && !personalKeysUsable;
 
     final bool qaReady = switch (source) {
       AiModelSource.none => false,
-      AiModelSource.online => onlineEntitled || usingPersonalKeys,
+      AiModelSource.online =>
+        onlineEntitled || (usingPersonalKeys && personalKeysUsable),
       AiModelSource.local => aiModel.isLocalQaModelReady,
     };
 
@@ -2123,19 +2140,21 @@ class _MainPanel extends StatelessWidget {
       _ => '',
     };
 
-    final bool translationBlocked =
-        translationProvider.translationMode == TranslationMode.bigModel &&
+    final bool translationBlocked = personalKeysMissing ||
+        (translationProvider.translationMode == TranslationMode.bigModel &&
             !onlineEntitled &&
-            !usingPersonalKeys;
+            !usingPersonalKeys);
     final bool translateValue = translationBlocked ? false : translateEnabled;
     final ValueChanged<bool>? translateOnChanged =
         translationBlocked ? null : onTranslateChanged;
 
     final translateSubtitle = translationBlocked
         ? '大模型翻译需购买时长后使用'
-        : (translateValue
-            ? (translateActive ? '翻译中...' : '翻译中...')
-            : '打开后将实时对内容进行翻译');
+        : (personalKeysMissing
+            ? '已开启使用个人密钥，但未正确设置个人密钥'
+            : (translateValue
+                ? (translateActive ? '翻译中...' : '翻译中...')
+                : '打开后将实时对内容进行翻译'));
 
     final localReadAloudBlocked =
         translationProvider.readAloudEngine == ReadAloudEngine.local &&
@@ -2144,12 +2163,19 @@ class _MainPanel extends StatelessWidget {
         translationProvider.readAloudEngine == ReadAloudEngine.online &&
             !onlineEntitled &&
             !usingPersonalKeys;
-    final readAloudBlocked = localReadAloudBlocked || onlineReadAloudBlocked;
+    final onlineReadAloudKeysMissing =
+        translationProvider.readAloudEngine == ReadAloudEngine.online &&
+            personalKeysMissing;
+    final readAloudBlocked = localReadAloudBlocked ||
+        onlineReadAloudBlocked ||
+        onlineReadAloudKeysMissing;
     final readAloudSubtitle = localReadAloudBlocked
         ? '本地朗读不可用，可切换在线'
-        : (onlineReadAloudBlocked
-            ? '在线朗读需要购买时长后使用'
-            : (readAloudEnabled ? '已开启，点击页面小喇叭朗读或暂停' : '开启后，可朗读当前页'));
+        : (onlineReadAloudKeysMissing
+            ? '已开启使用个人密钥，但未正确设置个人密钥'
+            : (onlineReadAloudBlocked
+                ? '在线朗读需要购买时长后使用'
+                : (readAloudEnabled ? '已开启，点击页面小喇叭朗读或暂停' : '开启后，可朗读当前页')));
     final bool readAloudValue =
         localReadAloudBlocked ? false : readAloudEnabled;
 
@@ -2183,11 +2209,13 @@ class _MainPanel extends StatelessWidget {
                 ? '需要选择问答大模型后使用'
                 : (source == AiModelSource.local && !qaReady)
                     ? localQaSubtitle
-                    : (source == AiModelSource.online &&
-                            !onlineEntitled &&
-                            !usingPersonalKeys)
-                        ? '在线大模型需要购买时长后使用'
-                        : '支持问答/总结/提取要点',
+                    : (source == AiModelSource.online && personalKeysMissing)
+                        ? '已开启使用个人密钥，但未正确设置个人密钥'
+                        : (source == AiModelSource.online &&
+                                !onlineEntitled &&
+                                !usingPersonalKeys)
+                            ? '在线大模型需要购买时长后使用'
+                            : '支持问答/总结/提取要点',
             onTap: onOpenQa,
           ),
         ],
@@ -2417,6 +2445,7 @@ class _QaPanel extends StatefulWidget {
   final int currentChapterIndex;
   final int currentPageInChapter;
   final Map<int, List<TextRange>> chapterPageRanges;
+  final void Function(String, {bool isError})? onShowTopMessage;
 
   const _QaPanel({
     super.key,
@@ -2431,6 +2460,7 @@ class _QaPanel extends StatefulWidget {
     required this.currentChapterIndex,
     required this.currentPageInChapter,
     required this.chapterPageRanges,
+    this.onShowTopMessage,
   });
 
   @override
@@ -2457,6 +2487,7 @@ class _QaPanelState extends State<_QaPanel> {
   VoidCallback? _qaStreamListener;
   int? _activeStreamId;
   int? _activeStreamReplyIndex;
+  String? _lastErrorMessage;
 
   String get _historyKey => 'qa_history_${widget.bookId}';
 
@@ -2646,6 +2677,9 @@ class _QaPanelState extends State<_QaPanel> {
     if (!mounted) return;
     final s = _qaStream?.stateFor(widget.bookId);
     if (s == null) return;
+    if (!s.hasError) {
+      _lastErrorMessage = null;
+    }
 
     if (_activeStreamId != s.streamId) {
       _attachActiveStreamIfAny();
@@ -2656,6 +2690,7 @@ class _QaPanelState extends State<_QaPanel> {
 
     if (_activeStreamReplyIndex == null) {
       if (s.hasError) {
+        _showTopError(s.error);
         setState(() {
           _messages.add(_QaMsg(_QaRole.assistant, '错误: ${s.error}'));
           _messageState = _MessageState.idle;
@@ -2705,6 +2740,7 @@ class _QaPanelState extends State<_QaPanel> {
     }
 
     if (s.hasError) {
+      _showTopError(s.error);
       _updateMessage(idx, _QaMsg(_QaRole.assistant, '错误: ${s.error}'));
       _messageState = _MessageState.idle;
       _activeReplyIndex = null;
@@ -2847,6 +2883,39 @@ class _QaPanelState extends State<_QaPanel> {
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOut,
       );
+    });
+  }
+
+  void _showTopError(String message) {
+    if (message.trim().isEmpty) return;
+    if (_lastErrorMessage == message) return;
+    _lastErrorMessage = message;
+
+    if (widget.onShowTopMessage != null) {
+      widget.onShowTopMessage!(message, isError: true);
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentMaterialBanner();
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: Colors.red.withOpacity(0.95),
+        content: Text(
+          message,
+          style: const TextStyle(color: Colors.white),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => messenger.hideCurrentMaterialBanner(),
+            child: const Text('关闭', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    Future.delayed(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      messenger.hideCurrentMaterialBanner();
     });
   }
 

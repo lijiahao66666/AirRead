@@ -60,13 +60,16 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
     }
   }
 
-  func speak(text: String, rate: Double, session: Int) {
+  func speak(text: String, rate: Double, session: Int, lang: String?) {
     if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
     currentSession = session
     if synthesizer.isSpeaking {
       synthesizer.stopSpeaking(at: .immediate)
     }
     let utterance = AVSpeechUtterance(string: text)
+    if let lang = lang {
+      utterance.voice = AVSpeechSynthesisVoice(language: lang)
+    }
     let base = AVSpeechUtteranceDefaultSpeechRate
     let scaled = Float(base) * Float(rate)
     utterance.rate = min(max(scaled, AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
@@ -240,7 +243,8 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           let text = args?["text"] as? String ?? ""
           let rate = (args?["rate"] as? NSNumber)?.doubleValue ?? 1.0
           let session = (args?["session"] as? NSNumber)?.intValue ?? 0
-          ttsStreamHandler.speak(text: text, rate: rate, session: session)
+          let lang = args?["lang"] as? String
+          ttsStreamHandler.speak(text: text, rate: rate, session: session, lang: lang)
           result(nil)
         case "stop":
           ttsStreamHandler.stop()

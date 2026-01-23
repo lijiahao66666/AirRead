@@ -46,6 +46,7 @@ class TranslationProvider extends ChangeNotifier {
   late TranslationService _service;
   AiModelProvider? _aiModel;
   VoidCallback? _aiModelListener;
+  void Function(String)? onError;
 
   TranslationConfig _config = const TranslationConfig(
     sourceLang: '',
@@ -237,6 +238,7 @@ class TranslationProvider extends ChangeNotifier {
 
   void _syncFeatureFlagsToModel() {
     final entitled = _aiModel?.onlineEntitlementActive ?? false;
+    final personalUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
     bool changed = false;
 
     if (_aiReadAloudEnabled &&
@@ -254,10 +256,23 @@ class TranslationProvider extends ChangeNotifier {
       changed = true;
     }
 
+    if (_aiReadAloudEnabled &&
+        _readAloudEngine == ReadAloudEngine.online &&
+        _usingPersonalTencentKeys &&
+        !personalUsable) {
+      _aiReadAloudEnabled = false;
+      changed = true;
+    }
+
     if (_aiTranslateEnabled &&
         _translationMode == TranslationMode.bigModel &&
         !_usingPersonalTencentKeys &&
         !entitled) {
+      _aiTranslateEnabled = false;
+      changed = true;
+    }
+
+    if (_aiTranslateEnabled && _usingPersonalTencentKeys && !personalUsable) {
       _aiTranslateEnabled = false;
       changed = true;
     }
@@ -543,16 +558,30 @@ class TranslationProvider extends ChangeNotifier {
 
   Future<void> setAiReadAloudEnabled(bool value) async {
     if (value) {
-      if (_readAloudEngine == ReadAloudEngine.local &&
-          !_localReadAloudAvailable) {
-        throw TranslationConfigException('本地朗读不可用');
-      }
-      if (_readAloudEngine == ReadAloudEngine.online &&
-          !_usingPersonalTencentKeys) {
-        final entitled = _aiModel?.onlineEntitlementActive ?? false;
-        if (!entitled) {
-          throw TranslationConfigException('朗读需要购买时长后使用');
+      try {
+        if (_readAloudEngine == ReadAloudEngine.local &&
+            !_localReadAloudAvailable) {
+          throw TranslationConfigException('本地朗读不可用');
         }
+        if (_readAloudEngine == ReadAloudEngine.online &&
+            _usingPersonalTencentKeys &&
+            !getEmbeddedPublicHunyuanCredentials().isUsable) {
+          throw TranslationConfigException('已开启使用个人密钥，但未正确设置个人密钥');
+        }
+        if (_readAloudEngine == ReadAloudEngine.online &&
+            !_usingPersonalTencentKeys) {
+          final entitled = _aiModel?.onlineEntitlementActive ?? false;
+          if (!entitled) {
+            throw TranslationConfigException('朗读需要购买时长后使用');
+          }
+        }
+      } catch (e) {
+        if (e is TranslationConfigException) {
+          onError?.call(e.message);
+        } else {
+          onError?.call(e.toString());
+        }
+        rethrow;
       }
     }
     _aiReadAloudEnabled = value;
@@ -573,6 +602,7 @@ class TranslationProvider extends ChangeNotifier {
   /// Results will be cached and listeners notified as they complete.
   final Set<String> _pendingKeys = {};
   final Set<String> _failedKeys = {}; // 记录翻译失败的key
+  final Map<String, int> _retryCounts = {}; // 记录重试次数
 
   bool isTranslationPending(String paragraphText) {
     final key =
@@ -591,6 +621,7 @@ class TranslationProvider extends ChangeNotifier {
         _service.buildCacheKey(config: _config, paragraphText: paragraphText);
     _failedKeys.remove(key); // 清除失败标记
     _pendingKeys.remove(key); // 清除pending标记
+    _retryCounts.remove(key); // 清除重试计数
 
     // 重新请求翻译
     requestTranslationForParagraphs({0: paragraphText});
@@ -599,7 +630,16 @@ class TranslationProvider extends ChangeNotifier {
   void requestTranslationForParagraphs(Map<int, String> paragraphsByIndex) {
     if (paragraphsByIndex.isEmpty) return;
     try {
-      _validateEngineConfig();
+      try {
+        _validateEngineConfig();
+      } catch (e) {
+        if (e is TranslationConfigException) {
+          onError?.call(e.message);
+        } else {
+          onError?.call(e.toString());
+        }
+        rethrow;
+      }
       bool pendingChanged = false;
 
       for (final entry in paragraphsByIndex.entries) {
@@ -607,36 +647,54 @@ class TranslationProvider extends ChangeNotifier {
             _service.buildCacheKey(config: _config, paragraphText: entry.value);
         final existing = _cache.getSynchronous(cacheKey);
         if (existing != null) continue;
-        if (_pendingKeys.add(cacheKey)) {
-          pendingChanged = true;
-        }
+
+        if (_failedKeys.contains(cacheKey)) continue;
+
+        if (_pendingKeys.contains(cacheKey)) continue;
+        _pendingKeys.add(cacheKey);
+        pendingChanged = true;
 
         Future<String> f;
         try {
           f = _service.translateParagraph(
               config: _config, paragraphText: entry.value);
-        } catch (_) {
-          _failedKeys.add(cacheKey);
-          _pendingKeys.remove(cacheKey);
-          _scheduleNotify();
+        } catch (e) {
+          _handleTranslationError(cacheKey, entry.value, e);
           continue;
         }
 
         f.then((result) {
           _pendingKeys.remove(cacheKey);
           _failedKeys.remove(cacheKey); // 清除失败标记
+          _retryCounts.remove(cacheKey);
           _scheduleNotify();
         }).catchError((e) {
-          // 不缓存原文，只标记为失败
-          _failedKeys.add(cacheKey);
-          _pendingKeys.remove(cacheKey);
-          _scheduleNotify();
+          _handleTranslationError(cacheKey, entry.value, e);
         });
       }
       if (pendingChanged) {
         _scheduleNotify();
       }
     } catch (_) {}
+  }
+
+  void _handleTranslationError(String key, String text, dynamic e) {
+    int count = (_retryCounts[key] ?? 0) + 1;
+    _retryCounts[key] = count;
+
+    if (count <= 2) {
+      // Retry after delay
+      Future.delayed(const Duration(seconds: 2), () {
+        _pendingKeys.remove(key);
+        requestTranslationForParagraphs({0: text});
+      });
+    } else {
+      // Give up
+      _failedKeys.add(key);
+      _pendingKeys.remove(key);
+      _scheduleNotify();
+      onError?.call('翻译失败: $e');
+    }
   }
 
   /// Check if we have a cached translation for a given paragraph text
@@ -670,15 +728,19 @@ class TranslationProvider extends ChangeNotifier {
     }
     if (_usingPersonalTencentKeys) {
       if (!getEmbeddedPublicHunyuanCredentials().isUsable) {
-        throw TranslationConfigException('未配置翻译服务密钥');
+        throw TranslationConfigException('已开启使用个人密钥，但未正确设置个人密钥');
       }
     } else {
       if (!TencentApiClient.hasScfProxyUrl) {
         throw TranslationConfigException('未配置在线翻译服务地址');
       }
     }
-    if (_translationMode == TranslationMode.bigModel) {
-      if (!_usingPersonalTencentKeys) {
+    if (_aiTranslateEnabled) {
+      if (_usingPersonalTencentKeys) {
+        if (!getEmbeddedPublicHunyuanCredentials().isUsable) {
+          throw TranslationConfigException('已开启使用个人密钥，但未正确设置个人密钥');
+        }
+      } else {
         final ok = _aiModel?.onlineEntitlementActive ?? false;
         if (!ok) {
           throw TranslationConfigException('大模型翻译需购买时长后使用');
