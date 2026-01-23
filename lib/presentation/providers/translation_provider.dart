@@ -33,6 +33,7 @@ class TranslationProvider extends ChangeNotifier {
   static const _kTtsVoiceType = 'tr_tts_voice_type';
   static const _kTtsSpeed = 'tr_tts_speed';
   static const _kReadAloudEngine = 'tr_read_aloud_engine';
+  static const _kReadTranslationEnabled = 'tr_read_translation_enabled';
 
   static const _kUserTencentKeysEnabled = 'user_tencent_keys_enabled';
 
@@ -193,6 +194,7 @@ class TranslationProvider extends ChangeNotifier {
 
   bool _aiTranslateEnabled = false;
   bool _aiReadAloudEnabled = false;
+  bool _readTranslationEnabled = false;
   bool _loaded = false;
 
   int _ttsVoiceType = 601003;
@@ -292,6 +294,7 @@ class TranslationProvider extends ChangeNotifier {
   bool get applyToReader => _aiTranslateEnabled;
   bool get aiTranslateEnabled => _aiTranslateEnabled;
   bool get aiReadAloudEnabled => _aiReadAloudEnabled;
+  bool get readTranslationEnabled => _readTranslationEnabled;
   TranslationMode get translationMode => _translationMode;
   ReadAloudEngine get readAloudEngine => _readAloudEngine;
   int get ttsVoiceType => _ttsVoiceType;
@@ -326,6 +329,7 @@ class TranslationProvider extends ChangeNotifier {
 
     _aiTranslateEnabled = prefs.getBool(_kAiTranslateEnabled) ?? false;
     _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
+    _readTranslationEnabled = prefs.getBool(_kReadTranslationEnabled) ?? false;
     _ttsVoiceType = prefs.getInt(_kTtsVoiceType) ?? _ttsVoiceType;
     _ttsSpeed = prefs.getDouble(_kTtsSpeed) ?? _ttsSpeed;
     _usingPersonalTencentKeys = _readUsingPersonalTencentKeys(prefs);
@@ -449,6 +453,7 @@ class TranslationProvider extends ChangeNotifier {
     await prefs.setString(_kTranslationMode, _translationMode.name);
     await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
     await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
+    await prefs.setBool(_kReadTranslationEnabled, _readTranslationEnabled);
     await prefs.setInt(_kTtsVoiceType, _ttsVoiceType);
     await prefs.setDouble(_kTtsSpeed, _ttsSpeed);
     await prefs.setString(_kReadAloudEngine, _readAloudEngine.name);
@@ -492,6 +497,13 @@ class TranslationProvider extends ChangeNotifier {
   Future<void> setTtsSpeed(double speed) async {
     if (_ttsSpeed == speed) return;
     _ttsSpeed = speed;
+    notifyListeners();
+    await _savePrefs();
+  }
+
+  Future<void> setReadTranslationEnabled(bool enabled) async {
+    if (_readTranslationEnabled == enabled) return;
+    _readTranslationEnabled = enabled;
     notifyListeners();
     await _savePrefs();
   }

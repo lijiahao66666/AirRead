@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:crypto/crypto.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -134,16 +135,22 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           final mediaH = media.size.height;
           final availableH =
               constraints.maxHeight.isFinite ? constraints.maxHeight : mediaH;
+          if (availableH <= 0) {
+            return const SizedBox.shrink();
+          }
 
           final bool reduceMotion =
               (media.disableAnimations) || media.accessibleNavigation;
           final bool isQa = _route == AiHudRoute.qa;
 
           // QA keeps the existing fixed tier: ~72% of screen height with clamp.
-          final qaHeight = (availableH * 0.72).clamp(420.0, availableH);
+          final qaMinHeight = availableH < 420.0 ? availableH : 420.0;
+          final qaHeight = (availableH * 0.72).clamp(qaMinHeight, availableH);
 
           // Non-QA adapts to content, but should not grow beyond this cap.
-          final nonQaMaxHeight = (availableH * 0.72).clamp(320.0, availableH);
+          final nonQaMinHeight = availableH < 320.0 ? availableH : 320.0;
+          final nonQaMaxHeight =
+              (availableH * 0.72).clamp(nonQaMinHeight, availableH);
 
           final body = AnimatedSwitcher(
             duration: reduceMotion
@@ -330,6 +337,7 @@ class _TencentHunyuanSettingsPanelState
   static const String _kUserTencentSecretKey = 'user_tencent_secret_key';
   static const String _kLegacyDevTencentSecretId = 'dev_tencent_secret_id';
   static const String _kLegacyDevTencentSecretKey = 'dev_tencent_secret_key';
+  static const String _kRedeemedCodeHashes = 'redeemed_code_hashes_v1';
 
   int? _voiceType;
   double? _speed;
@@ -338,7 +346,6 @@ class _TencentHunyuanSettingsPanelState
       TextEditingController();
   bool _userKeysEnabled = false;
   bool _redeemBusy = false;
-  String _redeemHint = '';
 
   static const List<_PurchaseSku> _purchaseSkus = <_PurchaseSku>[
     _PurchaseSku('1天', 'https://pay.ldxp.cn/item/es3yrx'),
@@ -714,7 +721,6 @@ class _TencentHunyuanSettingsPanelState
   Widget _redeemRow(AiModelProvider aiModel, {required Color cardBg}) {
     final expiresAt = aiModel.onlineEntitlementExpiresAt;
     final active = aiModel.onlineEntitlementActive;
-    final hint = _redeemHint.trim();
     final expiryText =
         active && expiresAt != null ? '到期时间：${_formatYmd(expiresAt)}' : '';
 
@@ -766,17 +772,6 @@ class _TencentHunyuanSettingsPanelState
             ],
           ],
         ),
-        if (hint.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(
-            hint,
-            style: const TextStyle(
-              color: Colors.redAccent,
-              fontSize: 13,
-              height: 1.35,
-            ),
-          ),
-        ],
       ],
     );
   }
@@ -795,7 +790,7 @@ class _TencentHunyuanSettingsPanelState
     final fieldBg =
         widget.isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF2F2F2);
     bool dialogBusy = _redeemBusy;
-    String dialogHint = _redeemHint;
+    String dialogHint = '';
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -805,10 +800,18 @@ class _TencentHunyuanSettingsPanelState
               final trimmed = controller.text.trim();
               if (trimmed.isEmpty) {
                 setDialogState(() => dialogHint = '请输入卡密');
-                if (mounted) setState(() => _redeemHint = '请输入卡密');
                 return false;
               }
               if (dialogBusy) return false;
+
+              final codeHash = sha256.convert(utf8.encode(trimmed)).toString();
+              final prefs = await SharedPreferences.getInstance();
+              final redeemed =
+                  prefs.getStringList(_kRedeemedCodeHashes) ?? const [];
+              if (redeemed.contains(codeHash)) {
+                setDialogState(() => dialogHint = '已兑换');
+                return false;
+              }
 
               setDialogState(() {
                 dialogBusy = true;
@@ -817,7 +820,6 @@ class _TencentHunyuanSettingsPanelState
               if (mounted) {
                 setState(() {
                   _redeemBusy = true;
-                  _redeemHint = '';
                 });
               }
 
@@ -830,13 +832,19 @@ class _TencentHunyuanSettingsPanelState
                 final merged =
                     baseMs + Duration(days: payload.days).inMilliseconds;
                 await aiModel.setOnlineEntitlementExpiryMs(merged);
+
+                final updated = List<String>.from(redeemed);
+                updated.add(codeHash);
+                if (updated.length > 2000) {
+                  updated.removeRange(0, updated.length - 2000);
+                }
+                await prefs.setStringList(_kRedeemedCodeHashes, updated);
+
                 setDialogState(() => dialogHint = '');
-                if (mounted) setState(() => _redeemHint = '');
                 return true;
               } catch (e) {
                 final msg = e.toString();
                 setDialogState(() => dialogHint = msg);
-                if (mounted) setState(() => _redeemHint = msg);
                 return false;
               } finally {
                 setDialogState(() => dialogBusy = false);
@@ -1002,7 +1010,7 @@ class _TencentHunyuanSettingsPanelState
   }
 
   static const _bigModelSourceLangs = <String, String>{
-    '': 'auto',
+    '': '自动',
     'zh': '简体中文',
     'zh-TR': '繁体中文',
     'yue': '粤语',
@@ -1045,7 +1053,7 @@ class _TencentHunyuanSettingsPanelState
   };
 
   static const _machineSourceLangs = <String, String>{
-    '': 'auto',
+    '': '自动',
     'zh': '简体中文',
     'zh-TW': '繁体中文',
     'en': '英语',
@@ -1493,6 +1501,41 @@ class _TencentHunyuanSettingsPanelState
                     _redeemRow(aiModel, cardBg: cardBg),
                   ],
                 ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          _itemBox(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '朗读内容',
+                  style: TextStyle(
+                    color: widget.textColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.normal,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  children: [
+                    _chip(
+                      label: '不读译文',
+                      active: !provider.readTranslationEnabled,
+                      onTap: () => provider.setReadTranslationEnabled(false),
+                      textColor: widget.textColor,
+                    ),
+                    _chip(
+                      label: '读译文',
+                      active: provider.readTranslationEnabled,
+                      onTap: () => provider.setReadTranslationEnabled(true),
+                      textColor: widget.textColor,
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -2106,7 +2149,7 @@ class _MainPanel extends StatelessWidget {
         ? '本地朗读不可用，可切换在线'
         : (onlineReadAloudBlocked
             ? '在线朗读需要购买时长后使用'
-            : (readAloudEnabled ? '已开启' : '开启后，可朗读当前页'));
+            : (readAloudEnabled ? '已开启，点击页面小喇叭朗读或暂停' : '开启后，可朗读当前页'));
     final bool readAloudValue =
         localReadAloudBlocked ? false : readAloudEnabled;
 

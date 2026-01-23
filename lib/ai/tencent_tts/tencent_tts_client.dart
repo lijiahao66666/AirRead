@@ -239,7 +239,9 @@ class TencentTtsClient {
   String _randomSessionId() {
     final r = Random();
     final t = DateTime.now().millisecondsSinceEpoch.toString();
-    final n = r.nextInt(1 << 32).toRadixString(16);
+    final high = r.nextInt(1 << 16);
+    final low = r.nextInt(1 << 16);
+    final n = ((high << 16) | low).toRadixString(16);
     return 'airread-$t-$n';
   }
 

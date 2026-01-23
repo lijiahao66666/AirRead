@@ -17,7 +17,7 @@ class HunyuanTranslationEngine implements TranslationEngine {
   HunyuanTranslationEngine({
     TencentApiClient? api,
     required TencentCredentials credentials,
-    this.model = 'hunyuan-translation-lite',
+    this.model = 'hunyuan-translation',
   })  : _api = api ?? TencentApiClient(),
         _credentials = credentials;
 

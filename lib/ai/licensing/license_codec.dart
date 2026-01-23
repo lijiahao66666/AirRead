@@ -46,8 +46,7 @@ class LicenseCodec {
     if (raw.isEmpty) throw const LicenseException('请输入卡密');
 
     if (!raw.startsWith(_prefix)) {
-      final days = _parseShortDays(raw);
-      return LicensePayload(days: days);
+      throw const LicenseException('卡密版本不支持');
     }
 
     final parts = raw.split('.');
@@ -91,9 +90,11 @@ class LicenseCodec {
     required int days,
     DateTime? now,
   }) async {
-    privateSeedB64.trim();
-    now ??= DateTime.now();
-    return generateShort(days: days);
+    return generateSignedFromSeed(
+      privateSeedB64: privateSeedB64,
+      days: days,
+      now: now,
+    );
   }
 
   static Future<String> generateSignedFromSeed({
@@ -128,37 +129,10 @@ class LicenseCodec {
     return '$_prefix.$p.$s';
   }
 
-  static String generateShort({required int days}) {
-    if (!_allowedDays.contains(days)) {
-      throw const LicenseException('卡密时长不支持');
-    }
-    return 'AR2$days';
-  }
-
   static int _asInt(dynamic v) {
     if (v is int) return v;
     if (v is num) return v.toInt();
     return int.tryParse((v ?? '').toString()) ?? 0;
-  }
-
-  static int _parseShortDays(String rawCode) {
-    var s = rawCode.trim();
-    if (s.isEmpty) throw const LicenseException('请输入卡密');
-    final up = s.toUpperCase();
-    if (up.startsWith('AR2')) {
-      s = s.substring(3);
-    }
-    s = s.trim();
-    if (s.startsWith('-') || s.startsWith('_') || s.startsWith('.')) {
-      s = s.substring(1).trim();
-    }
-    if (s.isEmpty) throw const LicenseException('卡密格式错误');
-    final days = int.tryParse(s);
-    if (days == null) throw const LicenseException('卡密格式错误');
-    if (!_allowedDays.contains(days)) {
-      throw const LicenseException('卡密时长不支持');
-    }
-    return days;
   }
 
   static String _padB64(String s) {

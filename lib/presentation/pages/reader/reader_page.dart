@@ -175,6 +175,30 @@ class _TextReaderChapter implements _ReaderChapter {
   }
 }
 
+class _ReadAloudChunk {
+  final int paragraphIndex;
+  final String speechText;
+  final String highlightText;
+
+  const _ReadAloudChunk({
+    required this.paragraphIndex,
+    required this.speechText,
+    required this.highlightText,
+  });
+
+  int get key => paragraphIndex;
+}
+
+class _TtsSegment {
+  final String speech;
+  final String highlight;
+
+  const _TtsSegment({
+    required this.speech,
+    required this.highlight,
+  });
+}
+
 class ReaderPage extends StatefulWidget {
   final String bookId;
 
@@ -186,6 +210,7 @@ class ReaderPage extends StatefulWidget {
 
 class _ReaderPageState extends State<ReaderPage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  static const int _onlinePrefetchWindow = 5;
   static const MethodChannel _localTtsChannel =
       MethodChannel('airread/local_tts');
   static const EventChannel _localTtsEvents =
@@ -215,7 +240,7 @@ class _ReaderPageState extends State<ReaderPage>
   bool _aiReadAloudPlaying = false;
   bool _aiReadAloudPreparing = false;
   int _readAloudSession = 0;
-  List<MapEntry<int, String>> _readAloudQueue = const [];
+  List<_ReadAloudChunk> _readAloudQueue = const [];
   int _readAloudQueuePos = 0;
   int? _readAloudResumeParagraphIndex;
   String? _readAloudHighlightText;
@@ -223,10 +248,14 @@ class _ReaderPageState extends State<ReaderPage>
   int? _readAloudAutoContinueSession;
   int _readAloudAutoSkipRemaining = 0;
   ReadAloudEngine? _lastReadAloudEngine;
+  double? _lastTtsSpeed;
+  int? _lastTtsVoiceType;
+  bool? _lastReadTranslationEnabled;
   Offset? _readAloudFabOffset;
 
   final AudioPlayer _readAloudPlayer = AudioPlayer();
   final Map<String, Uint8List> _readAloudAudioCache = {};
+  final Map<String, Future<Uint8List>> _readAloudAudioInFlight = {};
   TencentTtsClient? _tencentTtsClient;
   final WebSpeechTts _webSpeechTts = createWebSpeechTts();
   final Map<String, Future<Map<int, String>>> _translationFutures = {};
@@ -236,6 +265,8 @@ class _ReaderPageState extends State<ReaderPage>
   int? _prefetchCursorChapterIndex;
   int _prefetchCursorParagraphIndex = 0;
   bool _prefetchTickRunning = false;
+  bool _onlinePrefetchRunning = false;
+  bool _onlinePrefetchNeedsRerun = false;
 
   List<_ReaderChapter> _chapters = [];
   int _currentChapterIndex = 0;
@@ -1250,89 +1281,66 @@ class _ReaderPageState extends State<ReaderPage>
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      isDismissible: false,
+      isDismissible: true,
       enableDrag: true,
       shape: const RoundedRectangleBorder(
           borderRadius:
               BorderRadius.vertical(top: Radius.circular(AppTokens.radiusLg))),
       builder: (sheetContext) {
-        return SizedBox(
-          height: MediaQuery.of(sheetContext).size.height,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    if (mounted) _hideControls();
-                  },
-                  child: Container(color: Colors.transparent),
-                ),
-              ),
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Consumer<TranslationProvider>(
-                  builder: (context, translationProvider, _) {
-                    final viewportHeight = _lastPaginationViewportHeight;
-                    final contentWidth = _lastPaginationContentWidth;
-                    if (viewportHeight != null && contentWidth != null) {
-                      _schedulePlainPaginationForChapter(
-                        chapterIndex: _currentChapterIndex,
-                        viewportHeight: viewportHeight,
-                        contentWidth: contentWidth,
-                      );
-                    }
+        return Consumer<TranslationProvider>(
+          builder: (context, translationProvider, _) {
+            final viewportHeight = _lastPaginationViewportHeight;
+            final contentWidth = _lastPaginationContentWidth;
+            if (viewportHeight != null && contentWidth != null) {
+              _schedulePlainPaginationForChapter(
+                chapterIndex: _currentChapterIndex,
+                viewportHeight: viewportHeight,
+                contentWidth: contentWidth,
+              );
+            }
 
-                    final plainRanges =
-                        _chapterPlainPageRanges[_currentChapterIndex];
-                    final plainPageIndex =
-                        plainRanges == null || plainRanges.isEmpty
-                            ? _currentPageInChapter
-                            : _plainPageIndexForProgress(
-                                _currentChapterIndex,
-                                _currentPageProgressInChapter,
-                              );
+            final plainRanges = _chapterPlainPageRanges[_currentChapterIndex];
+            final plainPageIndex = plainRanges == null || plainRanges.isEmpty
+                ? _currentPageInChapter
+                : _plainPageIndexForProgress(
+                    _currentChapterIndex,
+                    _currentPageProgressInChapter,
+                  );
 
-                    final qaTextCache =
-                        Map<int, String>.from(_chapterPlainText);
-                    qaTextCache[_currentChapterIndex] =
-                        _getPlainTextForChapter(_currentChapterIndex);
+            final qaTextCache = Map<int, String>.from(_chapterPlainText);
+            qaTextCache[_currentChapterIndex] =
+                _getPlainTextForChapter(_currentChapterIndex);
 
-                    return AiHud(
-                      bgColor: _panelBgColor,
-                      textColor: _panelTextColor,
-                      initialRoute: initialRoute,
-                      initialQaText: initialQaText,
-                      autoSendInitialQa: autoSendInitialQa,
-                      translateEnabled: translationProvider.aiTranslateEnabled,
-                      translateActive: translationProvider.applyToReader,
-                      onTranslateChanged: (v) async {
-                        await _setAiTranslateEnabled(
-                          provider: translationProvider,
-                          enabled: v,
-                        );
-                      },
-                      readAloudEnabled: translationProvider.aiReadAloudEnabled,
-                      onReadAloudChanged: (v) async {
-                        await _setAiReadAloudEnabled(
-                          provider: translationProvider,
-                          enabled: v,
-                        );
-                      },
-                      bookId: widget.bookId,
-                      chapterTextCache: qaTextCache,
-                      currentChapterIndex: _currentChapterIndex,
-                      currentPageInChapter: plainPageIndex,
-                      chapterPageRanges: _chapterPlainPageRanges.isNotEmpty
-                          ? _chapterPlainPageRanges
-                          : _chapterPageRanges,
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
+            return AiHud(
+              bgColor: _panelBgColor,
+              textColor: _panelTextColor,
+              initialRoute: initialRoute,
+              initialQaText: initialQaText,
+              autoSendInitialQa: autoSendInitialQa,
+              translateEnabled: translationProvider.aiTranslateEnabled,
+              translateActive: translationProvider.applyToReader,
+              onTranslateChanged: (v) async {
+                await _setAiTranslateEnabled(
+                  provider: translationProvider,
+                  enabled: v,
+                );
+              },
+              readAloudEnabled: translationProvider.aiReadAloudEnabled,
+              onReadAloudChanged: (v) async {
+                await _setAiReadAloudEnabled(
+                  provider: translationProvider,
+                  enabled: v,
+                );
+              },
+              bookId: widget.bookId,
+              chapterTextCache: qaTextCache,
+              currentChapterIndex: _currentChapterIndex,
+              currentPageInChapter: plainPageIndex,
+              chapterPageRanges: _chapterPlainPageRanges.isNotEmpty
+                  ? _chapterPlainPageRanges
+                  : _chapterPageRanges,
+            );
+          },
         );
       },
     ).then((_) {
@@ -1399,28 +1407,277 @@ class _ReaderPageState extends State<ReaderPage>
     }
 
     if (!enabled) {
-      await _stopReadAloud(keepResume: false);
+      await _stopReadAloud(keepResume: true);
+      if (!mounted) return;
+      setState(() {
+        _readAloudHighlightText = null;
+      });
+      return;
     }
+    if (!mounted) return;
+    final resume = _readAloudResumeParagraphIndex;
+    if (resume != null) {
+      final highlight = _paragraphTextForIndex(resume);
+      if (highlight != null && highlight.trim().isNotEmpty) {
+        _readAloudHighlightText = highlight;
+      }
+    }
+    setState(() {});
   }
 
-  List<MapEntry<int, String>> _buildReadAloudQueue() {
-    final entries = _currentPageParagraphsByIndex().entries.toList()
+  String? _paragraphTextForIndex(int paragraphIndex) {
+    if (_chapters.isEmpty) return null;
+    final plainText = _getPlainTextForChapter(_currentChapterIndex);
+    if (plainText.isEmpty) return null;
+    final paras = _getParagraphsForChapter(_currentChapterIndex, plainText);
+    if (paras.isEmpty) return null;
+    if (paragraphIndex < 0 || paragraphIndex >= paras.length) return null;
+    return paras[paragraphIndex].text;
+  }
+
+  Future<void> _startReadAloudFromParagraphIndex(int paragraphIndex) async {
+    final cfg = context.read<TranslationProvider>();
+    final queue = _buildReadAloudQueue();
+    if (queue.isEmpty) return;
+
+    final idx = queue.indexWhere((e) => e.paragraphIndex == paragraphIndex);
+    if (idx < 0) return;
+
+    await _stopReadAloud(keepResume: true);
+    if (!mounted) return;
+
+    final session = ++_readAloudSession;
+    _readAloudQueue = queue;
+    _readAloudQueuePos = idx;
+    _readAloudResumeParagraphIndex = paragraphIndex;
+    _readAloudHighlightText = null;
+
+    if (cfg.readAloudEngine == ReadAloudEngine.local) {
+      await _readAloudPlayer.stop();
+      await _speakLocalQueueItem(session);
+      return;
+    }
+
+    await _playOnlineQueueItem(session);
+  }
+
+  List<_ReadAloudChunk> _buildReadAloudQueue() {
+    return _buildReadAloudQueueFromParagraphs(_currentPageParagraphsByIndex());
+  }
+
+  List<_ReadAloudChunk> _buildReadAloudQueueFromParagraphs(
+      Map<int, String> paragraphsByIndex) {
+    final tp = context.read<TranslationProvider>();
+    final entries = paragraphsByIndex.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
-    return entries.where((e) => e.value.trim().isNotEmpty).toList();
+    final out = <_ReadAloudChunk>[];
+    for (final e in entries) {
+      final base = _speechTextForParagraph(
+        provider: tp,
+        paragraphIndex: e.key,
+        paragraphText: e.value,
+      );
+      if (base.trim().isEmpty) continue;
+      if (tp.readAloudEngine == ReadAloudEngine.online) {
+        final segments = _splitTtsSegments(base);
+        for (final seg in segments) {
+          final speech = seg.speech.trim();
+          if (speech.isEmpty) continue;
+          final highlight = seg.highlight.trim();
+          out.add(
+            _ReadAloudChunk(
+              paragraphIndex: e.key,
+              speechText: speech,
+              highlightText: highlight.isEmpty ? speech : highlight,
+            ),
+          );
+        }
+      } else {
+        final speech = _normalizeSpeechText(base);
+        if (speech.trim().isEmpty) continue;
+        final highlight = base.trim();
+        out.add(
+          _ReadAloudChunk(
+            paragraphIndex: e.key,
+            speechText: speech,
+            highlightText: highlight.isEmpty ? speech : highlight,
+          ),
+        );
+      }
+    }
+    return out;
   }
 
-  void _setReadAloudHighlight(MapEntry<int, String>? entry) {
-    if (!mounted) return;
-    setState(() {
-      _readAloudHighlightText = entry?.value;
-    });
+  String _normalizeSpeechText(String text) {
+    var t = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    while (t.isNotEmpty) {
+      final cu = t.codeUnitAt(0);
+      if (cu == 32 || cu == 9 || cu == 12288) {
+        t = t.substring(1);
+        continue;
+      }
+      break;
+    }
+    return t;
   }
 
-  void _clearReadAloudHighlight() {
-    if (!mounted) return;
-    setState(() {
-      _readAloudHighlightText = null;
-    });
+  String _speechTextForParagraph({
+    required TranslationProvider provider,
+    required int paragraphIndex,
+    required String paragraphText,
+  }) {
+    final original = paragraphText.trim();
+    if (!provider.readTranslationEnabled) return original;
+
+    final trans = provider.getCachedTranslation(paragraphText);
+    if (trans == null || trans.trim().isEmpty) return original;
+    final normalizedTrans = trans.trim();
+    if (normalizedTrans.isEmpty) return original;
+
+    final transOnly = provider.applyToReader &&
+        provider.config.displayMode == TranslationDisplayMode.translationOnly;
+    if (transOnly) return normalizedTrans;
+    if (original.isEmpty) return normalizedTrans;
+    return '$original\n$normalizedTrans';
+  }
+
+  bool _containsCjk(String s) {
+    return RegExp(r'[\u4E00-\u9FFF]').hasMatch(s);
+  }
+
+  int _ttsUnitCount(String s) {
+    var count = 0;
+    for (int i = 0; i < s.length; i++) {
+      final cu = s.codeUnitAt(i);
+      if (_isSkippableWhitespaceCu(cu)) continue;
+      count++;
+    }
+    return count;
+  }
+
+  List<_TtsSegment> _splitTtsSegments(String text) {
+    final base = text.trim();
+    if (base.isEmpty) return const [];
+    final maxUnits = _containsCjk(base) ? 150 : 500;
+    if (_ttsUnitCount(base) <= maxUnits) {
+      return <_TtsSegment>[
+        _TtsSegment(
+          speech: _normalizeSpeechText(base),
+          highlight: base,
+        ),
+      ];
+    }
+
+    final sentenceRegex = RegExp(r'[^。！？；.!?;]+[。！？；.!?;]*\s*');
+    final parts = sentenceRegex
+        .allMatches(base)
+        .map((m) => m.group(0) ?? '')
+        .where((e) => e.trim().isNotEmpty)
+        .toList();
+
+    final out = <_TtsSegment>[];
+    final buf = StringBuffer();
+    int bufUnits = 0;
+
+    void flush() {
+      final s = buf.toString().trim();
+      if (s.isNotEmpty) {
+        out.add(
+          _TtsSegment(
+            speech: _normalizeSpeechText(s),
+            highlight: s,
+          ),
+        );
+      }
+      buf.clear();
+      bufUnits = 0;
+    }
+
+    for (final raw in parts) {
+      final seg = raw.trim();
+      if (seg.isEmpty) continue;
+      final segUnits = _ttsUnitCount(seg);
+      if (segUnits > maxUnits) {
+        if (bufUnits > 0) flush();
+        final pieces = _splitLongSegment(seg, maxUnits: maxUnits);
+        for (final p in pieces) {
+          final s = p.trim();
+          if (s.isEmpty) continue;
+          out.add(
+            _TtsSegment(
+              speech: _normalizeSpeechText(s),
+              highlight: s,
+            ),
+          );
+        }
+        continue;
+      }
+      if (bufUnits == 0) {
+        buf.write(seg);
+        bufUnits = segUnits;
+        continue;
+      }
+      if (bufUnits + segUnits <= maxUnits) {
+        buf.write(seg);
+        bufUnits += segUnits;
+      } else {
+        flush();
+        buf.write(seg);
+        bufUnits = segUnits;
+      }
+    }
+    if (bufUnits > 0) flush();
+    return out.isEmpty
+        ? <_TtsSegment>[
+            _TtsSegment(
+              speech: _normalizeSpeechText(base),
+              highlight: base,
+            ),
+          ]
+        : out;
+  }
+
+  List<String> _splitLongSegment(String seg, {required int maxUnits}) {
+    final seps = <RegExp>[
+      RegExp(r'(?<=[，,、])\s*'),
+      RegExp(r'\s+'),
+    ];
+    var current = <String>[seg];
+    for (final sep in seps) {
+      final next = <String>[];
+      for (final piece in current) {
+        if (_ttsUnitCount(piece) <= maxUnits) {
+          next.add(piece);
+          continue;
+        }
+        next.addAll(piece.split(sep).where((e) => e.trim().isNotEmpty));
+      }
+      current = next;
+    }
+
+    final out = <String>[];
+    for (final piece in current) {
+      var p = piece.trim();
+      if (p.isEmpty) continue;
+      if (_ttsUnitCount(p) <= maxUnits) {
+        out.add(p);
+        continue;
+      }
+      int start = 0;
+      while (start < p.length) {
+        int units = 0;
+        int end = start;
+        while (end < p.length && units < maxUnits) {
+          final cu = p.codeUnitAt(end);
+          if (!_isSkippableWhitespaceCu(cu)) units++;
+          end++;
+        }
+        final slice = p.substring(start, end).trim();
+        if (slice.isNotEmpty) out.add(slice);
+        start = end;
+      }
+    }
+    return out;
   }
 
   Future<Uint8List> _getOnlineTtsBytes({
@@ -1428,7 +1685,11 @@ class _ReaderPageState extends State<ReaderPage>
     required int voiceType,
     required double speed,
   }) async {
-    final key = 'v2|${text.hashCode}|$voiceType|${speed.toStringAsFixed(2)}';
+    final key = _onlineTtsCacheKey(
+      text: text,
+      voiceType: voiceType,
+      speed: speed,
+    );
     final cached = _readAloudAudioCache[key];
     if (cached != null) return cached;
 
@@ -1464,6 +1725,118 @@ class _ReaderPageState extends State<ReaderPage>
     return bytes;
   }
 
+  String _onlineTtsCacheKey({
+    required String text,
+    required int voiceType,
+    required double speed,
+  }) {
+    return 'v2|${text.hashCode}|$voiceType|${speed.toStringAsFixed(2)}';
+  }
+
+  Future<Uint8List> _getOnlineTtsBytesDedup({
+    required String text,
+    required int voiceType,
+    required double speed,
+  }) {
+    final key =
+        _onlineTtsCacheKey(text: text, voiceType: voiceType, speed: speed);
+    final cached = _readAloudAudioCache[key];
+    if (cached != null) {
+      return Future<Uint8List>.value(cached);
+    }
+    final existing = _readAloudAudioInFlight[key];
+    if (existing != null) return existing;
+    final fut =
+        _getOnlineTtsBytes(text: text, voiceType: voiceType, speed: speed)
+            .whenComplete(() {
+      _readAloudAudioInFlight.remove(key);
+    });
+    _readAloudAudioInFlight[key] = fut;
+    return fut;
+  }
+
+  void _scheduleOnlinePrefetchWindow(int session) {
+    if (!mounted) return;
+    if (session != _readAloudSession) return;
+    if (_onlinePrefetchRunning) {
+      _onlinePrefetchNeedsRerun = true;
+      return;
+    }
+    _onlinePrefetchRunning = true;
+    unawaited(() async {
+      while (true) {
+        if (!mounted || session != _readAloudSession) break;
+        await _runOnlinePrefetchWindow(session);
+        if (!_onlinePrefetchNeedsRerun) break;
+        _onlinePrefetchNeedsRerun = false;
+      }
+      _onlinePrefetchRunning = false;
+    }());
+  }
+
+  Future<void> _runOnlinePrefetchWindow(int session) async {
+    if (!mounted) return;
+    if (session != _readAloudSession) return;
+    if (_readAloudQueue.isEmpty) return;
+    final cfg = context.read<TranslationProvider>();
+    final combined = _buildOnlinePrefetchQueue();
+    if (combined.isEmpty) return;
+    final int start = (_readAloudQueuePos + 1).clamp(0, combined.length);
+    if (start >= combined.length) return;
+    final int end =
+        (start + _onlinePrefetchWindow - 1).clamp(0, combined.length - 1);
+    for (int i = start; i <= end; i++) {
+      if (!mounted || session != _readAloudSession) return;
+      final next = combined[i];
+      final key = _onlineTtsCacheKey(
+        text: next.speechText,
+        voiceType: cfg.ttsVoiceType,
+        speed: cfg.ttsSpeed,
+      );
+      if (_readAloudAudioCache.containsKey(key)) continue;
+      if (_readAloudAudioInFlight.containsKey(key)) continue;
+      try {
+        await _getOnlineTtsBytesDedup(
+          text: next.speechText,
+          voiceType: cfg.ttsVoiceType,
+          speed: cfg.ttsSpeed,
+        );
+      } catch (_) {}
+    }
+  }
+
+  List<_ReadAloudChunk> _buildOnlinePrefetchQueue() {
+    final out = <_ReadAloudChunk>[];
+    out.addAll(_readAloudQueue);
+    final int targetLength = _readAloudQueuePos + _onlinePrefetchWindow + 1;
+    int chapterIndex = _currentChapterIndex;
+    int pageIndex = _currentPlainPageIndex();
+    int guard = 0;
+    while (out.length < targetLength && guard < 20) {
+      guard++;
+      var ranges = _chapterPlainPageRanges[chapterIndex];
+      if (ranges == null || ranges.isEmpty) break;
+      pageIndex++;
+      if (pageIndex >= ranges.length) {
+        chapterIndex++;
+        pageIndex = 0;
+        if (chapterIndex >= _chapters.length) break;
+        ranges = _chapterPlainPageRanges[chapterIndex];
+        if (ranges == null || ranges.isEmpty) {
+          _ensureChapterContentCached(chapterIndex);
+          break;
+        }
+      }
+      final next = _paragraphsByIndexForPage(
+        chapterIndex: chapterIndex,
+        pageIndex: pageIndex,
+      );
+      if (next.isEmpty) break;
+      out.addAll(_buildReadAloudQueueFromParagraphs(next));
+    }
+    return out;
+  }
+
   Future<void> _playOnlineQueueItem(int session) async {
     if (!mounted) return;
     if (session != _readAloudSession) return;
@@ -1475,18 +1848,18 @@ class _ReaderPageState extends State<ReaderPage>
 
     final cfg = context.read<TranslationProvider>();
     final entry = _readAloudQueue[_readAloudQueuePos];
-    _readAloudResumeParagraphIndex = entry.key;
-    _setReadAloudHighlight(entry);
+    _readAloudResumeParagraphIndex = entry.paragraphIndex;
 
     setState(() {
       _aiReadAloudPlaying = true;
       _aiReadAloudPreparing = true;
+      _readAloudHighlightText = entry.highlightText;
     });
     _readAloudAnimController.repeat(reverse: true);
 
     try {
-      final bytes = await _getOnlineTtsBytes(
-        text: entry.value,
+      final bytes = await _getOnlineTtsBytesDedup(
+        text: entry.speechText,
         voiceType: cfg.ttsVoiceType,
         speed: cfg.ttsSpeed,
       );
@@ -1498,19 +1871,7 @@ class _ReaderPageState extends State<ReaderPage>
       });
       await _readAloudPlayer.stop();
       await _readAloudPlayer.play(BytesSource(bytes));
-
-      if (_readAloudQueuePos + 1 < _readAloudQueue.length) {
-        final next = _readAloudQueue[_readAloudQueuePos + 1];
-        unawaited(() async {
-          try {
-            await _getOnlineTtsBytes(
-              text: next.value,
-              voiceType: cfg.ttsVoiceType,
-              speed: cfg.ttsSpeed,
-            );
-          } catch (_) {}
-        }());
-      }
+      _scheduleOnlinePrefetchWindow(session);
     } catch (e) {
       if (!mounted) return;
       if (session != _readAloudSession) return;
@@ -1531,12 +1892,12 @@ class _ReaderPageState extends State<ReaderPage>
     }
     final cfg = context.read<TranslationProvider>();
     final entry = _readAloudQueue[_readAloudQueuePos];
-    _readAloudResumeParagraphIndex = entry.key;
-    _setReadAloudHighlight(entry);
+    _readAloudResumeParagraphIndex = entry.paragraphIndex;
 
     setState(() {
       _aiReadAloudPlaying = true;
       _aiReadAloudPreparing = true;
+      _readAloudHighlightText = entry.highlightText;
     });
     _readAloudAnimController.repeat(reverse: true);
 
@@ -1546,7 +1907,7 @@ class _ReaderPageState extends State<ReaderPage>
           throw UnsupportedError('当前浏览器不支持本地朗读');
         }
         await _webSpeechTts.speak(
-          text: entry.value,
+          text: entry.speechText,
           rate: cfg.ttsSpeed,
           session: session,
           onDone: (s) {
@@ -1567,7 +1928,7 @@ class _ReaderPageState extends State<ReaderPage>
         });
       } else {
         await _localTtsChannel.invokeMethod('speak', {
-          'text': entry.value,
+          'text': entry.speechText,
           'rate': cfg.ttsSpeed,
           'session': session,
         });
@@ -1609,6 +1970,7 @@ class _ReaderPageState extends State<ReaderPage>
       return true;
     }
 
+    _scheduleOnlinePrefetchWindow(session);
     await _playOnlineQueueItem(session);
     return true;
   }
@@ -1617,9 +1979,11 @@ class _ReaderPageState extends State<ReaderPage>
     _readAloudSession++;
     if (!keepResume) {
       _readAloudResumeParagraphIndex = null;
+      _readAloudHighlightText = null;
     }
     _readAloudQueue = const [];
     _readAloudQueuePos = 0;
+    _readAloudAudioInFlight.clear();
     _readAloudAnimController.stop();
     _readAloudAnimController.reset();
     try {
@@ -1635,7 +1999,6 @@ class _ReaderPageState extends State<ReaderPage>
       _aiReadAloudPlaying = false;
       _aiReadAloudPreparing = false;
     });
-    _clearReadAloudHighlight();
   }
 
   void _onReadAloudPlayerComplete() {
@@ -2067,6 +2430,14 @@ class _ReaderPageState extends State<ReaderPage>
       hiStart = text.indexOf(highlightText);
       if (hiStart >= 0) {
         hiEnd = (hiStart + highlightText.length).clamp(0, text.length);
+        while (hiStart < hiEnd &&
+            _isSkippableWhitespaceCu(text.codeUnitAt(hiStart))) {
+          hiStart++;
+        }
+        if (hiStart >= hiEnd) {
+          hiStart = -1;
+          hiEnd = -1;
+        }
       }
     }
 
@@ -3401,63 +3772,41 @@ class _ReaderPageState extends State<ReaderPage>
     // But we RENDER what we have in effectiveText (which includes Cached Translations).
 
     if (translationProvider.applyToReader && isCurrentPage) {
-      final plainText = _getPlainTextForChapter(chapterIndex);
-      final allParas = _getParagraphsForChapter(chapterIndex, plainText);
+      final currentVisible = chapterIndex == _currentChapterIndex
+          ? _currentPageParagraphsByIndex()
+          : const <int, String>{};
+      if (currentVisible.isNotEmpty) {
+        final nextVisible = _nextPageParagraphsByIndex();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final Map<int, String> toRequest = <int, String>{};
 
-      if (allParas.isNotEmpty) {
-        final visible = chapterIndex == _currentChapterIndex
-            ? _currentPageParagraphsByIndex()
-            : const <int, String>{};
-        final sorted = visible.keys.toList()..sort();
-        if (sorted.isNotEmpty) {
-          final int startIdx = sorted.first;
-          final int lastVisibleIdx = sorted.last;
-          const int extraCount = 10;
-          final int endIdx =
-              (lastVisibleIdx + extraCount).clamp(0, allParas.length - 1);
-
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            final Map<int, String> toRequest = {};
-            for (int i = startIdx; i <= endIdx; i++) {
-              final t = allParas[i].text;
+          void addOrdered(Map<int, String> source, int? offset) {
+            final keys = source.keys.toList()..sort();
+            for (final k in keys) {
+              final t = source[k];
+              if (t == null || t.trim().isEmpty) continue;
               if (translationProvider.getCachedTranslation(t) != null) continue;
               if (translationProvider.isTranslationPending(t)) continue;
               if (translationProvider.isTranslationFailed(t)) continue;
-              toRequest[i] = t;
+              final key = offset == null ? k : offset + k;
+              if (toRequest.containsKey(key)) continue;
+              toRequest[key] = t;
             }
+          }
 
-            final int remainingExtra = extraCount -
-                ((allParas.length - 1) - lastVisibleIdx)
-                    .clamp(0, extraCount)
-                    .toInt();
-            if (remainingExtra > 0 && chapterIndex < _chapters.length - 1) {
-              final nextChapterIdx = chapterIndex + 1;
-              final nextText = _chapterPlainText[nextChapterIdx];
-              if (nextText != null && nextText.isNotEmpty) {
-                final nextParas =
-                    _getParagraphsForChapter(nextChapterIdx, nextText);
-                for (int i = 0;
-                    i < nextParas.length && i < remainingExtra;
-                    i++) {
-                  final t = nextParas[i].text;
-                  if (translationProvider.getCachedTranslation(t) != null) {
-                    continue;
-                  }
-                  if (translationProvider.isTranslationPending(t)) continue;
-                  if (translationProvider.isTranslationFailed(t)) continue;
-                  toRequest[100000 + i] = t;
-                }
-              } else {
-                _ensureChapterContentCached(nextChapterIdx);
-              }
-            }
+          addOrdered(currentVisible, null);
+          if (nextVisible.isNotEmpty) {
+            final nextRanges =
+                _chapterPlainPageRanges[_currentChapterIndex] ?? const [];
+            final isSameChapter = _currentPageInChapter + 1 < nextRanges.length;
+            addOrdered(nextVisible, isSameChapter ? null : 100000);
+          }
 
-            if (toRequest.isNotEmpty) {
-              translationProvider.requestTranslationForParagraphs(toRequest);
-            }
-          });
-        }
+          if (toRequest.isNotEmpty) {
+            translationProvider.requestTranslationForParagraphs(toRequest);
+          }
+        });
       }
     }
 
@@ -3475,6 +3824,8 @@ class _ReaderPageState extends State<ReaderPage>
                   .substring(selection.start, selection.end)
                   .trim()
               : '';
+          final tp = context.read<TranslationProvider>();
+          final showReadCurrent = isCurrentPage && tp.aiReadAloudEnabled;
 
           final isDarkBg = _bgColor.computeLuminance() < 0.5;
           final toolbarBg = isDarkBg
@@ -3502,6 +3853,39 @@ class _ReaderPageState extends State<ReaderPage>
             child: AdaptiveTextSelectionToolbar(
               anchors: state.contextMenuAnchors,
               children: [
+                if (showReadCurrent)
+                  TextButton(
+                    onPressed: () {
+                      final text = state.textEditingValue.text;
+                      final start = selection.start.clamp(0, text.length);
+                      int seg = 0;
+                      int scan = 0;
+                      while (true) {
+                        final idx = text.indexOf('\n\n', scan);
+                        if (idx < 0 || idx >= start) break;
+                        seg++;
+                        scan = idx + 2;
+                      }
+                      final visible = _currentPageParagraphsByIndex();
+                      final keys = visible.keys.toList()..sort();
+                      if (keys.isEmpty) return;
+                      final paragraphIndex =
+                          keys[seg.clamp(0, keys.length - 1)];
+                      final currentSelection = state.textEditingValue.selection;
+                      state.hideToolbar();
+                      state.userUpdateTextEditingValue(
+                        state.textEditingValue.copyWith(
+                          selection: TextSelection.collapsed(
+                            offset: currentSelection.end,
+                          ),
+                        ),
+                        SelectionChangedCause.toolbar,
+                      );
+                      unawaited(
+                          _startReadAloudFromParagraphIndex(paragraphIndex));
+                    },
+                    child: const Text('读当前'),
+                  ),
                 TextButton(
                   onPressed: selectedText.isEmpty
                       ? null
@@ -3544,6 +3928,28 @@ class _ReaderPageState extends State<ReaderPage>
       }
     }
     return out;
+  }
+
+  Map<int, String> _paragraphsByIndexForPage({
+    required int chapterIndex,
+    required int pageIndex,
+  }) {
+    final ranges = _chapterPlainPageRanges[chapterIndex];
+    if (ranges == null || ranges.isEmpty) return {};
+    if (pageIndex < 0 || pageIndex >= ranges.length) return {};
+    final plainText = _getPlainTextForChapter(chapterIndex);
+    if (plainText.isEmpty) {
+      _ensureChapterContentCached(chapterIndex);
+      return {};
+    }
+    final range = ranges[pageIndex];
+    final end = range.end.clamp(0, plainText.length);
+    return _paragraphsByIndexForRange(
+      chapterIndex: chapterIndex,
+      plainText: plainText,
+      start: range.start,
+      end: end,
+    );
   }
 
   List<ReaderParagraph> _getParagraphsForChapter(
@@ -3600,6 +4006,46 @@ class _ReaderPageState extends State<ReaderPage>
 
     return _paragraphsByIndexForRange(
       chapterIndex: _currentChapterIndex,
+      plainText: plainText,
+      start: range.start,
+      end: end,
+    );
+  }
+
+  int _currentPlainPageIndex() {
+    final ranges = _chapterPlainPageRanges[_currentChapterIndex];
+    if (ranges == null || ranges.isEmpty) return _currentPageInChapter;
+    return _plainPageIndexForProgress(
+      _currentChapterIndex,
+      _currentPageProgressInChapter,
+    );
+  }
+
+  Map<int, String> _nextPageParagraphsByIndex() {
+    int chapterIndex = _currentChapterIndex;
+    int pageIndex = _currentPageInChapter + 1;
+    List<TextRange>? ranges = _chapterPlainPageRanges[chapterIndex];
+    if (ranges == null || ranges.isEmpty) return {};
+    if (pageIndex >= ranges.length) {
+      chapterIndex++;
+      pageIndex = 0;
+      if (chapterIndex >= _chapters.length) return {};
+      ranges = _chapterPlainPageRanges[chapterIndex];
+      if (ranges == null || ranges.isEmpty) {
+        _ensureChapterContentCached(chapterIndex);
+        return {};
+      }
+    }
+
+    final plainText = _getPlainTextForChapter(chapterIndex);
+    if (plainText.isEmpty) {
+      _ensureChapterContentCached(chapterIndex);
+      return {};
+    }
+    final range = ranges[pageIndex];
+    final end = range.end.clamp(0, plainText.length);
+    return _paragraphsByIndexForRange(
+      chapterIndex: chapterIndex,
       plainText: plainText,
       start: range.start,
       end: end,
@@ -3809,10 +4255,45 @@ class _ReaderPageState extends State<ReaderPage>
     final tp = context.watch<TranslationProvider>();
     final currentReadAloudEngine = tp.readAloudEngine;
     final lastReadAloudEngine = _lastReadAloudEngine;
+    bool engineChanged = false;
+    bool ttsConfigChanged = false;
     if (lastReadAloudEngine == null) {
       _lastReadAloudEngine = currentReadAloudEngine;
     } else if (lastReadAloudEngine != currentReadAloudEngine) {
+      engineChanged = true;
       _lastReadAloudEngine = currentReadAloudEngine;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (!_aiReadAloudPlaying && !_aiReadAloudPreparing) return;
+        unawaited(() async {
+          await _stopReadAloud(keepResume: true);
+          if (!mounted) return;
+          await _startReadAloud();
+        }());
+      });
+    }
+    final lastTtsSpeed = _lastTtsSpeed;
+    if (lastTtsSpeed == null) {
+      _lastTtsSpeed = tp.ttsSpeed;
+    } else if (lastTtsSpeed != tp.ttsSpeed) {
+      _lastTtsSpeed = tp.ttsSpeed;
+      ttsConfigChanged = true;
+    }
+    final lastVoiceType = _lastTtsVoiceType;
+    if (lastVoiceType == null) {
+      _lastTtsVoiceType = tp.ttsVoiceType;
+    } else if (lastVoiceType != tp.ttsVoiceType) {
+      _lastTtsVoiceType = tp.ttsVoiceType;
+      ttsConfigChanged = true;
+    }
+    final lastReadTranslation = _lastReadTranslationEnabled;
+    if (lastReadTranslation == null) {
+      _lastReadTranslationEnabled = tp.readTranslationEnabled;
+    } else if (lastReadTranslation != tp.readTranslationEnabled) {
+      _lastReadTranslationEnabled = tp.readTranslationEnabled;
+      ttsConfigChanged = true;
+    }
+    if (ttsConfigChanged && !engineChanged) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (!_aiReadAloudPlaying && !_aiReadAloudPreparing) return;
