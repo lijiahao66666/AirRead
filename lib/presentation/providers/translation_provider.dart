@@ -32,6 +32,7 @@ class TranslationProvider extends ChangeNotifier {
   static const _kAiReadAloudEnabled = 'tr_ai_read_aloud_enabled';
   static const _kTtsVoiceType = 'tr_tts_voice_type';
   static const _kTtsSpeed = 'tr_tts_speed';
+  static const _kTtsSpeedLevel = 'tr_tts_speed_level';
   static const _kReadAloudEngine = 'tr_read_aloud_engine';
   static const _kReadTranslationEnabled = 'tr_read_translation_enabled';
 
@@ -199,7 +200,7 @@ class TranslationProvider extends ChangeNotifier {
   bool _loaded = false;
 
   int _ttsVoiceType = 601003;
-  double _ttsSpeed = 1.0;
+  double _ttsSpeed = 0.0;
   bool _usingPersonalTencentKeys = false;
   bool _localReadAloudAvailable = true;
 
@@ -346,7 +347,30 @@ class TranslationProvider extends ChangeNotifier {
     _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
     _readTranslationEnabled = prefs.getBool(_kReadTranslationEnabled) ?? false;
     _ttsVoiceType = prefs.getInt(_kTtsVoiceType) ?? _ttsVoiceType;
-    _ttsSpeed = prefs.getDouble(_kTtsSpeed) ?? _ttsSpeed;
+
+    if (prefs.containsKey(_kTtsSpeedLevel)) {
+      _ttsSpeed = prefs.getDouble(_kTtsSpeedLevel) ?? 0.0;
+    } else {
+      double oldSpeed = prefs.getDouble(_kTtsSpeed) ?? 1.0;
+      if ((oldSpeed - 0.6).abs() < 0.1) {
+        _ttsSpeed = -2;
+      } else if ((oldSpeed - 0.8).abs() < 0.1) {
+        _ttsSpeed = -1;
+      } else if ((oldSpeed - 1.0).abs() < 0.1) {
+        _ttsSpeed = 0;
+      } else if ((oldSpeed - 1.2).abs() < 0.1) {
+        _ttsSpeed = 1;
+      } else if ((oldSpeed - 1.5).abs() < 0.1) {
+        _ttsSpeed = 2;
+      } else if ((oldSpeed - 1.6).abs() < 0.1) {
+        _ttsSpeed = 2;
+      } else if ((oldSpeed - 2.5).abs() < 0.1) {
+        _ttsSpeed = 6;
+      } else {
+        _ttsSpeed = 0;
+      }
+    }
+
     _usingPersonalTencentKeys = _readUsingPersonalTencentKeys(prefs);
 
     final engine = prefs.getString(_kReadAloudEngine);
@@ -470,7 +494,7 @@ class TranslationProvider extends ChangeNotifier {
     await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
     await prefs.setBool(_kReadTranslationEnabled, _readTranslationEnabled);
     await prefs.setInt(_kTtsVoiceType, _ttsVoiceType);
-    await prefs.setDouble(_kTtsSpeed, _ttsSpeed);
+    await prefs.setDouble(_kTtsSpeedLevel, _ttsSpeed);
     await prefs.setString(_kReadAloudEngine, _readAloudEngine.name);
   }
 
@@ -507,6 +531,17 @@ class TranslationProvider extends ChangeNotifier {
     _ttsVoiceType = voiceType;
     notifyListeners();
     await _savePrefs();
+  }
+
+  /// Helper to get local TTS rate multiplier from level
+  double get localTtsSpeed {
+    if (_ttsSpeed == -2) return 0.6;
+    if (_ttsSpeed == -1) return 0.8;
+    if (_ttsSpeed == 0) return 1.0;
+    if (_ttsSpeed == 1) return 1.2;
+    if (_ttsSpeed == 2) return 1.5;
+    if (_ttsSpeed == 6) return 2.5;
+    return 1.0;
   }
 
   Future<void> setTtsSpeed(double speed) async {
@@ -650,9 +685,14 @@ class TranslationProvider extends ChangeNotifier {
         final existing = _cache.getSynchronous(cacheKey);
         if (existing != null) continue;
 
-        if (_failedKeys.contains(cacheKey)) continue;
+        // if (_failedKeys.contains(cacheKey)) continue;
 
         if (_pendingKeys.contains(cacheKey)) continue;
+
+        // Remove from failed keys to clear previous failure state
+        _failedKeys.remove(cacheKey);
+        _retryCounts.remove(cacheKey);
+
         _pendingKeys.add(cacheKey);
         pendingChanged = true;
 

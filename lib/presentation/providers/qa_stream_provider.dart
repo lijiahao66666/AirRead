@@ -89,6 +89,7 @@ class QaStreamProvider extends ChangeNotifier {
     }
 
     if (aiModel.source == AiModelSource.online &&
+        !usingPersonalTencentKeys() &&
         !aiModel.onlineEntitlementActive) {
       _stateByBookId[bookId] = QaStreamState(
         streamId: streamId,

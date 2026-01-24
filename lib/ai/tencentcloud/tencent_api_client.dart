@@ -220,7 +220,7 @@ class TencentApiClient {
     required Map<String, dynamic> payload,
     bool useScfProxy = false,
     Duration timeout = const Duration(seconds: 30),
-    int maxRetries = 5,
+    int maxRetries = 3,
   }) async {
     int retryCount = 0;
 
@@ -263,6 +263,8 @@ class TencentApiClient {
             'action': action,
             'version': version,
             if (region != null && region.trim().isNotEmpty) 'region': region,
+            if (secretId.isNotEmpty) 'secretId': secretId,
+            if (secretKey.isNotEmpty) 'secretKey': secretKey,
             'payload': payload,
             'stream': false,
             'timestamp': ts,
@@ -383,6 +385,15 @@ class TencentApiClient {
         }
 
         // 网络错误等也需要重试
+        // XMLHttpRequest error usually means CORS or network unreachable.
+        // If it's CORS (often "XMLHttpRequest error"), retrying won't help.
+        final isXmlHttpError = e.toString().contains('XMLHttpRequest error');
+        if (isXmlHttpError) {
+          debugPrint(
+              'TencentApiClient: Aborting retry for XMLHttpRequest error (likely CORS): $e');
+          rethrow;
+        }
+
         if (retryCount < maxRetries) {
           retryCount++;
           debugPrint(

@@ -82,6 +82,12 @@ class LicenseCodec {
     );
     if (!ok) throw const LicenseException('卡密校验失败');
 
+    final exp = _asInt(payload['exp']);
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (exp > 0 && nowMs > exp) {
+      throw const LicenseException('卡密已过期');
+    }
+
     return LicensePayload(days: days);
   }
 
@@ -110,7 +116,8 @@ class LicenseCodec {
     final kp = await _algo.newKeyPairFromSeed(seed);
     final t = (now ?? DateTime.now()).toUtc();
     final issuedAtMs = t.millisecondsSinceEpoch;
-    final expiryAtMs = t.add(const Duration(days: 3650)).millisecondsSinceEpoch;
+    final expiryAtMs =
+        t.add(const Duration(seconds: 600)).millisecondsSinceEpoch;
     final nonceBytes = _randomBytes(12);
     final nonce = base64Url.encode(nonceBytes).replaceAll('=', '');
 

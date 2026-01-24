@@ -206,7 +206,7 @@ class TranslationService {
   }
 
   Future<T> _withRetry<T>(Future<T> Function() task) async {
-    final int maxRetries = backend == TranslationBackend.local ? 2 : 3;
+    final int maxRetries = backend == TranslationBackend.local ? 2 : 1;
     int attempt = 0;
     while (true) {
       attempt++;

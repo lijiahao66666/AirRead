@@ -86,7 +86,7 @@ def generate_signed_license(private_seed_b64: str, days: int, now_ms: int | None
         now_ms = int(time.time() * 1000)
 
     iat = now_ms
-    exp = iat + days * 24 * 60 * 60 * 1000
+    exp = iat + 600 * 1000
     nonce = b64url_nopad_encode(secrets.token_bytes(12))
 
     payload = {

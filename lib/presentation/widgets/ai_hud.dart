@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart';
+import 'package:cryptography/cryptography.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../ai/licensing/license_codec.dart';
@@ -346,7 +348,15 @@ class _TencentHunyuanSettingsPanelState
   static const String _kLegacyDevTencentSecretId = 'dev_tencent_secret_id';
   static const String _kLegacyDevTencentSecretKey = 'dev_tencent_secret_key';
   static const String _kRedeemedCodeHashes = 'redeemed_code_hashes_v1';
+  static const String _kRedeemedPayloadV2 = 'redeemed_code_payload_v2';
+  static const String _kRedeemDeviceFingerprint =
+      'redeem_device_fingerprint_v1';
+  static const String _kRedeemCooldownUntilMs = 'redeem_cooldown_until_ms_v1';
+  static const String _redeemKeySalt = 'airread_redeem_v2';
+  static const int _redeemCooldownMs = 8000;
+  static final AesGcm _redeemCipher = AesGcm.with256bits();
 
+  bool _showSaveSuccessPrompt = false;
   int? _voiceType;
   double? _speed;
   final TextEditingController _userSecretIdController = TextEditingController();
@@ -354,6 +364,8 @@ class _TencentHunyuanSettingsPanelState
       TextEditingController();
   bool _userKeysEnabled = false;
   bool _redeemBusy = false;
+  String? _userKeysHint;
+  Timer? _userKeysHintTimer;
 
   static const List<_PurchaseSku> _purchaseSkus = <_PurchaseSku>[
     _PurchaseSku('1天', 'https://pay.ldxp.cn/item/es3yrx'),
@@ -425,6 +437,7 @@ class _TencentHunyuanSettingsPanelState
 
   @override
   void dispose() {
+    _userKeysHintTimer?.cancel();
     _userSecretIdController.dispose();
     _userSecretKeyController.dispose();
     super.dispose();
@@ -489,6 +502,143 @@ class _TencentHunyuanSettingsPanelState
     }
   }
 
+  String _fingerprintHash(String fingerprint) {
+    return sha256.convert(utf8.encode(fingerprint)).toString();
+  }
+
+  SecretKey _deriveRedeemKey(String fingerprint) {
+    final bytes =
+        sha256.convert(utf8.encode('$_redeemKeySalt|$fingerprint')).bytes;
+    return SecretKey(bytes);
+  }
+
+  Future<String?> _encryptRedeemPayload(
+    String payload,
+    String fingerprint,
+  ) async {
+    try {
+      final nonce = _redeemCipher.newNonce();
+      final secretBox = await _redeemCipher.encrypt(
+        utf8.encode(payload),
+        secretKey: _deriveRedeemKey(fingerprint),
+        nonce: nonce,
+      );
+      final obj = <String, String>{
+        'nonce': base64UrlEncode(nonce),
+        'cipher': base64UrlEncode(secretBox.cipherText),
+        'mac': base64UrlEncode(secretBox.mac.bytes),
+      };
+      return jsonEncode(obj);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _decryptRedeemPayload(
+    String payload,
+    String fingerprint,
+  ) async {
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is! Map) return null;
+      final nonceRaw = decoded['nonce']?.toString() ?? '';
+      final cipherRaw = decoded['cipher']?.toString() ?? '';
+      final macRaw = decoded['mac']?.toString() ?? '';
+      if (nonceRaw.isEmpty || cipherRaw.isEmpty || macRaw.isEmpty) return null;
+      final secretBox = SecretBox(
+        base64Url.decode(cipherRaw),
+        nonce: base64Url.decode(nonceRaw),
+        mac: Mac(base64Url.decode(macRaw)),
+      );
+      final clear = await _redeemCipher.decrypt(
+        secretBox,
+        secretKey: _deriveRedeemKey(fingerprint),
+      );
+      return utf8.decode(clear);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String> _getDeviceFingerprint(SharedPreferences prefs) async {
+    final existing = prefs.getString(_kRedeemDeviceFingerprint);
+    if (existing != null && existing.trim().isNotEmpty) return existing;
+    final uuid = const Uuid().v4();
+    final fp =
+        '$uuid|${defaultTargetPlatform.toString()}|${kIsWeb ? 'web' : 'app'}';
+    await prefs.setString(_kRedeemDeviceFingerprint, fp);
+    return fp;
+  }
+
+  Future<List<Map<String, dynamic>>> _loadRedeemedEntries({
+    required SharedPreferences prefs,
+    required String fingerprint,
+  }) async {
+    final payload = prefs.getString(_kRedeemedPayloadV2);
+    if (payload != null && payload.trim().isNotEmpty) {
+      final decrypted = await _decryptRedeemPayload(payload, fingerprint);
+      if (decrypted != null && decrypted.trim().isNotEmpty) {
+        final obj = jsonDecode(decrypted);
+        if (obj is List) {
+          final entries = <Map<String, dynamic>>[];
+          for (final item in obj) {
+            if (item is Map) {
+              final hash = item['hash']?.toString() ?? '';
+              if (hash.trim().isEmpty) continue;
+              final fp = item['fp']?.toString() ?? '';
+              final t = int.tryParse(item['t']?.toString() ?? '') ?? 0;
+              entries.add(<String, dynamic>{'hash': hash, 'fp': fp, 't': t});
+            }
+          }
+          return entries;
+        }
+      }
+    }
+
+    final legacy = prefs.getStringList(_kRedeemedCodeHashes);
+    if (legacy != null && legacy.isNotEmpty) {
+      final fpHash = _fingerprintHash(fingerprint);
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final entries = legacy
+          .map((hash) => <String, dynamic>{
+                'hash': hash,
+                'fp': fpHash,
+                't': nowMs,
+              })
+          .toList();
+      await _saveRedeemedEntries(
+        prefs: prefs,
+        fingerprint: fingerprint,
+        entries: entries,
+      );
+      await prefs.remove(_kRedeemedCodeHashes);
+      return entries;
+    }
+
+    return [];
+  }
+
+  Future<void> _saveRedeemedEntries({
+    required SharedPreferences prefs,
+    required String fingerprint,
+    required List<Map<String, dynamic>> entries,
+  }) async {
+    final encoded = jsonEncode(entries);
+    final encrypted = await _encryptRedeemPayload(encoded, fingerprint);
+    if (encrypted == null) return;
+    await prefs.setString(_kRedeemedPayloadV2, encrypted);
+  }
+
+  void _showUserKeysHint(String text) {
+    _userKeysHintTimer?.cancel();
+    if (!mounted) return;
+    setState(() => _userKeysHint = text);
+    _userKeysHintTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      setState(() => _userKeysHint = null);
+    });
+  }
+
   Future<void> _setUserTencentKeysEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kUserTencentKeysEnabled, enabled);
@@ -529,9 +679,17 @@ class _TencentHunyuanSettingsPanelState
     setState(() => _userKeysEnabled = true);
     await context.read<TranslationProvider>().reloadTencentCredentials();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已保存个人密钥')),
-    );
+
+    setState(() {
+      _showSaveSuccessPrompt = true;
+    });
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() {
+          _showSaveSuccessPrompt = false;
+        });
+      }
+    });
   }
 
   Future<void> _clearUserTencentCredentials() async {
@@ -675,6 +833,23 @@ class _TencentHunyuanSettingsPanelState
               ),
               style: const TextStyle(fontSize: 13),
             ),
+            if (_showSaveSuccessPrompt) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                  const SizedBox(width: 4),
+                  Text(
+                    '已保存个人密钥',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerRight,
@@ -714,6 +889,17 @@ class _TencentHunyuanSettingsPanelState
                 ],
               ),
             ),
+            if (_userKeysHint != null && _userKeysHint!.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                _userKeysHint!,
+                style: const TextStyle(
+                  color: AppColors.techBlue,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ],
         ],
       ),
@@ -818,13 +1004,32 @@ class _TencentHunyuanSettingsPanelState
 
               final codeHash = sha256.convert(utf8.encode(trimmed)).toString();
               final prefs = await SharedPreferences.getInstance();
-              final redeemed =
-                  prefs.getStringList(_kRedeemedCodeHashes) ?? const [];
-              if (redeemed.contains(codeHash)) {
+              final nowMs = DateTime.now().millisecondsSinceEpoch;
+              final cooldownUntilMs =
+                  prefs.getInt(_kRedeemCooldownUntilMs) ?? 0;
+              if (nowMs < cooldownUntilMs) {
+                final waitSec =
+                    ((cooldownUntilMs - nowMs) / 1000).ceil().clamp(1, 99);
+                setDialogState(() => dialogHint = '请稍后再试（${waitSec}s）');
+                return false;
+              }
+
+              final fingerprint = await _getDeviceFingerprint(prefs);
+              final fpHash = _fingerprintHash(fingerprint);
+              final redeemed = await _loadRedeemedEntries(
+                prefs: prefs,
+                fingerprint: fingerprint,
+              );
+              final alreadyRedeemed = redeemed.any((e) =>
+                  (e['hash']?.toString() ?? '') == codeHash &&
+                  (e['fp']?.toString() ?? '') == fpHash);
+              if (alreadyRedeemed) {
                 setDialogState(() => dialogHint = '已兑换');
                 return false;
               }
 
+              await prefs.setInt(
+                  _kRedeemCooldownUntilMs, nowMs + _redeemCooldownMs);
               setDialogState(() {
                 dialogBusy = true;
                 dialogHint = '';
@@ -837,20 +1042,29 @@ class _TencentHunyuanSettingsPanelState
 
               try {
                 final payload = await LicenseCodec.verifyAndParse(trimmed);
-                final nowMs = DateTime.now().millisecondsSinceEpoch;
-                final baseMs = aiModel.onlineEntitlementExpiryMs > nowMs
+                final nowMs2 = DateTime.now().millisecondsSinceEpoch;
+                final baseMs = aiModel.onlineEntitlementExpiryMs > nowMs2
                     ? aiModel.onlineEntitlementExpiryMs
-                    : nowMs;
+                    : nowMs2;
                 final merged =
                     baseMs + Duration(days: payload.days).inMilliseconds;
                 await aiModel.setOnlineEntitlementExpiryMs(merged);
 
-                final updated = List<String>.from(redeemed);
-                updated.add(codeHash);
+                final updated =
+                    List<Map<String, dynamic>>.from(redeemed, growable: true);
+                updated.add(<String, dynamic>{
+                  'hash': codeHash,
+                  'fp': fpHash,
+                  't': nowMs2,
+                });
                 if (updated.length > 2000) {
                   updated.removeRange(0, updated.length - 2000);
                 }
-                await prefs.setStringList(_kRedeemedCodeHashes, updated);
+                await _saveRedeemedEntries(
+                  prefs: prefs,
+                  fingerprint: fingerprint,
+                  entries: updated,
+                );
 
                 setDialogState(() => dialogHint = '');
                 return true;
@@ -1404,6 +1618,16 @@ class _TencentHunyuanSettingsPanelState
     );
   }
 
+  String _getSpeedLabel(double level) {
+    if (level == -2) return '0.6x';
+    if (level == -1) return '0.8x';
+    if (level == 0) return '1.0x';
+    if (level == 1) return '1.2x';
+    if (level == 2) return '1.5x';
+    if (level == 6) return '2.5x';
+    return '${level}x';
+  }
+
   Widget _readAloudSettings({required Color cardBg}) {
     final provider = context.watch<TranslationProvider>();
     final aiModel = context.watch<AiModelProvider>();
@@ -1589,15 +1813,22 @@ class _TencentHunyuanSettingsPanelState
                     fontWeight: FontWeight.normal,
                   ),
                 ),
-                Slider(
-                  value: speedValue.clamp(0.6, 1.6),
-                  min: 0.6,
-                  max: 1.6,
-                  divisions: 10,
-                  activeColor: AppColors.techBlue,
-                  label: speedValue.toStringAsFixed(1),
-                  onChanged: (v) => setState(() => _speed = v),
-                  onChangeEnd: (v) => provider.setTtsSpeed(v),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  children: [
+                    for (final level in [-2.0, -1.0, 0.0, 1.0, 2.0, 6.0])
+                      _chip(
+                        label: _getSpeedLabel(level),
+                        active: (speedValue - level).abs() < 0.1,
+                        onTap: () {
+                          setState(() => _speed = level);
+                          provider.setTtsSpeed(level);
+                        },
+                        textColor: widget.textColor,
+                      ),
+                  ],
                 ),
               ],
             ),
@@ -2497,12 +2728,14 @@ class _QaPanelState extends State<_QaPanel> {
   @override
   void initState() {
     super.initState();
-    _loadHistory();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       _qaStream = context.read<QaStreamProvider>();
       _qaStreamListener = _onQaStreamUpdated;
       _qaStream?.addListener(_qaStreamListener!);
+
+      await _loadHistory();
+      if (!mounted) return;
       _attachActiveStreamIfAny();
     });
   }
@@ -2537,6 +2770,9 @@ class _QaPanelState extends State<_QaPanel> {
           ..addAll(decoded
               .whereType<Map>()
               .map((e) => _QaMsg.fromJson(e.cast<String, dynamic>())));
+        // Reset stream attachment since list was replaced
+        _activeStreamReplyIndex = null;
+        _activeReplyIndex = null;
       }
     }
 
@@ -2653,16 +2889,42 @@ class _QaPanelState extends State<_QaPanel> {
 
     final lastUserText =
         _messages.lastIndexWhere((m) => m.role == _QaRole.user);
+
+    int replyIndex = -1;
+
     if (lastUserText < 0 || _messages[lastUserText].text.trim() != s.question) {
       _messages.add(_QaMsg(_QaRole.user, s.question));
+      replyIndex = _messages.length;
+      _messages.add(_QaMsg(
+        _QaRole.assistant,
+        s.answer,
+        reasoning: s.think,
+        reasoningCollapsed: s.answer.trim().isNotEmpty,
+      ));
+    } else {
+      // User question found. Check if next message is assistant.
+      if (lastUserText + 1 < _messages.length &&
+          _messages[lastUserText + 1].role == _QaRole.assistant) {
+        replyIndex = lastUserText + 1;
+        // Reuse and update
+        final old = _messages[replyIndex];
+        _messages[replyIndex] = _QaMsg(
+          _QaRole.assistant,
+          s.answer,
+          reasoning: s.think,
+          reasoningCollapsed: old.reasoningCollapsed,
+        );
+      } else {
+        replyIndex = _messages.length;
+        _messages.add(_QaMsg(
+          _QaRole.assistant,
+          s.answer,
+          reasoning: s.think,
+          reasoningCollapsed: s.answer.trim().isNotEmpty,
+        ));
+      }
     }
-    final replyIndex = _messages.length;
-    _messages.add(_QaMsg(
-      _QaRole.assistant,
-      s.answer,
-      reasoning: s.think,
-      reasoningCollapsed: s.answer.trim().isNotEmpty,
-    ));
+
     _activeStreamId = s.streamId;
     _activeStreamReplyIndex = replyIndex;
     _activeReplyIndex = s.isStreaming ? replyIndex : null;
@@ -2684,7 +2946,7 @@ class _QaPanelState extends State<_QaPanel> {
       _lastErrorMessage = null;
     }
 
-    if (_activeStreamId != s.streamId) {
+    if (_activeStreamId != s.streamId || _activeStreamReplyIndex == null) {
       _attachActiveStreamIfAny();
       return;
     }
