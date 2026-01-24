@@ -12,7 +12,6 @@ import '../../../core/theme/app_tokens.dart';
 import '../../widgets/ai_hud.dart';
 import '../../widgets/glass_panel.dart';
 import '../../providers/books_provider.dart';
-import '../../providers/ai_model_provider.dart';
 import '../../providers/translation_provider.dart';
 import '../../../data/services/book_parser.dart';
 import '../../../data/models/book.dart';
@@ -263,8 +262,10 @@ class _ReaderPageState extends State<ReaderPage>
   Timer? _continuousPrefetchTimer;
   Timer? _prefetchKickTimer;
   int _prefetchKickAttempts = 0;
-  int? _prefetchCursorChapterIndex;
-  int _prefetchCursorParagraphIndex = 0;
+  List<String> _prefetchQueue = [];
+  int _prefetchQueueIndex = 0;
+  bool _prefetchResumeScheduled = false;
+  String? _prefetchAnchorKey;
   bool _prefetchTickRunning = false;
   bool _onlinePrefetchRunning = false;
   bool _onlinePrefetchNeedsRerun = false;
@@ -312,6 +313,7 @@ class _ReaderPageState extends State<ReaderPage>
   bool? _lastTranslationApplyToReader;
   TranslationDisplayMode? _lastTranslationDisplayMode;
   bool _relocateAfterTranslationChangeScheduled = false;
+  bool _preventBackwardRelocate = false;
 
   // For Horizontal Mode, we use a PageController with a large initial index to simulate infinite scrolling
   // But strictly mapping pages is better.
@@ -1390,9 +1392,11 @@ class _ReaderPageState extends State<ReaderPage>
     if (!enabled) {
       _translationFutures.clear();
       _stopContinuousPrefetch();
+      _preventBackwardRelocate = false;
       setState(() {});
     }
     if (enabled) {
+      _preventBackwardRelocate = true;
       _stopContinuousPrefetch();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -2741,12 +2745,14 @@ class _ReaderPageState extends State<ReaderPage>
     final prevKey = _chapterPageRangeKeys[chapterIndex];
     final keyChanged = prevKey != paginationKey;
     int? anchorIndex;
+    int? anchorPageIndex;
     if (keyChanged && chapterIndex == _currentChapterIndex) {
       final ranges = _chapterPageRanges[chapterIndex];
       if (ranges != null &&
           ranges.isNotEmpty &&
           _currentPageInChapter < ranges.length) {
         anchorIndex = ranges[_currentPageInChapter].start;
+        anchorPageIndex = _currentPageInChapter;
       }
     }
 
@@ -2853,6 +2859,7 @@ class _ReaderPageState extends State<ReaderPage>
       if (!mounted) return;
       if (_chapterTextPaginationTaskKeys[chapterIndex] != taskKey) return;
 
+      final bool preventBackward = _preventBackwardRelocate;
       setState(() {
         _chapterPageRanges[chapterIndex] = ranges;
         _chapterPageRangeKeys[chapterIndex] = paginationKey;
@@ -2876,18 +2883,27 @@ class _ReaderPageState extends State<ReaderPage>
             ranges.isNotEmpty) {
           int best = 0;
           for (int i = 0; i < ranges.length; i++) {
-            if (anchorIndex! >= ranges[i].start &&
-                anchorIndex! < ranges[i].end) {
+            if (anchorIndex >= ranges[i].start && anchorIndex < ranges[i].end) {
               best = i;
               break;
             }
-            if (ranges[i].start > anchorIndex!) {
+            if (ranges[i].start > anchorIndex) {
               best = (i - 1).clamp(0, ranges.length - 1);
               break;
             }
             if (i == ranges.length - 1) best = i;
           }
+          if (preventBackward && anchorPageIndex != null) {
+            if (best < anchorPageIndex) {
+              best = anchorPageIndex;
+            }
+          }
           _currentPageInChapter = best;
+        }
+        if (preventBackward &&
+            complete &&
+            chapterIndex == _currentChapterIndex) {
+          _preventBackwardRelocate = false;
         }
       });
 
@@ -3106,6 +3122,7 @@ class _ReaderPageState extends State<ReaderPage>
     _lastTranslationDisplayMode = mode;
     if (!changed) return;
     if (_relocateAfterTranslationChangeScheduled) return;
+    if (apply && _preventBackwardRelocate) return;
 
     final anchor = _currentPageProgressInChapter;
     _relocateAfterTranslationChangeScheduled = true;
@@ -3280,6 +3297,18 @@ class _ReaderPageState extends State<ReaderPage>
                             });
                             if (_pageController.hasClients) {
                               _pageController.jumpToPage(1000);
+                            }
+                            final translationProvider =
+                                Provider.of<TranslationProvider>(context,
+                                    listen: false);
+                            if (translationProvider.applyToReader) {
+                              _stopContinuousPrefetch();
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (!mounted) return;
+                                _rebuildPrefetchQueue(translationProvider);
+                                _startContinuousPrefetch();
+                                unawaited(_runContinuousPrefetchTick());
+                              });
                             }
                             _hideControls();
                             Navigator.pop(context);
@@ -3549,8 +3578,9 @@ class _ReaderPageState extends State<ReaderPage>
               _stopContinuousPrefetch();
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (!mounted) return;
-                _updatePrefetchCursorFromVisible();
+                _rebuildPrefetchQueue(translationProvider);
                 _startContinuousPrefetch();
+                unawaited(_runContinuousPrefetchTick());
               });
             }
 
@@ -3846,51 +3876,6 @@ class _ReaderPageState extends State<ReaderPage>
     required TextStyle bodyStyle,
     required bool isCurrentPage,
   }) {
-    final translationProvider =
-        Provider.of<TranslationProvider>(context, listen: false);
-
-    // If we are in translation mode, we trigger translation requests for *visible* paragraphs.
-    // But we RENDER what we have in effectiveText (which includes Cached Translations).
-
-    if (translationProvider.applyToReader && isCurrentPage) {
-      final currentVisible = chapterIndex == _currentChapterIndex
-          ? _currentPageParagraphsByIndex()
-          : const <int, String>{};
-      if (currentVisible.isNotEmpty) {
-        final nextVisible = _nextPageParagraphsByIndex();
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          final Map<int, String> toRequest = <int, String>{};
-
-          void addOrdered(Map<int, String> source, int? offset) {
-            final keys = source.keys.toList()..sort();
-            for (final k in keys) {
-              final t = source[k];
-              if (t == null || t.trim().isEmpty) continue;
-              if (translationProvider.getCachedTranslation(t) != null) continue;
-              if (translationProvider.isTranslationPending(t)) continue;
-              if (translationProvider.isTranslationFailed(t)) continue;
-              final key = offset == null ? k : offset + k;
-              if (toRequest.containsKey(key)) continue;
-              toRequest[key] = t;
-            }
-          }
-
-          addOrdered(currentVisible, null);
-          if (nextVisible.isNotEmpty) {
-            final nextRanges =
-                _chapterPlainPageRanges[_currentChapterIndex] ?? const [];
-            final isSameChapter = _currentPageInChapter + 1 < nextRanges.length;
-            addOrdered(nextVisible, isSameChapter ? null : 100000);
-          }
-
-          if (toRequest.isNotEmpty) {
-            translationProvider.requestTranslationForParagraphs(toRequest);
-          }
-        });
-      }
-    }
-
     return SizedBox(
       width: double.infinity,
       child: SelectableText.rich(
@@ -4011,6 +3996,24 @@ class _ReaderPageState extends State<ReaderPage>
     return out;
   }
 
+  Map<int, String> _paragraphsByIndexForRangeStartingInside({
+    required int chapterIndex,
+    required String plainText,
+    required int start,
+    required int end,
+  }) {
+    final paras = _getParagraphsForChapter(chapterIndex, plainText);
+    final Map<int, String> out = {};
+    for (final p in paras) {
+      if (p.end <= start) continue;
+      if (p.start >= end) break;
+      if (p.start >= start && p.start < end) {
+        out[p.index] = p.text;
+      }
+    }
+    return out;
+  }
+
   Map<int, String> _paragraphsByIndexForPage({
     required int chapterIndex,
     required int pageIndex,
@@ -4026,6 +4029,28 @@ class _ReaderPageState extends State<ReaderPage>
     final range = ranges[pageIndex];
     final end = range.end.clamp(0, plainText.length);
     return _paragraphsByIndexForRange(
+      chapterIndex: chapterIndex,
+      plainText: plainText,
+      start: range.start,
+      end: end,
+    );
+  }
+
+  Map<int, String> _paragraphsByIndexForPageForTranslation({
+    required int chapterIndex,
+    required int pageIndex,
+  }) {
+    final ranges = _chapterPlainPageRanges[chapterIndex];
+    if (ranges == null || ranges.isEmpty) return {};
+    if (pageIndex < 0 || pageIndex >= ranges.length) return {};
+    final plainText = _getPlainTextForChapter(chapterIndex);
+    if (plainText.isEmpty) {
+      _ensureChapterContentCached(chapterIndex);
+      return {};
+    }
+    final range = ranges[pageIndex];
+    final end = range.end.clamp(0, plainText.length);
+    return _paragraphsByIndexForRangeStartingInside(
       chapterIndex: chapterIndex,
       plainText: plainText,
       start: range.start,
@@ -4093,6 +4118,28 @@ class _ReaderPageState extends State<ReaderPage>
     );
   }
 
+  Map<int, String> _currentPageParagraphsByIndexForTranslation() {
+    final ranges = _chapterPlainPageRanges[_currentChapterIndex];
+    if (ranges == null || ranges.isEmpty) return {};
+
+    final plainText = _getPlainTextForChapter(_currentChapterIndex);
+    if (plainText.isEmpty) return {};
+
+    final safeIndex = _plainPageIndexForProgress(
+      _currentChapterIndex,
+      _currentPageProgressInChapter,
+    );
+    final range = ranges[safeIndex];
+    final end = range.end.clamp(0, plainText.length);
+
+    return _paragraphsByIndexForRangeStartingInside(
+      chapterIndex: _currentChapterIndex,
+      plainText: plainText,
+      start: range.start,
+      end: end,
+    );
+  }
+
   int _currentPlainPageIndex() {
     final ranges = _chapterPlainPageRanges[_currentChapterIndex];
     if (ranges == null || ranges.isEmpty) return _currentPageInChapter;
@@ -4102,83 +4149,99 @@ class _ReaderPageState extends State<ReaderPage>
     );
   }
 
-  Map<int, String> _nextPageParagraphsByIndex() {
+  Map<int, String> _paragraphsByIndexForPageOffsetForTranslation(int offset) {
     int chapterIndex = _currentChapterIndex;
-    int pageIndex = _currentPageInChapter + 1;
-    List<TextRange>? ranges = _chapterPlainPageRanges[chapterIndex];
-    if (ranges == null || ranges.isEmpty) return {};
-    if (pageIndex >= ranges.length) {
-      chapterIndex++;
-      pageIndex = 0;
-      if (chapterIndex >= _chapters.length) return {};
-      ranges = _chapterPlainPageRanges[chapterIndex];
-      if (ranges == null || ranges.isEmpty) {
-        _ensureChapterContentCached(chapterIndex);
-        return {};
+    int pageIndex = _currentPlainPageIndex() + offset;
+    while (true) {
+      final ranges = _chapterPlainPageRanges[chapterIndex];
+      if (ranges == null || ranges.isEmpty) return {};
+      if (pageIndex < ranges.length) {
+        return _paragraphsByIndexForPageForTranslation(
+          chapterIndex: chapterIndex,
+          pageIndex: pageIndex,
+        );
       }
+      pageIndex -= ranges.length;
+      chapterIndex++;
+      if (chapterIndex >= _chapters.length) return {};
     }
-
-    final plainText = _getPlainTextForChapter(chapterIndex);
-    if (plainText.isEmpty) {
-      _ensureChapterContentCached(chapterIndex);
-      return {};
-    }
-    final range = ranges[pageIndex];
-    final end = range.end.clamp(0, plainText.length);
-    return _paragraphsByIndexForRange(
-      chapterIndex: chapterIndex,
-      plainText: plainText,
-      start: range.start,
-      end: end,
-    );
   }
 
-  List<String> _nextParagraphsForPrefetch({required int count}) {
-    final List<String> out = [];
-
-    // 1. Try fetching from current chapter
-    final currentParas = _getParagraphsForChapter(
-        _currentChapterIndex, _getPlainTextForChapter(_currentChapterIndex));
-
-    // Find indices currently visible on screen
-    final currentVisible = _currentPageParagraphsByIndex();
-    final visibleSorted = currentVisible.keys.toList()..sort();
-    if (visibleSorted.isEmpty) return out;
-    final int firstVisibleIdx = visibleSorted.first;
-    final int lastVisibleIdx = visibleSorted.last;
-
-    for (int i = firstVisibleIdx;
-        i <= lastVisibleIdx && i < currentParas.length && out.length < count;
-        i++) {
-      out.add(currentParas[i].text);
+  String _computePrefetchAnchorKey() {
+    final current = _currentPageParagraphsByIndexForTranslation();
+    final keys = current.keys.toList()..sort();
+    final buffer = StringBuffer();
+    buffer.write(_currentChapterIndex);
+    buffer.write(':');
+    buffer.write(_currentPlainPageIndex());
+    for (final key in keys) {
+      final text = current[key];
+      if (text == null) continue;
+      buffer.write('|');
+      buffer.write(key);
+      buffer.write(':');
+      buffer.write(text.hashCode);
     }
+    return buffer.toString();
+  }
 
-    // Add subsequent paragraphs from current chapter
-    for (int i = lastVisibleIdx + 1;
-        i < currentParas.length && out.length < count;
-        i++) {
-      out.add(currentParas[i].text);
-    }
-
-    // 2. If we still need more and have a next chapter, fetch from there
-    if (out.length < count && _currentChapterIndex < _chapters.length - 1) {
-      final nextChapterIdx = _currentChapterIndex + 1;
-      // Ensure content is loaded (this might be async, so we might miss it on first pass,
-      // but usually prefetch is fire-and-forget. We can only prefetch if content is in cache)
-      // If not in cache, we skip.
-      final nextText = _chapterPlainText[nextChapterIdx];
-      if (nextText != null && nextText.isNotEmpty) {
-        final nextParas = _getParagraphsForChapter(nextChapterIdx, nextText);
-        for (int i = 0; i < nextParas.length && out.length < count; i++) {
-          out.add(nextParas[i].text);
-        }
-      } else {
-        // Trigger load for next chapter so next time we can prefetch
-        _ensureChapterContentCached(nextChapterIdx);
+  void _rebuildPrefetchQueue(TranslationProvider tp) {
+    final ordered = <String>[];
+    final seen = <String>{};
+    final currentPage = _paragraphsByIndexForPageOffsetForTranslation(0);
+    final currentKeys = currentPage.keys.toList()..sort();
+    bool currentPageComplete = true;
+    for (final key in currentKeys) {
+      final text = currentPage[key];
+      if (text == null || text.isEmpty) continue;
+      if (tp.getCachedTranslation(text) != null) continue;
+      if (tp.isTranslationFailed(text)) continue;
+      if (tp.isTranslationPending(text)) {
+        currentPageComplete = false;
+        continue;
       }
+      currentPageComplete = false;
+      if (!seen.add(text)) continue;
+      ordered.add(text);
     }
 
-    return out;
+    if (ordered.isNotEmpty) {
+      _prefetchQueue = ordered;
+      _prefetchQueueIndex = 0;
+      _prefetchAnchorKey = _computePrefetchAnchorKey();
+      return;
+    }
+
+    if (!currentPageComplete) {
+      _prefetchQueue = [];
+      _prefetchQueueIndex = 0;
+      _prefetchAnchorKey = _computePrefetchAnchorKey();
+      return;
+    }
+
+    final paginationComplete =
+        _chapterTextPaginationComplete[_currentChapterIndex] ?? false;
+    if (!paginationComplete) {
+      _prefetchQueue = [];
+      _prefetchQueueIndex = 0;
+      _prefetchAnchorKey = _computePrefetchAnchorKey();
+      return;
+    }
+
+    final nextPage = _paragraphsByIndexForPageOffsetForTranslation(1);
+    final nextKeys = nextPage.keys.toList()..sort();
+    for (final key in nextKeys) {
+      final text = nextPage[key];
+      if (text == null || text.isEmpty) continue;
+      if (!seen.add(text)) continue;
+      if (tp.getCachedTranslation(text) != null) continue;
+      if (tp.isTranslationFailed(text)) continue;
+      if (tp.isTranslationPending(text)) continue;
+      ordered.add(text);
+    }
+    _prefetchQueue = ordered;
+    _prefetchQueueIndex = 0;
+    _prefetchAnchorKey = _computePrefetchAnchorKey();
   }
 
   void _kickoffTranslationPrefetch(TranslationProvider provider) {
@@ -4198,12 +4261,9 @@ class _ReaderPageState extends State<ReaderPage>
         return;
       }
 
-      final next = _nextParagraphsForPrefetch(count: 10);
-      if (next.isNotEmpty) {
-        provider.prefetchParagraphs(next);
-      }
-      _updatePrefetchCursorFromVisible();
+      _rebuildPrefetchQueue(provider);
       _startContinuousPrefetch();
+      unawaited(_runContinuousPrefetchTick());
     }
 
     attempt();
@@ -4225,39 +4285,10 @@ class _ReaderPageState extends State<ReaderPage>
     _prefetchKickTimer?.cancel();
     _prefetchKickTimer = null;
     _prefetchKickAttempts = 0;
-    _prefetchCursorChapterIndex = null;
-    _prefetchCursorParagraphIndex = 0;
+    _prefetchQueue = [];
+    _prefetchQueueIndex = 0;
+    _prefetchAnchorKey = null;
     _prefetchTickRunning = false;
-  }
-
-  void _updatePrefetchCursorFromVisible() {
-    final currentParas = _getParagraphsForChapter(
-      _currentChapterIndex,
-      _getPlainTextForChapter(_currentChapterIndex),
-    );
-    if (currentParas.isEmpty) return;
-
-    final currentVisible = _currentPageParagraphsByIndex();
-    if (currentVisible.isEmpty) return;
-    int lastVisibleIdx = -1;
-    if (currentVisible.isNotEmpty) {
-      lastVisibleIdx = (currentVisible.keys.toList()..sort()).last;
-    }
-
-    final chapterCursor = _prefetchCursorChapterIndex;
-    if (chapterCursor == null || chapterCursor < _currentChapterIndex) {
-      _prefetchCursorChapterIndex = _currentChapterIndex;
-      _prefetchCursorParagraphIndex =
-          (lastVisibleIdx + 1).clamp(0, currentParas.length);
-      return;
-    }
-
-    if (chapterCursor == _currentChapterIndex) {
-      final nextIdx = (lastVisibleIdx + 1).clamp(0, currentParas.length);
-      if (nextIdx > _prefetchCursorParagraphIndex) {
-        _prefetchCursorParagraphIndex = nextIdx;
-      }
-    }
   }
 
   Future<void> _runContinuousPrefetchTick() async {
@@ -4270,65 +4301,55 @@ class _ReaderPageState extends State<ReaderPage>
         _stopContinuousPrefetch();
         return;
       }
-      final source = context.read<AiModelProvider>().source;
-      if (source != AiModelSource.local) {
+
+      if (tp.hasPendingRequests) return;
+
+      final anchorKey = _computePrefetchAnchorKey();
+      if (_prefetchAnchorKey != anchorKey) {
+        _rebuildPrefetchQueue(tp);
+      } else if (_prefetchQueue.isEmpty) {
+        _rebuildPrefetchQueue(tp);
+      }
+      if (_prefetchQueue.isEmpty) {
         _stopContinuousPrefetch();
         return;
       }
 
-      if (_prefetchCursorChapterIndex == null) {
-        _updatePrefetchCursorFromVisible();
-      }
-      final cursorChapter = _prefetchCursorChapterIndex;
-      if (cursorChapter == null) return;
-      int chapterIndex = cursorChapter;
-      int paragraphIndex = _prefetchCursorParagraphIndex;
-      final out = <String>[];
-
-      while (out.length < 10 && chapterIndex < _chapters.length) {
-        final plainText = _getPlainTextForChapter(chapterIndex);
-        if (plainText.isEmpty) {
-          _ensureChapterContentCached(chapterIndex);
-          break;
-        }
-        final paras = _getParagraphsForChapter(chapterIndex, plainText);
-        if (paras.isEmpty) {
-          chapterIndex++;
-          paragraphIndex = 0;
+      while (_prefetchQueueIndex < _prefetchQueue.length) {
+        final head = _prefetchQueue[_prefetchQueueIndex];
+        if (tp.getCachedTranslation(head) != null ||
+            tp.isTranslationFailed(head)) {
+          _prefetchQueueIndex++;
           continue;
         }
-
-        int i = paragraphIndex.clamp(0, paras.length);
-        for (; i < paras.length && out.length < 10; i++) {
-          final t = paras[i].text;
-          if (tp.getCachedTranslation(t) != null) continue;
-          if (tp.isTranslationPending(t)) continue;
-          if (tp.isTranslationFailed(t)) continue;
-          out.add(t);
+        if (tp.isTranslationPending(head)) {
+          return;
         }
-
-        if (i >= paras.length) {
-          chapterIndex++;
-          paragraphIndex = 0;
-        } else {
-          paragraphIndex = i;
-        }
-      }
-
-      _prefetchCursorChapterIndex = chapterIndex;
-      _prefetchCursorParagraphIndex = paragraphIndex;
-
-      if (out.isNotEmpty) {
-        await tp.prefetchParagraphs(out);
+        tp.requestTranslationForParagraphs({0: head});
         return;
       }
 
-      if (chapterIndex >= _chapters.length) {
-        _stopContinuousPrefetch();
-      }
+      _stopContinuousPrefetch();
     } finally {
       _prefetchTickRunning = false;
     }
+  }
+
+  void _schedulePrefetchResume(TranslationProvider tp) {
+    if (!tp.applyToReader) return;
+    if (_continuousPrefetchTimer != null) return;
+    if (_prefetchResumeScheduled) return;
+    _prefetchResumeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _prefetchResumeScheduled = false;
+      if (!mounted) return;
+      if (!tp.applyToReader) return;
+      if (_continuousPrefetchTimer != null) return;
+      _rebuildPrefetchQueue(tp);
+      if (_prefetchQueue.isEmpty) return;
+      _startContinuousPrefetch();
+      unawaited(_runContinuousPrefetchTick());
+    });
   }
 
   @override
@@ -4386,6 +4407,7 @@ class _ReaderPageState extends State<ReaderPage>
       });
     }
     _scheduleRelocateAfterTranslationChange(tp);
+    _schedulePrefetchResume(tp);
 
     // IMPORTANT: Get padding from MediaQuery BEFORE removing it
     final mq = MediaQuery.of(context);

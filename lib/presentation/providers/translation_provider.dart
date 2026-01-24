@@ -616,6 +616,8 @@ class TranslationProvider extends ChangeNotifier {
     return _failedKeys.contains(key);
   }
 
+  bool get hasPendingRequests => _pendingKeys.isNotEmpty;
+
   void retryTranslation(String paragraphText) {
     final key =
         _service.buildCacheKey(config: _config, paragraphText: paragraphText);
@@ -679,22 +681,41 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   void _handleTranslationError(String key, String text, dynamic e) {
-    int count = (_retryCounts[key] ?? 0) + 1;
-    _retryCounts[key] = count;
-
-    if (count <= 2) {
-      // Retry after delay
-      Future.delayed(const Duration(seconds: 2), () {
-        _pendingKeys.remove(key);
-        requestTranslationForParagraphs({0: text});
-      });
-    } else {
-      // Give up
+    final isNetwork = _isNetworkError(e);
+    if (!isNetwork) {
+      _retryCounts.remove(key);
       _failedKeys.add(key);
       _pendingKeys.remove(key);
       _scheduleNotify();
-      onError?.call('翻译失败: $e');
+      return;
     }
+
+    int count = (_retryCounts[key] ?? 0) + 1;
+    _retryCounts[key] = count;
+    if (count > 1) {
+      _failedKeys.add(key);
+      _pendingKeys.remove(key);
+      _scheduleNotify();
+      return;
+    }
+
+    Future.delayed(const Duration(seconds: 2), () {
+      _pendingKeys.remove(key);
+      requestTranslationForParagraphs({0: text});
+    });
+  }
+
+  bool _isNetworkError(dynamic e) {
+    if (e is TimeoutException) return true;
+    final msg = e.toString().toLowerCase();
+    return msg.contains('socketexception') ||
+        msg.contains('timeout') ||
+        msg.contains('timed out') ||
+        msg.contains('connection') ||
+        msg.contains('network') ||
+        msg.contains('clientexception') ||
+        msg.contains('xmlhttprequest') ||
+        msg.contains('failed host lookup');
   }
 
   /// Check if we have a cached translation for a given paragraph text
@@ -735,7 +756,7 @@ class TranslationProvider extends ChangeNotifier {
         throw TranslationConfigException('未配置在线翻译服务地址');
       }
     }
-    if (_aiTranslateEnabled) {
+    if (_aiTranslateEnabled && _translationMode == TranslationMode.bigModel) {
       if (_usingPersonalTencentKeys) {
         if (!getEmbeddedPublicHunyuanCredentials().isUsable) {
           throw TranslationConfigException('已开启使用个人密钥，但未正确设置个人密钥');

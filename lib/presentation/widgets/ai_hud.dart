@@ -2140,18 +2140,21 @@ class _MainPanel extends StatelessWidget {
       _ => '',
     };
 
-    final bool translationBlocked = personalKeysMissing ||
-        (translationProvider.translationMode == TranslationMode.bigModel &&
+    final bool translationBlockedByKeys = personalKeysMissing;
+    final bool translationBlockedByEntitlement =
+        translationProvider.translationMode == TranslationMode.bigModel &&
             !onlineEntitled &&
-            !usingPersonalKeys);
+            !usingPersonalKeys;
+    final bool translationBlocked =
+        translationBlockedByKeys || translationBlockedByEntitlement;
     final bool translateValue = translationBlocked ? false : translateEnabled;
     final ValueChanged<bool>? translateOnChanged =
         translationBlocked ? null : onTranslateChanged;
 
-    final translateSubtitle = translationBlocked
-        ? '大模型翻译需购买时长后使用'
-        : (personalKeysMissing
-            ? '已开启使用个人密钥，但未正确设置个人密钥'
+    final translateSubtitle = translationBlockedByKeys
+        ? '已开启使用个人密钥，但未正确设置个人密钥'
+        : (translationBlockedByEntitlement
+            ? '大模型翻译需购买时长后使用'
             : (translateValue
                 ? (translateActive ? '翻译中...' : '翻译中...')
                 : '打开后将实时对内容进行翻译'));
