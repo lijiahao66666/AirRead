@@ -2478,13 +2478,16 @@ class _MainPanel extends StatelessWidget {
     final ValueChanged<bool>? translateOnChanged =
         translationBlocked ? null : onTranslateChanged;
 
-    final translateSubtitle = translationBlockedByKeys
-        ? '已开启使用个人密钥，但未正确设置个人密钥'
-        : (translationBlockedByEntitlement
-            ? '大模型翻译需购买时长后使用'
-            : (translateValue
-                ? (translateActive ? '翻译中...' : '翻译中...')
-                : '打开后将实时对内容进行翻译'));
+    String translateSubtitle;
+    if (translationBlockedByKeys) {
+      translateSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
+    } else if (translationBlockedByEntitlement) {
+      translateSubtitle = '大模型翻译需购买时长后使用';
+    } else if (!translateValue) {
+      translateSubtitle = '打开后将实时对内容进行翻译';
+    } else {
+      translateSubtitle = '翻译中...';
+    }
 
     final localReadAloudBlocked =
         translationProvider.readAloudEngine == ReadAloudEngine.local &&

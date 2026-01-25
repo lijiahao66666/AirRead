@@ -635,10 +635,69 @@ class TranslationProvider extends ChangeNotifier {
     );
   }
 
+  Future<String?> translateParagraphWithState(String paragraphText) async {
+    try {
+      _validateEngineConfig();
+    } catch (e) {
+      if (e is TranslationConfigException) {
+        onError?.call(e.message);
+      } else {
+        onError?.call(e.toString());
+      }
+      rethrow;
+    }
+
+    final normalized = _service.normalizeParagraphText(paragraphText);
+    final cacheKey =
+        _service.buildCacheKey(config: _config, paragraphText: normalized);
+    final cached = _cache.getSynchronous(cacheKey);
+    if (cached != null) return cached;
+    if (_failedKeys.contains(cacheKey)) return null;
+    if (_pendingKeys.contains(cacheKey)) {
+      return _waitForPendingTranslation(cacheKey);
+    }
+
+    _pendingKeys.add(cacheKey);
+    _scheduleNotify();
+    try {
+      final translated = await _service.translateParagraph(
+        config: _config,
+        paragraphText: normalized,
+      );
+      _pendingKeys.remove(cacheKey);
+      _failedKeys.remove(cacheKey);
+      _cacheRevision++;
+      _scheduleNotify();
+      return translated;
+    } catch (e) {
+      _handleTranslationError(cacheKey, normalized, e);
+      return null;
+    }
+  }
+
+  Future<String?> _waitForPendingTranslation(String cacheKey) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 60));
+    while (DateTime.now().isBefore(deadline)) {
+      final cached = _cache.getSynchronous(cacheKey);
+      if (cached != null) return cached;
+      if (!_pendingKeys.contains(cacheKey)) return null;
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+    }
+    return null;
+  }
+
   /// Request translation for specific paragraphs.
   /// Results will be cached and listeners notified as they complete.
   final Set<String> _pendingKeys = {};
   final Set<String> _failedKeys = {}; // 记录翻译失败的key
+  int _readerTranslationQueueTotal = 0;
+  int _readerTranslationQueueCompleted = 0;
+  int _readerTranslationQueueFailed = 0;
+  int _readerTranslationQueueInsertFailed = 0;
+  int _readerTranslationQueuePendingExternal = 0;
+  bool _readerTranslationQueueRunning = false;
+  bool _readerTranslationInsertRunning = false;
+  bool _readerTranslationQueueInFlight = false;
 
   bool isTranslationPending(String paragraphText) {
     final key =
@@ -653,6 +712,63 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   bool get hasPendingRequests => _pendingKeys.isNotEmpty;
+
+  int get readerTranslationQueueTotal => _readerTranslationQueueTotal;
+  int get readerTranslationQueueCompleted => _readerTranslationQueueCompleted;
+  int get readerTranslationQueueFailed => _readerTranslationQueueFailed;
+  int get readerTranslationQueueInsertFailed =>
+      _readerTranslationQueueInsertFailed;
+  int get readerTranslationQueuePendingExternal =>
+      _readerTranslationQueuePendingExternal;
+  bool get readerTranslationQueueRunning => _readerTranslationQueueRunning;
+  bool get readerTranslationInsertRunning => _readerTranslationInsertRunning;
+  bool get readerTranslationQueueInFlight => _readerTranslationQueueInFlight;
+
+  void updateReaderTranslationQueueStatus({
+    required int total,
+    required int completed,
+    required int failed,
+    required int insertFailed,
+    required int pendingExternal,
+    required bool running,
+    required bool inserting,
+    required bool inFlight,
+  }) {
+    bool changed = false;
+    if (_readerTranslationQueueTotal != total) {
+      _readerTranslationQueueTotal = total;
+      changed = true;
+    }
+    if (_readerTranslationQueueCompleted != completed) {
+      _readerTranslationQueueCompleted = completed;
+      changed = true;
+    }
+    if (_readerTranslationQueueFailed != failed) {
+      _readerTranslationQueueFailed = failed;
+      changed = true;
+    }
+    if (_readerTranslationQueueInsertFailed != insertFailed) {
+      _readerTranslationQueueInsertFailed = insertFailed;
+      changed = true;
+    }
+    if (_readerTranslationQueuePendingExternal != pendingExternal) {
+      _readerTranslationQueuePendingExternal = pendingExternal;
+      changed = true;
+    }
+    if (_readerTranslationQueueRunning != running) {
+      _readerTranslationQueueRunning = running;
+      changed = true;
+    }
+    if (_readerTranslationInsertRunning != inserting) {
+      _readerTranslationInsertRunning = inserting;
+      changed = true;
+    }
+    if (_readerTranslationQueueInFlight != inFlight) {
+      _readerTranslationQueueInFlight = inFlight;
+      changed = true;
+    }
+    if (changed) _scheduleNotify();
+  }
 
   void retryTranslation(String paragraphText) {
     final key =

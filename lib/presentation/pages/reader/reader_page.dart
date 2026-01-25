@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:epubx/epubx.dart';
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -197,6 +198,50 @@ class _TtsSegment {
   });
 }
 
+enum _TranslationQueueState {
+  queued,
+  translating,
+  translated,
+  inserted,
+  failed,
+}
+
+class _TranslationQueueItem {
+  final int chapterIndex;
+  final int paragraphIndex;
+  final String text;
+
+  const _TranslationQueueItem({
+    required this.chapterIndex,
+    required this.paragraphIndex,
+    required this.text,
+  });
+
+  String get key => '$chapterIndex:$paragraphIndex';
+}
+
+class _TranslatedResult {
+  final _TranslationQueueItem item;
+  final String? translated;
+  final bool success;
+
+  const _TranslatedResult({
+    required this.item,
+    required this.translated,
+    required this.success,
+  });
+}
+
+class _TranslationPageSlice {
+  final int chapterIndex;
+  final Map<int, String> paragraphsByIndex;
+
+  const _TranslationPageSlice({
+    required this.chapterIndex,
+    required this.paragraphsByIndex,
+  });
+}
+
 class ReaderPage extends StatefulWidget {
   final String bookId;
 
@@ -259,10 +304,23 @@ class _ReaderPageState extends State<ReaderPage>
   final Map<String, Future<Uint8List>> _readAloudAudioInFlight = {};
   TencentTtsClient? _tencentTtsClient;
   final WebSpeechTts _webSpeechTts = createWebSpeechTts();
-  final Map<String, Future<Map<int, String>>> _translationFutures = {};
   bool _currentPageTranslateResumeScheduled = false;
   bool _onlinePrefetchRunning = false;
   bool _onlinePrefetchNeedsRerun = false;
+  final Queue<_TranslationQueueItem> _translationQueue = Queue();
+  final Queue<_TranslatedResult> _translatedResultsQueue = Queue();
+  final Map<String, _TranslationQueueState> _translationQueueStates = {};
+  final Set<String> _translationQueueKeys = {};
+  int _translationQueueSession = 0;
+  String? _translationQueueAnchorKey;
+  bool _translationQueueRunning = false;
+  bool _translationInsertRunning = false;
+  int _translationQueueTotal = 0;
+  int _translationQueueCompleted = 0;
+  int _translationQueueFailed = 0;
+  int _translationInsertFailed = 0;
+  int _translationQueuePendingExternal = 0;
+  bool _translationQueueInFlight = false;
 
   List<_ReaderChapter> _chapters = [];
   int _currentChapterIndex = 0;
@@ -1518,8 +1576,19 @@ class _ReaderPageState extends State<ReaderPage>
     }
 
     if (!enabled) {
-      _translationFutures.clear();
+      _translationQueue.clear();
+      _translatedResultsQueue.clear();
+      _translationQueueStates.clear();
+      _translationQueueKeys.clear();
+      _translationQueueTotal = 0;
+      _translationQueueCompleted = 0;
+      _translationQueueFailed = 0;
+      _translationQueuePendingExternal = 0;
+      _translationQueueInFlight = false;
+      _translationQueueRunning = false;
+      _translationInsertRunning = false;
       setState(() {});
+      _syncTranslationQueueStatus(provider);
     }
     if (enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -4481,6 +4550,44 @@ class _ReaderPageState extends State<ReaderPage>
     );
   }
 
+  _TranslationPageSlice? _pageSliceForTranslationOffset(
+      int offset, TranslationProvider tp) {
+    int chapterIndex = _currentChapterIndex;
+    final hasDisplayRanges =
+        tp.applyToReader && _displayRangesForChapter(chapterIndex) != null;
+    int pageIndex =
+        hasDisplayRanges ? _currentPageInChapter : _currentPlainPageIndex();
+    final currentRanges = tp.applyToReader
+        ? (_displayRangesForChapter(chapterIndex) ??
+            _chapterPlainPageRanges[chapterIndex])
+        : _chapterPlainPageRanges[chapterIndex];
+    if (currentRanges != null && currentRanges.isNotEmpty) {
+      pageIndex = pageIndex.clamp(0, currentRanges.length - 1);
+    }
+    pageIndex += offset;
+    while (true) {
+      final ranges = tp.applyToReader
+          ? (_displayRangesForChapter(chapterIndex) ??
+              _chapterPlainPageRanges[chapterIndex])
+          : _chapterPlainPageRanges[chapterIndex];
+      if (ranges == null || ranges.isEmpty) return null;
+      if (pageIndex < ranges.length) {
+        final map = _paragraphsByIndexForPageForTranslationWithProvider(
+          chapterIndex: chapterIndex,
+          pageIndex: pageIndex,
+          tp: tp,
+        );
+        return _TranslationPageSlice(
+          chapterIndex: chapterIndex,
+          paragraphsByIndex: map,
+        );
+      }
+      pageIndex -= ranges.length;
+      chapterIndex++;
+      if (chapterIndex >= _chapters.length) return null;
+    }
+  }
+
   Map<int, String> _paragraphsByIndexForPageOffsetForTranslation(
       int offset, TranslationProvider tp) {
     int chapterIndex = _currentChapterIndex;
@@ -4515,58 +4622,210 @@ class _ReaderPageState extends State<ReaderPage>
     }
   }
 
+  void _syncTranslationQueueStatus(TranslationProvider tp) {
+    tp.updateReaderTranslationQueueStatus(
+      total: _translationQueueTotal,
+      completed: _translationQueueCompleted,
+      failed: _translationQueueFailed,
+      insertFailed: _translationInsertFailed,
+      pendingExternal: _translationQueuePendingExternal,
+      running: _translationQueueRunning,
+      inserting: _translationInsertRunning,
+      inFlight: _translationQueueInFlight,
+    );
+  }
+
+  void _rebuildTranslationQueueForCurrentPage(TranslationProvider tp) {
+    final session = ++_translationQueueSession;
+    _translationQueue.clear();
+    _translatedResultsQueue.clear();
+    _translationQueueStates.clear();
+    _translationQueueKeys.clear();
+    _translationQueueTotal = 0;
+    _translationQueueCompleted = 0;
+    _translationQueueFailed = 0;
+    _translationInsertFailed = 0;
+    _translationQueuePendingExternal = 0;
+    _translationQueueInFlight = false;
+
+    final slices = <_TranslationPageSlice?>[
+      _pageSliceForTranslationOffset(0, tp),
+      _pageSliceForTranslationOffset(1, tp),
+    ];
+
+    for (final slice in slices) {
+      if (slice == null) continue;
+      final entries = slice.paragraphsByIndex.entries.toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
+      for (final entry in entries) {
+        final text = entry.value;
+        if (text.trim().isEmpty) continue;
+        final key = '${slice.chapterIndex}:${entry.key}';
+        if (_translationQueueKeys.contains(key)) continue;
+        _translationQueueKeys.add(key);
+        _translationQueueTotal++;
+        if (tp.getCachedTranslation(text) != null) {
+          _translationQueueCompleted++;
+          _translationQueueStates[key] = _TranslationQueueState.inserted;
+          continue;
+        }
+        if (tp.isTranslationFailed(text)) {
+          _translationQueueFailed++;
+          _translationQueueStates[key] = _TranslationQueueState.failed;
+          continue;
+        }
+        if (tp.isTranslationPending(text)) {
+          _translationQueuePendingExternal++;
+          _translationQueueStates[key] = _TranslationQueueState.translating;
+          continue;
+        }
+        final item = _TranslationQueueItem(
+          chapterIndex: slice.chapterIndex,
+          paragraphIndex: entry.key,
+          text: text,
+        );
+        _translationQueue.add(item);
+        _translationQueueStates[key] = _TranslationQueueState.queued;
+      }
+    }
+
+    if (mounted) setState(() {});
+    _syncTranslationQueueStatus(tp);
+    _startTranslationQueueIfNeeded(tp, session);
+    _startTranslatedResultInsertIfNeeded(tp, session);
+  }
+
+  void _startTranslationQueueIfNeeded(TranslationProvider tp, int session) {
+    if (_translationQueueRunning) return;
+    if (_translationQueue.isEmpty) return;
+    _translationQueueRunning = true;
+    unawaited(_runTranslationQueue(tp, session));
+    if (mounted) setState(() {});
+    _syncTranslationQueueStatus(tp);
+  }
+
+  Future<void> _runTranslationQueue(TranslationProvider tp, int session) async {
+    while (mounted && session == _translationQueueSession) {
+      if (_translationQueue.isEmpty) break;
+      final item = _translationQueue.removeFirst();
+      _translationQueueStates[item.key] = _TranslationQueueState.translating;
+      _translationQueueInFlight = true;
+      if (mounted) setState(() {});
+      _syncTranslationQueueStatus(tp);
+      String? translated;
+      bool success = false;
+      try {
+        translated = await tp
+            .translateParagraphWithState(item.text)
+            .timeout(const Duration(seconds: 70));
+        if (translated != null && translated.trim().isNotEmpty) {
+          success = true;
+        }
+      } catch (_) {}
+      if (session != _translationQueueSession) break;
+      _translationQueueInFlight = false;
+      if (success) {
+        _translationQueueStates[item.key] = _TranslationQueueState.translated;
+        _translationQueueCompleted++;
+        _translatedResultsQueue.add(_TranslatedResult(
+          item: item,
+          translated: translated?.trim(),
+          success: true,
+        ));
+        _startTranslatedResultInsertIfNeeded(tp, session);
+      } else {
+        _translationQueueStates[item.key] = _TranslationQueueState.failed;
+        _translationQueueFailed++;
+      }
+      if (mounted) setState(() {});
+      _syncTranslationQueueStatus(tp);
+    }
+    _translationQueueRunning = false;
+    _translationQueueInFlight = false;
+    if (mounted) setState(() {});
+    _syncTranslationQueueStatus(tp);
+  }
+
+  void _startTranslatedResultInsertIfNeeded(
+      TranslationProvider tp, int session) {
+    if (_translationInsertRunning) return;
+    if (_translatedResultsQueue.isEmpty) return;
+    _translationInsertRunning = true;
+    unawaited(_runTranslatedResultInsert(tp, session));
+    if (mounted) setState(() {});
+    _syncTranslationQueueStatus(tp);
+  }
+
+  Future<void> _runTranslatedResultInsert(
+      TranslationProvider tp, int session) async {
+    while (mounted && session == _translationQueueSession) {
+      if (_translatedResultsQueue.isEmpty) break;
+      final result = _translatedResultsQueue.removeFirst();
+      if (!result.success) continue;
+      final key = result.item.key;
+      _translationQueueStates[key] = _TranslationQueueState.translated;
+      if (mounted) setState(() {});
+      _syncTranslationQueueStatus(tp);
+      final inserted =
+          await _applyTranslatedResultAndWaitPagination(result.item, session);
+      if (session != _translationQueueSession) break;
+      if (inserted) {
+        _translationQueueStates[key] = _TranslationQueueState.inserted;
+      } else {
+        _translationQueueStates[key] = _TranslationQueueState.failed;
+        _translationInsertFailed++;
+      }
+      if (mounted) setState(() {});
+      _syncTranslationQueueStatus(tp);
+    }
+    _translationInsertRunning = false;
+    if (mounted) setState(() {});
+    _syncTranslationQueueStatus(tp);
+  }
+
+  Future<bool> _applyTranslatedResultAndWaitPagination(
+      _TranslationQueueItem item, int session) async {
+    final viewportHeight = _lastPaginationViewportHeight;
+    final contentWidth = _lastPaginationContentWidth;
+    if (viewportHeight == null || contentWidth == null) return false;
+    _scheduleTextPaginationForChapter(
+      chapterIndex: item.chapterIndex,
+      viewportHeight: viewportHeight,
+      contentWidth: contentWidth,
+      minPages: 6,
+    );
+    return _waitForTextPaginationComplete(item.chapterIndex, session);
+  }
+
+  Future<bool> _waitForTextPaginationComplete(
+      int chapterIndex, int session) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 8));
+    while (mounted &&
+        session == _translationQueueSession &&
+        DateTime.now().isBefore(deadline)) {
+      if (_chapterTextPaginationComplete[chapterIndex] == true) {
+        return true;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    }
+    return false;
+  }
+
   void _translateCurrentPageIfNeeded(TranslationProvider tp) {
     if (!tp.applyToReader) return;
-    if (tp.hasPendingRequests) return;
-
-    // 1. Check Current Page
-    // We prioritize current page.
-    final currentPage = _paragraphsByIndexForPageOffsetForTranslation(0, tp);
-    final currentKeys = currentPage.keys.toList()..sort();
-
-    bool currentPageHasPending = false;
-    for (final key in currentKeys) {
-      final text = currentPage[key];
-      if (text == null || text.isEmpty) continue;
-      if (tp.getCachedTranslation(text) != null) continue;
-      if (tp.isTranslationFailed(text)) continue;
-
-      if (tp.isTranslationPending(text)) {
-        currentPageHasPending = true;
-        // If pending, we wait. Sequential.
+    final anchorKey =
+        '$_currentChapterIndex|$_currentPageInChapter|${tp.config.displayMode.name}';
+    if (anchorKey == _translationQueueAnchorKey) {
+      if (_translationQueueRunning || _translationInsertRunning) return;
+      if (_translationQueue.isNotEmpty) {
+        _startTranslationQueueIfNeeded(tp, _translationQueueSession);
+        _startTranslatedResultInsertIfNeeded(tp, _translationQueueSession);
         return;
       }
-
-      // Found untranslated in current page
-      tp.requestTranslationForParagraphs({0: text});
-      return;
+      if (_translationQueueTotal > 0) return;
     }
-
-    if (currentPageHasPending) return;
-
-    // 2. Check Pagination Status
-    // User requested: Wait for current page translation AND re-pagination completion before prefetching.
-    if (_chapterPlainPaginationComplete[_currentChapterIndex] != true) {
-      // Pagination is not complete (maybe running due to recent translation). Wait.
-      return;
-    }
-
-    // 3. Prefetch Next Page
-    // Only if current page is fully handled.
-    final nextPage = _paragraphsByIndexForPageOffsetForTranslation(1, tp);
-    final nextKeys = nextPage.keys.toList()..sort();
-
-    for (final key in nextKeys) {
-      final text = nextPage[key];
-      if (text == null || text.isEmpty) continue;
-      if (tp.getCachedTranslation(text) != null) continue;
-      if (tp.isTranslationFailed(text)) continue;
-      if (tp.isTranslationPending(text)) return; // Wait for pending prefetch
-
-      // Found untranslated in next page
-      tp.requestTranslationForParagraphs({0: text});
-      return;
-    }
+    _translationQueueAnchorKey = anchorKey;
+    _rebuildTranslationQueueForCurrentPage(tp);
   }
 
   void _scheduleCurrentPageTranslateResume(TranslationProvider tp) {
