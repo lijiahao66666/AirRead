@@ -42,3 +42,4 @@ app.*.map.json
 .vscode/
 .idea/
 .tmp_mnn_build/
+.gradle-cache/
