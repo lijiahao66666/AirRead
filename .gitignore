@@ -38,9 +38,8 @@ app.*.symbols
 app.*.map.json
 
 # Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
-android/.*
-.gradle/.*
-.gradle/wrapper/dists/gradle-8.5-all/dckgjkhjnjukymoblh8u3ms10/gradle-8.5/docs/kotlin-dsl/gradle/org.gradle.api.plugins/-extra-properties-extension/index.html
+android/
+.gradle/
+.vscode/
+.idea/
+.tmp_mnn_build/
