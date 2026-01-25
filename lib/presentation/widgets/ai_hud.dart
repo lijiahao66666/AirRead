@@ -352,9 +352,7 @@ class _TencentHunyuanSettingsPanelState
   static const String _kRedeemedPayloadV2 = 'redeemed_code_payload_v2';
   static const String _kRedeemDeviceFingerprint =
       'redeem_device_fingerprint_v1';
-  static const String _kRedeemCooldownUntilMs = 'redeem_cooldown_until_ms_v1';
   static const String _redeemKeySalt = 'airread_redeem_v2';
-  static const int _redeemCooldownMs = 8000;
   static final AesGcm _redeemCipher = AesGcm.with256bits();
   static const String _scfUrl =
       String.fromEnvironment('AIRREAD_TENCENT_SCF_URL', defaultValue: '');
@@ -1054,17 +1052,8 @@ class _TencentHunyuanSettingsPanelState
 
               final codeHash = sha256.convert(utf8.encode(trimmed)).toString();
               final prefs = await SharedPreferences.getInstance();
-              final nowMs = DateTime.now().millisecondsSinceEpoch;
-              final cooldownUntilMs =
-                  prefs.getInt(_kRedeemCooldownUntilMs) ?? 0;
-              if (nowMs < cooldownUntilMs) {
-                final waitSec =
-                    ((cooldownUntilMs - nowMs) / 1000).ceil().clamp(1, 99);
-                setDialogState(() => dialogHint = '请稍后再试（${waitSec}s）');
-                return false;
-              }
-
               final fingerprint = await _getDeviceFingerprint(prefs);
+
               final fpHash = _fingerprintHash(fingerprint);
               final redeemed = await _loadRedeemedEntries(
                 prefs: prefs,
@@ -1078,8 +1067,6 @@ class _TencentHunyuanSettingsPanelState
                 return false;
               }
 
-              await prefs.setInt(
-                  _kRedeemCooldownUntilMs, nowMs + _redeemCooldownMs);
               setDialogState(() {
                 dialogBusy = true;
                 dialogHint = '';
