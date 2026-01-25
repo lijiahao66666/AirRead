@@ -1940,8 +1940,44 @@ class _ReaderPageState extends State<ReaderPage>
 
   Future<bool> _startReadAloud() async {
     final cfg = context.read<TranslationProvider>();
+
+    // Ensure plain pagination is ready if needed
+    if (cfg.applyToReader) {
+      var ranges = _chapterPlainPageRanges[_currentChapterIndex];
+      if (ranges == null || ranges.isEmpty) {
+        if (_lastPaginationViewportHeight != null &&
+            _lastPaginationContentWidth != null) {
+          _schedulePlainPaginationForChapter(
+            chapterIndex: _currentChapterIndex,
+            viewportHeight: _lastPaginationViewportHeight!,
+            contentWidth: _lastPaginationContentWidth!,
+          );
+        }
+
+        final task = _chapterPlainPaginationTasks[_currentChapterIndex];
+        if (task != null) {
+          setState(() {
+            _aiReadAloudPreparing = true;
+          });
+          try {
+            await task;
+          } catch (_) {}
+          if (!mounted) return false;
+          // If stopped by user during wait
+          if (!_aiReadAloudPreparing) return false;
+        }
+      }
+    }
+
     final queue = _buildReadAloudQueue();
-    if (queue.isEmpty) return false;
+    if (queue.isEmpty) {
+      if (_aiReadAloudPreparing) {
+        setState(() {
+          _aiReadAloudPreparing = false;
+        });
+      }
+      return false;
+    }
 
     int pos = 0;
     final resume = _readAloudResumeParagraphIndex;
@@ -4210,17 +4246,35 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   Map<int, String> _currentPageParagraphsByIndex() {
-    final ranges = _chapterPlainPageRanges[_currentChapterIndex];
+    var ranges = _chapterPlainPageRanges[_currentChapterIndex];
+
+    // If plain ranges are missing (e.g. translation disabled), fallback to display ranges
+    if (ranges == null || ranges.isEmpty) {
+      final tp = context.read<TranslationProvider>();
+      if (!tp.applyToReader) {
+        ranges = _chapterPageRanges[_currentChapterIndex];
+      }
+    }
+
     if (ranges == null || ranges.isEmpty) return {};
 
     final plainText = _getPlainTextForChapter(_currentChapterIndex);
     if (plainText.isEmpty) return {};
 
-    final safeIndex = _plainPageIndexForProgress(
-      _currentChapterIndex,
-      _currentPageProgressInChapter,
-    );
-    final range = ranges[safeIndex];
+    // Note: _plainPageIndexForProgress might rely on _chapterPlainPageRanges too.
+    // We should ensure we get the correct page index.
+    int pageIndex;
+    if (_chapterPlainPageRanges[_currentChapterIndex]?.isNotEmpty == true) {
+      pageIndex = _plainPageIndexForProgress(
+        _currentChapterIndex,
+        _currentPageProgressInChapter,
+      );
+    } else {
+      // Fallback: if we are using display ranges as plain ranges, current page index is just _currentPageInChapter
+      pageIndex = _currentPageInChapter;
+    }
+
+    final range = ranges[pageIndex.clamp(0, ranges.length - 1)];
     final end = range.end.clamp(0, plainText.length);
 
     return _paragraphsByIndexForRange(
