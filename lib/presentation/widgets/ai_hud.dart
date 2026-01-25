@@ -677,16 +677,6 @@ class _TencentHunyuanSettingsPanelState
     await prefs.setString(_kRedeemedPayloadV2, encrypted);
   }
 
-  void _showUserKeysHint(String text) {
-    _userKeysHintTimer?.cancel();
-    if (!mounted) return;
-    setState(() => _userKeysHint = text);
-    _userKeysHintTimer = Timer(const Duration(seconds: 2), () {
-      if (!mounted) return;
-      setState(() => _userKeysHint = null);
-    });
-  }
-
   Future<void> _setUserTencentKeysEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kUserTencentKeysEnabled, enabled);
@@ -883,10 +873,10 @@ class _TencentHunyuanSettingsPanelState
             ),
             if (_showSaveSuccessPrompt) ...[
               const SizedBox(height: 8),
-              Row(
+              const Row(
                 children: [
-                  const Icon(Icons.check_circle, color: Colors.green, size: 16),
-                  const SizedBox(width: 4),
+                  Icon(Icons.check_circle, color: Colors.green, size: 16),
+                  SizedBox(width: 4),
                   Text(
                     '已保存个人密钥',
                     style: TextStyle(
@@ -1669,6 +1659,78 @@ class _TencentHunyuanSettingsPanelState
     return '${level}x';
   }
 
+  Widget _speedBar({
+    required List<double> levels,
+    required double value,
+    required ValueChanged<double> onChanged,
+    required Color textColor,
+  }) {
+    const Color activeColor = AppColors.techBlue;
+    final inactiveColor = textColor.withOpacity(0.4);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            return SizedBox(
+              height: 28,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      height: 2,
+                      decoration: BoxDecoration(
+                        color: textColor.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      for (final level in levels)
+                        GestureDetector(
+                          onTap: () => onChanged(level),
+                          behavior: HitTestBehavior.translucent,
+                          child: SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: Center(
+                              child: Container(
+                                width: (value - level).abs() < 0.1 ? 12 : 9,
+                                height: (value - level).abs() < 0.1 ? 12 : 9,
+                                decoration: BoxDecoration(
+                                  color: (value - level).abs() < 0.1
+                                      ? activeColor
+                                      : inactiveColor,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '当前：${_getSpeedLabel(value)}',
+          style: TextStyle(
+            color: textColor.withOpacity(0.65),
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _readAloudSettings({required Color cardBg}) {
     final provider = context.watch<TranslationProvider>();
     final aiModel = context.watch<AiModelProvider>();
@@ -1855,21 +1917,14 @@ class _TencentHunyuanSettingsPanelState
                   ),
                 ),
                 const SizedBox(height: 10),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 10,
-                  children: [
-                    for (final level in [-2.0, -1.0, 0.0, 1.0, 2.0, 6.0])
-                      _chip(
-                        label: _getSpeedLabel(level),
-                        active: (speedValue - level).abs() < 0.1,
-                        onTap: () {
-                          setState(() => _speed = level);
-                          provider.setTtsSpeed(level);
-                        },
-                        textColor: widget.textColor,
-                      ),
-                  ],
+                _speedBar(
+                  levels: const [-2.0, -1.0, 0.0, 1.0, 2.0, 6.0],
+                  value: speedValue,
+                  onChanged: (level) {
+                    setState(() => _speed = level);
+                    provider.setTtsSpeed(level);
+                  },
+                  textColor: widget.textColor,
                 ),
               ],
             ),

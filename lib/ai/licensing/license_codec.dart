@@ -58,8 +58,8 @@ class LicenseCodec {
     final body = raw.substring(_prefixV3.length).replaceAll(RegExp(r'\s+'), '');
     if (body.isEmpty) throw const LicenseException('卡密格式错误');
     final bytes = _base64UrlDecode(body);
-    final payloadLen = 1 + _v3NonceLength;
-    final expectedLen = payloadLen + _v3SignatureLength;
+    const int payloadLen = 1 + _v3NonceLength;
+    const int expectedLen = payloadLen + _v3SignatureLength;
     if (bytes.length != expectedLen) {
       throw const LicenseException('卡密内容无法解析');
     }

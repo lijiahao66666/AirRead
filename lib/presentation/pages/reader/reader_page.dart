@@ -12,6 +12,7 @@ import '../../../core/theme/app_tokens.dart';
 import '../../widgets/ai_hud.dart';
 import '../../widgets/glass_panel.dart';
 import '../../providers/books_provider.dart';
+import '../../providers/ai_model_provider.dart';
 import '../../providers/translation_provider.dart';
 import '../../../data/services/book_parser.dart';
 import '../../../data/models/book.dart';
@@ -250,6 +251,7 @@ class _ReaderPageState extends State<ReaderPage>
   double? _lastTtsSpeed;
   int? _lastTtsVoiceType;
   bool? _lastReadTranslationEnabled;
+  int _readAloudTranslationRevision = -1;
   Offset? _readAloudFabOffset;
 
   final AudioPlayer _readAloudPlayer = AudioPlayer();
@@ -426,7 +428,7 @@ class _ReaderPageState extends State<ReaderPage>
     void walk(List<EpubChapterRef> items, int depth) {
       for (final c in items) {
         final rawTitle = (c.Title ?? '').trim();
-        final prefix = '';
+        const String prefix = '';
         final displayTitle = rawTitle.isEmpty ? null : '$prefix$rawTitle';
         chapters.add(_EpubReaderChapter(c, titleOverride: displayTitle));
         final subs = c.SubChapters;
@@ -1353,6 +1355,142 @@ class _ReaderPageState extends State<ReaderPage>
     });
   }
 
+  Future<void> _showSelectionTranslation(String sourceText) async {
+    final text = sourceText.trim();
+    if (text.isEmpty) return;
+    final tp = context.read<TranslationProvider>();
+    Map<int, String> result;
+    try {
+      result = await tp.translateParagraphsByIndex({0: text});
+    } catch (e) {
+      if (!mounted) return;
+      _showTopError(e.toString());
+      return;
+    }
+    if (!mounted) return;
+    final translated =
+        result.values.isNotEmpty ? result.values.first.trim() : '';
+    final displayTranslation = translated.isEmpty ? '翻译失败' : translated;
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        final media = MediaQuery.of(context);
+        final panelText = _panelTextColor;
+        final panelBg = _panelBgColor;
+        final cardBg = panelBg.computeLuminance() < 0.5
+            ? Colors.white.withOpacity(0.06)
+            : AppColors.mistWhite;
+        return GlassPanel.sheet(
+          surfaceColor: panelBg,
+          opacity: AppTokens.glassOpacityDense,
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height:
+                  (media.size.height * 0.62).clamp(320.0, media.size.height),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.translate, color: AppColors.techBlue),
+                        const SizedBox(width: 8),
+                        Text(
+                          '翻译',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: panelText,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: Icon(Icons.close,
+                              color: panelText.withOpacity(0.7)),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '原文',
+                              style: TextStyle(
+                                  color: panelText,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: cardBg,
+                                borderRadius:
+                                    BorderRadius.circular(AppTokens.radiusMd),
+                                border: Border.all(
+                                  color: panelText.withOpacity(0.08),
+                                  width: AppTokens.stroke,
+                                ),
+                              ),
+                              padding: const EdgeInsets.all(12),
+                              child: SelectableText(
+                                text,
+                                style: TextStyle(
+                                  color: panelText.withOpacity(0.9),
+                                  height: 1.5,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Text(
+                              '译文',
+                              style: TextStyle(
+                                  color: panelText,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: cardBg,
+                                borderRadius:
+                                    BorderRadius.circular(AppTokens.radiusMd),
+                                border: Border.all(
+                                  color: panelText.withOpacity(0.08),
+                                  width: AppTokens.stroke,
+                                ),
+                              ),
+                              padding: const EdgeInsets.all(12),
+                              child: SelectableText(
+                                displayTranslation,
+                                style: TextStyle(
+                                  color: panelText.withOpacity(0.9),
+                                  height: 1.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _hideControls() {
     if (!_showControls) return;
 
@@ -1386,6 +1524,11 @@ class _ReaderPageState extends State<ReaderPage>
     if (enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        final currentPage =
+            _paragraphsByIndexForPageOffsetForTranslation(0, provider);
+        if (currentPage.isNotEmpty) {
+          provider.clearFailedForParagraphs(currentPage.values);
+        }
         _translateCurrentPageIfNeeded(provider);
       });
     }
@@ -1450,6 +1593,7 @@ class _ReaderPageState extends State<ReaderPage>
     _readAloudQueuePos = idx;
     _readAloudResumeParagraphIndex = paragraphIndex;
     _readAloudHighlightText = null;
+    _readAloudTranslationRevision = cfg.cacheRevision;
 
     if (cfg.readAloudEngine == ReadAloudEngine.local) {
       await _readAloudPlayer.stop();
@@ -1507,6 +1651,32 @@ class _ReaderPageState extends State<ReaderPage>
     return out;
   }
 
+  void _refreshReadAloudQueueIfNeeded(TranslationProvider tp) {
+    if (!_aiReadAloudPlaying) return;
+    if (!tp.readTranslationEnabled) return;
+    final rev = tp.cacheRevision;
+    if (_readAloudTranslationRevision == rev) return;
+    _readAloudTranslationRevision = rev;
+    if (_readAloudQueue.isEmpty) return;
+    int? currentParagraphIndex;
+    if (_readAloudQueuePos >= 0 &&
+        _readAloudQueuePos < _readAloudQueue.length) {
+      currentParagraphIndex =
+          _readAloudQueue[_readAloudQueuePos].paragraphIndex;
+    }
+    final queue = _buildReadAloudQueue();
+    if (queue.isEmpty) return;
+    int pos = 0;
+    if (currentParagraphIndex != null) {
+      final idx = queue
+          .lastIndexWhere((e) => e.paragraphIndex == currentParagraphIndex);
+      if (idx >= 0) pos = idx;
+    }
+    _readAloudQueue = queue;
+    _readAloudQueuePos = pos;
+    _readAloudResumeParagraphIndex = currentParagraphIndex;
+  }
+
   String _normalizeSpeechText(String text) {
     var t = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     while (t.isNotEmpty) {
@@ -1538,10 +1708,6 @@ class _ReaderPageState extends State<ReaderPage>
     if (transOnly) return normalizedTrans;
     if (original.isEmpty) return normalizedTrans;
     return '$original\n$normalizedTrans';
-  }
-
-  bool _containsCjk(String s) {
-    return RegExp(r'[\u4E00-\u9FFF]').hasMatch(s);
   }
 
   int _ttsUnitCount(String s) {
@@ -1608,49 +1774,6 @@ class _ReaderPageState extends State<ReaderPage>
       ));
     }
 
-    return out;
-  }
-
-  List<String> _splitLongSegment(String seg, {required int maxUnits}) {
-    final seps = <RegExp>[
-      RegExp(r'(?<=[，,、])\s*'),
-      RegExp(r'\s+'),
-    ];
-    var current = <String>[seg];
-    for (final sep in seps) {
-      final next = <String>[];
-      for (final piece in current) {
-        if (_ttsUnitCount(piece) <= maxUnits) {
-          next.add(piece);
-          continue;
-        }
-        next.addAll(piece.split(sep).where((e) => e.trim().isNotEmpty));
-      }
-      current = next;
-    }
-
-    final out = <String>[];
-    for (final piece in current) {
-      var p = piece.trim();
-      if (p.isEmpty) continue;
-      if (_ttsUnitCount(p) <= maxUnits) {
-        out.add(p);
-        continue;
-      }
-      int start = 0;
-      while (start < p.length) {
-        int units = 0;
-        int end = start;
-        while (end < p.length && units < maxUnits) {
-          final cu = p.codeUnitAt(end);
-          if (!_isSkippableWhitespaceCu(cu)) units++;
-          end++;
-        }
-        final slice = p.substring(start, end).trim();
-        if (slice.isNotEmpty) out.add(slice);
-        start = end;
-      }
-    }
     return out;
   }
 
@@ -1989,6 +2112,7 @@ class _ReaderPageState extends State<ReaderPage>
     final session = ++_readAloudSession;
     _readAloudQueue = queue;
     _readAloudQueuePos = pos;
+    _readAloudTranslationRevision = cfg.cacheRevision;
 
     if (cfg.readAloudEngine == ReadAloudEngine.local) {
       await _readAloudPlayer.stop();
@@ -2009,6 +2133,7 @@ class _ReaderPageState extends State<ReaderPage>
     }
     _readAloudQueue = const [];
     _readAloudQueuePos = 0;
+    _readAloudTranslationRevision = -1;
     _readAloudAudioInFlight.clear();
     _readAloudAnimController.stop();
     _readAloudAnimController.reset();
@@ -2034,6 +2159,7 @@ class _ReaderPageState extends State<ReaderPage>
     if (cfg.readAloudEngine != ReadAloudEngine.online) return;
 
     final session = _readAloudSession;
+    _refreshReadAloudQueueIfNeeded(cfg);
     final nextPos = _readAloudQueuePos + 1;
     if (nextPos >= _readAloudQueue.length) {
       unawaited(_continueReadAloudToNextPage(session));
@@ -2050,6 +2176,7 @@ class _ReaderPageState extends State<ReaderPage>
     if (!_aiReadAloudPlaying) return;
 
     final session = _readAloudSession;
+    _refreshReadAloudQueueIfNeeded(cfg);
     final nextPos = _readAloudQueuePos + 1;
     if (nextPos >= _readAloudQueue.length) {
       unawaited(_continueReadAloudToNextPage(session));
@@ -2137,11 +2264,11 @@ class _ReaderPageState extends State<ReaderPage>
       return;
     }
 
+    final cfg = context.read<TranslationProvider>();
     _readAloudQueue = queue;
     _readAloudQueuePos = 0;
     _readAloudResumeParagraphIndex = null;
-
-    final cfg = context.read<TranslationProvider>();
+    _readAloudTranslationRevision = cfg.cacheRevision;
     if (cfg.readAloudEngine == ReadAloudEngine.local) {
       unawaited(_speakLocalQueueItem(session));
     } else {
@@ -2390,7 +2517,7 @@ class _ReaderPageState extends State<ReaderPage>
         final normalizedRaw = raw.replaceAll(RegExp(r'\s+'), ' ');
         isTitle = normalizedRaw == normalizedTitle;
       }
-      final String indent = '';
+      const String indent = '';
       final String paraText = indent + raw;
       if (isTitle) {
         titleLength = paraText.length;
@@ -2434,9 +2561,7 @@ class _ReaderPageState extends State<ReaderPage>
       final failed = tp.isTranslationFailed(p.text);
 
       // Add indentation if not title
-      final bool isTitle =
-          i == 0 && (_chapterTitleLength[chapterIndex] ?? 0) > 0;
-      final String indent = '';
+      const String indent = '';
 
       if (trans != null && trans.isNotEmpty) {
         if (isTransOnly) {
@@ -2507,7 +2632,6 @@ class _ReaderPageState extends State<ReaderPage>
         // We compare trimmed versions to ignore surrounding whitespace differences
         final trimmedTextRight = text.trimRight();
         final trimmedTextLeft = text.trimLeft();
-        final int rightTrimLen = text.length - trimmedTextRight.length;
         final int leftTrimLen = text.length - trimmedTextLeft.length;
 
         int maxLen = text.length < highlightText.length
@@ -3624,6 +3748,13 @@ class _ReaderPageState extends State<ReaderPage>
             if (translationProvider.applyToReader) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (!mounted) return;
+                final currentPage =
+                    _paragraphsByIndexForPageOffsetForTranslation(
+                        0, translationProvider);
+                if (currentPage.isNotEmpty) {
+                  translationProvider
+                      .clearFailedForParagraphs(currentPage.values);
+                }
                 _translateCurrentPageIfNeeded(translationProvider);
               });
             }
@@ -3869,11 +4000,6 @@ class _ReaderPageState extends State<ReaderPage>
         final int start = range.start.clamp(0, effectiveText.length);
         final int end = range.end.clamp(start, effectiveText.length);
         String pageText = effectiveText.substring(start, end);
-        final bool atParagraphStart = start == 0 ||
-            (start >= 2 && effectiveText.substring(start - 2, start) == '\n\n');
-        final bool isTitleAtStart =
-            start == 0 && (_chapterTitleLength[chapterIndex] ?? 0) > 0;
-
         final TextSpan span = _buildReaderSpan(
           text: pageText,
           bodyStyle: effectiveTextStyle,
@@ -3939,7 +4065,17 @@ class _ReaderPageState extends State<ReaderPage>
                   .trim()
               : '';
           final tp = context.read<TranslationProvider>();
+          final aiModel = context.read<AiModelProvider>();
           final showReadCurrent = isCurrentPage && tp.aiReadAloudEnabled;
+          final personalUsable = tp.usingPersonalTencentKeys &&
+              getEmbeddedPublicHunyuanCredentials().isUsable;
+          final canTranslate = tp.translationMode == TranslationMode.machine ||
+              (tp.translationMode == TranslationMode.bigModel &&
+                  (aiModel.onlineEntitlementActive || personalUsable));
+          final canExplain = (aiModel.source == AiModelSource.local &&
+                  aiModel.isLocalQaModelReady) ||
+              (aiModel.source == AiModelSource.online &&
+                  (aiModel.onlineEntitlementActive || personalUsable));
 
           final isDarkBg = _bgColor.computeLuminance() < 0.5;
           final toolbarBg = isDarkBg
@@ -3967,6 +4103,48 @@ class _ReaderPageState extends State<ReaderPage>
             child: AdaptiveTextSelectionToolbar(
               anchors: state.contextMenuAnchors,
               children: [
+                if (canTranslate)
+                  TextButton(
+                    onPressed: selectedText.isEmpty
+                        ? null
+                        : () {
+                            final selection = state.textEditingValue.selection;
+                            state.hideToolbar();
+                            state.userUpdateTextEditingValue(
+                              state.textEditingValue.copyWith(
+                                selection: TextSelection.collapsed(
+                                  offset: selection.end,
+                                ),
+                              ),
+                              SelectionChangedCause.toolbar,
+                            );
+                            unawaited(_showSelectionTranslation(selectedText));
+                          },
+                    child: const Text('翻译'),
+                  ),
+                if (canExplain)
+                  TextButton(
+                    onPressed: selectedText.isEmpty
+                        ? null
+                        : () {
+                            final selection = state.textEditingValue.selection;
+                            state.hideToolbar();
+                            state.userUpdateTextEditingValue(
+                              state.textEditingValue.copyWith(
+                                selection: TextSelection.collapsed(
+                                  offset: selection.end,
+                                ),
+                              ),
+                              SelectionChangedCause.toolbar,
+                            );
+                            unawaited(_openAiHud(
+                              initialRoute: AiHudRoute.qa,
+                              initialQaText: selectedText,
+                              autoSendInitialQa: true,
+                            ));
+                          },
+                    child: const Text('解释'),
+                  ),
                 if (showReadCurrent)
                   TextButton(
                     onPressed: () {
@@ -4163,8 +4341,6 @@ class _ReaderPageState extends State<ReaderPage>
       final trans = tp.getCachedTranslation(p.text);
       final pending = tp.isTranslationPending(p.text);
       final failed = tp.isTranslationFailed(p.text);
-      final bool isTitle =
-          i == 0 && (_chapterTitleLength[chapterIndex] ?? 0) > 0;
       // final String indent = '';
 
       String render;
@@ -4246,23 +4422,35 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   Map<int, String> _currentPageParagraphsByIndex() {
-    var ranges = _chapterPlainPageRanges[_currentChapterIndex];
-
-    // If plain ranges are missing (e.g. translation disabled), fallback to display ranges
-    if (ranges == null || ranges.isEmpty) {
-      final tp = context.read<TranslationProvider>();
-      if (!tp.applyToReader) {
-        ranges = _chapterPageRanges[_currentChapterIndex];
+    final tp = context.read<TranslationProvider>();
+    if (tp.applyToReader) {
+      final displayRanges = _displayRangesForChapter(_currentChapterIndex);
+      if (displayRanges != null && displayRanges.isNotEmpty) {
+        final pageIndex =
+            _currentPageInChapter.clamp(0, displayRanges.length - 1);
+        final range = displayRanges[pageIndex];
+        final effectiveText = _chapterEffectiveText[_currentChapterIndex] ??
+            _getEffectiveTextForChapter(_currentChapterIndex, tp);
+        if (effectiveText.isEmpty) return {};
+        final end = range.end.clamp(0, effectiveText.length);
+        return _paragraphsByIndexForEffectiveRangeStartingInside(
+          chapterIndex: _currentChapterIndex,
+          start: range.start,
+          end: end,
+          tp: tp,
+        );
       }
     }
 
+    var ranges = _chapterPlainPageRanges[_currentChapterIndex];
+    if (ranges == null || ranges.isEmpty) {
+      ranges = _chapterPageRanges[_currentChapterIndex];
+    }
     if (ranges == null || ranges.isEmpty) return {};
 
     final plainText = _getPlainTextForChapter(_currentChapterIndex);
     if (plainText.isEmpty) return {};
 
-    // Note: _plainPageIndexForProgress might rely on _chapterPlainPageRanges too.
-    // We should ensure we get the correct page index.
     int pageIndex;
     if (_chapterPlainPageRanges[_currentChapterIndex]?.isNotEmpty == true) {
       pageIndex = _plainPageIndexForProgress(
@@ -4270,7 +4458,6 @@ class _ReaderPageState extends State<ReaderPage>
         _currentPageProgressInChapter,
       );
     } else {
-      // Fallback: if we are using display ranges as plain ranges, current page index is just _currentPageInChapter
       pageIndex = _currentPageInChapter;
     }
 
@@ -4342,9 +4529,7 @@ class _ReaderPageState extends State<ReaderPage>
       final text = currentPage[key];
       if (text == null || text.isEmpty) continue;
       if (tp.getCachedTranslation(text) != null) continue;
-      // User requested: don't retry non-network errors indefinitely.
-      // Failed items are skipped here unless user manually retries (which clears failure state).
-      // if (tp.isTranslationFailed(text)) continue;
+      if (tp.isTranslationFailed(text)) continue;
 
       if (tp.isTranslationPending(text)) {
         currentPageHasPending = true;

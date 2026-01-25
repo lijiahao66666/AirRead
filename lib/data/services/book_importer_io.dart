@@ -131,6 +131,12 @@ class BookImporter {
       await File(sourcePath).copy(destPath);
 
       final metadata = await _parser.parse(destPath);
+      final originalBaseName = p.basenameWithoutExtension(sourcePath);
+      final destBaseName = p.basenameWithoutExtension(destPath);
+      final resolvedTitle = (metadata.title.trim().isEmpty ||
+              metadata.title.trim() == destBaseName)
+          ? originalBaseName
+          : metadata.title;
 
       String coverPath = '';
       if (metadata.coverBytes != null && metadata.coverBytes!.isNotEmpty) {
@@ -145,7 +151,7 @@ class BookImporter {
 
       final newBook = Book(
         id: bookId,
-        title: metadata.title,
+        title: resolvedTitle,
         author: metadata.author,
         coverPath: coverPath,
         filePath: destPath,

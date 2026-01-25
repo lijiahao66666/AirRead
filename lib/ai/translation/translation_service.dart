@@ -206,21 +206,7 @@ class TranslationService {
   }
 
   Future<T> _withRetry<T>(Future<T> Function() task) async {
-    final int maxRetries = backend == TranslationBackend.local ? 2 : 1;
-    int attempt = 0;
-    while (true) {
-      attempt++;
-      try {
-        return await task();
-      } on TimeoutException catch (e, st) {
-        logger?.call('translate timeout (attempt $attempt/$maxRetries)', e, st);
-        if (attempt >= maxRetries) rethrow;
-      } catch (e, st) {
-        logger?.call('translate error (attempt $attempt/$maxRetries)', e, st);
-        if (attempt >= maxRetries) rethrow;
-      }
-      await Future.delayed(Duration(milliseconds: 200 * attempt));
-    }
+    return task();
   }
 
   bool _looksLikeBadTranslation(

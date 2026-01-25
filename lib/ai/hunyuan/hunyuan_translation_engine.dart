@@ -47,6 +47,7 @@ class HunyuanTranslationEngine implements TranslationEngine {
         if (sourceLang.trim().isNotEmpty) 'Source': _normalizeLang(sourceLang),
         if (targetLang.trim().isNotEmpty) 'Target': _normalizeLang(targetLang),
       },
+      maxRetries: 0,
     );
 
     return _extractText(resp);

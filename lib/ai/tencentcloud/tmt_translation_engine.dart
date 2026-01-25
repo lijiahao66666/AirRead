@@ -82,7 +82,7 @@ class TmtTranslationEngine implements TranslationEngine {
         'ProjectId': 0,
       },
       timeout: const Duration(seconds: 20),
-      maxRetries: 4,
+      maxRetries: 0,
     );
 
     final out = resp['TargetText']?.toString() ?? '';

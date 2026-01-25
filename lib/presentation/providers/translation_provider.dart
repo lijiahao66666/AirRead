@@ -206,6 +206,7 @@ class TranslationProvider extends ChangeNotifier {
 
   Timer? _notifyTimer;
   bool _notifyScheduled = false;
+  int _cacheRevision = 0;
 
   TranslationProvider({
     AiModelProvider? aiModel,
@@ -311,6 +312,7 @@ class TranslationProvider extends ChangeNotifier {
   bool get aiTranslateEnabled => _aiTranslateEnabled;
   bool get aiReadAloudEnabled => _aiReadAloudEnabled;
   bool get readTranslationEnabled => _readTranslationEnabled;
+  int get cacheRevision => _cacheRevision;
   TranslationMode get translationMode => _translationMode;
   ReadAloudEngine get readAloudEngine => _readAloudEngine;
   int get ttsVoiceType => _ttsVoiceType;
@@ -637,7 +639,6 @@ class TranslationProvider extends ChangeNotifier {
   /// Results will be cached and listeners notified as they complete.
   final Set<String> _pendingKeys = {};
   final Set<String> _failedKeys = {}; // 记录翻译失败的key
-  final Map<String, int> _retryCounts = {}; // 记录重试次数
 
   bool isTranslationPending(String paragraphText) {
     final key =
@@ -658,10 +659,20 @@ class TranslationProvider extends ChangeNotifier {
         _service.buildCacheKey(config: _config, paragraphText: paragraphText);
     _failedKeys.remove(key); // 清除失败标记
     _pendingKeys.remove(key); // 清除pending标记
-    _retryCounts.remove(key); // 清除重试计数
 
     // 重新请求翻译
     requestTranslationForParagraphs({0: paragraphText});
+  }
+
+  void clearFailedForParagraphs(Iterable<String> paragraphs) {
+    bool changed = false;
+    for (final text in paragraphs) {
+      final key = _service.buildCacheKey(config: _config, paragraphText: text);
+      if (_failedKeys.remove(key)) {
+        changed = true;
+      }
+    }
+    if (changed) _scheduleNotify();
   }
 
   void requestTranslationForParagraphs(Map<int, String> paragraphsByIndex) {
@@ -685,13 +696,8 @@ class TranslationProvider extends ChangeNotifier {
         final existing = _cache.getSynchronous(cacheKey);
         if (existing != null) continue;
 
-        // if (_failedKeys.contains(cacheKey)) continue;
-
+        if (_failedKeys.contains(cacheKey)) continue;
         if (_pendingKeys.contains(cacheKey)) continue;
-
-        // Remove from failed keys to clear previous failure state
-        _failedKeys.remove(cacheKey);
-        _retryCounts.remove(cacheKey);
 
         _pendingKeys.add(cacheKey);
         pendingChanged = true;
@@ -708,7 +714,7 @@ class TranslationProvider extends ChangeNotifier {
         f.then((result) {
           _pendingKeys.remove(cacheKey);
           _failedKeys.remove(cacheKey); // 清除失败标记
-          _retryCounts.remove(cacheKey);
+          _cacheRevision++;
           _scheduleNotify();
         }).catchError((e) {
           _handleTranslationError(cacheKey, entry.value, e);
@@ -721,41 +727,9 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   void _handleTranslationError(String key, String text, dynamic e) {
-    final isNetwork = _isNetworkError(e);
-    if (!isNetwork) {
-      _retryCounts.remove(key);
-      _failedKeys.add(key);
-      _pendingKeys.remove(key);
-      _scheduleNotify();
-      return;
-    }
-
-    int count = (_retryCounts[key] ?? 0) + 1;
-    _retryCounts[key] = count;
-    if (count > 1) {
-      _failedKeys.add(key);
-      _pendingKeys.remove(key);
-      _scheduleNotify();
-      return;
-    }
-
-    Future.delayed(const Duration(seconds: 2), () {
-      _pendingKeys.remove(key);
-      requestTranslationForParagraphs({0: text});
-    });
-  }
-
-  bool _isNetworkError(dynamic e) {
-    if (e is TimeoutException) return true;
-    final msg = e.toString().toLowerCase();
-    return msg.contains('socketexception') ||
-        msg.contains('timeout') ||
-        msg.contains('timed out') ||
-        msg.contains('connection') ||
-        msg.contains('network') ||
-        msg.contains('clientexception') ||
-        msg.contains('xmlhttprequest') ||
-        msg.contains('failed host lookup');
+    _failedKeys.add(key);
+    _pendingKeys.remove(key);
+    _scheduleNotify();
   }
 
   /// Check if we have a cached translation for a given paragraph text
