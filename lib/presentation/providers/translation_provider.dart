@@ -470,6 +470,18 @@ class TranslationProvider extends ChangeNotifier {
     }
     bool ok = true;
     try {
+      final status = await _localTtsChannel
+          .invokeMapMethod<String, dynamic>('isAvailableWithReason')
+          .timeout(const Duration(seconds: 2));
+      if (status != null) {
+        ok = status['ok'] == true;
+      } else {
+        ok = await _localTtsChannel
+                .invokeMethod<bool>('isAvailable')
+                .timeout(const Duration(seconds: 2)) ==
+            true;
+      }
+    } on MissingPluginException {
       ok = await _localTtsChannel
               .invokeMethod<bool>('isAvailable')
               .timeout(const Duration(seconds: 2)) ==

@@ -154,6 +154,7 @@ class MainActivity: FlutterActivity() {
         fun tryInitAt(index: Int) {
             if (index >= engineCandidates.size) {
                 ttsReady = false
+                Log.w("AirReadTts", "TTS init failed: no engine available")
                 notifyWaiters(false, "本地朗读不可用（TTS初始化失败）")
                 return
             }

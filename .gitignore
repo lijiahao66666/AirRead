@@ -41,4 +41,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
-android/.gradle-cache
+android/.*
+.gradle/.*
+.gradle/wrapper/dists/gradle-8.5-all/dckgjkhjnjukymoblh8u3ms10/gradle-8.5/docs/kotlin-dsl/gradle/org.gradle.api.plugins/-extra-properties-extension/index.html
