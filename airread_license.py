@@ -1,15 +1,13 @@
 """
-AirRead 卡密生成/校验脚本（Ed25519）
+AirRead 卡密生成/校验脚本（签名版）
 
 目的
 - 你离线用私钥材料（privateSeedB64）生成卡密
-- App 端只内置公钥（publicKeyB64）用于验签，无法反推出私钥
+- App 端只内置公钥（publicKeyB64）用于验签
 
-重要安全原则
-- privateSeedB64 = 私钥材料，必须严格保密（不要进仓库、不要发给任何人、不要打进 App）
-- publicKeyB64 = 公钥，可以放进 App（它本来就不需要保密）
-- 卡密格式：AR1.<payloadBase64Url>.<signatureBase64Url>
-  payload 内含 iat/exp/days/nonce；nonce 是随机数，所以同样 1 天每次生成都不同
+卡密格式
+- A3 + Base64Url(payload + signature)
+- payload = daysIndex(1字节) + nonce(4字节)
 
 安装依赖
 - Python 3.9+
@@ -27,16 +25,13 @@ AirRead 卡密生成/校验脚本（Ed25519）
    python airread_license.py gen --seed "<privateSeedB64>" --days 30
 
 3) 校验卡密（调试用）
-   python airread_license.py verify --pub "<publicKeyB64>" --code "<AR1....>"
-
-
+   python airread_license.py verify --pub "<publicKeyB64>" --code "<A3...>"
 """
 
 import argparse
 import base64
 import json
 import secrets
-import time
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -44,15 +39,18 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-PREFIX = "AR1"
+PREFIX = "A3"
 ALLOWED_DAYS = {1, 7, 15, 30, 60, 180, 360}
+DAYS_BY_INDEX = [1, 7, 15, 30, 60, 180, 360]
+NONCE_LEN = 4
+SIG_LEN = 64
 
 
-def b64url_nopad_encode(b: bytes) -> str:
+def _b64url_nopad_encode(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).decode("utf-8").rstrip("=")
 
 
-def b64url_nopad_decode(s: str) -> bytes:
+def _b64url_nopad_decode(s: str) -> bytes:
     pad = "=" * ((4 - (len(s) % 4)) % 4)
     return base64.urlsafe_b64decode((s + pad).encode("utf-8"))
 
@@ -68,83 +66,49 @@ def gen_keypair_seed() -> tuple[str, str]:
     return private_seed_b64, public_key_b64
 
 
-def generate_license(private_seed_b64: str, days: int, now_ms: int | None = None) -> str:
-    return generate_signed_license(private_seed_b64, days, now_ms=now_ms)
+def generate_license(private_seed_b64: str, days: int) -> str:
+    return generate_signed_license(private_seed_b64, days)
 
 
-def generate_signed_license(private_seed_b64: str, days: int, now_ms: int | None = None) -> str:
+def generate_signed_license(private_seed_b64: str, days: int) -> str:
     if days not in ALLOWED_DAYS:
         raise ValueError(f"days not supported: {days}")
-
+    day_index = DAYS_BY_INDEX.index(days)
     seed = base64.b64decode(private_seed_b64.strip())
     if len(seed) != 32:
         raise ValueError("privateSeedB64 must be 32 bytes after base64 decoding")
-
     sk = Ed25519PrivateKey.from_private_bytes(seed)
-
-    if now_ms is None:
-        now_ms = int(time.time() * 1000)
-
-    iat = now_ms
-    exp = iat + 600 * 1000
-    nonce = b64url_nopad_encode(secrets.token_bytes(12))
-
-    payload = {
-        "v": 1,
-        "iat": iat,
-        "exp": exp,
-        "days": days,
-        "nonce": nonce,
-    }
-    payload_bytes = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    sig = sk.sign(payload_bytes)
-
-    p = b64url_nopad_encode(payload_bytes)
-    s = b64url_nopad_encode(sig)
-    return f"{PREFIX}.{p}.{s}"
-
-
-def generate_short_license(days: int) -> str:
-    raise ValueError("short license is disabled")
+    payload = bytes([day_index]) + secrets.token_bytes(NONCE_LEN)
+    sig = sk.sign(payload)
+    code = _b64url_nopad_encode(payload + sig)
+    return f"{PREFIX}{code}"
 
 
 def verify_and_parse(code: str, public_key_b64: str) -> dict:
     code = code.strip()
     if not code:
         raise ValueError("empty code")
-
     if not code.startswith(PREFIX):
         raise ValueError("prefix/version not supported")
-
-    parts = code.split(".")
-    if len(parts) != 3:
+    body = code[len(PREFIX) :]
+    if not body:
         raise ValueError("format error")
-    if parts[0] != PREFIX:
-        raise ValueError("prefix/version not supported")
-
-    payload_bytes = b64url_nopad_decode(parts[1])
-    sig_bytes = b64url_nopad_decode(parts[2])
-
-    payload = json.loads(payload_bytes.decode("utf-8"))
-    iat = int(payload.get("iat", 0))
-    exp = int(payload.get("exp", 0))
-    days = int(payload.get("days", 0))
-    nonce = str(payload.get("nonce", ""))
-
-    if iat <= 0 or exp <= 0 or not nonce:
-        raise ValueError("payload missing fields")
-    if days not in ALLOWED_DAYS:
+    data = _b64url_nopad_decode(body)
+    payload_len = 1 + NONCE_LEN
+    expected_len = payload_len + SIG_LEN
+    if len(data) != expected_len:
+        raise ValueError("format error")
+    payload = data[:payload_len]
+    sig = data[payload_len:]
+    day_index = payload[0]
+    if day_index >= len(DAYS_BY_INDEX):
         raise ValueError("days not supported")
-    if exp <= int(time.time() * 1000):
-        raise ValueError("expired")
-
     pk_bytes = base64.b64decode(public_key_b64.strip())
     if len(pk_bytes) != 32:
         raise ValueError("publicKeyB64 must be 32 bytes after base64 decoding")
     pk = Ed25519PublicKey.from_public_bytes(pk_bytes)
-
-    pk.verify(sig_bytes, payload_bytes)
-    return payload
+    pk.verify(sig, payload)
+    return {"days": DAYS_BY_INDEX[day_index]}
 
 
 def main():
@@ -152,7 +116,7 @@ def main():
 示例：
   python airread_license.py gen-keys --out keys.json
   python airread_license.py gen --seed "<privateSeedB64>" --days 1
-  python airread_license.py verify --pub "<publicKeyB64>" --code "<AR1....>"
+  python airread_license.py verify --pub "<publicKeyB64>" --code "<A3...>"
 """
     ap = argparse.ArgumentParser(
         description="AirRead license generator/verifier (Ed25519)",
@@ -167,8 +131,6 @@ def main():
     sp = sub.add_parser("gen", help="generate license code")
     sp.add_argument("--seed", required=True, help="privateSeedB64 (keep secret)")
     sp.add_argument("--days", type=int, required=True, choices=sorted(ALLOWED_DAYS))
-    sp.add_argument("--now-ms", type=int, default=0, help="optional fixed now (ms)")
-    # short code intentionally disabled
 
     sp = sub.add_parser("verify", help="verify and parse license code")
     sp.add_argument("--pub", required=True, help="publicKeyB64")
@@ -186,8 +148,7 @@ def main():
         return
 
     if args.cmd == "gen":
-        now_ms = args.now_ms if args.now_ms > 0 else None
-        code = generate_signed_license(args.seed, args.days, now_ms=now_ms)
+        code = generate_signed_license(args.seed, args.days)
         print(code)
         return
 

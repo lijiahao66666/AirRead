@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart';
 import 'package:cryptography/cryptography.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -355,6 +356,10 @@ class _TencentHunyuanSettingsPanelState
   static const String _redeemKeySalt = 'airread_redeem_v2';
   static const int _redeemCooldownMs = 8000;
   static final AesGcm _redeemCipher = AesGcm.with256bits();
+  static const String _scfUrl =
+      String.fromEnvironment('AIRREAD_TENCENT_SCF_URL', defaultValue: '');
+  static const String _scfToken =
+      String.fromEnvironment('AIRREAD_TENCENT_SCF_TOKEN', defaultValue: '');
 
   bool _showSaveSuccessPrompt = false;
   int? _voiceType;
@@ -568,6 +573,51 @@ class _TencentHunyuanSettingsPanelState
         '$uuid|${defaultTargetPlatform.toString()}|${kIsWeb ? 'web' : 'app'}';
     await prefs.setString(_kRedeemDeviceFingerprint, fp);
     return fp;
+  }
+
+  Uri _resolveRedeemScfUri() {
+    final raw = _scfUrl.trim();
+    if (raw.isEmpty) {
+      throw const LicenseException('兑换服务未配置');
+    }
+    return Uri.parse(raw);
+  }
+
+  Future<void> _redeemOnCloud({
+    required String licenseCode,
+    required String deviceId,
+  }) async {
+    final uri = _resolveRedeemScfUri();
+    final headers = <String, String>{
+      'Content-Type': 'application/json; charset=utf-8',
+    };
+    final token = _scfToken.trim();
+    if (token.isNotEmpty) {
+      headers['X-Airread-Token'] = token;
+    }
+    final resp = await http.post(
+      uri,
+      headers: headers,
+      body: jsonEncode(<String, dynamic>{
+        'license_code': licenseCode,
+        'device_id': deviceId,
+      }),
+    );
+    if (resp.statusCode == 409) {
+      throw const LicenseException('重复兑换');
+    }
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      String message = '兑换失败';
+      try {
+        final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+        if (decoded is Map) {
+          message = decoded['message']?.toString() ??
+              decoded['error']?.toString() ??
+              message;
+        }
+      } catch (_) {}
+      throw LicenseException(message);
+    }
   }
 
   Future<List<Map<String, dynamic>>> _loadRedeemedEntries({
@@ -1024,7 +1074,7 @@ class _TencentHunyuanSettingsPanelState
                   (e['hash']?.toString() ?? '') == codeHash &&
                   (e['fp']?.toString() ?? '') == fpHash);
               if (alreadyRedeemed) {
-                setDialogState(() => dialogHint = '已兑换');
+                setDialogState(() => dialogHint = '重复兑换');
                 return false;
               }
 
@@ -1042,6 +1092,10 @@ class _TencentHunyuanSettingsPanelState
 
               try {
                 final payload = await LicenseCodec.verifyAndParse(trimmed);
+                await _redeemOnCloud(
+                  licenseCode: trimmed,
+                  deviceId: fpHash,
+                );
                 final nowMs2 = DateTime.now().millisecondsSinceEpoch;
                 final baseMs = aiModel.onlineEntitlementExpiryMs > nowMs2
                     ? aiModel.onlineEntitlementExpiryMs

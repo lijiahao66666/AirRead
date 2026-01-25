@@ -18,8 +18,11 @@ class LicenseException implements Exception {
 }
 
 class LicenseCodec {
-  static const String _prefix = 'AR1';
+  static const String _prefixV3 = 'A3';
   static const Set<int> _allowedDays = {1, 7, 15, 30, 60, 180, 360};
+  static const List<int> _daysByIndex = [1, 7, 15, 30, 60, 180, 360];
+  static const int _v3NonceLength = 4;
+  static const int _v3SignatureLength = 64;
 
   static const String publicKeyB64 = String.fromEnvironment(
     'AIRREAD_LICENSE_PUBLIC_KEY_B64',
@@ -45,50 +48,34 @@ class LicenseCodec {
     final raw = code.trim();
     if (raw.isEmpty) throw const LicenseException('请输入卡密');
 
-    if (!raw.startsWith(_prefix)) {
+    if (!raw.startsWith(_prefixV3)) {
       throw const LicenseException('卡密版本不支持');
     }
+    return _verifyAndParseV3(raw);
+  }
 
-    final parts = raw.split('.');
-    if (parts.length != 3) throw const LicenseException('卡密格式错误');
-    if (parts[0] != _prefix) throw const LicenseException('卡密版本不支持');
-
-    late final List<int> payloadBytes;
-    late final List<int> sigBytes;
-    try {
-      payloadBytes = base64Url.decode(_padB64(parts[1]));
-      sigBytes = base64Url.decode(_padB64(parts[2]));
-    } catch (_) {
+  static Future<LicensePayload> _verifyAndParseV3(String raw) async {
+    final body = raw.substring(_prefixV3.length).replaceAll('-', '');
+    if (body.trim().isEmpty) throw const LicenseException('卡密格式错误');
+    final bytes = _base64UrlDecode(body);
+    final payloadLen = 1 + _v3NonceLength;
+    final expectedLen = payloadLen + _v3SignatureLength;
+    if (bytes.length != expectedLen) {
       throw const LicenseException('卡密内容无法解析');
     }
-
-    Map<String, dynamic> payload;
-    try {
-      payload = jsonDecode(utf8.decode(payloadBytes)) as Map<String, dynamic>;
-    } catch (_) {
-      throw const LicenseException('卡密内容无效');
-    }
-
-    final days = _asInt(payload['days']);
-
-    if (!_allowedDays.contains(days)) {
+    final payload = bytes.sublist(0, payloadLen);
+    final sigBytes = bytes.sublist(payloadLen);
+    final dayIndex = payload[0];
+    if (dayIndex < 0 || dayIndex >= _daysByIndex.length) {
       throw const LicenseException('卡密时长不支持');
     }
-
     final pk = _resolvePublicKey();
     final ok = await _algo.verify(
-      payloadBytes,
+      payload,
       signature: Signature(sigBytes, publicKey: pk),
     );
     if (!ok) throw const LicenseException('卡密校验失败');
-
-    final exp = _asInt(payload['exp']);
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    if (exp > 0 && nowMs > exp) {
-      throw const LicenseException('卡密已过期');
-    }
-
-    return LicensePayload(days: days);
+    return LicensePayload(days: _daysByIndex[dayIndex]);
   }
 
   static Future<String> generateFromSeed({
@@ -112,44 +99,39 @@ class LicenseCodec {
     if (!_allowedDays.contains(d)) {
       throw const LicenseException('days not supported');
     }
+    final dayIndex = _daysByIndex.indexOf(d);
+    if (dayIndex < 0) {
+      throw const LicenseException('days not supported');
+    }
     final seed = base64Decode(privateSeedB64.trim());
+    if (seed.length != 32) {
+      throw const LicenseException('privateSeedB64长度不正确');
+    }
+    now?.millisecondsSinceEpoch;
     final kp = await _algo.newKeyPairFromSeed(seed);
-    final t = (now ?? DateTime.now()).toUtc();
-    final issuedAtMs = t.millisecondsSinceEpoch;
-    final expiryAtMs =
-        t.add(const Duration(seconds: 600)).millisecondsSinceEpoch;
-    final nonceBytes = _randomBytes(12);
-    final nonce = base64Url.encode(nonceBytes).replaceAll('=', '');
-
-    final payloadObj = <String, dynamic>{
-      'v': 1,
-      'iat': issuedAtMs,
-      'exp': expiryAtMs,
-      'days': d,
-      'nonce': nonce,
-    };
-    final payloadBytes = utf8.encode(jsonEncode(payloadObj));
-    final sig = await _algo.sign(payloadBytes, keyPair: kp);
-
-    final p = base64Url.encode(payloadBytes).replaceAll('=', '');
-    final s = base64Url.encode(sig.bytes).replaceAll('=', '');
-    return '$_prefix.$p.$s';
-  }
-
-  static int _asInt(dynamic v) {
-    if (v is int) return v;
-    if (v is num) return v.toInt();
-    return int.tryParse((v ?? '').toString()) ?? 0;
-  }
-
-  static String _padB64(String s) {
-    final m = s.length % 4;
-    if (m == 0) return s;
-    return s + ('=' * (4 - m));
+    final nonceBytes = _randomBytes(_v3NonceLength);
+    final payload = <int>[dayIndex, ...nonceBytes];
+    final sig = await _algo.sign(payload, keyPair: kp);
+    final bytes = <int>[...payload, ...sig.bytes];
+    final body = _base64UrlEncode(bytes);
+    return '$_prefixV3$body';
   }
 
   static List<int> _randomBytes(int n) {
     final r = Random.secure();
     return List<int>.generate(n, (_) => r.nextInt(256));
+  }
+
+  static String _base64UrlEncode(List<int> bytes) {
+    return base64Url.encode(bytes).replaceAll('=', '');
+  }
+
+  static List<int> _base64UrlDecode(String input) {
+    final padded = input + ('=' * ((4 - input.length % 4) % 4));
+    try {
+      return base64Url.decode(padded);
+    } catch (_) {
+      throw const LicenseException('卡密内容无法解析');
+    }
   }
 }
