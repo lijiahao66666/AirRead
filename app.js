@@ -427,27 +427,28 @@ async function handleApiProxy(req, res, body) {
   // STRICT MODE: Only accept valid JWT tokens signed by JWT_SECRET
   const clientToken = (req.headers['x-airread-token'] || '').trim();
   const jwtSecret = (process.env.JWT_SECRET || '').trim();
+  const requiresAuth = action !== 'TextTranslate';
 
-  if (!jwtSecret) {
-    return sendJson(res, 500, { error: 'ServerMisconfiguration', message: 'JWT_SECRET must be set' });
-  }
-
-  const claim = verifyJwt(clientToken, jwtSecret);
-  if (!claim) {
-    return sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing JWT token' });
-  }
-
-  // Scope Check
-  const scopes = claim.scopes || [];
-  const isTtsRequest = action === 'TextToVoice';
-  if (isTtsRequest) {
-    if (!scopes.includes('tts')) {
-      return sendJson(res, 403, { error: 'Forbidden', message: 'TTS scope required' });
+  if (requiresAuth) {
+    if (!jwtSecret) {
+      return sendJson(res, 500, { error: 'ServerMisconfiguration', message: 'JWT_SECRET must be set' });
     }
-  } else {
-    // Default to 'vip' scope for other actions (Translation, QA)
-    if (!scopes.includes('vip')) {
-      return sendJson(res, 403, { error: 'Forbidden', message: 'VIP scope required' });
+
+    const claim = verifyJwt(clientToken, jwtSecret);
+    if (!claim) {
+      return sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing JWT token' });
+    }
+
+    const scopes = claim.scopes || [];
+    const isTtsRequest = action === 'TextToVoice';
+    if (isTtsRequest) {
+      if (!scopes.includes('tts')) {
+        return sendJson(res, 403, { error: 'Forbidden', message: 'TTS scope required' });
+      }
+    } else {
+      if (!scopes.includes('vip')) {
+        return sendJson(res, 403, { error: 'Forbidden', message: 'VIP scope required' });
+      }
     }
   }
 
