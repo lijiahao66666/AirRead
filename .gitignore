@@ -41,5 +41,7 @@ app.*.map.json
 .gradle/
 .vscode/
 .idea/
-.tmp_mnn_build/
+.tmp_mnn_build/MNN
 .gradle-cache/
+.tmp_mnn_build/MNN
+.tmp_mnn_build/mnn_android_arm64/.ninja_deps
