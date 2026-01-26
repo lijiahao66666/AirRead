@@ -43,5 +43,4 @@ app.*.map.json
 .idea/
 .tmp_mnn_build/MNN
 .gradle-cache/
-.tmp_mnn_build/MNN
-.tmp_mnn_build/mnn_android_arm64/.ninja_deps
+airread_license.py

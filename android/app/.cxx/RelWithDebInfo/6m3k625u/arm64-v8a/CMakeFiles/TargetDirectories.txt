@@ -1,3 +1,0 @@
-C:/Users/28679/codebuddyProjects/airread/android/app/.cxx/RelWithDebInfo/6m3k625u/arm64-v8a/CMakeFiles/mnn_bridge.dir
-C:/Users/28679/codebuddyProjects/airread/android/app/.cxx/RelWithDebInfo/6m3k625u/arm64-v8a/CMakeFiles/edit_cache.dir
-C:/Users/28679/codebuddyProjects/airread/android/app/.cxx/RelWithDebInfo/6m3k625u/arm64-v8a/CMakeFiles/rebuild_cache.dir
