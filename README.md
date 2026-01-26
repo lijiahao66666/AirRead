@@ -45,7 +45,7 @@
 
 ### 2. 获取代码
 ```bash
-git clone https://github.com/your-username/AirRead.git
+git clone https://github.com/lijiahao66666/AirRead.git
 cd AirRead
 flutter pub get
 ```
