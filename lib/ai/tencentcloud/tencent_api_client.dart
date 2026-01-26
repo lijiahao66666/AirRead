@@ -86,15 +86,24 @@ class TencentApiClient {
   static const String _envScfToken =
       String.fromEnvironment('AIRREAD_TENCENT_SCF_TOKEN', defaultValue: '');
 
-  static String? _dynamicToken;
-  static void setDynamicToken(String? token) => _dynamicToken = token;
+  static String? _vipToken;
+  static String? _ttsToken;
+
+  static void setTokens({String? vip, String? tts}) {
+    if (vip != null) _vipToken = vip;
+    if (tts != null) _ttsToken = tts;
+  }
 
   static Future<void> init() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('tencent_scf_jwt');
-      if (token != null && token.isNotEmpty) {
-        _dynamicToken = token;
+      final vip = prefs.getString('tencent_scf_jwt');
+      if (vip != null && vip.isNotEmpty) {
+        _vipToken = vip;
+      }
+      final tts = prefs.getString('tencent_scf_tts_jwt');
+      if (tts != null && tts.isNotEmpty) {
+        _ttsToken = tts;
       }
     } catch (_) {}
   }
@@ -110,6 +119,7 @@ class TencentApiClient {
 
   static const String _kOnlineEntitlementExpiryMs =
       'online_entitlement_expiry_ms';
+  static const String _kTtsEntitlementExpiryMs = 'tts_entitlement_expiry_ms';
 
   Future<void> _requireOnlineEntitlementForScf(String action) async {
     if (action != 'ChatCompletions' &&
@@ -118,12 +128,25 @@ class TencentApiClient {
       return;
     }
     final prefs = await SharedPreferences.getInstance();
-    final expiryMs = prefs.getInt(_kOnlineEntitlementExpiryMs) ?? 0;
+
+    String expiryKey;
+    String errorMsg;
+
+    if (action == 'TextToVoice') {
+      expiryKey = _kTtsEntitlementExpiryMs;
+      errorMsg = '在线大模型朗读需要单独购买时长';
+    } else {
+      expiryKey = _kOnlineEntitlementExpiryMs;
+      errorMsg = '在线大模型需要购买时长后使用';
+    }
+
+    final expiryMs = prefs.getInt(expiryKey) ?? 0;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     if ((expiryMs ~/ 1000) > (nowMs ~/ 1000)) return;
+
     throw TencentCloudException(
       code: 'EntitlementExpired',
-      message: '在线大模型需要购买时长后使用',
+      message: errorMsg,
     );
   }
 
@@ -266,7 +289,15 @@ class TencentApiClient {
           final headers = <String, String>{
             'Content-Type': 'application/json; charset=utf-8',
           };
-          final token = (_dynamicToken ?? _envScfToken).trim();
+
+          String? tokenSelector;
+          if (action == 'TextToVoice') {
+            tokenSelector = _ttsToken;
+          } else {
+            tokenSelector = _vipToken;
+          }
+          final token = (tokenSelector ?? _envScfToken).trim();
+
           if (token.isNotEmpty) {
             headers['X-Airread-Token'] = token;
           }
@@ -477,7 +508,15 @@ class TencentApiClient {
           'Content-Type': 'application/json; charset=utf-8',
           'Accept': 'text/event-stream',
         });
-        final token = (_dynamicToken ?? _envScfToken).trim();
+
+        String? token;
+        if (action == 'TextToVoice') {
+          token = _ttsToken;
+        } else {
+          token = _vipToken;
+        }
+        token = (token ?? _envScfToken).trim();
+
         if (token.isNotEmpty) {
           request.headers['X-Airread-Token'] = token;
         }

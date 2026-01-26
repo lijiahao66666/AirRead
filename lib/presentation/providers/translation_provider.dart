@@ -343,9 +343,8 @@ class TranslationProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
 
     final token = prefs.getString('tencent_scf_jwt');
-    if (token != null) {
-      TencentApiClient.setDynamicToken(token);
-    }
+    final ttsToken = prefs.getString('tencent_scf_tts_jwt');
+    TencentApiClient.setTokens(vip: token, tts: ttsToken);
 
     final mode = prefs.getString(_kCfgMode);
     final trMode = prefs.getString(_kTranslationMode);

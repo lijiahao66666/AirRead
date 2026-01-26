@@ -30,6 +30,7 @@ class AiModelProvider extends ChangeNotifier {
   static const _kModelSource = 'ai_model_source';
   static const _kQAContentScope = 'qa_content_scope';
   static const _kOnlineEntitlementExpiryMs = 'online_entitlement_expiry_ms';
+  static const _kTtsEntitlementExpiryMs = 'tts_entitlement_expiry_ms';
 
   static const MethodChannel _androidLogcatChannel =
       MethodChannel('airread/local_llm');
@@ -86,6 +87,7 @@ class AiModelProvider extends ChangeNotifier {
 
   QAContentScope _qaContentScope = QAContentScope.slidingWindow; // 默认滑动窗口
   int _onlineEntitlementExpiryMs = 0;
+  int _ttsEntitlementExpiryMs = 0;
 
   AiModelProvider() {
     _load();
@@ -188,6 +190,16 @@ class AiModelProvider extends ChangeNotifier {
         );
   bool get onlineEntitlementActive =>
       (_onlineEntitlementExpiryMs ~/ 1000) >
+      (DateTime.now().millisecondsSinceEpoch ~/ 1000);
+
+  int get ttsEntitlementExpiryMs => _ttsEntitlementExpiryMs;
+  DateTime? get ttsEntitlementExpiresAt => _ttsEntitlementExpiryMs <= 0
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(
+          (_ttsEntitlementExpiryMs ~/ 1000) * 1000,
+        );
+  bool get ttsEntitlementActive =>
+      (_ttsEntitlementExpiryMs ~/ 1000) >
       (DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
   bool get loaded => _loaded;
@@ -307,6 +319,15 @@ class AiModelProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kOnlineEntitlementExpiryMs, normalized);
+  }
+
+  Future<void> setTtsEntitlementExpiryMs(int expiryMs) async {
+    final normalized = (expiryMs ~/ 1000) * 1000;
+    if (_ttsEntitlementExpiryMs == normalized) return;
+    _ttsEntitlementExpiryMs = normalized;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kTtsEntitlementExpiryMs, normalized);
   }
 
   String _modelDirName(LocalLlmModelType type) {
@@ -1062,6 +1083,7 @@ class AiModelProvider extends ChangeNotifier {
     );
 
     _onlineEntitlementExpiryMs = prefs.getInt(_kOnlineEntitlementExpiryMs) ?? 0;
+    _ttsEntitlementExpiryMs = prefs.getInt(_kTtsEntitlementExpiryMs) ?? 0;
 
     _loaded = true;
     await refreshLocalModelStatus();

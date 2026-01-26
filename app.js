@@ -429,11 +429,6 @@ async function handleApiProxy(req, res, body) {
   const jwtSecret = (process.env.JWT_SECRET || '').trim();
 
   if (!jwtSecret) {
-    // If no secret is configured, the server is insecure. 
-    // In strict mode, we might want to deny everything, but for initial setup we might allow.
-    // However, user requested "latest solution" which implies security.
-    // Let's log a warning but block access to be safe, OR allow if it's clearly a dev environment.
-    // For now, if no secret, we return 500 to force configuration.
     return sendJson(res, 500, { error: 'ServerMisconfiguration', message: 'JWT_SECRET must be set' });
   }
 
@@ -442,9 +437,19 @@ async function handleApiProxy(req, res, body) {
     return sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing JWT token' });
   }
 
-  // Optional: Check claim.sub (deviceId) vs request body if needed
-  // const deviceId = (payload.device_id || '').trim();
-  // if (claim.sub && deviceId && claim.sub !== deviceId) ...
+  // Scope Check
+  const scopes = claim.scopes || [];
+  const isTtsRequest = action === 'TextToVoice';
+  if (isTtsRequest) {
+    if (!scopes.includes('tts')) {
+      return sendJson(res, 403, { error: 'Forbidden', message: 'TTS scope required' });
+    }
+  } else {
+    // Default to 'vip' scope for other actions (Translation, QA)
+    if (!scopes.includes('vip')) {
+      return sendJson(res, 403, { error: 'Forbidden', message: 'VIP scope required' });
+    }
+  }
 
   if (!isAllowedHost(host) || !isAllowedAction(action)) {
     return sendJson(res, 403, { error: 'Forbidden', message: 'Host or action not allowed' });
@@ -547,7 +552,15 @@ async function handleLicenseRedeem(req, res, body) {
   if (pubKeyB64) {
     try {
       const raw = licenseCode;
-      if (!raw.startsWith('A3')) throw new Error('Invalid version');
+      let type = 'vip'; // default
+      if (raw.startsWith('A3')) {
+        type = 'vip';
+      } else if (raw.startsWith('T3')) {
+        type = 'tts';
+      } else {
+        throw new Error('Invalid version');
+      }
+      
       const content = raw.substring(2);
       const bytes = base64UrlDecode(content);
       // Payload: 1 byte dayIndex + 4 bytes nonce = 5 bytes
@@ -563,6 +576,11 @@ async function handleLicenseRedeem(req, res, body) {
       if (!valid) {
         return sendJson(res, 403, { error: 'Invalid license signature' });
       }
+      
+      // Store type for token issuance
+      req.licenseType = type;
+      req.licenseIndex = payload[0];
+
     } catch (e) {
       console.error('License verification failed:', e);
       return sendJson(res, 400, { error: 'Invalid license format', details: e.message });
@@ -614,25 +632,29 @@ async function handleLicenseRedeem(req, res, body) {
     let token = null;
     const jwtSecret = process.env.JWT_SECRET;
     if (jwtSecret) {
-      // Calculate days from payload if possible, or just give a standard valid period
-      // For now, we assume the license is valid. 
-      // Ideally we should parse the dayIndex to set expiration, but for simplicity
-      // and since the client parses days, we can issue a token valid for 365 days 
-      // or match the license. Parsing dayIndex:
-      // const dayIndex = bytes[0];
-      // const days = [1, 7, 15, 30, 60, 180, 360][dayIndex] || 30;
-      // Let's re-parse simply to get days:
-      let days = 30;
-      try {
-        const bytes = base64UrlDecode(licenseCode.substring(2));
-        const dayIndex = bytes[0];
-        const map = [1, 7, 15, 30, 60, 180, 360];
-        if (dayIndex >= 0 && dayIndex < map.length) days = map[dayIndex];
-      } catch (_) {}
+      // Determine duration based on type and index
+      let durationSeconds = 30 * 86400; // default 30 days
+      const type = req.licenseType || 'vip';
+      const index = req.licenseIndex || 0;
       
-      // Token valid for license duration + buffer (e.g. 1 day)
-      const expSeconds = (days + 1) * 86400;
-      token = signJwt({ sub: deviceId, license: codeHash }, jwtSecret, expSeconds);
+      if (type === 'vip') {
+        // [1, 7, 15, 30, 60, 180, 360] days
+        const map = [1, 7, 15, 30, 60, 180, 360];
+        const days = (index >= 0 && index < map.length) ? map[index] : 30;
+        durationSeconds = (days + 1) * 86400; // Add buffer
+      } else if (type === 'tts') {
+        // [1, 5, 20, 50, 100] hours
+        const map = [1, 5, 20, 50, 100];
+        const hours = (index >= 0 && index < map.length) ? map[index] : 1;
+        // Buffer: Give extra 24 hours just in case, or tight?
+        // If user buys 1 hour, token expires in 1 hour.
+        // But if we want to be generous for connection issues, maybe 1 hour + buffer.
+        // Let's say exact hours + 1 hour buffer.
+        durationSeconds = (hours * 3600) + 3600;
+      }
+
+      const scopes = type === 'vip' ? ['vip'] : ['tts'];
+      token = signJwt({ sub: deviceId, license: codeHash, scopes }, jwtSecret, durationSeconds);
     }
 
     sendJson(res, 200, { message: 'License redeemed successfully', used: false, token });

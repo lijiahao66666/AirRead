@@ -39,9 +39,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-PREFIX = "A3"
+PREFIX_VIP = "A3"
+PREFIX_TTS = "T3"
 ALLOWED_DAYS = {1, 7, 15, 30, 60, 180, 360}
 DAYS_BY_INDEX = [1, 7, 15, 30, 60, 180, 360]
+ALLOWED_HOURS = {1, 5, 20, 50, 100}
+HOURS_BY_INDEX = [1, 5, 20, 50, 100]
 NONCE_LEN = 4
 SIG_LEN = 64
 
@@ -67,30 +70,46 @@ def gen_keypair_seed() -> tuple[str, str]:
 
 
 def generate_license(private_seed_b64: str, days: int) -> str:
-    return generate_signed_license(private_seed_b64, days)
+    return generate_signed_license(private_seed_b64, days, is_tts=False)
 
 
-def generate_signed_license(private_seed_b64: str, days: int) -> str:
-    if days not in ALLOWED_DAYS:
-        raise ValueError(f"days not supported: {days}")
-    day_index = DAYS_BY_INDEX.index(days)
+def generate_signed_license(private_seed_b64: str, value: int, is_tts: bool = False) -> str:
+    if is_tts:
+        if value not in ALLOWED_HOURS:
+            raise ValueError(f"hours not supported: {value}")
+        index = HOURS_BY_INDEX.index(value)
+        prefix = PREFIX_TTS
+    else:
+        if value not in ALLOWED_DAYS:
+            raise ValueError(f"days not supported: {value}")
+        index = DAYS_BY_INDEX.index(value)
+        prefix = PREFIX_VIP
+
     seed = base64.b64decode(private_seed_b64.strip())
     if len(seed) != 32:
         raise ValueError("privateSeedB64 must be 32 bytes after base64 decoding")
     sk = Ed25519PrivateKey.from_private_bytes(seed)
-    payload = bytes([day_index]) + secrets.token_bytes(NONCE_LEN)
+    payload = bytes([index]) + secrets.token_bytes(NONCE_LEN)
     sig = sk.sign(payload)
     code = _b64url_nopad_encode(payload + sig)
-    return f"{PREFIX}{code}"
+    return f"{prefix}{code}"
 
 
 def verify_and_parse(code: str, public_key_b64: str) -> dict:
     code = code.strip()
     if not code:
         raise ValueError("empty code")
-    if not code.startswith(PREFIX):
+    
+    is_tts = False
+    if code.startswith(PREFIX_VIP):
+        prefix = PREFIX_VIP
+    elif code.startswith(PREFIX_TTS):
+        prefix = PREFIX_TTS
+        is_tts = True
+    else:
         raise ValueError("prefix/version not supported")
-    body = code[len(PREFIX) :]
+
+    body = code[len(prefix) :]
     if not body:
         raise ValueError("format error")
     data = _b64url_nopad_decode(body)
@@ -100,15 +119,22 @@ def verify_and_parse(code: str, public_key_b64: str) -> dict:
         raise ValueError("format error")
     payload = data[:payload_len]
     sig = data[payload_len:]
-    day_index = payload[0]
-    if day_index >= len(DAYS_BY_INDEX):
-        raise ValueError("days not supported")
+    index = payload[0]
+    
     pk_bytes = base64.b64decode(public_key_b64.strip())
     if len(pk_bytes) != 32:
         raise ValueError("publicKeyB64 must be 32 bytes after base64 decoding")
     pk = Ed25519PublicKey.from_public_bytes(pk_bytes)
     pk.verify(sig, payload)
-    return {"days": DAYS_BY_INDEX[day_index]}
+    
+    if is_tts:
+        if index >= len(HOURS_BY_INDEX):
+            raise ValueError("hours index out of range")
+        return {"type": "tts", "hours": HOURS_BY_INDEX[index]}
+    else:
+        if index >= len(DAYS_BY_INDEX):
+            raise ValueError("days index out of range")
+        return {"type": "vip", "days": DAYS_BY_INDEX[index]}
 
 
 def main():
@@ -116,6 +142,7 @@ def main():
 示例：
   python airread_license.py gen-keys --out keys.json
   python airread_license.py gen --seed "<privateSeedB64>" --days 1
+  python airread_license.py gen --seed "<privateSeedB64>" --hours 10
   python airread_license.py verify --pub "<publicKeyB64>" --code "<A3...>"
 """
     ap = argparse.ArgumentParser(
@@ -130,7 +157,16 @@ def main():
 
     sp = sub.add_parser("gen", help="generate license code")
     sp.add_argument("--seed", required=True, help="privateSeedB64 (keep secret)")
-    sp.add_argument("--days", type=int, required=True, choices=sorted(ALLOWED_DAYS))
+    group = sp.add_mutually_exclusive_group(required=True)
+    group.add_argument("--days", type=int, choices=sorted(ALLOWED_DAYS), help="generate VIP license (days)")
+    group.add_argument("--hours", type=int, choices=sorted(ALLOWED_HOURS), help="generate TTS license (hours)")
+
+    sp = sub.add_parser("gen-batch", help="generate batch license codes")
+    sp.add_argument("--seed", required=True, help="privateSeedB64 (keep secret)")
+    sp.add_argument("--count", type=int, required=True, help="number of codes to generate")
+    group_batch = sp.add_mutually_exclusive_group(required=True)
+    group_batch.add_argument("--days", type=int, choices=sorted(ALLOWED_DAYS), help="generate VIP license (days)")
+    group_batch.add_argument("--hours", type=int, choices=sorted(ALLOWED_HOURS), help="generate TTS license (hours)")
 
     sp = sub.add_parser("verify", help="verify and parse license code")
     sp.add_argument("--pub", required=True, help="publicKeyB64")
@@ -148,8 +184,20 @@ def main():
         return
 
     if args.cmd == "gen":
-        code = generate_signed_license(args.seed, args.days)
+        if args.hours:
+            code = generate_signed_license(args.seed, args.hours, is_tts=True)
+        else:
+            code = generate_signed_license(args.seed, args.days, is_tts=False)
         print(code)
+        return
+
+    if args.cmd == "gen-batch":
+        for _ in range(args.count):
+            if args.hours:
+                code = generate_signed_license(args.seed, args.hours, is_tts=True)
+            else:
+                code = generate_signed_license(args.seed, args.days, is_tts=False)
+            print(code)
         return
 
     if args.cmd == "verify":

@@ -381,6 +381,12 @@ class _TencentHunyuanSettingsPanelState
     _PurchaseSku('360天', 'https://pay.ldxp.cn/item/9le79z'),
   ];
 
+  static const List<_PurchaseSku> _purchaseTtsSkus = <_PurchaseSku>[
+    _PurchaseSku('10小时', 'https://pay.ldxp.cn/item/tts_10h'),
+    _PurchaseSku('50小时', 'https://pay.ldxp.cn/item/tts_50h'),
+    _PurchaseSku('100小时', 'https://pay.ldxp.cn/item/tts_100h'),
+  ];
+
   static const Map<int, String> _ttsLargeModelVoices = {
     501000: '智斌（阅读男声）',
     501001: '智兰（资讯女声）',
@@ -1021,6 +1027,68 @@ class _TencentHunyuanSettingsPanelState
     );
   }
 
+  Widget _ttsRedeemRow(AiModelProvider aiModel, {required Color cardBg}) {
+    final expiresAt = aiModel.ttsEntitlementExpiresAt;
+    final active = aiModel.ttsEntitlementActive;
+    final expiryText =
+        active && expiresAt != null ? '到期时间：${_formatYmd(expiresAt)}' : '';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            TextButton(
+              onPressed: () => _showPurchaseDialog(
+                cardBg: cardBg,
+                title: '购买朗读时长',
+                skus: _purchaseTtsSkus,
+              ),
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 0),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: AppColors.techBlue,
+              ),
+              child: const Text(
+                '购买',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(width: 14),
+            TextButton(
+              onPressed: _redeemBusy
+                  ? null
+                  : () => _showRedeemDialog(aiModel, cardBg: cardBg),
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 0),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: AppColors.techBlue,
+              ),
+              child: Text(
+                _redeemBusy ? '处理中…' : '兑换',
+                style:
+                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+            if (expiryText.isNotEmpty) ...[
+              const SizedBox(width: 14),
+              Text(
+                expiryText,
+                style: TextStyle(
+                  color: widget.textColor.withOpacity(0.65),
+                  fontSize: 13,
+                  height: 1.2,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
   Future<void> _openExternalUrl(String url) async {
     final uri = Uri.parse(url);
     await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -1085,16 +1153,31 @@ class _TencentHunyuanSettingsPanelState
 
                 if (token != null && token.isNotEmpty) {
                   final prefs = await SharedPreferences.getInstance();
-                  await prefs.setString('tencent_scf_jwt', token);
-                  TencentApiClient.setDynamicToken(token);
+                  if (payload.isTts) {
+                    await prefs.setString('tencent_scf_tts_jwt', token);
+                    TencentApiClient.setTokens(tts: token);
+                  } else {
+                    await prefs.setString('tencent_scf_jwt', token);
+                    TencentApiClient.setTokens(vip: token);
+                  }
                 }
                 final nowMs2 = DateTime.now().millisecondsSinceEpoch;
-                final baseMs = aiModel.onlineEntitlementExpiryMs > nowMs2
-                    ? aiModel.onlineEntitlementExpiryMs
-                    : nowMs2;
-                final merged =
-                    baseMs + Duration(days: payload.days).inMilliseconds;
-                await aiModel.setOnlineEntitlementExpiryMs(merged);
+
+                if (payload.isTts) {
+                  final baseMs = aiModel.ttsEntitlementExpiryMs > nowMs2
+                      ? aiModel.ttsEntitlementExpiryMs
+                      : nowMs2;
+                  final merged =
+                      baseMs + Duration(hours: payload.hours).inMilliseconds;
+                  await aiModel.setTtsEntitlementExpiryMs(merged);
+                } else {
+                  final baseMs = aiModel.onlineEntitlementExpiryMs > nowMs2
+                      ? aiModel.onlineEntitlementExpiryMs
+                      : nowMs2;
+                  final merged =
+                      baseMs + Duration(days: payload.days).inMilliseconds;
+                  await aiModel.setOnlineEntitlementExpiryMs(merged);
+                }
 
                 final updated =
                     List<Map<String, dynamic>>.from(redeemed, growable: true);
@@ -1232,8 +1315,13 @@ class _TencentHunyuanSettingsPanelState
     );
   }
 
-  Future<void> _showPurchaseDialog({required Color cardBg}) async {
+  Future<void> _showPurchaseDialog({
+    required Color cardBg,
+    String title = '购买时长',
+    List<_PurchaseSku>? skus,
+  }) async {
     final dialogBg = widget.isDark ? const Color(0xFF262626) : Colors.white;
+    final items = skus ?? _purchaseSkus;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -1241,7 +1329,7 @@ class _TencentHunyuanSettingsPanelState
           backgroundColor: dialogBg,
           surfaceTintColor: Colors.transparent,
           title: Text(
-            '购买时长',
+            title,
             style: TextStyle(color: widget.textColor, fontSize: 14),
           ),
           content: SizedBox(
@@ -1249,7 +1337,7 @@ class _TencentHunyuanSettingsPanelState
             child: ListView(
               shrinkWrap: true,
               children: [
-                for (final sku in _purchaseSkus)
+                for (final sku in items)
                   ListTile(
                     dense: true,
                     textColor: widget.textColor,
@@ -1844,15 +1932,27 @@ class _TencentHunyuanSettingsPanelState
                   ] else ...[
                     Text(
                       '使用腾讯大模型朗读'
-                      '${aiModel.onlineEntitlementActive ? '' : '，需要购买时长后使用'}',
+                      '${aiModel.ttsEntitlementActive ? '' : '，需要购买时长后使用'}',
                       style: TextStyle(
                         color: widget.textColor.withOpacity(0.65),
                         fontSize: 13,
                         height: 1.35,
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '部分机型本地朗读效果已较好，大模型朗读价格较高，请按需购买',
+                      style: TextStyle(
+                        color: widget.isDark
+                            ? const Color(0xFFE6A23C)
+                            : const Color(0xFFF57C00),
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                     const SizedBox(height: 10),
-                    _redeemRow(aiModel, cardBg: cardBg),
+                    _ttsRedeemRow(aiModel, cardBg: cardBg),
                   ],
                 ],
               ],

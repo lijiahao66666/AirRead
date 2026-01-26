@@ -3,10 +3,15 @@ import 'dart:math';
 import 'package:cryptography/cryptography.dart';
 
 class LicensePayload {
-  final int days;
+  final int value;
+  final bool isTts;
+
+  int get days => isTts ? 0 : value;
+  int get hours => isTts ? value : 0;
 
   const LicensePayload({
-    required this.days,
+    required this.value,
+    this.isTts = false,
   });
 }
 
@@ -19,8 +24,14 @@ class LicenseException implements Exception {
 
 class LicenseCodec {
   static const String _prefixV3 = 'A3';
+  static const String _prefixTts = 'T3';
+  
   static const Set<int> _allowedDays = {1, 7, 15, 30, 60, 180, 360};
   static const List<int> _daysByIndex = [1, 7, 15, 30, 60, 180, 360];
+  
+  static const Set<int> _allowedHours = {10, 100, 500, 1000};
+  static const List<int> _hoursByIndex = [10, 100, 500, 1000];
+  
   static const int _v3NonceLength = 4;
   static const int _v3SignatureLength = 64;
 
@@ -48,14 +59,18 @@ class LicenseCodec {
     final raw = code.trim();
     if (raw.isEmpty) throw const LicenseException('请输入卡密');
 
-    if (!raw.startsWith(_prefixV3)) {
+    if (raw.startsWith(_prefixV3)) {
+      return _verifyAndParseV3(raw, isTts: false);
+    } else if (raw.startsWith(_prefixTts)) {
+      return _verifyAndParseV3(raw, isTts: true);
+    } else {
       throw const LicenseException('卡密版本不支持');
     }
-    return _verifyAndParseV3(raw);
   }
 
-  static Future<LicensePayload> _verifyAndParseV3(String raw) async {
-    final body = raw.substring(_prefixV3.length).replaceAll(RegExp(r'\s+'), '');
+  static Future<LicensePayload> _verifyAndParseV3(String raw, {required bool isTts}) async {
+    final prefix = isTts ? _prefixTts : _prefixV3;
+    final body = raw.substring(prefix.length).replaceAll(RegExp(r'\s+'), '');
     if (body.isEmpty) throw const LicenseException('卡密格式错误');
     final bytes = _base64UrlDecode(body);
     const int payloadLen = 1 + _v3NonceLength;
@@ -65,17 +80,28 @@ class LicenseCodec {
     }
     final payload = bytes.sublist(0, payloadLen);
     final sigBytes = bytes.sublist(payloadLen);
-    final dayIndex = payload[0];
-    if (dayIndex < 0 || dayIndex >= _daysByIndex.length) {
-      throw const LicenseException('卡密时长不支持');
+    final index = payload[0];
+    
+    int value;
+    if (isTts) {
+      if (index < 0 || index >= _hoursByIndex.length) {
+        throw const LicenseException('卡密时长(小时)不支持');
+      }
+      value = _hoursByIndex[index];
+    } else {
+      if (index < 0 || index >= _daysByIndex.length) {
+        throw const LicenseException('卡密时长(天)不支持');
+      }
+      value = _daysByIndex[index];
     }
+
     final pk = _resolvePublicKey();
     final ok = await _algo.verify(
       payload,
       signature: Signature(sigBytes, publicKey: pk),
     );
     if (!ok) throw const LicenseException('卡密校验失败');
-    return LicensePayload(days: _daysByIndex[dayIndex]);
+    return LicensePayload(value: value, isTts: isTts);
   }
 
   static Future<String> generateFromSeed({
