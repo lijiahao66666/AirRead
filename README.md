@@ -84,7 +84,7 @@ flutter build apk --dart-define=AIRREAD_TENCENT_SCF_URL=https://your-scf-url.ten
 | `TENCENT_SECRET_ID` | 腾讯云 SecretId (用于调用 AI 接口) | `AKIDxxxx...` |
 | `TENCENT_SECRET_KEY` | 腾讯云 SecretKey | `xxxxxx...` |
 | `JWT_SECRET` | 自定义的 JWT 签名密钥 (用于保护接口) | `MySuperSecretKey` |
-| `LICENSE_PUBLIC_KEY` | 卡密验证公钥 (Base64) | `Z+RpD1T...` (见下文) |
+| `LICENSE_PUBLIC_KEY` | 卡密验证公钥 (Base64) | `Z+RpD1T...`  |
 | `BUCKET_NAME` | COS 存储桶名称 (用于防重放) | `license-1250000000` |
 | `REGION` | COS 地域 | `ap-guangzhou` |
 
