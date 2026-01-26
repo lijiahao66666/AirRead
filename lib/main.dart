@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import 'ai/tencentcloud/tencent_credentials.dart';
+import 'ai/tencentcloud/tencent_api_client.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/pages/bookshelf/bookshelf_page.dart';
 import 'presentation/providers/ai_model_provider.dart';
