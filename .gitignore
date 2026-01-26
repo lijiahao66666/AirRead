@@ -44,3 +44,11 @@ app.*.map.json
 .tmp_mnn_build/MNN
 .gradle-cache/
 airread_license.py
+
+# Native build artifacts
+.cxx/
+android/app/.cxx/
+.tmp_mnn*
+
+# AI Assistant tools
+.codebuddy/
