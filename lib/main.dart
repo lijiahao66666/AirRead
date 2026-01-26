@@ -60,6 +60,8 @@ Future<void> main() async {
   }
   setUserTencentKeysEnabledOverride(enabled);
 
+  await TencentApiClient.init();
+
   runApp(
     MultiProvider(
       providers: [

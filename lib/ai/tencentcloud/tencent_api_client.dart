@@ -89,6 +89,16 @@ class TencentApiClient {
   static String? _dynamicToken;
   static void setDynamicToken(String? token) => _dynamicToken = token;
 
+  static Future<void> init() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('tencent_scf_jwt');
+      if (token != null && token.isNotEmpty) {
+        _dynamicToken = token;
+      }
+    } catch (_) {}
+  }
+
   static bool get hasScfProxyUrl => _scfUrl.trim().isNotEmpty;
 
   static final _ConcurrencyGate _chatTranslationsGate =
