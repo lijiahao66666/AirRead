@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/app_colors.dart';
 
 class AirTitle extends StatelessWidget {
@@ -14,12 +13,12 @@ class AirTitle extends StatelessWidget {
         end: Alignment.bottomCenter,
       ).createShader(bounds),
       child: Text(
-        'AirRead',
-        style: GoogleFonts.righteous(
+        '灵阅',
+        style: const TextStyle(
           fontSize: 28,
-          fontWeight: FontWeight.w500,
+          fontWeight: FontWeight.w600,
           color: Colors.white, // Required for ShaderMask
-          letterSpacing: 1.5,
+          letterSpacing: 4.0,
         ),
       ),
     );

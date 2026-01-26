@@ -83,8 +83,11 @@ class TencentApiClient {
 
   static const String _scfUrl =
       String.fromEnvironment('AIRREAD_TENCENT_SCF_URL', defaultValue: '');
-  static const String _scfToken =
+  static const String _envScfToken =
       String.fromEnvironment('AIRREAD_TENCENT_SCF_TOKEN', defaultValue: '');
+
+  static String? _dynamicToken;
+  static void setDynamicToken(String? token) => _dynamicToken = token;
 
   static bool get hasScfProxyUrl => _scfUrl.trim().isNotEmpty;
 
@@ -253,7 +256,7 @@ class TencentApiClient {
           final headers = <String, String>{
             'Content-Type': 'application/json; charset=utf-8',
           };
-          final token = _scfToken.trim();
+          final token = (_dynamicToken ?? _envScfToken).trim();
           if (token.isNotEmpty) {
             headers['X-Airread-Token'] = token;
           }
@@ -464,7 +467,7 @@ class TencentApiClient {
           'Content-Type': 'application/json; charset=utf-8',
           'Accept': 'text/event-stream',
         });
-        final token = _scfToken.trim();
+        final token = (_dynamicToken ?? _envScfToken).trim();
         if (token.isNotEmpty) {
           request.headers['X-Airread-Token'] = token;
         }

@@ -17,6 +17,7 @@ import '../../ai/reading/reading_context_service.dart';
 import '../../ai/reading/qa_service.dart';
 export '../../ai/reading/qa_service.dart' show QAStreamChunk, QAType;
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
+import '../../ai/tencentcloud/tencent_api_client.dart';
 import '../../ai/tencentcloud/tencent_credentials.dart';
 import '../../ai/translation/translation_types.dart';
 import '../../core/theme/app_colors.dart';
@@ -581,7 +582,7 @@ class _TencentHunyuanSettingsPanelState
     return Uri.parse(raw);
   }
 
-  Future<void> _redeemOnCloud({
+  Future<String?> _redeemOnCloud({
     required String licenseCode,
     required String deviceId,
   }) async {
@@ -616,6 +617,14 @@ class _TencentHunyuanSettingsPanelState
       } catch (_) {}
       throw LicenseException(message);
     }
+
+    try {
+      final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+      if (decoded is Map) {
+        return decoded['token']?.toString();
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<List<Map<String, dynamic>>> _loadRedeemedEntries({
@@ -1069,10 +1078,16 @@ class _TencentHunyuanSettingsPanelState
 
               try {
                 final payload = await LicenseCodec.verifyAndParse(trimmed);
-                await _redeemOnCloud(
+                final token = await _redeemOnCloud(
                   licenseCode: trimmed,
                   deviceId: fpHash,
                 );
+
+                if (token != null && token.isNotEmpty) {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setString('tencent_scf_jwt', token);
+                  TencentApiClient.setDynamicToken(token);
+                }
                 final nowMs2 = DateTime.now().millisecondsSinceEpoch;
                 final baseMs = aiModel.onlineEntitlementExpiryMs > nowMs2
                     ? aiModel.onlineEntitlementExpiryMs

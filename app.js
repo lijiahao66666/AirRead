@@ -4,6 +4,91 @@ const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 
+// --- Helper: Ed25519 & JWT ---
+function getEd25519PublicKey(base64Key) {
+  // Convert raw 32-byte key to SPKI format for Node.js crypto
+  // OID: 1.3.101.112 (Ed25519)
+  // Prefix: Sequence(42) { Sequence(5) { OID(3) }, BitString(33) { 0x00, ... } }
+  // Hex: 30 2a 30 05 06 03 2b 65 70 03 21 00
+  const prefix = Buffer.from('302a300506032b6570032100', 'hex');
+  const rawKey = Buffer.from(base64Key, 'base64');
+  if (rawKey.length !== 32) {
+    throw new Error('Invalid Ed25519 public key length');
+  }
+  const der = Buffer.concat([prefix, rawKey]);
+  return crypto.createPublicKey({
+    key: der,
+    format: 'der',
+    type: 'spki',
+  });
+}
+
+function verifyEd25519(data, signature, publicKey) {
+  return crypto.verify(null, data, publicKey, signature);
+}
+
+function base64UrlEncode(str) {
+  return Buffer.from(str)
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
+function base64UrlDecode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  return Buffer.from(str, 'base64');
+}
+
+function signJwt(payload, secret, expiresInSeconds) {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const claim = Object.assign({}, payload, {
+    iat: now,
+    exp: now + expiresInSeconds,
+  });
+  
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedPayload = base64UrlEncode(JSON.stringify(claim));
+  const signatureInput = `${encodedHeader}.${encodedPayload}`;
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(signatureInput)
+    .digest('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+    
+  return `${signatureInput}.${signature}`;
+}
+
+function verifyJwt(token, secret) {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  
+  const [encodedHeader, encodedPayload, signature] = parts;
+  const signatureInput = `${encodedHeader}.${encodedPayload}`;
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(signatureInput)
+    .digest('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+    
+  if (signature !== expectedSignature) return null;
+  
+  try {
+    const payload = JSON.parse(base64UrlDecode(encodedPayload).toString('utf8'));
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) return null;
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+
 /*
  * AirRead Unified SCF Function
  * 
@@ -338,6 +423,29 @@ async function handleApiProxy(req, res, body) {
     return sendJson(res, 400, { error: 'BadRequest', message: 'Missing required fields' });
   }
 
+  // --- Security Check: Auth Token ---
+  // STRICT MODE: Only accept valid JWT tokens signed by JWT_SECRET
+  const clientToken = (req.headers['x-airread-token'] || '').trim();
+  const jwtSecret = (process.env.JWT_SECRET || '').trim();
+
+  if (!jwtSecret) {
+    // If no secret is configured, the server is insecure. 
+    // In strict mode, we might want to deny everything, but for initial setup we might allow.
+    // However, user requested "latest solution" which implies security.
+    // Let's log a warning but block access to be safe, OR allow if it's clearly a dev environment.
+    // For now, if no secret, we return 500 to force configuration.
+    return sendJson(res, 500, { error: 'ServerMisconfiguration', message: 'JWT_SECRET must be set' });
+  }
+
+  const claim = verifyJwt(clientToken, jwtSecret);
+  if (!claim) {
+    return sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing JWT token' });
+  }
+
+  // Optional: Check claim.sub (deviceId) vs request body if needed
+  // const deviceId = (payload.device_id || '').trim();
+  // if (claim.sub && deviceId && claim.sub !== deviceId) ...
+
   if (!isAllowedHost(host) || !isAllowedAction(action)) {
     return sendJson(res, 403, { error: 'Forbidden', message: 'Host or action not allowed' });
   }
@@ -434,6 +542,33 @@ async function handleLicenseRedeem(req, res, body) {
     return sendJson(res, 400, { error: 'Missing license_code' });
   }
 
+  // --- Security Check: Signature Verification ---
+  const pubKeyB64 = process.env.LICENSE_PUBLIC_KEY;
+  if (pubKeyB64) {
+    try {
+      const raw = licenseCode;
+      if (!raw.startsWith('A3')) throw new Error('Invalid version');
+      const content = raw.substring(2);
+      const bytes = base64UrlDecode(content);
+      // Payload: 1 byte dayIndex + 4 bytes nonce = 5 bytes
+      const payloadLen = 5; 
+      const sigLen = 64;
+      if (bytes.length !== payloadLen + sigLen) throw new Error('Invalid length');
+      
+      const payload = bytes.slice(0, payloadLen);
+      const signature = bytes.slice(payloadLen);
+      
+      const publicKey = getEd25519PublicKey(pubKeyB64);
+      const valid = verifyEd25519(payload, signature, publicKey);
+      if (!valid) {
+        return sendJson(res, 403, { error: 'Invalid license signature' });
+      }
+    } catch (e) {
+      console.error('License verification failed:', e);
+      return sendJson(res, 400, { error: 'Invalid license format', details: e.message });
+    }
+  }
+
   const bucket = process.env.BUCKET_NAME;
   const region = process.env.REGION;
   const credentials = body.cos_credentials || body.cosCredentials || null;
@@ -475,7 +610,32 @@ async function handleLicenseRedeem(req, res, body) {
       throw new Error(`COS Put Error: ${putStatus}`);
     }
 
-    sendJson(res, 200, { message: 'License redeemed successfully', used: false });
+    // --- Issue Token ---
+    let token = null;
+    const jwtSecret = process.env.JWT_SECRET;
+    if (jwtSecret) {
+      // Calculate days from payload if possible, or just give a standard valid period
+      // For now, we assume the license is valid. 
+      // Ideally we should parse the dayIndex to set expiration, but for simplicity
+      // and since the client parses days, we can issue a token valid for 365 days 
+      // or match the license. Parsing dayIndex:
+      // const dayIndex = bytes[0];
+      // const days = [1, 7, 15, 30, 60, 180, 360][dayIndex] || 30;
+      // Let's re-parse simply to get days:
+      let days = 30;
+      try {
+        const bytes = base64UrlDecode(licenseCode.substring(2));
+        const dayIndex = bytes[0];
+        const map = [1, 7, 15, 30, 60, 180, 360];
+        if (dayIndex >= 0 && dayIndex < map.length) days = map[dayIndex];
+      } catch (_) {}
+      
+      // Token valid for license duration + buffer (e.g. 1 day)
+      const expSeconds = (days + 1) * 86400;
+      token = signJwt({ sub: deviceId, license: codeHash }, jwtSecret, expSeconds);
+    }
+
+    sendJson(res, 200, { message: 'License redeemed successfully', used: false, token });
 
   } catch (err) {
     sendJson(res, 500, { error: 'COS Error', message: String(err.message || err) });
