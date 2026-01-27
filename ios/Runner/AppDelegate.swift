@@ -108,7 +108,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
         case "init":
           let args = call.arguments as? [String: Any]
           let modelPath = args?["modelPath"] as? String ?? ""
-          DispatchQueue.global(qos: .userInitiated).async {
+          DispatchQueue.global(qos: .userInitiated).async(execute: {
             var err: NSError?
             MnnLlmBridge.initialize(withModelPath: modelPath, error: &err)
             DispatchQueue.main.async {
@@ -118,7 +118,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
                 result(nil)
               }
             }
-          }
+          })
         case "chatOnce":
           let args = call.arguments as? [String: Any]
           let modelPath = args?["modelPath"] as? String ?? ""
@@ -132,7 +132,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           let presencePenalty = (args?["presence_penalty"] as? NSNumber)?.doubleValue ?? -1.0
           let repetitionPenalty = (args?["repetition_penalty"] as? NSNumber)?.doubleValue ?? -1.0
           let enableThinking = (args?["enable_thinking"] as? Bool).map { $0 ? 1 : 0 } ?? -1
-          DispatchQueue.global(qos: .userInitiated).async {
+          DispatchQueue.global(qos: .userInitiated).async(execute: {
             var initErr: NSError?
             MnnLlmBridge.initialize(withModelPath: modelPath, error: &initErr)
             if let initErr = initErr {
@@ -162,7 +162,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
                 result(resp)
               }
             }
-          }
+          })
         case "chatStream":
           let args = call.arguments as? [String: Any]
           let modelPath = args?["modelPath"] as? String ?? ""
@@ -176,7 +176,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           let presencePenalty = (args?["presence_penalty"] as? NSNumber)?.doubleValue ?? -1.0
           let repetitionPenalty = (args?["repetition_penalty"] as? NSNumber)?.doubleValue ?? -1.0
           let enableThinking = (args?["enable_thinking"] as? Bool).map { $0 ? 1 : 0 } ?? -1
-          DispatchQueue.global(qos: .userInitiated).async {
+          DispatchQueue.global(qos: .userInitiated).async(execute: {
             var initErr: NSError?
             MnnLlmBridge.initialize(withModelPath: modelPath, error: &initErr)
             if let initErr = initErr {
@@ -197,11 +197,11 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
               presencePenalty: presencePenalty,
               repetitionPenalty: repetitionPenalty,
               enableThinking: enableThinking,
-              onChunk: { chunk in
+              onChunk: { (chunk: String) in
               DispatchQueue.main.async {
                 streamHandler.send(["type": "chunk", "data": chunk])
               }
-            }, onDone: { err in
+            }, onDone: { (err: NSError?) in
               DispatchQueue.main.async {
                 if let err = err {
                   streamHandler.send(["type": "error", "message": err.localizedDescription])
@@ -209,14 +209,14 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
                 streamHandler.send(["type": "done"])
               }
             })
-          }
+          })
           result(nil)
         case "cancelChatStream":
           streamHandler.cancel()
           MnnLlmBridge.cancelCurrentStream()
           result(nil)
         case "dumpConfig":
-          DispatchQueue.global(qos: .userInitiated).async {
+          DispatchQueue.global(qos: .userInitiated).async(execute: {
             var err: NSError?
             let cfg = MnnLlmBridge.dumpConfig(withError: &err)
             DispatchQueue.main.async {
@@ -226,7 +226,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
                 result(cfg)
               }
             }
-          }
+          })
         default:
           result(FlutterMethodNotImplemented)
         }
