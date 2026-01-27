@@ -644,8 +644,8 @@ async function handleLicenseRedeem(req, res, body) {
         const days = (index >= 0 && index < map.length) ? map[index] : 30;
         durationSeconds = (days + 1) * 86400; // Add buffer
       } else if (type === 'tts') {
-        // [1, 5, 20, 50, 100] hours
-        const map = [1, 5, 20, 50, 100];
+        // [1, 5, 10, 20, 50, 100] hours
+        const map = [1, 5, 10, 20, 50, 100];
         const hours = (index >= 0 && index < map.length) ? map[index] : 1;
         // Buffer: Give extra 24 hours just in case, or tight?
         // If user buys 1 hour, token expires in 1 hour.

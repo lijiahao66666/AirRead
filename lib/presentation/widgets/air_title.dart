@@ -12,9 +12,9 @@ class AirTitle extends StatelessWidget {
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
       ).createShader(bounds),
-      child: Text(
+      child: const Text(
         '灵阅',
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 28,
           fontWeight: FontWeight.w600,
           color: Colors.white, // Required for ShaderMask

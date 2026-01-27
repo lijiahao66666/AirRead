@@ -382,9 +382,12 @@ class _TencentHunyuanSettingsPanelState
   ];
 
   static const List<_PurchaseSku> _purchaseTtsSkus = <_PurchaseSku>[
-    _PurchaseSku('10小时', 'https://pay.ldxp.cn/item/tts_10h'),
-    _PurchaseSku('50小时', 'https://pay.ldxp.cn/item/tts_50h'),
-    _PurchaseSku('100小时', 'https://pay.ldxp.cn/item/tts_100h'),
+    _PurchaseSku('1小时', 'https://pay.ldxp.cn/item/zy1hyt'),
+    _PurchaseSku('5小时', 'https://pay.ldxp.cn/item/ajnlvp'),
+    _PurchaseSku('10小时', 'https://pay.ldxp.cn/item/b5p0id'),
+    _PurchaseSku('20小时', 'https://pay.ldxp.cn/item/f2ezmi'),
+    _PurchaseSku('50小时', 'https://pay.ldxp.cn/item/pwaixm'),
+    _PurchaseSku('100小时', 'https://pay.ldxp.cn/item/4dp4xf'),
   ];
 
   static const Map<int, String> _ttsLargeModelVoices = {

@@ -25,13 +25,12 @@ class LicenseException implements Exception {
 class LicenseCodec {
   static const String _prefixV3 = 'A3';
   static const String _prefixTts = 'T3';
-  
+
   static const Set<int> _allowedDays = {1, 7, 15, 30, 60, 180, 360};
   static const List<int> _daysByIndex = [1, 7, 15, 30, 60, 180, 360];
-  
-  static const Set<int> _allowedHours = {10, 100, 500, 1000};
-  static const List<int> _hoursByIndex = [10, 100, 500, 1000];
-  
+
+  static const List<int> _hoursByIndex = [1, 5, 10, 20, 50, 100];
+
   static const int _v3NonceLength = 4;
   static const int _v3SignatureLength = 64;
 
@@ -68,7 +67,8 @@ class LicenseCodec {
     }
   }
 
-  static Future<LicensePayload> _verifyAndParseV3(String raw, {required bool isTts}) async {
+  static Future<LicensePayload> _verifyAndParseV3(String raw,
+      {required bool isTts}) async {
     final prefix = isTts ? _prefixTts : _prefixV3;
     final body = raw.substring(prefix.length).replaceAll(RegExp(r'\s+'), '');
     if (body.isEmpty) throw const LicenseException('卡密格式错误');
@@ -81,7 +81,7 @@ class LicenseCodec {
     final payload = bytes.sublist(0, payloadLen);
     final sigBytes = bytes.sublist(payloadLen);
     final index = payload[0];
-    
+
     int value;
     if (isTts) {
       if (index < 0 || index >= _hoursByIndex.length) {
