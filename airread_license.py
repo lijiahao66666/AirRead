@@ -1,13 +1,13 @@
 """
-AirRead 卡密生成/校验脚本（签名版）
+AirRead 积分卡密生成/校验脚本（签名版）
 
 目的
 - 你离线用私钥材料（privateSeedB64）生成卡密
 - App 端只内置公钥（publicKeyB64）用于验签
 
 卡密格式
-- A3 + Base64Url(payload + signature)
-- payload = daysIndex(1字节) + nonce(4字节)
+- P3 + Base64Url(payload + signature)
+- payload = pointsIndex(1字节) + nonce(4字节)
 
 安装依赖
 - Python 3.9+
@@ -20,18 +20,18 @@ AirRead 卡密生成/校验脚本（签名版）
      - privateSeedB64：保密保存（发卡端/你个人电脑）
      - publicKeyB64：给 App 构建注入
 
-2) 生成卡密（1/7/15/30/60/180/360 天）
-   python airread_license.py gen --seed "<privateSeedB64>" --days 1
-   python airread_license.py gen --seed "<privateSeedB64>" --days 30
+2) 生成卡密（积分：50000/100000/200000/500000/1000000）
+   python airread_license.py gen --seed "<privateSeedB64>" --points 50000
 
 3) 校验卡密（调试用）
-   python airread_license.py verify --pub "<publicKeyB64>" --code "<A3...>"
+   python airread_license.py verify --pub "<publicKeyB64>" --code "<P3...>"
 """
 
 import argparse
 import base64
 import json
 import secrets
+import sys
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -39,12 +39,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-PREFIX_VIP = "A3"
-PREFIX_TTS = "T3"
-ALLOWED_DAYS = {1, 7, 15, 30, 60, 180, 360}
-DAYS_BY_INDEX = [1, 7, 15, 30, 60, 180, 360]
-ALLOWED_HOURS = {1, 5, 10, 20, 50, 100}
-HOURS_BY_INDEX = [1, 5, 10, 20, 50, 100]
+PREFIX_POINTS = "P3"
+ALLOWED_POINTS = {50000, 100000, 200000, 500000, 1000000}
+POINTS_BY_INDEX = [50000, 100000, 200000, 500000, 1000000]
 NONCE_LEN = 4
 SIG_LEN = 64
 
@@ -69,21 +66,11 @@ def gen_keypair_seed() -> tuple[str, str]:
     return private_seed_b64, public_key_b64
 
 
-def generate_license(private_seed_b64: str, days: int) -> str:
-    return generate_signed_license(private_seed_b64, days, is_tts=False)
-
-
-def generate_signed_license(private_seed_b64: str, value: int, is_tts: bool = False) -> str:
-    if is_tts:
-        if value not in ALLOWED_HOURS:
-            raise ValueError(f"hours not supported: {value}")
-        index = HOURS_BY_INDEX.index(value)
-        prefix = PREFIX_TTS
-    else:
-        if value not in ALLOWED_DAYS:
-            raise ValueError(f"days not supported: {value}")
-        index = DAYS_BY_INDEX.index(value)
-        prefix = PREFIX_VIP
+def generate_signed_license(private_seed_b64: str, points: int) -> str:
+    if points not in ALLOWED_POINTS:
+        raise ValueError(f"points not supported: {points}")
+    index = POINTS_BY_INDEX.index(points)
+    prefix = PREFIX_POINTS
 
     seed = base64.b64decode(private_seed_b64.strip())
     if len(seed) != 32:
@@ -99,13 +86,9 @@ def verify_and_parse(code: str, public_key_b64: str) -> dict:
     code = code.strip()
     if not code:
         raise ValueError("empty code")
-    
-    is_tts = False
-    if code.startswith(PREFIX_VIP):
-        prefix = PREFIX_VIP
-    elif code.startswith(PREFIX_TTS):
-        prefix = PREFIX_TTS
-        is_tts = True
+
+    if code.startswith(PREFIX_POINTS):
+        prefix = PREFIX_POINTS
     else:
         raise ValueError("prefix/version not supported")
 
@@ -127,23 +110,17 @@ def verify_and_parse(code: str, public_key_b64: str) -> dict:
     pk = Ed25519PublicKey.from_public_bytes(pk_bytes)
     pk.verify(sig, payload)
     
-    if is_tts:
-        if index >= len(HOURS_BY_INDEX):
-            raise ValueError("hours index out of range")
-        return {"type": "tts", "hours": HOURS_BY_INDEX[index]}
-    else:
-        if index >= len(DAYS_BY_INDEX):
-            raise ValueError("days index out of range")
-        return {"type": "vip", "days": DAYS_BY_INDEX[index]}
+    if index >= len(POINTS_BY_INDEX):
+        raise ValueError("points index out of range")
+    return {"type": "points", "points": POINTS_BY_INDEX[index]}
 
 
 def main():
     epilog = """
 示例：
   python airread_license.py gen-keys --out keys.json
-  python airread_license.py gen --seed "<privateSeedB64>" --days 1
-  python airread_license.py gen --seed "<privateSeedB64>" --hours 10
-  python airread_license.py verify --pub "<publicKeyB64>" --code "<A3...>"
+  python airread_license.py gen --seed "<privateSeedB64>" --points 50000
+  python airread_license.py verify --pub "<publicKeyB64>" --code "<P3...>"
 """
     ap = argparse.ArgumentParser(
         description="AirRead license generator/verifier (Ed25519)",
@@ -157,16 +134,12 @@ def main():
 
     sp = sub.add_parser("gen", help="generate license code")
     sp.add_argument("--seed", required=True, help="privateSeedB64 (keep secret)")
-    group = sp.add_mutually_exclusive_group(required=True)
-    group.add_argument("--days", type=int, choices=sorted(ALLOWED_DAYS), help="generate VIP license (days)")
-    group.add_argument("--hours", type=int, choices=sorted(ALLOWED_HOURS), help="generate TTS license (hours)")
+    sp.add_argument("--points", type=int, choices=sorted(ALLOWED_POINTS), required=True, help="generate points license")
 
     sp = sub.add_parser("gen-batch", help="generate batch license codes")
     sp.add_argument("--seed", required=True, help="privateSeedB64 (keep secret)")
     sp.add_argument("--count", type=int, required=True, help="number of codes to generate")
-    group_batch = sp.add_mutually_exclusive_group(required=True)
-    group_batch.add_argument("--days", type=int, choices=sorted(ALLOWED_DAYS), help="generate VIP license (days)")
-    group_batch.add_argument("--hours", type=int, choices=sorted(ALLOWED_HOURS), help="generate TTS license (hours)")
+    sp.add_argument("--points", type=int, choices=sorted(ALLOWED_POINTS), required=True, help="generate points license")
 
     sp = sub.add_parser("verify", help="verify and parse license code")
     sp.add_argument("--pub", required=True, help="publicKeyB64")
@@ -184,20 +157,15 @@ def main():
         return
 
     if args.cmd == "gen":
-        if args.hours:
-            code = generate_signed_license(args.seed, args.hours, is_tts=True)
-        else:
-            code = generate_signed_license(args.seed, args.days, is_tts=False)
+        code = generate_signed_license(args.seed, args.points)
         print(code)
         return
 
     if args.cmd == "gen-batch":
         for _ in range(args.count):
-            if args.hours:
-                code = generate_signed_license(args.seed, args.hours, is_tts=True)
-            else:
-                code = generate_signed_license(args.seed, args.days, is_tts=False)
-            print(code)
+            code = generate_signed_license(args.seed, args.points)
+            sys.stdout.write(code + "\n")
+        sys.stdout.flush()
         return
 
     if args.cmd == "verify":

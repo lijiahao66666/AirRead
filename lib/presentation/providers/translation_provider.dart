@@ -1,13 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../ai/hunyuan/hunyuan_translation_engine.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/tencentcloud/tencent_api_client.dart';
 import '../../ai/tencentcloud/tmt_translation_engine.dart';
+import '../../ai/translation/engines/translation_engine.dart';
 import '../../ai/translation/translation_cache.dart';
 import '../../ai/translation/translation_service.dart';
 import '../../ai/translation/translation_types.dart';
@@ -21,6 +24,306 @@ enum TranslationMode {
 enum ReadAloudEngine {
   local,
   online,
+}
+
+class AzureTranslationEngine implements TranslationEngine {
+  static const String _defaultEndpoint = String.fromEnvironment(
+    'AIRREAD_AZURE_TRANSLATOR_ENDPOINT',
+    defaultValue: 'https://api-edge.cognitive.microsofttranslator.com',
+  );
+  static const String _defaultKey =
+      String.fromEnvironment('AIRREAD_AZURE_TRANSLATOR_KEY', defaultValue: '');
+  static const String _defaultRegion = String.fromEnvironment(
+    'AIRREAD_AZURE_TRANSLATOR_REGION',
+    defaultValue: '',
+  );
+
+  final http.Client _client;
+  final String endpoint;
+  final String key;
+  final String region;
+
+  AzureTranslationEngine({
+    http.Client? client,
+    String? endpoint,
+    String? key,
+    String? region,
+  })  : _client = client ?? http.Client(),
+        endpoint = (endpoint ?? _defaultEndpoint).trim(),
+        key = (key ?? _defaultKey).trim(),
+        region = (region ?? _defaultRegion).trim();
+
+  static bool get isConfigured => _defaultEndpoint.trim().isNotEmpty;
+
+  bool get isUsable => endpoint.isNotEmpty;
+
+  @override
+  String get id => 'azure_translator';
+
+  @override
+  Future<String> translate({
+    required String text,
+    required String sourceLang,
+    required String targetLang,
+    required List<String> contextSources,
+  }) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty) return '';
+    if (!isUsable) {
+      throw StateError('Azure translator not configured');
+    }
+
+    final from = _normalizeAzureLang(sourceLang, allowEmpty: true);
+    final to = _normalizeAzureLang(targetLang);
+    if (to.isEmpty) {
+      throw StateError('Azure target language missing');
+    }
+
+    final uri = _buildUri(from: from, to: to);
+    final headers = <String, String>{
+      'Content-Type': 'application/json; charset=utf-8',
+    };
+    if (key.isNotEmpty) {
+      headers['Ocp-Apim-Subscription-Key'] = key;
+      if (region.isNotEmpty) {
+        headers['Ocp-Apim-Subscription-Region'] = region;
+      }
+    } else {
+      final token = await _getEdgeToken();
+      headers['Authorization'] = 'Bearer $token';
+      headers['User-Agent'] = 'Mozilla/5.0';
+    }
+
+    final body = jsonEncode([
+      {'Text': normalized}
+    ]);
+
+    debugPrint(
+      'AzureTranslator request to=$to from=${from.isEmpty ? 'auto' : from} endpoint=${uri.host}',
+    );
+    final resp = await _client
+        .post(uri, headers: headers, body: body)
+        .timeout(const Duration(seconds: 18));
+
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      debugPrint('AzureTranslator error status=${resp.statusCode}');
+      throw StateError('Azure translate HTTP ${resp.statusCode}: ${resp.body}');
+    }
+
+    debugPrint(
+        'AzureTranslator response status=${resp.statusCode} bytes=${resp.bodyBytes.length}');
+    final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+    if (decoded is! List || decoded.isEmpty) {
+      throw StateError('Azure translate response empty');
+    }
+    final first = decoded.first;
+    if (first is! Map) {
+      throw StateError('Azure translate response invalid');
+    }
+    final translations = first['translations'];
+    if (translations is List && translations.isNotEmpty) {
+      final item = translations.first;
+      if (item is Map) {
+        final out = item['text']?.toString() ?? '';
+        return out;
+      }
+    }
+    return '';
+  }
+
+  @override
+  Future<List<String>> translateBatch({
+    required List<String> texts,
+    required String sourceLang,
+    required String targetLang,
+  }) async {
+    final out = <String>[];
+    for (final t in texts) {
+      out.add(await translate(
+        text: t,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+        contextSources: const [],
+      ));
+    }
+    return out;
+  }
+
+  Uri _buildUri({required String from, required String to}) {
+    final base = Uri.parse(endpoint);
+    final basePath = base.path.trim().isEmpty ? '/' : base.path;
+    final resolvedPath =
+        basePath.endsWith('/') ? '${basePath}translate' : '$basePath/translate';
+    final params = <String, String>{
+      'api-version': '3.0',
+      'to': to,
+    };
+    if (from.isNotEmpty) {
+      params['from'] = from;
+    }
+    return base.replace(path: resolvedPath, queryParameters: params);
+  }
+
+  Future<String> _getEdgeToken() async {
+    final now = DateTime.now();
+    final cached = _edgeTokenCache;
+    if (cached != null && cached.expiresAt.isAfter(now)) {
+      return cached.token;
+    }
+    final uri = Uri.parse('https://edge.microsoft.com/translate/auth');
+    final resp = await _client.get(uri, headers: const {
+      'User-Agent': 'Mozilla/5.0',
+    }).timeout(const Duration(seconds: 10));
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      debugPrint('AzureTranslator token error status=${resp.statusCode}');
+      throw StateError('Azure token HTTP ${resp.statusCode}');
+    }
+    final token = resp.body.trim();
+    if (token.isEmpty) {
+      throw StateError('Azure token empty');
+    }
+    final expiresAt = now.add(const Duration(minutes: 8));
+    _edgeTokenCache = _AzureTokenCache(token: token, expiresAt: expiresAt);
+    debugPrint('AzureTranslator token refreshed');
+    return token;
+  }
+
+  String _normalizeAzureLang(String lang, {bool allowEmpty = false}) {
+    final v = lang.trim();
+    if (v.isEmpty) return allowEmpty ? '' : 'en-US';
+    final lower = v.toLowerCase();
+    const mapping = <String, String>{
+      'en': 'en-US',
+      'fr': 'fr-FR',
+      'de': 'de-DE',
+      'es': 'es-ES',
+      'ja': 'ja-JP',
+      'it': 'it-IT',
+      'ko': 'ko-KR',
+      'pt': 'pt-PT',
+      'ar': 'ar-SA',
+      'nl': 'nl-NL',
+      'pl': 'pl-PL',
+      'tr': 'tr-TR',
+      'id': 'id-ID',
+      'ru': 'ru-RU',
+      'uk': 'uk-UA',
+      'th': 'th-TH',
+      'no': 'no-NO',
+      'sv': 'sv-SE',
+      'fi': 'fi-FI',
+      'da': 'da-DK',
+      'cs': 'cs-CZ',
+      'hu': 'hu-HU',
+      'ro': 'ro-RO',
+      'bg': 'bg-BG',
+      'hr': 'hr-HR',
+      'lt': 'lt-LT',
+      'sl': 'sl-SI',
+      'sk': 'sk-SK',
+      'bo': 'bo-CN',
+      'zh': 'zh-Hans',
+      'zh-cn': 'zh-Hans',
+      'zh-tw': 'zh-Hant',
+      'zh-mo': 'zh-Hant',
+      'zh-hans': 'zh-Hans',
+      'zh-hant': 'zh-Hant',
+      'zh-tr': 'zh-Hant',
+    };
+    return mapping[lower] ?? v;
+  }
+}
+
+class _AzureTokenCache {
+  final String token;
+  final DateTime expiresAt;
+  const _AzureTokenCache({required this.token, required this.expiresAt});
+}
+
+_AzureTokenCache? _edgeTokenCache;
+
+class FallbackTranslationEngine implements TranslationEngine {
+  final TranslationEngine primary;
+  final TranslationEngine fallback;
+  final bool Function()? primaryAvailable;
+  final bool Function()? fallbackAvailable;
+
+  FallbackTranslationEngine({
+    required this.primary,
+    required this.fallback,
+    this.primaryAvailable,
+    this.fallbackAvailable,
+  });
+
+  @override
+  String get id => '${primary.id}_fallback_${fallback.id}';
+
+  @override
+  Future<String> translate({
+    required String text,
+    required String sourceLang,
+    required String targetLang,
+    required List<String> contextSources,
+  }) async {
+    final usePrimary = primaryAvailable?.call() ?? true;
+    if (usePrimary) {
+      try {
+        return await primary.translate(
+          text: text,
+          sourceLang: sourceLang,
+          targetLang: targetLang,
+          contextSources: contextSources,
+        );
+      } catch (_) {
+        if (fallbackAvailable != null && !fallbackAvailable!()) {
+          rethrow;
+        }
+      }
+    }
+
+    if (fallbackAvailable != null && !fallbackAvailable!()) {
+      throw StateError('No translation backend available');
+    }
+
+    return fallback.translate(
+      text: text,
+      sourceLang: sourceLang,
+      targetLang: targetLang,
+      contextSources: contextSources,
+    );
+  }
+
+  @override
+  Future<List<String>> translateBatch({
+    required List<String> texts,
+    required String sourceLang,
+    required String targetLang,
+  }) async {
+    final usePrimary = primaryAvailable?.call() ?? true;
+    if (usePrimary) {
+      try {
+        return await primary.translateBatch(
+          texts: texts,
+          sourceLang: sourceLang,
+          targetLang: targetLang,
+        );
+      } catch (_) {
+        if (fallbackAvailable != null && !fallbackAvailable!()) {
+          rethrow;
+        }
+      }
+    }
+
+    if (fallbackAvailable != null && !fallbackAvailable!()) {
+      throw StateError('No translation backend available');
+    }
+
+    return fallback.translateBatch(
+      texts: texts,
+      sourceLang: sourceLang,
+      targetLang: targetLang,
+    );
+  }
 }
 
 class TranslationProvider extends ChangeNotifier {
@@ -239,7 +542,7 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   void _syncFeatureFlagsToModel() {
-    final entitled = _aiModel?.onlineEntitlementActive ?? false;
+    final entitled = (_aiModel?.pointsBalance ?? 0) > 0;
     final personalUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
     bool changed = false;
 
@@ -286,9 +589,14 @@ class TranslationProvider extends ChangeNotifier {
 
   void _rebuildService() {
     final creds = getEmbeddedPublicHunyuanCredentials();
-
     final engine = switch (_translationMode) {
-      TranslationMode.machine => TmtTranslationEngine(credentials: creds),
+      TranslationMode.machine => FallbackTranslationEngine(
+          primary: AzureTranslationEngine(),
+          fallback: TmtTranslationEngine(credentials: creds),
+          primaryAvailable: () => AzureTranslationEngine.isConfigured,
+          fallbackAvailable: () =>
+              _usingPersonalTencentKeys || TencentApiClient.hasScfProxyUrl,
+        ),
       TranslationMode.bigModel => HunyuanTranslationEngine(credentials: creds),
     };
 
@@ -343,8 +651,7 @@ class TranslationProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
 
     final token = prefs.getString('tencent_scf_jwt');
-    final ttsToken = prefs.getString('tencent_scf_tts_jwt');
-    TencentApiClient.setTokens(vip: token, tts: ttsToken);
+    TencentApiClient.setToken(token);
 
     final mode = prefs.getString(_kCfgMode);
     final trMode = prefs.getString(_kTranslationMode);
@@ -623,9 +930,9 @@ class TranslationProvider extends ChangeNotifier {
         }
         if (_readAloudEngine == ReadAloudEngine.online &&
             !_usingPersonalTencentKeys) {
-          final entitled = _aiModel?.onlineEntitlementActive ?? false;
-          if (!entitled) {
-            throw TranslationConfigException('朗读需要购买时长后使用');
+          final points = _aiModel?.pointsBalance ?? 0;
+          if (points <= 0) {
+            throw TranslationConfigException('朗读需要购买积分后使用');
           }
         }
       } catch (e) {
@@ -898,7 +1205,8 @@ class TranslationProvider extends ChangeNotifier {
         throw TranslationConfigException('已开启使用个人密钥，但未正确设置个人密钥');
       }
     } else {
-      if (!TencentApiClient.hasScfProxyUrl) {
+      if (!TencentApiClient.hasScfProxyUrl &&
+          !AzureTranslationEngine.isConfigured) {
         throw TranslationConfigException('未配置在线翻译服务地址');
       }
     }
@@ -908,9 +1216,9 @@ class TranslationProvider extends ChangeNotifier {
           throw TranslationConfigException('已开启使用个人密钥，但未正确设置个人密钥');
         }
       } else {
-        final ok = _aiModel?.onlineEntitlementActive ?? false;
-        if (!ok) {
-          throw TranslationConfigException('大模型翻译需购买时长后使用');
+        final points = _aiModel?.pointsBalance ?? 0;
+        if (points <= 0) {
+          throw TranslationConfigException('大模型翻译需积分后使用');
         }
       }
     }

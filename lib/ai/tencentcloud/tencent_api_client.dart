@@ -86,24 +86,19 @@ class TencentApiClient {
   static const String _envScfToken =
       String.fromEnvironment('AIRREAD_TENCENT_SCF_TOKEN', defaultValue: '');
 
-  static String? _vipToken;
-  static String? _ttsToken;
+  static String? _pointsToken;
+  static ValueChanged<int>? onPointsBalanceChanged;
 
-  static void setTokens({String? vip, String? tts}) {
-    if (vip != null) _vipToken = vip;
-    if (tts != null) _ttsToken = tts;
+  static void setToken(String? token) {
+    if (token != null) _pointsToken = token;
   }
 
   static Future<void> init() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final vip = prefs.getString('tencent_scf_jwt');
-      if (vip != null && vip.isNotEmpty) {
-        _vipToken = vip;
-      }
-      final tts = prefs.getString('tencent_scf_tts_jwt');
-      if (tts != null && tts.isNotEmpty) {
-        _ttsToken = tts;
+      final token = prefs.getString('tencent_scf_jwt');
+      if (token != null && token.isNotEmpty) {
+        _pointsToken = token;
       }
     } catch (_) {}
   }
@@ -117,37 +112,18 @@ class TencentApiClient {
   static final _ConcurrencyGate _chatCompletionsGate =
       _ConcurrencyGate(maxConcurrent: 5);
 
-  static const String _kOnlineEntitlementExpiryMs =
-      'online_entitlement_expiry_ms';
-  static const String _kTtsEntitlementExpiryMs = 'tts_entitlement_expiry_ms';
-
-  Future<void> _requireOnlineEntitlementForScf(String action) async {
-    if (action != 'ChatCompletions' &&
-        action != 'ChatTranslations' &&
-        action != 'TextToVoice') {
-      return;
-    }
+  static const String _kPointsBalance = 'points_balance';
+  Future<void> _syncPointsFromResponse(Map<String, dynamic> response) async {
+    final balanceRaw = response['PointsBalance'];
+    if (balanceRaw == null) return;
+    final next = (balanceRaw is num)
+        ? balanceRaw.toInt()
+        : int.tryParse(balanceRaw.toString());
+    if (next == null) return;
     final prefs = await SharedPreferences.getInstance();
-
-    String expiryKey;
-    String errorMsg;
-
-    if (action == 'TextToVoice') {
-      expiryKey = _kTtsEntitlementExpiryMs;
-      errorMsg = '在线大模型朗读需要单独购买时长';
-    } else {
-      expiryKey = _kOnlineEntitlementExpiryMs;
-      errorMsg = '在线大模型需要购买时长后使用';
-    }
-
-    final expiryMs = prefs.getInt(expiryKey) ?? 0;
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    if ((expiryMs ~/ 1000) > (nowMs ~/ 1000)) return;
-
-    throw TencentCloudException(
-      code: 'EntitlementExpired',
-      message: errorMsg,
-    );
+    final fixed = next < 0 ? 0 : next;
+    await prefs.setInt(_kPointsBalance, fixed);
+    onPointsBalanceChanged?.call(fixed);
   }
 
   Uri _resolveScfUri() {
@@ -284,19 +260,12 @@ class TencentApiClient {
         final payloadJson = jsonEncode(payload);
 
         if (usingScf) {
-          await _requireOnlineEntitlementForScf(action);
           final uri = _resolveScfUri();
           final headers = <String, String>{
             'Content-Type': 'application/json; charset=utf-8',
           };
 
-          String? tokenSelector;
-          if (action == 'TextToVoice') {
-            tokenSelector = _ttsToken;
-          } else {
-            tokenSelector = _vipToken;
-          }
-          final token = (tokenSelector ?? _envScfToken).trim();
+          final token = (_pointsToken ?? _envScfToken).trim();
 
           if (token.isNotEmpty) {
             headers['X-Airread-Token'] = token;
@@ -331,6 +300,7 @@ class TencentApiClient {
 
           final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
           final response = _normalizeScfJsonResponse(decoded);
+          await _syncPointsFromResponse(response);
           final err = response['Error'];
           if (err is Map) {
             final code = err['Code']?.toString() ?? 'TencentCloudError';
@@ -501,7 +471,6 @@ class TencentApiClient {
       }
 
       if (usingScf) {
-        await _requireOnlineEntitlementForScf(action);
         final uri = _resolveScfUri();
         final request = http.Request('POST', uri);
         request.headers.addAll(<String, String>{
@@ -509,13 +478,7 @@ class TencentApiClient {
           'Accept': 'text/event-stream',
         });
 
-        String? token;
-        if (action == 'TextToVoice') {
-          token = _ttsToken;
-        } else {
-          token = _vipToken;
-        }
-        token = (token ?? _envScfToken).trim();
+        var token = (_pointsToken ?? _envScfToken).trim();
 
         if (token.isNotEmpty) {
           request.headers['X-Airread-Token'] = token;
@@ -574,6 +537,10 @@ class TencentApiClient {
               try {
                 final json = jsonDecode(jsonStr);
                 if (json is! Map) continue;
+                if (json['PointsBalance'] != null) {
+                  await _syncPointsFromResponse(
+                      json.cast<String, dynamic>());
+                }
 
                 final choices = json['Choices'];
                 if (choices is! List || choices.isEmpty) continue;
@@ -625,6 +592,7 @@ class TencentApiClient {
         final body = utf8.decode(content);
         final decoded = jsonDecode(body);
         final response = _normalizeScfJsonResponse(decoded);
+        await _syncPointsFromResponse(response);
         _throwIfTencentError(response);
         yield* _singleShotStreamFromResponse(response);
         return;
@@ -701,6 +669,9 @@ class TencentApiClient {
           try {
             final json = jsonDecode(jsonStr);
             if (json is! Map) continue;
+            if (json['PointsBalance'] != null) {
+              await _syncPointsFromResponse(json.cast<String, dynamic>());
+            }
 
             final choices = json['Choices'];
             if (choices is! List || choices.isEmpty) continue;

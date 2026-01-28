@@ -90,7 +90,7 @@ class QaStreamProvider extends ChangeNotifier {
 
     if (aiModel.source == AiModelSource.online &&
         !usingPersonalTencentKeys() &&
-        !aiModel.onlineEntitlementActive) {
+        aiModel.pointsBalance <= 0) {
       _stateByBookId[bookId] = QaStreamState(
         streamId: streamId,
         bookId: bookId,
@@ -100,7 +100,7 @@ class QaStreamProvider extends ChangeNotifier {
         isStreaming: false,
         answer: '',
         think: '',
-        error: '在线大模型需要购买时长后使用',
+        error: '在线大模型需要购买积分后使用',
       );
       notifyListeners();
       return streamId;

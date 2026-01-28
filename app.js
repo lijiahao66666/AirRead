@@ -133,6 +133,15 @@ function formatDateUTC(tsSeconds) {
   return `${y}-${m}-${day}`;
 }
 
+function charCount(s) {
+  if (!s) return 0;
+  try {
+    return [...String(s)].length;
+  } catch (_) {
+    return String(s).length;
+  }
+}
+
 // --- Helper: Tencent Cloud v3 Signature ---
 function buildTc3Auth({
   secretId,
@@ -360,6 +369,72 @@ async function cosPutObject({ bucket, region, key, headers, credentials }) {
   return resp.statusCode || 0;
 }
 
+async function cosGetObject({ bucket, region, key, credentials }) {
+  const resp = await cosRequest({
+    method: 'GET',
+    bucket,
+    region,
+    key,
+    headers: {},
+    query: {},
+    credentials,
+  });
+  if ((resp.statusCode || 0) !== 200) {
+    throw new Error(`COS GET ${key} status=${resp.statusCode || 0}`);
+  }
+  return resp.body || Buffer.from('');
+}
+
+async function cosPutJson({ bucket, region, key, json, headers, credentials }) {
+  const body = Buffer.from(JSON.stringify(json));
+  const resp = await cosRequest({
+    method: 'PUT',
+    bucket,
+    region,
+    key,
+    headers: Object.assign(
+      {
+        'content-length': String(body.length),
+        'content-type': 'application/json; charset=utf-8',
+      },
+      headers || {}
+    ),
+    query: {},
+    body,
+    credentials,
+  });
+  return resp.statusCode || 0;
+}
+
+async function getPointsBalance({ bucket, region, deviceId, credentials }) {
+  const key = `points/${deviceId}.json`;
+  try {
+    const buf = await cosGetObject({ bucket, region, key, credentials });
+    const obj = JSON.parse(buf.toString('utf8'));
+    const prev = Number(obj && obj.balance ? obj.balance : 0) || 0;
+    return prev < 0 ? 0 : prev;
+  } catch (_) {
+    return 0;
+  }
+}
+
+async function setPointsBalance({ bucket, region, deviceId, balance, credentials }) {
+  const key = `points/${deviceId}.json`;
+  const next = balance < 0 ? 0 : balance;
+  const status = await cosPutJson({
+    bucket,
+    region,
+    key,
+    json: { balance: next, updatedAt: new Date().toISOString() },
+    headers: {},
+    credentials,
+  });
+  if (status < 200 || status >= 300) {
+    throw new Error(`COS Put Points Error: ${status}`);
+  }
+  return next;
+}
+
 // --- Helper: HTTP Utils ---
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -424,10 +499,10 @@ async function handleApiProxy(req, res, body) {
   }
 
   // --- Security Check: Auth Token ---
-  // STRICT MODE: Only accept valid JWT tokens signed by JWT_SECRET
+  // Only online big model translation / QA / TTS require JWT.
   const clientToken = (req.headers['x-airread-token'] || '').trim();
   const jwtSecret = (process.env.JWT_SECRET || '').trim();
-  const requiresAuth = action !== 'TextTranslate';
+  const requiresAuth = String(action) !== 'TextTranslate';
 
   if (requiresAuth) {
     if (!jwtSecret) {
@@ -439,16 +514,35 @@ async function handleApiProxy(req, res, body) {
       return sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing JWT token' });
     }
 
-    const scopes = claim.scopes || [];
-    const isTtsRequest = action === 'TextToVoice';
-    if (isTtsRequest) {
-      if (!scopes.includes('tts')) {
-        return sendJson(res, 403, { error: 'Forbidden', message: 'TTS scope required' });
-      }
-    } else {
-      if (!scopes.includes('vip')) {
-        return sendJson(res, 403, { error: 'Forbidden', message: 'VIP scope required' });
-      }
+    // Points-based system: token validity only, no scope separation
+    req.jwtClaim = claim;
+  }
+
+  const bucket = process.env.BUCKET_NAME;
+  const regionEnv = process.env.REGION;
+  const deviceId = (req.jwtClaim && req.jwtClaim.sub)
+      ? String(req.jwtClaim.sub).trim()
+      : '';
+  const canAccountPoints = Boolean(bucket && regionEnv && deviceId);
+  const regionStr = regionEnv;
+  let inputChars = 0;
+  let outputChars = 0;
+  let unitCost = 1;
+
+  if (canAccountPoints) {
+    if (action === 'ChatCompletions') {
+      const msgs = Array.isArray(payload && payload.Messages) ? payload.Messages : [];
+      inputChars = msgs.reduce((acc, m) => acc + charCount(m && m.Content), 0);
+      unitCost = 1;
+    } else if (action === 'ChatTranslations') {
+      inputChars = charCount(payload && payload.Text);
+      unitCost = 1;
+    } else if (action === 'TextToVoice') {
+      inputChars = charCount(payload && payload.Text);
+      unitCost = 10;
+    } else if (action === 'TextTranslate') {
+      inputChars = charCount(payload && payload.SourceText);
+      unitCost = 1;
     }
   }
 
@@ -482,6 +576,30 @@ async function handleApiProxy(req, res, body) {
     headers.Accept = 'text/event-stream';
   }
 
+  let streamBalanceAfterInput = null;
+  if (canAccountPoints && useStream) {
+    try {
+      const current = await getPointsBalance({
+        bucket,
+        region: regionStr,
+        deviceId,
+        credentials: null,
+      });
+      const need = inputChars * unitCost;
+      if (current < need) {
+        return sendJson(res, 402, { error: 'PointsInsufficient', message: '积分不足，无法开始流式请求', need, balance: current });
+      }
+      streamBalanceAfterInput = await setPointsBalance({
+        bucket,
+        region: regionStr,
+        deviceId,
+        balance: current - need,
+        credentials: null,
+      });
+    } catch (_) {
+    }
+  }
+
   const options = {
     protocol: 'https:',
     hostname: String(host),
@@ -501,10 +619,82 @@ async function handleApiProxy(req, res, body) {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
 
+      let sseBuffer = '';
+      let doneSeen = false;
       upstreamRes.on('data', (chunk) => {
-        res.write(chunk);
+        const text = chunk.toString('utf8');
+        sseBuffer += text;
+        while (true) {
+          const idx = sseBuffer.indexOf('\n');
+          if (idx === -1) break;
+          const line = sseBuffer.substring(0, idx);
+          sseBuffer = sseBuffer.substring(idx + 1);
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.substring(6).trim();
+            if (jsonStr === '[DONE]') {
+              doneSeen = true;
+              continue;
+            }
+            if (jsonStr !== '[DONE]') {
+              try {
+                const obj = JSON.parse(jsonStr);
+                const choices = obj && obj.Choices;
+                if (Array.isArray(choices) && choices.length > 0) {
+                  const first = choices[0];
+                  const delta = first && first.Delta;
+                  const msg = first && first.Message;
+                  if (delta && typeof delta === 'object' && delta.Content) {
+                    outputChars += charCount(delta.Content);
+                  } else if (msg && typeof msg === 'object' && msg.Content) {
+                    outputChars += charCount(msg.Content);
+                  } else if (first && typeof first.Content === 'string') {
+                    outputChars += charCount(first.Content);
+                  }
+                }
+              } catch (_) {
+              }
+            }
+          }
+          res.write(line + '\n');
+        }
       });
-      upstreamRes.on('end', () => res.end());
+      upstreamRes.on('end', async () => {
+        if (sseBuffer.length > 0) {
+          res.write(sseBuffer);
+        }
+        if (canAccountPoints) {
+          let nextBalance = null;
+          try {
+            const extraNeed = outputChars * unitCost;
+            if (extraNeed > 0) {
+              const current = await getPointsBalance({
+                bucket,
+                region: regionStr,
+                deviceId,
+                credentials: null,
+              });
+              nextBalance = await setPointsBalance({
+                bucket,
+                region: regionStr,
+                deviceId,
+                balance: current - extraNeed,
+                credentials: null,
+              });
+            }
+          } catch (_) {
+          }
+          if (nextBalance === null && streamBalanceAfterInput !== null) {
+            nextBalance = streamBalanceAfterInput;
+          }
+          if (nextBalance !== null) {
+            res.write(`data: ${JSON.stringify({ PointsBalance: nextBalance })}\n\n`);
+          }
+        }
+        if (doneSeen) {
+          res.write('data: [DONE]\n\n');
+        }
+        res.end();
+      });
       upstreamRes.on('error', () => res.end());
 
       req.on('close', () => {
@@ -515,7 +705,7 @@ async function handleApiProxy(req, res, body) {
 
     let buf = [];
     upstreamRes.on('data', (c) => buf.push(c));
-    upstreamRes.on('end', () => {
+    upstreamRes.on('end', async () => {
       const raw = Buffer.concat(buf).toString('utf8');
       if ((upstreamRes.statusCode || 500) < 200 || (upstreamRes.statusCode || 500) >= 300) {
         sendJson(res, upstreamRes.statusCode || 500, { error: 'UpstreamHttpError', status: upstreamRes.statusCode, body: raw });
@@ -523,6 +713,58 @@ async function handleApiProxy(req, res, body) {
       }
       try {
         const json = JSON.parse(raw);
+        if (canAccountPoints) {
+          try {
+            if (action === 'ChatCompletions') {
+              const choices = json && json.Choices;
+              if (Array.isArray(choices) && choices.length > 0) {
+                const first = choices[0];
+                const msg = first && first.Message;
+                if (msg && typeof msg === 'object' && msg.Content) {
+                  outputChars = charCount(msg.Content);
+                } else if (first && typeof first.Content === 'string') {
+                  outputChars = charCount(first.Content);
+                }
+              }
+            } else if (action === 'ChatTranslations') {
+              const choices = json && json.Choices;
+              if (Array.isArray(choices) && choices.length > 0) {
+                const first = choices[0];
+                const msg = first && first.Message;
+                if (msg && typeof msg === 'object' && msg.Content) {
+                  outputChars = charCount(msg.Content);
+                } else if (first && typeof first.Content === 'string') {
+                  outputChars = charCount(first.Content);
+                }
+              }
+            } else if (action === 'TextTranslate') {
+              outputChars = charCount(json && json.TargetText);
+            } else if (action === 'TextToVoice') {
+              outputChars = 0;
+            }
+            const totalNeed = (inputChars * unitCost) + (outputChars * unitCost);
+            const current = await getPointsBalance({
+              bucket,
+              region: regionStr,
+              deviceId,
+              credentials: null,
+            });
+            if (current < totalNeed) {
+              sendJson(res, 402, { error: 'PointsInsufficient', message: '积分不足，无法完成请求', need: totalNeed, balance: current });
+              return;
+            }
+            const next = await setPointsBalance({
+              bucket,
+              region: regionStr,
+              deviceId,
+              balance: current - totalNeed,
+              credentials: null,
+            });
+            json.PointsDeducted = totalNeed;
+            json.PointsBalance = next;
+          } catch (_) {
+          }
+        }
         sendJson(res, 200, json);
       } catch (_) {
         sendJson(res, 200, { body: raw, contentType });
@@ -553,19 +795,13 @@ async function handleLicenseRedeem(req, res, body) {
   if (pubKeyB64) {
     try {
       const raw = licenseCode;
-      let type = 'vip'; // default
-      if (raw.startsWith('A3')) {
-        type = 'vip';
-      } else if (raw.startsWith('T3')) {
-        type = 'tts';
-      } else {
+      if (!raw.startsWith('P3')) {
         throw new Error('Invalid version');
       }
-      
       const content = raw.substring(2);
       const bytes = base64UrlDecode(content);
-      // Payload: 1 byte dayIndex + 4 bytes nonce = 5 bytes
-      const payloadLen = 5; 
+      // Payload: 1 byte pointsIndex + 4 bytes nonce = 5 bytes
+      const payloadLen = 5;
       const sigLen = 64;
       if (bytes.length !== payloadLen + sigLen) throw new Error('Invalid length');
       
@@ -578,8 +814,7 @@ async function handleLicenseRedeem(req, res, body) {
         return sendJson(res, 403, { error: 'Invalid license signature' });
       }
       
-      // Store type for token issuance
-      req.licenseType = type;
+      // Store points index for accumulation
       req.licenseIndex = payload[0];
 
     } catch (e) {
@@ -629,36 +864,45 @@ async function handleLicenseRedeem(req, res, body) {
       throw new Error(`COS Put Error: ${putStatus}`);
     }
 
-    // --- Issue Token ---
+    // --- Accumulate Points ---
+    const index = req.licenseIndex || 0;
+    const pointsMap = [50000, 100000, 200000, 500000, 1000000];
+    const points = (index >= 0 && index < pointsMap.length) ? pointsMap[index] : 0;
+    if (points <= 0) {
+      throw new Error('Unsupported points index');
+    }
+
+    const pointsKey = `points/${deviceId}.json`;
+    let prev = 0;
+    try {
+      const buf = await cosGetObject({ bucket, region, key: pointsKey, credentials });
+      const obj = JSON.parse(buf.toString('utf8'));
+      prev = Number(obj && obj.balance ? obj.balance : 0) || 0;
+    } catch (_) {
+      prev = 0;
+    }
+    const nextBalance = prev + points;
+    const putPointsStatus = await cosPutJson({
+      bucket,
+      region,
+      key: pointsKey,
+      json: { balance: nextBalance, updatedAt: new Date().toISOString() },
+      headers: {},
+      credentials,
+    });
+    if (putPointsStatus < 200 || putPointsStatus >= 300) {
+      throw new Error(`COS Put Points Error: ${putPointsStatus}`);
+    }
+
+    // --- Issue Token (points scope, long-lived) ---
     let token = null;
     const jwtSecret = process.env.JWT_SECRET;
     if (jwtSecret) {
-      // Determine duration based on type and index
-      let durationSeconds = 30 * 86400; // default 30 days
-      const type = req.licenseType || 'vip';
-      const index = req.licenseIndex || 0;
-      
-      if (type === 'vip') {
-        // [1, 7, 15, 30, 60, 180, 360] days
-        const map = [1, 7, 15, 30, 60, 180, 360];
-        const days = (index >= 0 && index < map.length) ? map[index] : 30;
-        durationSeconds = (days + 1) * 86400; // Add buffer
-      } else if (type === 'tts') {
-        // [1, 5, 10, 20, 50, 100] hours
-        const map = [1, 5, 10, 20, 50, 100];
-        const hours = (index >= 0 && index < map.length) ? map[index] : 1;
-        // Buffer: Give extra 24 hours just in case, or tight?
-        // If user buys 1 hour, token expires in 1 hour.
-        // But if we want to be generous for connection issues, maybe 1 hour + buffer.
-        // Let's say exact hours + 1 hour buffer.
-        durationSeconds = (hours * 3600) + 3600;
-      }
-
-      const scopes = type === 'vip' ? ['vip'] : ['tts'];
-      token = signJwt({ sub: deviceId, license: codeHash, scopes }, jwtSecret, durationSeconds);
+      const durationSeconds = 365 * 86400; // 1 year
+      token = signJwt({ sub: deviceId, license: codeHash, scopes: ['points'] }, jwtSecret, durationSeconds);
     }
 
-    sendJson(res, 200, { message: 'License redeemed successfully', used: false, token });
+    sendJson(res, 200, { message: 'License redeemed successfully', used: false, token, pointsAdded: points, balance: nextBalance });
 
   } catch (err) {
     sendJson(res, 500, { error: 'COS Error', message: String(err.message || err) });

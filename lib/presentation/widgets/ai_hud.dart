@@ -372,22 +372,11 @@ class _TencentHunyuanSettingsPanelState
   Timer? _userKeysHintTimer;
 
   static const List<_PurchaseSku> _purchaseSkus = <_PurchaseSku>[
-    _PurchaseSku('1天', 'https://pay.ldxp.cn/item/es3yrx'),
-    _PurchaseSku('7天', 'https://pay.ldxp.cn/item/sd6rjp'),
-    _PurchaseSku('15天', 'https://pay.ldxp.cn/item/kwzsqc'),
-    _PurchaseSku('30天', 'https://pay.ldxp.cn/item/ndqypa'),
-    _PurchaseSku('60天', 'https://pay.ldxp.cn/item/5mewh7'),
-    _PurchaseSku('180天', 'https://pay.ldxp.cn/item/5mewh7'),
-    _PurchaseSku('360天', 'https://pay.ldxp.cn/item/9le79z'),
-  ];
-
-  static const List<_PurchaseSku> _purchaseTtsSkus = <_PurchaseSku>[
-    _PurchaseSku('1小时', 'https://pay.ldxp.cn/item/zy1hyt'),
-    _PurchaseSku('5小时', 'https://pay.ldxp.cn/item/ajnlvp'),
-    _PurchaseSku('10小时', 'https://pay.ldxp.cn/item/b5p0id'),
-    _PurchaseSku('20小时', 'https://pay.ldxp.cn/item/f2ezmi'),
-    _PurchaseSku('50小时', 'https://pay.ldxp.cn/item/pwaixm'),
-    _PurchaseSku('100小时', 'https://pay.ldxp.cn/item/4dp4xf'),
+    _PurchaseSku('5万积分', 'https://pay.ldxp.cn/item/ajnlvp'),
+    _PurchaseSku('10万积分', 'https://pay.ldxp.cn/item/b5p0id'),
+    _PurchaseSku('20万积分', 'https://pay.ldxp.cn/item/f2ezmi'),
+    _PurchaseSku('50万积分', 'https://pay.ldxp.cn/item/pwaixm'),
+    _PurchaseSku('100万积分', 'https://pay.ldxp.cn/item/4dp4xf'),
   ];
 
   static const Map<int, String> _ttsLargeModelVoices = {
@@ -813,7 +802,7 @@ class _TencentHunyuanSettingsPanelState
           ),
           if (_userKeysEnabled) ...[
             Text(
-              '可填写腾讯个人开发者的SecretId,SecretKey，会操作的看官自己操作，请放心，app内部不会盗用和泄露此信息，可自己通过控制台查看用量，需要开通混元大模型，机器翻译，语音合成完整使用AI伴读功能，无需购买时长。',
+              '可填写腾讯个人开发者的SecretId,SecretKey，会操作的看官自己操作，请放心，app内部不会盗用和泄露此信息，可自己通过控制台查看用量，需要开通混元大模型，机器翻译，语音合成完整使用AI伴读功能，无需购买积分。',
               style: TextStyle(
                 color: widget.textColor.withOpacity(0.65),
                 fontSize: 13,
@@ -962,131 +951,50 @@ class _TencentHunyuanSettingsPanelState
     );
   }
 
-  String _formatYmd(DateTime dt) {
-    final y = dt.year.toString().padLeft(4, '0');
-    final m = dt.month.toString().padLeft(2, '0');
-    final d = dt.day.toString().padLeft(2, '0');
-    final hh = dt.hour.toString().padLeft(2, '0');
-    final mm = dt.minute.toString().padLeft(2, '0');
-    final ss = dt.second.toString().padLeft(2, '0');
-    return '$y-$m-$d $hh:$mm:$ss';
-  }
-
   Widget _redeemRow(AiModelProvider aiModel, {required Color cardBg}) {
-    final expiresAt = aiModel.onlineEntitlementExpiresAt;
-    final active = aiModel.onlineEntitlementActive;
-    final expiryText =
-        active && expiresAt != null ? '到期时间：${_formatYmd(expiresAt)}' : '';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Wrap(
+      spacing: 14,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Row(
-          children: [
-            TextButton(
-              onPressed: () => _showPurchaseDialog(cardBg: cardBg),
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 0),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                foregroundColor: AppColors.techBlue,
-              ),
-              child: const Text(
-                '购买',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(width: 14),
-            TextButton(
-              onPressed: _redeemBusy
-                  ? null
-                  : () => _showRedeemDialog(aiModel, cardBg: cardBg),
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 0),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                foregroundColor: AppColors.techBlue,
-              ),
-              child: Text(
-                _redeemBusy ? '处理中…' : '兑换',
-                style:
-                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-              ),
-            ),
-            if (expiryText.isNotEmpty) ...[
-              const SizedBox(width: 14),
-              Text(
-                expiryText,
-                style: TextStyle(
-                  color: widget.textColor.withOpacity(0.65),
-                  fontSize: 13,
-                  height: 1.2,
-                ),
-              ),
-            ],
-          ],
+        TextButton(
+          onPressed: () => _showPurchaseDialog(cardBg: cardBg),
+          style: TextButton.styleFrom(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(0, 0),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            foregroundColor: AppColors.techBlue,
+          ),
+          child: const Text(
+            '购买',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
         ),
-      ],
-    );
-  }
-
-  Widget _ttsRedeemRow(AiModelProvider aiModel, {required Color cardBg}) {
-    final expiresAt = aiModel.ttsEntitlementExpiresAt;
-    final active = aiModel.ttsEntitlementActive;
-    final expiryText =
-        active && expiresAt != null ? '到期时间：${_formatYmd(expiresAt)}' : '';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            TextButton(
-              onPressed: () => _showPurchaseDialog(
-                cardBg: cardBg,
-                title: '购买朗读时长',
-                skus: _purchaseTtsSkus,
-              ),
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 0),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                foregroundColor: AppColors.techBlue,
-              ),
-              child: const Text(
-                '购买',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-              ),
+        TextButton(
+          onPressed: _redeemBusy
+              ? null
+              : () => _showRedeemDialog(aiModel, cardBg: cardBg),
+          style: TextButton.styleFrom(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(0, 0),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            foregroundColor: AppColors.techBlue,
+          ),
+          child: Text(
+            _redeemBusy ? '处理中…' : '兑换',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Text(
+            '剩余积分：${aiModel.pointsBalance}',
+            style: TextStyle(
+              color: widget.textColor.withOpacity(0.75),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1.0,
             ),
-            const SizedBox(width: 14),
-            TextButton(
-              onPressed: _redeemBusy
-                  ? null
-                  : () => _showRedeemDialog(aiModel, cardBg: cardBg),
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 0),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                foregroundColor: AppColors.techBlue,
-              ),
-              child: Text(
-                _redeemBusy ? '处理中…' : '兑换',
-                style:
-                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-              ),
-            ),
-            if (expiryText.isNotEmpty) ...[
-              const SizedBox(width: 14),
-              Text(
-                expiryText,
-                style: TextStyle(
-                  color: widget.textColor.withOpacity(0.65),
-                  fontSize: 13,
-                  height: 1.2,
-                ),
-              ),
-            ],
-          ],
+          ),
         ),
       ],
     );
@@ -1156,30 +1064,12 @@ class _TencentHunyuanSettingsPanelState
 
                 if (token != null && token.isNotEmpty) {
                   final prefs = await SharedPreferences.getInstance();
-                  if (payload.isTts) {
-                    await prefs.setString('tencent_scf_tts_jwt', token);
-                    TencentApiClient.setTokens(tts: token);
-                  } else {
-                    await prefs.setString('tencent_scf_jwt', token);
-                    TencentApiClient.setTokens(vip: token);
-                  }
+                  await prefs.setString('tencent_scf_jwt', token);
+                  TencentApiClient.setToken(token);
                 }
                 final nowMs2 = DateTime.now().millisecondsSinceEpoch;
-
-                if (payload.isTts) {
-                  final baseMs = aiModel.ttsEntitlementExpiryMs > nowMs2
-                      ? aiModel.ttsEntitlementExpiryMs
-                      : nowMs2;
-                  final merged =
-                      baseMs + Duration(hours: payload.hours).inMilliseconds;
-                  await aiModel.setTtsEntitlementExpiryMs(merged);
-                } else {
-                  final baseMs = aiModel.onlineEntitlementExpiryMs > nowMs2
-                      ? aiModel.onlineEntitlementExpiryMs
-                      : nowMs2;
-                  final merged =
-                      baseMs + Duration(days: payload.days).inMilliseconds;
-                  await aiModel.setOnlineEntitlementExpiryMs(merged);
+                if (payload.points > 0) {
+                  await aiModel.addPoints(payload.points);
                 }
 
                 final updated =
@@ -1320,7 +1210,7 @@ class _TencentHunyuanSettingsPanelState
 
   Future<void> _showPurchaseDialog({
     required Color cardBg,
-    String title = '购买时长',
+    String title = '购买积分',
     List<_PurchaseSku>? skus,
   }) async {
     final dialogBg = widget.isDark ? const Color(0xFF262626) : Colors.white;
@@ -1644,7 +1534,7 @@ class _TencentHunyuanSettingsPanelState
                 const SizedBox(height: 12),
                 if (provider.translationMode == TranslationMode.machine)
                   Text(
-                    '使用腾讯机器翻译',
+                    '机器翻译：微软+腾讯翻译',
                     style: TextStyle(
                       color: widget.textColor.withOpacity(0.65),
                       fontSize: 13,
@@ -1664,7 +1554,7 @@ class _TencentHunyuanSettingsPanelState
                   ] else ...[
                     Text(
                       '使用腾讯混元翻译大模型'
-                      '${aiModel.onlineEntitlementActive ? '' : '，需要购买时长后使用'}',
+                      '${aiModel.pointsBalance > 0 ? '' : '，需要购买积分后使用'}',
                       style: TextStyle(
                         color: widget.textColor.withOpacity(0.65),
                         fontSize: 13,
@@ -1935,7 +1825,7 @@ class _TencentHunyuanSettingsPanelState
                   ] else ...[
                     Text(
                       '使用腾讯大模型朗读'
-                      '${aiModel.ttsEntitlementActive ? '' : '，需要购买时长后使用'}',
+                      '${aiModel.pointsBalance > 0 ? '' : '，需要购买积分后使用'}',
                       style: TextStyle(
                         color: widget.textColor.withOpacity(0.65),
                         fontSize: 13,
@@ -1944,7 +1834,7 @@ class _TencentHunyuanSettingsPanelState
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '部分机型本地朗读效果已较好，大模型朗读价格较高，请按需购买',
+                      '部分机型本地朗读效果已较好，大模型朗读积分消耗为10倍，请按需使用。',
                       style: TextStyle(
                         color: widget.isDark
                             ? const Color(0xFFE6A23C)
@@ -1955,7 +1845,7 @@ class _TencentHunyuanSettingsPanelState
                       ),
                     ),
                     const SizedBox(height: 10),
-                    _ttsRedeemRow(aiModel, cardBg: cardBg),
+                    _redeemRow(aiModel, cardBg: cardBg),
                   ],
                 ],
               ],
@@ -2239,7 +2129,7 @@ class _TencentHunyuanSettingsPanelState
                       ] else ...[
                         Text(
                           '使用腾讯混元大模型'
-                          '${aiModel.onlineEntitlementActive ? '' : '，需要购买时长后使用'}',
+                          '${aiModel.pointsBalance > 0 ? '' : '，需要购买积分后使用'}',
                           style: TextStyle(
                             color: widget.textColor.withOpacity(0.65),
                             fontSize: 13,
@@ -2558,7 +2448,7 @@ class _MainPanel extends StatelessWidget {
     final aiModel = context.watch<AiModelProvider>();
     final translationProvider = context.watch<TranslationProvider>();
     final source = aiModel.source;
-    final onlineEntitled = aiModel.onlineEntitlementActive;
+    final onlineEntitled = aiModel.pointsBalance > 0;
     final usingPersonalKeys = translationProvider.usingPersonalTencentKeys;
     final personalKeysUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
     final personalKeysMissing = usingPersonalKeys && !personalKeysUsable;
@@ -2600,7 +2490,7 @@ class _MainPanel extends StatelessWidget {
     if (translationBlockedByKeys) {
       translateSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
     } else if (translationBlockedByEntitlement) {
-      translateSubtitle = '大模型翻译需购买时长后使用';
+      translateSubtitle = '大模型翻译需积分后使用';
     } else if (!translateValue) {
       translateSubtitle = '打开后将实时对内容进行翻译';
     } else {
@@ -2625,7 +2515,7 @@ class _MainPanel extends StatelessWidget {
         : (onlineReadAloudKeysMissing
             ? '已开启使用个人密钥，但未正确设置个人密钥'
             : (onlineReadAloudBlocked
-                ? '在线朗读需要购买时长后使用'
+                ? '在线朗读需要购买积分后使用'
                 : (readAloudEnabled ? '已开启，点击页面小喇叭朗读或暂停' : '开启后，可朗读当前页')));
     final bool readAloudValue =
         localReadAloudBlocked ? false : readAloudEnabled;
@@ -2665,7 +2555,7 @@ class _MainPanel extends StatelessWidget {
                         : (source == AiModelSource.online &&
                                 !onlineEntitled &&
                                 !usingPersonalKeys)
-                            ? '在线大模型需要购买时长后使用'
+                            ? '在线大模型需要购买积分后使用'
                             : '支持问答/总结/提取要点',
             onTap: onOpenQa,
           ),

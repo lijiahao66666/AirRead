@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../ai/local_llm/local_llm_client.dart';
+import '../../ai/tencentcloud/tencent_api_client.dart';
 
 enum AiModelSource {
   none,
@@ -29,8 +30,7 @@ enum QAContentScope {
 class AiModelProvider extends ChangeNotifier {
   static const _kModelSource = 'ai_model_source';
   static const _kQAContentScope = 'qa_content_scope';
-  static const _kOnlineEntitlementExpiryMs = 'online_entitlement_expiry_ms';
-  static const _kTtsEntitlementExpiryMs = 'tts_entitlement_expiry_ms';
+  static const _kPointsBalance = 'points_balance';
 
   static const MethodChannel _androidLogcatChannel =
       MethodChannel('airread/local_llm');
@@ -86,10 +86,13 @@ class AiModelProvider extends ChangeNotifier {
   Timer? _installWatchdog;
 
   QAContentScope _qaContentScope = QAContentScope.slidingWindow; // 默认滑动窗口
-  int _onlineEntitlementExpiryMs = 0;
-  int _ttsEntitlementExpiryMs = 0;
+  int _pointsBalance = 0;
 
   AiModelProvider() {
+    TencentApiClient.onPointsBalanceChanged = (v) {
+      if (_pointsBalance == v) return;
+      unawaited(setPointsBalance(v));
+    };
     _load();
   }
 
@@ -182,26 +185,6 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   QAContentScope get qaContentScope => _qaContentScope;
-  int get onlineEntitlementExpiryMs => _onlineEntitlementExpiryMs;
-  DateTime? get onlineEntitlementExpiresAt => _onlineEntitlementExpiryMs <= 0
-      ? null
-      : DateTime.fromMillisecondsSinceEpoch(
-          (_onlineEntitlementExpiryMs ~/ 1000) * 1000,
-        );
-  bool get onlineEntitlementActive =>
-      (_onlineEntitlementExpiryMs ~/ 1000) >
-      (DateTime.now().millisecondsSinceEpoch ~/ 1000);
-
-  int get ttsEntitlementExpiryMs => _ttsEntitlementExpiryMs;
-  DateTime? get ttsEntitlementExpiresAt => _ttsEntitlementExpiryMs <= 0
-      ? null
-      : DateTime.fromMillisecondsSinceEpoch(
-          (_ttsEntitlementExpiryMs ~/ 1000) * 1000,
-        );
-  bool get ttsEntitlementActive =>
-      (_ttsEntitlementExpiryMs ~/ 1000) >
-      (DateTime.now().millisecondsSinceEpoch ~/ 1000);
-
   bool get loaded => _loaded;
   AiModelSource get source => _source;
 
@@ -312,22 +295,21 @@ class AiModelProvider extends ChangeNotifier {
     await prefs.setString(_kQAContentScope, value.name);
   }
 
-  Future<void> setOnlineEntitlementExpiryMs(int expiryMs) async {
-    final normalized = (expiryMs ~/ 1000) * 1000;
-    if (_onlineEntitlementExpiryMs == normalized) return;
-    _onlineEntitlementExpiryMs = normalized;
+  int get pointsBalance => _pointsBalance;
+
+  Future<void> setPointsBalance(int value) async {
+    final v = value < 0 ? 0 : value;
+    if (_pointsBalance == v) return;
+    _pointsBalance = v;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_kOnlineEntitlementExpiryMs, normalized);
+    await prefs.setInt(_kPointsBalance, v);
   }
 
-  Future<void> setTtsEntitlementExpiryMs(int expiryMs) async {
-    final normalized = (expiryMs ~/ 1000) * 1000;
-    if (_ttsEntitlementExpiryMs == normalized) return;
-    _ttsEntitlementExpiryMs = normalized;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_kTtsEntitlementExpiryMs, normalized);
+  Future<void> addPoints(int delta) async {
+    if (delta == 0) return;
+    final next = _pointsBalance + delta;
+    await setPointsBalance(next);
   }
 
   String _modelDirName(LocalLlmModelType type) {
@@ -1082,8 +1064,7 @@ class AiModelProvider extends ChangeNotifier {
       orElse: () => QAContentScope.slidingWindow,
     );
 
-    _onlineEntitlementExpiryMs = prefs.getInt(_kOnlineEntitlementExpiryMs) ?? 0;
-    _ttsEntitlementExpiryMs = prefs.getInt(_kTtsEntitlementExpiryMs) ?? 0;
+    _pointsBalance = prefs.getInt(_kPointsBalance) ?? 0;
 
     _loaded = true;
     await refreshLocalModelStatus();

@@ -4140,11 +4140,11 @@ class _ReaderPageState extends State<ReaderPage>
               getEmbeddedPublicHunyuanCredentials().isUsable;
           final canTranslate = tp.translationMode == TranslationMode.machine ||
               (tp.translationMode == TranslationMode.bigModel &&
-                  (aiModel.onlineEntitlementActive || personalUsable));
+                  (aiModel.pointsBalance > 0 || personalUsable));
           final canExplain = (aiModel.source == AiModelSource.local &&
                   aiModel.isLocalQaModelReady) ||
               (aiModel.source == AiModelSource.online &&
-                  (aiModel.onlineEntitlementActive || personalUsable));
+                  (aiModel.pointsBalance > 0 || personalUsable));
 
           final isDarkBg = _bgColor.computeLuminance() < 0.5;
           final toolbarBg = isDarkBg
@@ -4814,7 +4814,7 @@ class _ReaderPageState extends State<ReaderPage>
   void _translateCurrentPageIfNeeded(TranslationProvider tp) {
     if (!tp.applyToReader) return;
     final anchorKey =
-        '$_currentChapterIndex|$_currentPageInChapter|${tp.config.displayMode.name}';
+        '$_currentChapterIndex|$_currentPageInChapter|${tp.config.displayMode.name}|${tp.translationMode.name}|${tp.config.sourceLang}|${tp.config.targetLang}';
     if (anchorKey == _translationQueueAnchorKey) {
       if (_translationQueueRunning || _translationInsertRunning) return;
       if (_translationQueue.isNotEmpty) {
