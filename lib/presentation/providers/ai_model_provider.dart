@@ -24,7 +24,7 @@ enum AiModelSource {
 enum QAContentScope {
   currentPage, // 仅当前页面
   currentChapterToPage, // 当前章节开始到当前页面
-  slidingWindow, // 滑动窗口（当前页面前后5页）
+  slidingWindow, // 滑动窗口（当前页面前后1页）
 }
 
 class AiModelProvider extends ChangeNotifier {
@@ -92,10 +92,6 @@ class AiModelProvider extends ChangeNotifier {
     TencentApiClient.onPointsBalanceChanged = (v) {
       if (_pointsBalance == v) return;
       unawaited(setPointsBalance(v));
-    };
-    TencentApiClient.onPointsUsed = (usage) {
-      if (usage <= 0) return;
-      unawaited(addPoints(-usage));
     };
     _load();
   }

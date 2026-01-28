@@ -143,7 +143,7 @@ class XmlContentCleaner {
 }
 
 class ReadingContextService {
-  static const int _windowSize = 5; // 前后各5页，共11页
+  static const int _windowSize = 1; // 前后各1页，共3页
 
   final Map<int, String> _chapterContentCache;
   final int _currentChapterIndex;

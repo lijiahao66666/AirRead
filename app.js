@@ -716,7 +716,7 @@ async function handleApiProxy(req, res, body) {
         if (canAccountPoints) {
           try {
             if (action === 'ChatCompletions') {
-              const choices = json && json.Choices;
+              const choices = (json && json.Choices) || (json && json.Response && json.Response.Choices);
               if (Array.isArray(choices) && choices.length > 0) {
                 const first = choices[0];
                 const msg = first && first.Message;
@@ -727,7 +727,7 @@ async function handleApiProxy(req, res, body) {
                 }
               }
             } else if (action === 'ChatTranslations') {
-              const choices = json && json.Choices;
+              const choices = (json && json.Choices) || (json && json.Response && json.Response.Choices);
               if (Array.isArray(choices) && choices.length > 0) {
                 const first = choices[0];
                 const msg = first && first.Message;
@@ -738,7 +738,7 @@ async function handleApiProxy(req, res, body) {
                 }
               }
             } else if (action === 'TextTranslate') {
-              outputChars = charCount(json && json.TargetText);
+              outputChars = charCount((json && json.TargetText) || (json && json.Response && json.Response.TargetText));
             } else if (action === 'TextToVoice') {
               outputChars = 0;
             }

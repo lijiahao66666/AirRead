@@ -2199,7 +2199,7 @@ class _TencentHunyuanSettingsPanelState
                               aiModel.setQAContentScope(scope),
                         ),
                         _scopeChip(
-                          label: '前后5页',
+                          label: '前后1页',
                           value: QAContentScope.slidingWindow,
                           groupValue: aiModel.qaContentScope,
                           onChanged: (scope) =>
