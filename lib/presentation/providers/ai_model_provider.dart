@@ -91,6 +91,7 @@ class AiModelProvider extends ChangeNotifier {
   AiModelProvider() {
     TencentApiClient.onPointsBalanceChanged = (v) {
       if (_pointsBalance == v) return;
+      _debugLog('Points balance update from API: $v');
       unawaited(setPointsBalance(v));
     };
     _load();

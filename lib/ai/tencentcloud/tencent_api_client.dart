@@ -457,6 +457,79 @@ class TencentApiClient {
     return retryableCodes.contains(errorCode);
   }
 
+  Stream<StreamChunk> _processSseLine(String line) async* {
+    if (line.isEmpty) return;
+    // debugPrint('SSE Line: $line'); // Debug log
+    if (!line.startsWith('data: ')) return;
+    final jsonStr = line.substring(6).trim();
+
+    if (jsonStr == '[DONE]') {
+      debugPrint('SSE DONE received');
+      yield StreamChunk(content: '', isComplete: true);
+      return;
+    }
+
+    try {
+      final json = jsonDecode(jsonStr);
+      if (json is! Map) return;
+
+      if (json['PointsBalance'] != null) {
+        debugPrint('SSE found PointsBalance: ${json['PointsBalance']}');
+        await _syncPointsFromResponse(json.cast<String, dynamic>());
+      }
+
+      if (json['Response'] != null && json['Response'] is Map) {
+        final inner = json['Response'] as Map<String, dynamic>;
+        if (inner['PointsBalance'] != null) {
+          debugPrint(
+              'SSE found inner PointsBalance: ${inner['PointsBalance']}');
+          await _syncPointsFromResponse(inner);
+        }
+      }
+
+      final choices = json['Choices'];
+      if (choices is! List || choices.isEmpty) {
+        // debugPrint('SSE no choices in json');
+        return;
+      }
+
+      final choice = choices.first;
+      if (choice is! Map) return;
+
+      final delta = choice['Delta'];
+      if (delta is! Map) return;
+
+      final reasoningContent = delta['ReasoningContent'];
+      if (reasoningContent != null && reasoningContent.toString().isNotEmpty) {
+        yield StreamChunk(
+          content: '',
+          reasoningContent: reasoningContent.toString(),
+          isReasoning: true,
+          isComplete: false,
+        );
+      }
+
+      final content = delta['Content'];
+      if (content != null && content.toString().isNotEmpty) {
+        yield StreamChunk(
+          content: content.toString(),
+          isReasoning: false,
+          isComplete: false,
+        );
+      }
+
+      final finishReason = choice['FinishReason'];
+      if (finishReason != null &&
+          finishReason.toString().isNotEmpty &&
+          finishReason.toString() != 'null') {
+        debugPrint('SSE FinishReason: $finishReason');
+        yield StreamChunk(content: '', isComplete: true);
+      }
+    } catch (e) {
+      debugPrint('SSE Parse Error: $e, Line: $line');
+    }
+  }
+
   Stream<StreamChunk> postStream({
     required String host,
     required String service,
@@ -545,60 +618,17 @@ class TencentApiClient {
               buffer = buffer.substring(lineIndex + 1);
               if (line.isEmpty) continue;
 
-              if (!line.startsWith('data: ')) continue;
-              final jsonStr = line.substring(6).trim();
-
-              if (jsonStr == '[DONE]') {
-                yield StreamChunk(content: '', isComplete: true);
-                return;
+              await for (final chunk in _processSseLine(line)) {
+                yield chunk;
+                if (chunk.isComplete) return;
               }
+            }
+          }
 
-              try {
-                final json = jsonDecode(jsonStr);
-                if (json is! Map) continue;
-                if (json['PointsBalance'] != null) {
-                  await _syncPointsFromResponse(json.cast<String, dynamic>());
-                }
-
-                final choices = json['Choices'];
-                if (choices is! List || choices.isEmpty) continue;
-
-                final choice = choices.first;
-                if (choice is! Map) continue;
-
-                final delta = choice['Delta'];
-                if (delta is! Map) continue;
-
-                final reasoningContent = delta['ReasoningContent'];
-                if (reasoningContent != null &&
-                    reasoningContent.toString().isNotEmpty) {
-                  yield StreamChunk(
-                    content: '',
-                    reasoningContent: reasoningContent.toString(),
-                    isReasoning: true,
-                    isComplete: false,
-                  );
-                }
-
-                final content = delta['Content'];
-                if (content != null && content.toString().isNotEmpty) {
-                  yield StreamChunk(
-                    content: content.toString(),
-                    isReasoning: false,
-                    isComplete: false,
-                  );
-                }
-
-                final finishReason = choice['FinishReason'];
-                if (finishReason != null &&
-                    finishReason.toString().isNotEmpty &&
-                    finishReason.toString() != 'null') {
-                  yield StreamChunk(content: '', isComplete: true);
-                  return;
-                }
-              } catch (_) {
-                continue;
-              }
+          if (buffer.trim().isNotEmpty) {
+            await for (final chunk in _processSseLine(buffer.trim())) {
+              yield chunk;
+              if (chunk.isComplete) return;
             }
           }
 
@@ -666,6 +696,7 @@ class TencentApiClient {
 
       await for (final chunk
           in streamedResponse.stream.transform(transformer)) {
+        // debugPrint('SSE Chunk: ${chunk.length} bytes'); // Debug log
         buffer += chunk;
 
         while (true) {
@@ -676,71 +707,21 @@ class TencentApiClient {
           buffer = buffer.substring(lineIndex + 1);
           if (line.isEmpty) continue;
 
-          if (!line.startsWith('data: ')) continue;
-          final jsonStr = line.substring(6).trim();
-
-          if (jsonStr == '[DONE]') {
-            yield StreamChunk(content: '', isComplete: true);
-            return;
-          }
-
-          try {
-            final json = jsonDecode(jsonStr);
-            if (json is! Map) continue;
-
-            // Handle PointsBalance in stream response
-            if (json['PointsBalance'] != null) {
-              await _syncPointsFromResponse(json.cast<String, dynamic>());
-            }
-            // Also check Response wrapper (for SCF)
-            if (json['Response'] != null && json['Response'] is Map) {
-              final inner = json['Response'] as Map<String, dynamic>;
-              if (inner['PointsBalance'] != null) {
-                await _syncPointsFromResponse(inner);
-              }
-            }
-
-            final choices = json['Choices'];
-            if (choices is! List || choices.isEmpty) continue;
-
-            final choice = choices.first;
-            if (choice is! Map) continue;
-
-            final delta = choice['Delta'];
-            if (delta is! Map) continue;
-
-            final reasoningContent = delta['ReasoningContent'];
-            if (reasoningContent != null &&
-                reasoningContent.toString().isNotEmpty) {
-              yield StreamChunk(
-                content: '',
-                reasoningContent: reasoningContent.toString(),
-                isReasoning: true,
-                isComplete: false,
-              );
-            }
-
-            final content = delta['Content'];
-            if (content != null && content.toString().isNotEmpty) {
-              final c = content.toString();
-              yield StreamChunk(
-                content: c,
-                isReasoning: false,
-                isComplete: false,
-              );
-            }
-
-            final finishReason = choice['FinishReason'];
-            if (finishReason != null &&
-                finishReason.toString().isNotEmpty &&
-                finishReason.toString() != 'null') {
-              yield StreamChunk(content: '', isComplete: true);
-              return;
-            }
-          } catch (_) {
-            continue;
+          await for (final chunk in _processSseLine(line)) {
+            yield chunk;
+            // if (chunk.isComplete) return; // Do not stop early
           }
         }
+      }
+
+      if (buffer.trim().isNotEmpty) {
+        debugPrint('SSE processing residual buffer: ${buffer.trim()}');
+        await for (final chunk in _processSseLine(buffer.trim())) {
+          yield chunk;
+          // if (chunk.isComplete) return; // Do not stop early
+        }
+      } else {
+        debugPrint('SSE buffer empty at end');
       }
 
       yield StreamChunk(content: '', isComplete: true);

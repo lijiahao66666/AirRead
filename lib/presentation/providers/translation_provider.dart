@@ -1218,7 +1218,7 @@ class TranslationProvider extends ChangeNotifier {
       } else {
         final points = _aiModel?.pointsBalance ?? 0;
         if (points <= 0) {
-          throw TranslationConfigException('大模型翻译需积分后使用');
+          throw TranslationConfigException('大模型翻译需购买积分后使用');
         }
       }
     }

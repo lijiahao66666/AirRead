@@ -2490,7 +2490,7 @@ class _MainPanel extends StatelessWidget {
     if (translationBlockedByKeys) {
       translateSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
     } else if (translationBlockedByEntitlement) {
-      translateSubtitle = '大模型翻译需积分后使用';
+      translateSubtitle = '大模型翻译需购买积分后使用';
     } else if (!translateValue) {
       translateSubtitle = '打开后将实时对内容进行翻译';
     } else {
