@@ -338,8 +338,8 @@ class TencentApiClient {
         }
 
         final signer = Tc3Signer.signJson(
-          secretId: secretId,
-          secretKey: secretKey,
+          secretId: secretId.trim(),
+          secretKey: secretKey.trim(),
           service: service,
           host: host,
           action: action,
@@ -459,12 +459,17 @@ class TencentApiClient {
 
   Stream<StreamChunk> _processSseLine(String line) async* {
     if (line.isEmpty) return;
-    // debugPrint('SSE Line: $line'); // Debug log
-    if (!line.startsWith('data: ')) return;
-    final jsonStr = line.substring(6).trim();
+
+    String jsonStr;
+    if (line.startsWith('data: ')) {
+      jsonStr = line.substring(6).trim();
+    } else if (line.startsWith('data:')) {
+      jsonStr = line.substring(5).trim();
+    } else {
+      return;
+    }
 
     if (jsonStr == '[DONE]') {
-      debugPrint('SSE DONE received');
       yield StreamChunk(content: '', isComplete: true);
       return;
     }
@@ -474,22 +479,18 @@ class TencentApiClient {
       if (json is! Map) return;
 
       if (json['PointsBalance'] != null) {
-        debugPrint('SSE found PointsBalance: ${json['PointsBalance']}');
         await _syncPointsFromResponse(json.cast<String, dynamic>());
       }
 
       if (json['Response'] != null && json['Response'] is Map) {
         final inner = json['Response'] as Map<String, dynamic>;
         if (inner['PointsBalance'] != null) {
-          debugPrint(
-              'SSE found inner PointsBalance: ${inner['PointsBalance']}');
           await _syncPointsFromResponse(inner);
         }
       }
 
       final choices = json['Choices'];
       if (choices is! List || choices.isEmpty) {
-        // debugPrint('SSE no choices in json');
         return;
       }
 
@@ -522,12 +523,9 @@ class TencentApiClient {
       if (finishReason != null &&
           finishReason.toString().isNotEmpty &&
           finishReason.toString() != 'null') {
-        debugPrint('SSE FinishReason: $finishReason');
         yield StreamChunk(content: '', isComplete: true);
       }
-    } catch (e) {
-      debugPrint('SSE Parse Error: $e, Line: $line');
-    }
+    } catch (_) {}
   }
 
   Stream<StreamChunk> postStream({
@@ -620,7 +618,7 @@ class TencentApiClient {
 
               await for (final chunk in _processSseLine(line)) {
                 yield chunk;
-                if (chunk.isComplete) return;
+                // if (chunk.isComplete) return; // Do not stop early
               }
             }
           }
@@ -628,7 +626,7 @@ class TencentApiClient {
           if (buffer.trim().isNotEmpty) {
             await for (final chunk in _processSseLine(buffer.trim())) {
               yield chunk;
-              if (chunk.isComplete) return;
+              // if (chunk.isComplete) return; // Do not stop early
             }
           }
 
@@ -647,8 +645,8 @@ class TencentApiClient {
       }
 
       final signer = Tc3Signer.signJson(
-        secretId: secretId,
-        secretKey: secretKey,
+        secretId: secretId.trim(),
+        secretKey: secretKey.trim(),
         service: service,
         host: host,
         action: action,
@@ -696,7 +694,6 @@ class TencentApiClient {
 
       await for (final chunk
           in streamedResponse.stream.transform(transformer)) {
-        // debugPrint('SSE Chunk: ${chunk.length} bytes'); // Debug log
         buffer += chunk;
 
         while (true) {
@@ -715,14 +712,11 @@ class TencentApiClient {
       }
 
       if (buffer.trim().isNotEmpty) {
-        debugPrint('SSE processing residual buffer: ${buffer.trim()}');
         await for (final chunk in _processSseLine(buffer.trim())) {
           yield chunk;
           // if (chunk.isComplete) return; // Do not stop early
         }
-      } else {
-        debugPrint('SSE buffer empty at end');
-      }
+      } else {}
 
       yield StreamChunk(content: '', isComplete: true);
     } finally {
