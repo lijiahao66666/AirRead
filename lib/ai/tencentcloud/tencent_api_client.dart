@@ -88,6 +88,7 @@ class TencentApiClient {
 
   static String? _pointsToken;
   static ValueChanged<int>? onPointsBalanceChanged;
+  static ValueChanged<int>? onPointsUsed;
 
   static void setToken(String? token) {
     if (token != null) _pointsToken = token;
@@ -114,6 +115,13 @@ class TencentApiClient {
 
   static const String _kPointsBalance = 'points_balance';
   Future<void> _syncPointsFromResponse(Map<String, dynamic> response) async {
+    if (response['PointsError'] != null ||
+        response['InputPointsError'] != null ||
+        response['OutputPointsError'] != null) {
+      debugPrint(
+          'PointsSyncError: ${response['PointsError'] ?? response['InputPointsError'] ?? response['OutputPointsError']}');
+    }
+
     final balanceRaw = response['PointsBalance'];
     if (balanceRaw == null) return;
     final next = (balanceRaw is num)
@@ -219,6 +227,66 @@ class TencentApiClient {
       );
     }
     yield StreamChunk(content: '', isComplete: true);
+  }
+
+  int _calculateInputCost(String action, Map<String, dynamic> payload) {
+    int inputChars = 0;
+    int unitCost = 1;
+
+    if (action == 'ChatCompletions') {
+      final msgs = payload['Messages'];
+      if (msgs is List) {
+        for (final m in msgs) {
+          if (m is Map) {
+            inputChars += (m['Content']?.toString() ?? '').runes.length;
+          }
+        }
+      }
+      unitCost = 1;
+    } else if (action == 'ChatTranslations') {
+      inputChars = (payload['Text']?.toString() ?? '').runes.length;
+      unitCost = 1;
+    } else if (action == 'TextToVoice') {
+      inputChars = (payload['Text']?.toString() ?? '').runes.length;
+      unitCost = 10;
+    } else if (action == 'TextTranslate') {
+      inputChars = (payload['SourceText']?.toString() ?? '').runes.length;
+      unitCost = 1;
+    }
+
+    return inputChars * unitCost;
+  }
+
+  int _calculateOutputCost(
+      String action, Map<String, dynamic> response, int outputChars) {
+    int unitCost = 1;
+    if (action == 'TextToVoice') {
+      return 0; // Output is audio, charged on input
+    }
+    // For other actions, output is charged at 1 point per char
+    return outputChars * unitCost;
+  }
+
+  int _estimateOutputCharsFromResponse(
+      String action, Map<String, dynamic> response) {
+    int outputChars = 0;
+    if (action == 'ChatCompletions' || action == 'ChatTranslations') {
+      final choices = response['Choices'];
+      if (choices is List && choices.isNotEmpty) {
+        final first = choices.first;
+        if (first is Map) {
+          final msg = first['Message'];
+          if (msg is Map) {
+            outputChars = (msg['Content']?.toString() ?? '').runes.length;
+          } else {
+            outputChars = (first['Content']?.toString() ?? '').runes.length;
+          }
+        }
+      }
+    } else if (action == 'TextTranslate') {
+      outputChars = (response['TargetText']?.toString() ?? '').runes.length;
+    }
+    return outputChars;
   }
 
   Future<Map<String, dynamic>> postJson({
@@ -392,6 +460,20 @@ class TencentApiClient {
           throw TencentCloudException(code: code, message: msg, requestId: rid);
         }
 
+        // Calculate and deduct points locally for non-SCF requests
+        try {
+          final typedResponse = response.cast<String, dynamic>();
+          final inputCost = _calculateInputCost(action, payload);
+          final outputChars =
+              _estimateOutputCharsFromResponse(action, typedResponse);
+          final outputCost =
+              _calculateOutputCost(action, typedResponse, outputChars);
+          final totalCost = inputCost + outputCost;
+          if (totalCost > 0) {
+            onPointsUsed?.call(totalCost);
+          }
+        } catch (_) {}
+
         return response.cast<String, dynamic>();
       } catch (e, st) {
         if (e is TencentCloudException) {
@@ -538,8 +620,7 @@ class TencentApiClient {
                 final json = jsonDecode(jsonStr);
                 if (json is! Map) continue;
                 if (json['PointsBalance'] != null) {
-                  await _syncPointsFromResponse(
-                      json.cast<String, dynamic>());
+                  await _syncPointsFromResponse(json.cast<String, dynamic>());
                 }
 
                 final choices = json['Choices'];
@@ -645,6 +726,7 @@ class TencentApiClient {
       // 持续读取流式响应，直到连接关闭或收到[DONE]
       final transformer = utf8.decoder;
       String buffer = '';
+      int accumulatedOutputChars = 0;
 
       await for (final chunk
           in streamedResponse.stream.transform(transformer)) {
@@ -663,6 +745,14 @@ class TencentApiClient {
 
           if (jsonStr == '[DONE]') {
             yield StreamChunk(content: '', isComplete: true);
+            // Deduct accumulated output points
+            try {
+              final outputCost =
+                  _calculateOutputCost(action, {}, accumulatedOutputChars);
+              if (outputCost > 0) {
+                onPointsUsed?.call(outputCost);
+              }
+            } catch (_) {}
             return;
           }
 
@@ -695,8 +785,10 @@ class TencentApiClient {
 
             final content = delta['Content'];
             if (content != null && content.toString().isNotEmpty) {
+              final c = content.toString();
+              accumulatedOutputChars += c.runes.length;
               yield StreamChunk(
-                content: content.toString(),
+                content: c,
                 isReasoning: false,
                 isComplete: false,
               );
@@ -707,6 +799,14 @@ class TencentApiClient {
                 finishReason.toString().isNotEmpty &&
                 finishReason.toString() != 'null') {
               yield StreamChunk(content: '', isComplete: true);
+              // Deduct accumulated output points
+              try {
+                final outputCost =
+                    _calculateOutputCost(action, {}, accumulatedOutputChars);
+                if (outputCost > 0) {
+                  onPointsUsed?.call(outputCost);
+                }
+              } catch (_) {}
               return;
             }
           } catch (_) {
@@ -716,6 +816,14 @@ class TencentApiClient {
       }
 
       yield StreamChunk(content: '', isComplete: true);
+      // Deduct accumulated output points
+      try {
+        final outputCost = _calculateOutputCost(
+            action, <String, dynamic>{}, accumulatedOutputChars);
+        if (outputCost > 0) {
+          onPointsUsed?.call(outputCost);
+        }
+      } catch (_) {}
     } finally {
       release?.call();
     }

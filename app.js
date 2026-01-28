@@ -762,7 +762,12 @@ async function handleApiProxy(req, res, body) {
             });
             json.PointsDeducted = totalNeed;
             json.PointsBalance = next;
-          } catch (_) {
+          } catch (e) {
+            json.PointsError = String(e && e.message ? e.message : e);
+            try {
+               const current = await getPointsBalance({ bucket, region: regionStr, deviceId, credentials: null });
+               json.PointsBalance = current;
+            } catch (_) {}
           }
         }
         sendJson(res, 200, json);

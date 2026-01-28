@@ -93,6 +93,10 @@ class AiModelProvider extends ChangeNotifier {
       if (_pointsBalance == v) return;
       unawaited(setPointsBalance(v));
     };
+    TencentApiClient.onPointsUsed = (usage) {
+      if (usage <= 0) return;
+      unawaited(addPoints(-usage));
+    };
     _load();
   }
 
