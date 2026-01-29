@@ -129,3 +129,6 @@ flutter_icons:
   macos:
     generate: true
     image_path: "app_icon.png"
+
+dependency_overrides:
+  win32: ^5.6.0
