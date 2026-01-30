@@ -26,7 +26,7 @@ static BOOL g_isStreaming = NO;
 #endif
 }
 
-+ (BOOL)initializeWithModelPath:(NSString*)modelPath error:(NSError**)error {
++ (BOOL)loadModel:(NSString*)path error:(NSError**)error {
 #if TARGET_OS_SIMULATOR
     if (error) {
         *error = [NSError errorWithDomain:@"MnnLlmBridge"
@@ -39,7 +39,7 @@ static BOOL g_isStreaming = NO;
     
     @try {
         // Convert NSString to std::string
-        std::string configPath = [modelPath UTF8String];
+        std::string configPath = [path UTF8String];
         
         // Check if file exists
         std::ifstream file(configPath);
@@ -47,7 +47,7 @@ static BOOL g_isStreaming = NO;
             if (error) {
                 *error = [NSError errorWithDomain:@"MnnLlmBridge"
                                              code:1001
-                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Config file not found: %@", modelPath]}];
+                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Config file not found: %@", path]}];
             }
             return NO;
         }
@@ -65,7 +65,7 @@ static BOOL g_isStreaming = NO;
                 *error = [NSError errorWithDomain:@"MnnLlmBridge"
                                              code:1002
                                          userInfo:@{NSLocalizedDescriptionKey: @"Failed to create LLM instance"}];
-    }
+            }
             return NO;
         }
         
@@ -95,7 +95,7 @@ static BOOL g_isStreaming = NO;
 #endif
 }
 
-+ (NSString*)dumpConfigWithError:(NSError**)error {
++ (NSString*)getConfig:(NSError**)error {
 #if TARGET_OS_SIMULATOR
     if (error) {
         *error = [NSError errorWithDomain:@"MnnLlmBridge"
@@ -129,13 +129,13 @@ static BOOL g_isStreaming = NO;
 #endif
 }
 
-+ (void)cancelCurrentStream {
++ (void)cancelStream {
 #if !TARGET_OS_SIMULATOR
     g_isStreaming = NO;
 #endif
 }
 
-+ (nullable NSString*)chatOnce:(NSString*)prompt
++ (nullable NSString*)generate:(NSString*)prompt
                   maxNewTokens:(int)maxNewTokens
                 maxInputTokens:(int)maxInputTokens
                    temperature:(double)temperature
@@ -172,9 +172,6 @@ static BOOL g_isStreaming = NO;
         // Use stringstream to capture output
         std::ostringstream oss;
         
-        // Set generation parameters if needed
-        // Note: MNN LLM API may vary, adjust according to actual API
-        
         // Call response method
         g_llmInstance->response(userPrompt, &oss, nullptr, maxNewTokens);
         
@@ -192,18 +189,18 @@ static BOOL g_isStreaming = NO;
 #endif
 }
 
-+ (void)chatStream:(NSString*)prompt
-       maxNewTokens:(int)maxNewTokens
-     maxInputTokens:(int)maxInputTokens
-        temperature:(double)temperature
-               topP:(double)topP
-               topK:(int)topK
-               minP:(double)minP
-     presencePenalty:(double)presencePenalty
-   repetitionPenalty:(double)repetitionPenalty
-      enableThinking:(int)enableThinking
-           onChunk:(void (^)(NSString* chunk))onChunk
-            onDone:(void (^)(NSError* _Nullable error))onDone {
++ (void)generateStream:(NSString*)prompt
+          maxNewTokens:(int)maxNewTokens
+        maxInputTokens:(int)maxInputTokens
+           temperature:(double)temperature
+                  topP:(double)topP
+                  topK:(int)topK
+                  minP:(double)minP
+       presencePenalty:(double)presencePenalty
+     repetitionPenalty:(double)repetitionPenalty
+        enableThinking:(int)enableThinking
+               onChunk:(void (^)(NSString* _Nullable chunk))onChunk
+                onDone:(void (^)(NSError* _Nullable error))onDone {
     
 #if TARGET_OS_SIMULATOR
     if (onDone) {

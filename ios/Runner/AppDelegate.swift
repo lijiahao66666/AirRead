@@ -110,7 +110,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           let modelPath = args?["modelPath"] as? String ?? ""
           DispatchQueue.global(qos: .userInitiated).async {
             var error: NSError?
-            let success = MnnLlmBridge.initialize(withModelPath: modelPath, error: &error)
+            let success = MnnLlmBridge.loadModel(modelPath, error: &error)
             DispatchQueue.main.async {
               if !success {
                 let errorMsg = error?.localizedDescription ?? "Unknown error"
@@ -140,7 +140,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           }
           DispatchQueue.global(qos: .userInitiated).async {
             var initError: NSError?
-            let initSuccess = MnnLlmBridge.initialize(withModelPath: modelPath, error: &initError)
+            let initSuccess = MnnLlmBridge.loadModel(modelPath, error: &initError)
             if !initSuccess {
               let errorMsg = initError?.localizedDescription ?? "Unknown init error"
               DispatchQueue.main.async {
@@ -149,7 +149,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
               return
             }
             var chatError: NSError?
-            let resp = MnnLlmBridge.chatOnce(
+            let resp = MnnLlmBridge.generate(
               userText,
               maxNewTokens: maxNewTokens,
               maxInputTokens: maxInputTokens,
@@ -192,7 +192,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           }
           DispatchQueue.global(qos: .userInitiated).async {
             var initError: NSError?
-            let initSuccess = MnnLlmBridge.initialize(withModelPath: modelPath, error: &initError)
+            let initSuccess = MnnLlmBridge.loadModel(modelPath, error: &initError)
             if !initSuccess {
               let errorMsg = initError?.localizedDescription ?? "Unknown init error"
               DispatchQueue.main.async {
@@ -201,7 +201,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
               }
               return
             }
-            MnnLlmBridge.chatStream(
+            MnnLlmBridge.generateStream(
               userText,
               maxNewTokens: maxNewTokens,
               maxInputTokens: maxInputTokens,
@@ -217,9 +217,9 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
                   streamHandler.send(["type": "chunk", "data": chunk ?? ""])
                 }
               },
-              onDone: { (err: NSError?) in
+              onDone: { (err: Error?) in
                 DispatchQueue.main.async {
-                  if let err = err {
+                  if let err = err as NSError? {
                     streamHandler.send(["type": "error", "message": "Chat failed: \(err.localizedDescription)"])
                   }
                   streamHandler.send(["type": "done"])
@@ -230,12 +230,12 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           result(nil)
         case "cancelChatStream":
           streamHandler.cancel()
-          MnnLlmBridge.cancelCurrentStream()
+          MnnLlmBridge.cancelStream()
           result(nil)
         case "dumpConfig":
           DispatchQueue.global(qos: .userInitiated).async {
             var error: NSError?
-            let cfg = MnnLlmBridge.dumpConfig(withError: &error)
+            let cfg = MnnLlmBridge.getConfig(&error)
             DispatchQueue.main.async {
               if let error = error {
                 result(FlutterError(code: "NATIVE_ERR", message: "Native dumpConfig failed: \(error.localizedDescription)", details: error.localizedDescription))
