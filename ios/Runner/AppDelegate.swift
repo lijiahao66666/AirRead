@@ -110,10 +110,11 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           let modelPath = args?["modelPath"] as? String ?? ""
           DispatchQueue.global(qos: .userInitiated).async {
             var error: NSError?
-            MnnLlmBridge.initialize(withModelPath: modelPath, error: &error)
+            let success = MnnLlmBridge.initialize(withModelPath: modelPath, error: &error)
             DispatchQueue.main.async {
-              if let error = error {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native init failed", details: error.localizedDescription))
+              if !success {
+                let errorMsg = error?.localizedDescription ?? "Unknown error"
+                result(FlutterError(code: "NATIVE_ERR", message: "Native init failed: \(errorMsg)", details: errorMsg))
               } else {
                 result(nil)
               }
@@ -139,32 +140,35 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           }
           DispatchQueue.global(qos: .userInitiated).async {
             var initError: NSError?
-            MnnLlmBridge.initialize(withModelPath: modelPath, error: &initError)
-            if let initError = initError {
+            let initSuccess = MnnLlmBridge.initialize(withModelPath: modelPath, error: &initError)
+            if !initSuccess {
+              let errorMsg = initError?.localizedDescription ?? "Unknown init error"
               DispatchQueue.main.async {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native init failed", details: initError.localizedDescription))
+                result(FlutterError(code: "NATIVE_ERR", message: "Native init failed: \(errorMsg)", details: errorMsg))
               }
               return
             }
-            do {
-              let resp = try MnnLlmBridge.chatOnce(
-                userText,
-                maxNewTokens: maxNewTokens,
-                maxInputTokens: maxInputTokens,
-                temperature: temperature,
-                topP: topP,
-                topK: topK,
-                minP: minP,
-                presencePenalty: presencePenalty,
-                repetitionPenalty: repetitionPenalty,
-                enableThinking: enableThinking
-              )
-              DispatchQueue.main.async {
+            var chatError: NSError?
+            let resp = MnnLlmBridge.chatOnce(
+              userText,
+              maxNewTokens: maxNewTokens,
+              maxInputTokens: maxInputTokens,
+              temperature: temperature,
+              topP: topP,
+              topK: topK,
+              minP: minP,
+              presencePenalty: presencePenalty,
+              repetitionPenalty: repetitionPenalty,
+              enableThinking: enableThinking,
+              error: &chatError
+            )
+            DispatchQueue.main.async {
+              if let chatError = chatError {
+                result(FlutterError(code: "NATIVE_ERR", message: "Native chat failed: \(chatError.localizedDescription)", details: chatError.localizedDescription))
+              } else if let resp = resp {
                 result(resp)
-              }
-            } catch {
-              DispatchQueue.main.async {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native chat failed", details: error.localizedDescription))
+              } else {
+                result(FlutterError(code: "NATIVE_ERR", message: "Native chat returned nil", details: nil))
               }
             }
           }
@@ -188,10 +192,11 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           }
           DispatchQueue.global(qos: .userInitiated).async {
             var initError: NSError?
-            MnnLlmBridge.initialize(withModelPath: modelPath, error: &initError)
-            if let initError = initError {
+            let initSuccess = MnnLlmBridge.initialize(withModelPath: modelPath, error: &initError)
+            if !initSuccess {
+              let errorMsg = initError?.localizedDescription ?? "Unknown init error"
               DispatchQueue.main.async {
-                streamHandler.send(["type": "error", "message": initError.localizedDescription])
+                streamHandler.send(["type": "error", "message": "Init failed: \(errorMsg)"])
                 streamHandler.send(["type": "done"])
               }
               return
@@ -212,10 +217,10 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
                   streamHandler.send(["type": "chunk", "data": chunk ?? ""])
                 }
               },
-              onDone: { (err: Error?) in
+              onDone: { (err: NSError?) in
                 DispatchQueue.main.async {
                   if let err = err {
-                    streamHandler.send(["type": "error", "message": err.localizedDescription])
+                    streamHandler.send(["type": "error", "message": "Chat failed: \(err.localizedDescription)"])
                   }
                   streamHandler.send(["type": "done"])
                 }
@@ -229,14 +234,13 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           result(nil)
         case "dumpConfig":
           DispatchQueue.global(qos: .userInitiated).async {
-            do {
-              let cfg = try MnnLlmBridge.dumpConfig()
-              DispatchQueue.main.async {
+            var error: NSError?
+            let cfg = MnnLlmBridge.dumpConfig(withError: &error)
+            DispatchQueue.main.async {
+              if let error = error {
+                result(FlutterError(code: "NATIVE_ERR", message: "Native dumpConfig failed: \(error.localizedDescription)", details: error.localizedDescription))
+              } else {
                 result(cfg)
-              }
-            } catch {
-              DispatchQueue.main.async {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native dumpConfig failed", details: error.localizedDescription))
               }
             }
           }
