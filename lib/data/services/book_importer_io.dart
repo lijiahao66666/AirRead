@@ -132,8 +132,12 @@ class BookImporter {
 
       final metadata = await _parser.parse(destPath);
       final originalBaseName = p.basenameWithoutExtension(sourcePath);
+      // Always use original filename as title for TXT files
+      // For EPUB, use original filename if parsed title is empty or equals the UUID filename
       final destBaseName = p.basenameWithoutExtension(destPath);
-      final resolvedTitle = (metadata.title.trim().isEmpty ||
+      final isTxt = extension == '.txt';
+      final resolvedTitle = (isTxt ||
+              metadata.title.trim().isEmpty ||
               metadata.title.trim() == destBaseName)
           ? originalBaseName
           : metadata.title;

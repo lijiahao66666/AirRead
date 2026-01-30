@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:epubx/epubx.dart';
 import 'package:path/path.dart' as p;
+import 'package:fast_gbk/fast_gbk.dart';
 
 class ParsedMetadata {
   final String title;
@@ -82,6 +83,49 @@ class BookParser {
     return evenRatio > 0.6 && oddRatio < 0.2;
   }
 
+  /// Detect GBK/GB2312 encoding by analyzing byte patterns
+  /// GBK uses 0x81-0xFE as first byte, 0x40-0xFE as second byte for double-byte chars
+  static bool _looksLikeGbk(List<int> bytes) {
+    final probeLen = bytes.length.clamp(0, 800);
+    if (probeLen < 20) return false;
+
+    int gbkPairs = 0;
+    int invalidSequences = 0;
+    int i = 0;
+
+    while (i < probeLen) {
+      final b = bytes[i];
+      // ASCII
+      if (b < 0x80) {
+        i++;
+        continue;
+      }
+      // Potential GBK double-byte sequence
+      if (b >= 0x81 && b <= 0xFE && i + 1 < probeLen) {
+        final b2 = bytes[i + 1];
+        // GB2312: 0xA1-0xF7, 0xA1-0xFE
+        // GBK extends to: 0x81-0xFE, 0x40-0xFE (excluding 0x7F)
+        if ((b2 >= 0x40 && b2 <= 0xFE && b2 != 0x7F) ||
+            (b2 >= 0xA1 && b2 <= 0xFE)) {
+          gbkPairs++;
+          i += 2;
+          continue;
+        }
+      }
+      // Invalid sequence for GBK
+      if (b >= 0x80) {
+        invalidSequences++;
+      }
+      i++;
+    }
+
+    // If we have GBK-like pairs and not too many invalid sequences
+    if (gbkPairs >= 3 && invalidSequences < gbkPairs * 0.3) {
+      return true;
+    }
+    return false;
+  }
+
   static String _decodeUtf16(List<int> bytes, {required bool littleEndian}) {
     final int len = bytes.length;
     final buffer = StringBuffer();
@@ -155,6 +199,16 @@ class BookParser {
         }
       }
       return _sanitizeTxt(buffer.toString());
+    }
+
+    // Check for GBK/GB2312 encoding before UTF-8
+    if (_looksLikeGbk(bytes)) {
+      try {
+        final decoded = gbk.decode(bytes);
+        return _sanitizeTxt(decoded);
+      } catch (_) {
+        // Fall through to UTF-8
+      }
     }
 
     final sink = StringConversionSink.withCallback(buffer.write);
@@ -241,6 +295,15 @@ class BookParser {
     }
     if (_looksLikeUtf16BeNoBom(bytes)) {
       return _sanitizeTxt(_decodeUtf16(bytes, littleEndian: false));
+    }
+    // Check for GBK/GB2312 encoding
+    if (_looksLikeGbk(bytes)) {
+      try {
+        final decoded = gbk.decode(bytes);
+        return _sanitizeTxt(decoded);
+      } catch (_) {
+        // Fall through to UTF-8
+      }
     }
     return _sanitizeTxt(utf8.decode(bytes, allowMalformed: true));
   }

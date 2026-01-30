@@ -60,6 +60,7 @@ dependencies:
   web_socket_channel: ^3.0.3
   url_launcher: ^6.3.1
   cryptography: ^2.7.0
+  fast_gbk: ^1.0.0
 
 
 dev_dependencies:
@@ -129,3 +130,6 @@ flutter_icons:
   macos:
     generate: true
     image_path: "app_icon.png"
+
+dependency_overrides:
+  win32: ^5.6.0

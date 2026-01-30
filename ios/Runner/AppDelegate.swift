@@ -89,7 +89,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
   }
 }
 
-@UIApplicationMain
+@main
 @objc class AppDelegate: FlutterAppDelegate {
   override func application(
     _ application: UIApplication,
@@ -108,41 +108,48 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
         case "init":
           let args = call.arguments as? [String: Any]
           let modelPath = args?["modelPath"] as? String ?? ""
-          DispatchQueue.global(qos: .userInitiated).async(execute: {
-            var err: NSError?
-            MnnLlmBridge.initialize(withModelPath: modelPath, error: &err)
+          DispatchQueue.global(qos: .userInitiated).async {
+            var error: NSError?
+            let success = MnnLlmBridge.loadModel(modelPath, error: &error)
             DispatchQueue.main.async {
-              if let err = err {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native init failed", details: err.localizedDescription))
+              if !success {
+                let errorMsg = error?.localizedDescription ?? "Unknown error"
+                result(FlutterError(code: "NATIVE_ERR", message: "Native init failed: \(errorMsg)", details: errorMsg))
               } else {
                 result(nil)
               }
             }
-          })
+          }
         case "chatOnce":
           let args = call.arguments as? [String: Any]
           let modelPath = args?["modelPath"] as? String ?? ""
           let userText = args?["userText"] as? String ?? ""
-          let maxNewTokens = (args?["maxNewTokens"] as? NSNumber)?.intValue ?? 1024
-          let maxInputTokens = (args?["maxInputTokens"] as? NSNumber)?.intValue ?? 0
+          let maxNewTokens = (args?["maxNewTokens"] as? NSNumber)?.int32Value ?? 1024
+          let maxInputTokens = (args?["maxInputTokens"] as? NSNumber)?.int32Value ?? 0
           let temperature = (args?["temperature"] as? NSNumber)?.doubleValue ?? -1.0
           let topP = (args?["top_p"] as? NSNumber)?.doubleValue ?? -1.0
-          let topK = (args?["top_k"] as? NSNumber)?.intValue ?? -1
+          let topK = (args?["top_k"] as? NSNumber)?.int32Value ?? -1
           let minP = (args?["min_p"] as? NSNumber)?.doubleValue ?? -1.0
           let presencePenalty = (args?["presence_penalty"] as? NSNumber)?.doubleValue ?? -1.0
           let repetitionPenalty = (args?["repetition_penalty"] as? NSNumber)?.doubleValue ?? -1.0
-          let enableThinking = (args?["enable_thinking"] as? Bool).map { $0 ? 1 : 0 } ?? -1
-          DispatchQueue.global(qos: .userInitiated).async(execute: {
-            var initErr: NSError?
-            MnnLlmBridge.initialize(withModelPath: modelPath, error: &initErr)
-            if let initErr = initErr {
+          let enableThinking: Int32
+          if let thinking = args?["enable_thinking"] as? Bool {
+            enableThinking = thinking ? 1 : 0
+          } else {
+            enableThinking = -1
+          }
+          DispatchQueue.global(qos: .userInitiated).async {
+            var initError: NSError?
+            let initSuccess = MnnLlmBridge.loadModel(modelPath, error: &initError)
+            if !initSuccess {
+              let errorMsg = initError?.localizedDescription ?? "Unknown init error"
               DispatchQueue.main.async {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native init failed", details: initErr.localizedDescription))
+                result(FlutterError(code: "NATIVE_ERR", message: "Native init failed: \(errorMsg)", details: errorMsg))
               }
               return
             }
-            var chatErr: NSError?
-            let resp = MnnLlmBridge.chatOnce(
+            var chatError: NSError?
+            let resp = MnnLlmBridge.generate(
               userText,
               maxNewTokens: maxNewTokens,
               maxInputTokens: maxInputTokens,
@@ -153,40 +160,48 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
               presencePenalty: presencePenalty,
               repetitionPenalty: repetitionPenalty,
               enableThinking: enableThinking,
-              error: &chatErr
+              error: &chatError
             )
             DispatchQueue.main.async {
-              if let chatErr = chatErr {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native chat failed", details: chatErr.localizedDescription))
-              } else {
+              if let chatError = chatError {
+                result(FlutterError(code: "NATIVE_ERR", message: "Native chat failed: \(chatError.localizedDescription)", details: chatError.localizedDescription))
+              } else if let resp = resp {
                 result(resp)
+              } else {
+                result(FlutterError(code: "NATIVE_ERR", message: "Native chat returned nil", details: nil))
               }
             }
-          })
+          }
         case "chatStream":
           let args = call.arguments as? [String: Any]
           let modelPath = args?["modelPath"] as? String ?? ""
           let userText = args?["userText"] as? String ?? ""
-          let maxNewTokens = (args?["maxNewTokens"] as? NSNumber)?.intValue ?? 1024
-          let maxInputTokens = (args?["maxInputTokens"] as? NSNumber)?.intValue ?? 0
+          let maxNewTokens = (args?["maxNewTokens"] as? NSNumber)?.int32Value ?? 1024
+          let maxInputTokens = (args?["maxInputTokens"] as? NSNumber)?.int32Value ?? 0
           let temperature = (args?["temperature"] as? NSNumber)?.doubleValue ?? -1.0
           let topP = (args?["top_p"] as? NSNumber)?.doubleValue ?? -1.0
-          let topK = (args?["top_k"] as? NSNumber)?.intValue ?? -1
+          let topK = (args?["top_k"] as? NSNumber)?.int32Value ?? -1
           let minP = (args?["min_p"] as? NSNumber)?.doubleValue ?? -1.0
           let presencePenalty = (args?["presence_penalty"] as? NSNumber)?.doubleValue ?? -1.0
           let repetitionPenalty = (args?["repetition_penalty"] as? NSNumber)?.doubleValue ?? -1.0
-          let enableThinking = (args?["enable_thinking"] as? Bool).map { $0 ? 1 : 0 } ?? -1
-          DispatchQueue.global(qos: .userInitiated).async(execute: {
-            var initErr: NSError?
-            MnnLlmBridge.initialize(withModelPath: modelPath, error: &initErr)
-            if let initErr = initErr {
+          let enableThinking2: Int32
+          if let thinking = args?["enable_thinking"] as? Bool {
+            enableThinking2 = thinking ? 1 : 0
+          } else {
+            enableThinking2 = -1
+          }
+          DispatchQueue.global(qos: .userInitiated).async {
+            var initError: NSError?
+            let initSuccess = MnnLlmBridge.loadModel(modelPath, error: &initError)
+            if !initSuccess {
+              let errorMsg = initError?.localizedDescription ?? "Unknown init error"
               DispatchQueue.main.async {
-                streamHandler.send(["type": "error", "message": initErr.localizedDescription])
+                streamHandler.send(["type": "error", "message": "Init failed: \(errorMsg)"])
                 streamHandler.send(["type": "done"])
               }
               return
             }
-            MnnLlmBridge.chatStream(
+            MnnLlmBridge.generateStream(
               userText,
               maxNewTokens: maxNewTokens,
               maxInputTokens: maxInputTokens,
@@ -196,37 +211,39 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
               minP: minP,
               presencePenalty: presencePenalty,
               repetitionPenalty: repetitionPenalty,
-              enableThinking: enableThinking,
-              onChunk: { (chunk: String) in
-              DispatchQueue.main.async {
-                streamHandler.send(["type": "chunk", "data": chunk])
-              }
-            }, onDone: { (err: NSError?) in
-              DispatchQueue.main.async {
-                if let err = err {
-                  streamHandler.send(["type": "error", "message": err.localizedDescription])
+              enableThinking: enableThinking2,
+              onChunk: { (chunk: String?) in
+                DispatchQueue.main.async {
+                  streamHandler.send(["type": "chunk", "data": chunk ?? ""])
                 }
-                streamHandler.send(["type": "done"])
+              },
+              onDone: { (err: Error?) in
+                DispatchQueue.main.async {
+                  if let err = err as NSError? {
+                    streamHandler.send(["type": "error", "message": "Chat failed: \(err.localizedDescription)"])
+                  }
+                  streamHandler.send(["type": "done"])
+                }
               }
-            })
-          })
+            )
+          }
           result(nil)
         case "cancelChatStream":
           streamHandler.cancel()
-          MnnLlmBridge.cancelCurrentStream()
+          MnnLlmBridge.cancelStream()
           result(nil)
         case "dumpConfig":
-          DispatchQueue.global(qos: .userInitiated).async(execute: {
-            var err: NSError?
-            let cfg = MnnLlmBridge.dumpConfig(withError: &err)
+          DispatchQueue.global(qos: .userInitiated).async {
+            var error: NSError?
+            let cfg = MnnLlmBridge.getConfig(&error)
             DispatchQueue.main.async {
-              if let err = err {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native dumpConfig failed", details: err.localizedDescription))
+              if let error = error {
+                result(FlutterError(code: "NATIVE_ERR", message: "Native dumpConfig failed: \(error.localizedDescription)", details: error.localizedDescription))
               } else {
                 result(cfg)
               }
             }
-          })
+          }
         default:
           result(FlutterMethodNotImplemented)
         }

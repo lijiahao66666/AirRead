@@ -64,7 +64,9 @@ abstract class _ReaderChapter {
 class _EpubReaderChapter implements _ReaderChapter {
   final EpubChapterRef ref;
   final String? _titleOverride;
-  _EpubReaderChapter(this.ref, {String? titleOverride})
+  final bool hasSubChapters;
+  final int? parentIndex;
+  _EpubReaderChapter(this.ref, {String? titleOverride, this.hasSubChapters = false, this.parentIndex})
       : _titleOverride = titleOverride;
 
   @override
@@ -98,6 +100,7 @@ class _TextReaderChapter implements _ReaderChapter {
 
   Future<String> readPlainText() async {
     final buffer = StringBuffer();
+    // Always write the chapter title at the beginning
     final titleText = _title.trim().isEmpty ? '正文' : _title.trim();
     buffer.write(titleText);
 
@@ -109,9 +112,14 @@ class _TextReaderChapter implements _ReaderChapter {
     String? prevLineInPara;
     int processedLines = 0;
 
+    bool isFirstPara = true;
     void flushPara() {
       if (paraBuffer.isEmpty) return;
-      buffer.write('\n\n');
+      if (isFirstPara) {
+        isFirstPara = false;
+      } else {
+        buffer.write('\n\n');
+      }
       buffer.write(paraBuffer.toString());
       paraBuffer.clear();
       prevLineInPara = null;
@@ -324,6 +332,7 @@ class _ReaderPageState extends State<ReaderPage>
 
   List<_ReaderChapter> _chapters = [];
   int _currentChapterIndex = 0;
+  final Set<int> _expandedChapterIndices = {};
 
   // Horizontal Mode State
   // We track the "Page" index within the current chapter.
@@ -480,23 +489,71 @@ class _ReaderPageState extends State<ReaderPage>
     });
   }
 
+  // Keywords to identify cover/toc chapters that should be skipped
+  static final Set<String> _skipChapterKeywords = {
+    'cover', '封面',
+    'toc', 'table of contents', '目录', '目次',
+  };
+
+  bool _shouldSkipChapter(String? title, String? href) {
+    final t = (title ?? '').toLowerCase().trim();
+    final h = (href ?? '').toLowerCase().trim();
+
+    // Check title keywords
+    for (final keyword in _skipChapterKeywords) {
+      if (t.contains(keyword)) return true;
+    }
+
+    // Check href patterns (common EPUB file naming)
+    if (h.contains('cover') ||
+        h.contains('toc') ||
+        h.contains('titlepage') ||
+        h.contains('copyright')) {
+      return true;
+    }
+
+    return false;
+  }
+
   List<_ReaderChapter> _buildEpubChapters(List<EpubChapterRef> roots) {
     final chapters = <_ReaderChapter>[];
 
-    void walk(List<EpubChapterRef> items, int depth) {
+    void walk(List<EpubChapterRef> items, int depth, int? parentIdx) {
       for (final c in items) {
         final rawTitle = (c.Title ?? '').trim();
-        const String prefix = '';
-        final displayTitle = rawTitle.isEmpty ? null : '$prefix$rawTitle';
-        chapters.add(_EpubReaderChapter(c, titleOverride: displayTitle));
+        final href = c.ContentFileName ?? '';
+
+        // Skip cover/toc chapters
+        if (_shouldSkipChapter(rawTitle, href)) {
+          // Still process sub-chapters if any
+          final subs = c.SubChapters;
+          if (subs != null && subs.isNotEmpty) {
+            walk(subs, depth + 1, parentIdx);
+          }
+          continue;
+        }
+
+        // Check if this chapter has sub-chapters
         final subs = c.SubChapters;
-        if (subs != null && subs.isNotEmpty) {
-          walk(subs, depth + 1);
+        final hasSubs = subs != null && subs.isNotEmpty;
+
+        // Add prefix based on depth for hierarchical display
+        final prefix = depth > 0 ? '${'  ' * depth}' : '';
+        final displayTitle = rawTitle.isEmpty ? null : '$prefix$rawTitle';
+        
+        final currentIdx = chapters.length;
+        chapters.add(_EpubReaderChapter(c, 
+            titleOverride: displayTitle, 
+            hasSubChapters: hasSubs,
+            parentIndex: parentIdx));
+
+        if (hasSubs) {
+          walk(subs, depth + 1, currentIdx);
         }
       }
     }
 
-    walk(roots, 0);
+    walk(roots, 0, null);
     return chapters;
   }
 
@@ -505,13 +562,33 @@ class _ReaderPageState extends State<ReaderPage>
 
     // Load Settings
     if (mounted) {
+      // Check system brightness for default theme
+      final brightness = MediaQuery.platformBrightnessOf(context);
+      final isSystemDark = brightness == Brightness.dark;
+      
       setState(() {
         _fontSize = _prefs?.getDouble('fontSize') ?? 18.0;
         _lineHeight = _prefs?.getDouble('lineHeight') ?? 1.4;
+        
         int? colorVal = _prefs?.getInt('bgColor');
-        if (colorVal != null) _bgColor = Color(colorVal);
         int? textVal = _prefs?.getInt('textColor');
-        if (textVal != null) _textColor = Color(textVal);
+        
+        // If no saved colors, use system theme defaults
+        if (colorVal != null) {
+          _bgColor = Color(colorVal);
+        } else {
+          _bgColor = isSystemDark 
+              ? const Color(0xFF1E272C)  // Dark mode default
+              : const Color(0xFFF5F9FA); // Light mode default
+        }
+        
+        if (textVal != null) {
+          _textColor = Color(textVal);
+        } else {
+          _textColor = isSystemDark
+              ? const Color(0xFFE8ECEF)  // Dark mode text
+              : const Color(0xFF2C3E50); // Light mode text
+        }
 
         _aiReadAloudPlaying = false;
       });
@@ -831,14 +908,32 @@ class _ReaderPageState extends State<ReaderPage>
     }
   }
 
+  // Patterns to identify TOC/front matter lines in TXT files
+  static final RegExp _txtTocPattern = RegExp(
+    r'^(目\s*录|contents|目录|目次|table of contents)|'
+    r'^(第[一二三四五六七八九十百千零〇两\d]+章.*|Chapter\s+\d+.*)|'
+    r'^(序\s*(章|言)|前\s*言|楔\s*子|引\s*子)',
+    caseSensitive: false,
+  );
+
   int _txtBodyStart({required String text, required String bookTitle}) {
     final trimmedBookTitle = bookTitle.trim();
     final int bomOffset =
         text.isNotEmpty && text.codeUnitAt(0) == 0xFEFF ? 1 : 0;
-    if (trimmedBookTitle.isEmpty) return bomOffset;
+
+    // Keywords that indicate front matter / TOC sections
+    final frontMatterKeywords = [
+      '封面', '书名', '作者', '版权', '出版', '简介', '目录',
+      'contents', 'cover', 'title', 'author', 'copyright',
+      'introduction', 'preface', '前言', '序言', '说明',
+    ];
+
     int i = bomOffset;
     int scanned = 0;
-    while (i < text.length && scanned < 200) {
+    int firstContentPos = bomOffset;
+    bool foundTitle = false;
+
+    while (i < text.length && scanned < 300) {
       int lineStart = i;
       int lineEnd = i;
       while (lineEnd < text.length) {
@@ -861,14 +956,40 @@ class _ReaderPageState extends State<ReaderPage>
       if (lineEnd > lineStart) {
         final t = text.substring(lineStart, lineEnd).trim();
         if (t.isNotEmpty) {
-          if (t == trimmedBookTitle) return next;
-          return bomOffset;
+          // Check if this is the book title
+          if (!foundTitle && trimmedBookTitle.isNotEmpty && t == trimmedBookTitle) {
+            foundTitle = true;
+            i = next;
+            scanned++;
+            continue;
+          }
+
+          // Check if this looks like TOC or front matter
+          final lowerT = t.toLowerCase();
+          bool isFrontMatter = false;
+          for (final keyword in frontMatterKeywords) {
+            if (lowerT.contains(keyword)) {
+              isFrontMatter = true;
+              break;
+            }
+          }
+
+          // Check if it matches TOC patterns
+          if (!isFrontMatter && _txtTocPattern.hasMatch(t)) {
+            isFrontMatter = true;
+          }
+
+          if (!isFrontMatter) {
+            // This looks like actual content, return this position
+            return lineStart;
+          }
         }
       }
       scanned++;
       i = next;
     }
-    return bomOffset;
+
+    return firstContentPos;
   }
 
   bool _applyPendingRestore() {
@@ -2578,20 +2699,30 @@ class _ReaderPageState extends State<ReaderPage>
     for (int i = 0; i < parts.length; i++) {
       final raw = parts[i].trim();
       if (raw.isEmpty) continue;
+
+      final normalizedRaw = raw.replaceAll(RegExp(r'\s+'), ' ');
+
+      // Check if this paragraph matches chapter title (for any paragraph, not just first)
+      if (normalizedTitle != null && normalizedRaw == normalizedTitle) {
+        if (!firstWritten) {
+          // First occurrence: write as title
+          buffer.write(normalizedRaw);
+          titleLength = normalizedRaw.length;
+          firstWritten = true;
+        }
+        // Skip all subsequent title matches (avoid duplicates)
+        continue;
+      }
+
+      // For non-title paragraphs
       if (firstWritten) {
         buffer.write('\n\n');
+      } else if (normalizedTitle != null) {
+        // First paragraph is not title, write title first
+        buffer.write(normalizedTitle);
+        buffer.write('\n\n');
       }
-      bool isTitle = false;
-      if (!firstWritten && normalizedTitle != null) {
-        final normalizedRaw = raw.replaceAll(RegExp(r'\s+'), ' ');
-        isTitle = normalizedRaw == normalizedTitle;
-      }
-      const String indent = '';
-      final String paraText = indent + raw;
-      if (isTitle) {
-        titleLength = paraText.length;
-      }
-      buffer.write(paraText);
+      buffer.write(normalizedRaw);
       firstWritten = true;
     }
 
@@ -3496,66 +3627,138 @@ class _ReaderPageState extends State<ReaderPage>
                   ),
                 Divider(color: _panelTextColor.withOpacity(0.1)),
                 Expanded(
-                  child: Scrollbar(
-                    controller: scrollController,
-                    thumbVisibility: true,
-                    child: ListView.builder(
-                      controller: scrollController,
-                      itemExtent: itemExtent,
-                      cacheExtent: itemExtent * 20,
-                      itemCount: (_currentBookFormat == 'txt' && _txtTocParsing)
-                          ? 1
-                          : _chapters.length,
-                      itemBuilder: (context, index) {
-                        if (_currentBookFormat == 'txt' && _txtTocParsing) {
-                          return ListTile(
-                            title: Text(
-                              '目录解析中…',
-                              style: TextStyle(color: _panelTextColor),
-                            ),
-                          );
+                  child: StatefulBuilder(
+                    builder: (context, setModalState) {
+                      // Filter visible chapters based on expand/collapse state
+                      final visibleChapters = <Map<String, dynamic>>[];
+                      for (int i = 0; i < _chapters.length; i++) {
+                        final chapter = _chapters[i];
+                        // Check if this chapter's parent is expanded
+                        bool shouldShow = true;
+                        if (chapter is _EpubReaderChapter) {
+                          int? parentIdx = chapter.parentIndex;
+                          while (parentIdx != null) {
+                            if (!_expandedChapterIndices.contains(parentIdx)) {
+                              shouldShow = false;
+                              break;
+                            }
+                            // Check grandparent
+                            final parentChapter = _chapters[parentIdx];
+                            if (parentChapter is _EpubReaderChapter) {
+                              parentIdx = parentChapter.parentIndex;
+                            } else {
+                              break;
+                            }
+                          }
                         }
-                        final chapter = _chapters[index];
-                        return ListTile(
-                          dense: true,
-                          title: Text(
-                            chapter.title ?? 'Chapter ${index + 1}',
-                            style: TextStyle(
-                              color: index == _currentChapterIndex
-                                  ? AppColors.techBlue
-                                  : _panelTextColor,
-                              fontWeight: index == _currentChapterIndex
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onTap: () {
-                            setState(() {
-                              _currentChapterIndex = index;
-                              _currentPageInChapter = 0;
-                              _pageViewCenterIndex = 1000;
-                            });
-                            if (_pageController.hasClients) {
-                              _pageController.jumpToPage(1000);
+                        if (shouldShow) {
+                          visibleChapters.add({
+                            'index': i,
+                            'chapter': chapter,
+                          });
+                        }
+                      }
+
+                      return Scrollbar(
+                        controller: scrollController,
+                        thumbVisibility: true,
+                        child: ListView.builder(
+                          controller: scrollController,
+                          itemExtent: itemExtent,
+                          cacheExtent: itemExtent * 20,
+                          itemCount: (_currentBookFormat == 'txt' && _txtTocParsing)
+                              ? 1
+                              : visibleChapters.length,
+                          itemBuilder: (context, listIndex) {
+                            if (_currentBookFormat == 'txt' && _txtTocParsing) {
+                              return ListTile(
+                                title: Text(
+                                  '目录解析中…',
+                                  style: TextStyle(color: _panelTextColor),
+                                ),
+                              );
                             }
-                            final translationProvider =
-                                Provider.of<TranslationProvider>(context,
-                                    listen: false);
-                            if (translationProvider.applyToReader) {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (!mounted) return;
-                                _translateCurrentPageIfNeeded(
-                                    translationProvider);
-                              });
-                            }
-                            _hideControls();
-                            Navigator.pop(context);
+                            final item = visibleChapters[listIndex];
+                            final index = item['index'] as int;
+                            final chapter = item['chapter'] as _ReaderChapter;
+                            final isExpanded = _expandedChapterIndices.contains(index);
+                            final isEpubWithSubs = chapter is _EpubReaderChapter &&
+                                chapter.hasSubChapters;
+
+                            return ListTile(
+                              dense: true,
+                              title: Text(
+                                chapter.title ?? 'Chapter ${index + 1}',
+                                style: TextStyle(
+                                  color: index == _currentChapterIndex
+                                      ? AppColors.techBlue
+                                      : _panelTextColor,
+                                  fontWeight: index == _currentChapterIndex
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: isEpubWithSubs
+                                  ? GestureDetector(
+                                      onTap: () {
+                                        setModalState(() {
+                                          if (_expandedChapterIndices.contains(index)) {
+                                            _expandedChapterIndices.remove(index);
+                                          } else {
+                                            _expandedChapterIndices.add(index);
+                                          }
+                                        });
+                                      },
+                                      child: Icon(
+                                        isExpanded
+                                            ? Icons.expand_less
+                                            : Icons.expand_more,
+                                        color: _panelTextColor.withOpacity(0.6),
+                                        size: 20,
+                                      ),
+                                    )
+                                  : null,
+                              onTap: () {
+                                if (isEpubWithSubs) {
+                                  // Toggle expand/collapse for parent chapters
+                                  setModalState(() {
+                                    if (_expandedChapterIndices.contains(index)) {
+                                      _expandedChapterIndices.remove(index);
+                                    } else {
+                                      _expandedChapterIndices.add(index);
+                                    }
+                                  });
+                                } else {
+                                  // Navigate to leaf chapters
+                                  setState(() {
+                                    _currentChapterIndex = index;
+                                    _currentPageInChapter = 0;
+                                    _pageViewCenterIndex = 1000;
+                                  });
+                                  if (_pageController.hasClients) {
+                                    _pageController.jumpToPage(1000);
+                                  }
+                                  final translationProvider =
+                                      Provider.of<TranslationProvider>(context,
+                                          listen: false);
+                                  if (translationProvider.applyToReader) {
+                                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                                      if (!mounted) return;
+                                      _translateCurrentPageIfNeeded(
+                                          translationProvider);
+                                    });
+                                  }
+                                  _hideControls();
+                                  Navigator.pop(context);
+                                }
+                              },
+                            );
                           },
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -3922,8 +4125,8 @@ class _ReaderPageState extends State<ReaderPage>
         double snap(double value) => (value * dpr).roundToDouble() / dpr;
         double snapDown(double value) => (value * dpr).floorToDouble() / dpr;
 
-        final double topMargin = snap(padding.top + 16);
-        final double bottomMargin = snap(padding.bottom + 8);
+        final double topMargin = snap(padding.top + 8);
+        final double bottomMargin = snap(padding.bottom + 4);
 
         double viewportHeight = snapDown(
           constraints.maxHeight - topMargin - bottomMargin - (1 / dpr),
@@ -4982,9 +5185,9 @@ class _ReaderPageState extends State<ReaderPage>
                 SlideTransition(
                   position: _topBarOffset,
                   child: Container(
-                    height: contentTopInset + 64,
+                    height: contentTopInset + 56,
                     padding: EdgeInsets.only(
-                        top: contentTopInset + 8, left: 16, right: 16),
+                        top: contentTopInset + 4, left: 16, right: 16),
                     color: barColor,
                     child: Row(
                       children: [
@@ -5009,8 +5212,8 @@ class _ReaderPageState extends State<ReaderPage>
                     position: _bottomBarOffset,
                     child: Container(
                       padding: EdgeInsets.only(
-                          bottom: contentBottomInset + 24,
-                          top: 20,
+                          bottom: contentBottomInset + 8,
+                          top: 12,
                           left: 24,
                           right: 24),
                       color: barColor,
