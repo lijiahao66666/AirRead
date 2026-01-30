@@ -64,7 +64,9 @@ abstract class _ReaderChapter {
 class _EpubReaderChapter implements _ReaderChapter {
   final EpubChapterRef ref;
   final String? _titleOverride;
-  _EpubReaderChapter(this.ref, {String? titleOverride})
+  final bool hasSubChapters;
+  final int? parentIndex;
+  _EpubReaderChapter(this.ref, {String? titleOverride, this.hasSubChapters = false, this.parentIndex})
       : _titleOverride = titleOverride;
 
   @override
@@ -330,6 +332,7 @@ class _ReaderPageState extends State<ReaderPage>
 
   List<_ReaderChapter> _chapters = [];
   int _currentChapterIndex = 0;
+  final Set<int> _expandedChapterIndices = {};
 
   // Horizontal Mode State
   // We track the "Page" index within the current chapter.
@@ -515,7 +518,7 @@ class _ReaderPageState extends State<ReaderPage>
   List<_ReaderChapter> _buildEpubChapters(List<EpubChapterRef> roots) {
     final chapters = <_ReaderChapter>[];
 
-    void walk(List<EpubChapterRef> items, int depth) {
+    void walk(List<EpubChapterRef> items, int depth, int? parentIdx) {
       for (final c in items) {
         final rawTitle = (c.Title ?? '').trim();
         final href = c.ContentFileName ?? '';
@@ -525,23 +528,32 @@ class _ReaderPageState extends State<ReaderPage>
           // Still process sub-chapters if any
           final subs = c.SubChapters;
           if (subs != null && subs.isNotEmpty) {
-            walk(subs, depth + 1);
+            walk(subs, depth + 1, parentIdx);
           }
           continue;
         }
 
+        // Check if this chapter has sub-chapters
+        final subs = c.SubChapters;
+        final hasSubs = subs != null && subs.isNotEmpty;
+
         // Add prefix based on depth for hierarchical display
         final prefix = depth > 0 ? '${'  ' * depth}' : '';
         final displayTitle = rawTitle.isEmpty ? null : '$prefix$rawTitle';
-        chapters.add(_EpubReaderChapter(c, titleOverride: displayTitle));
-        final subs = c.SubChapters;
-        if (subs != null && subs.isNotEmpty) {
-          walk(subs, depth + 1);
+        
+        final currentIdx = chapters.length;
+        chapters.add(_EpubReaderChapter(c, 
+            titleOverride: displayTitle, 
+            hasSubChapters: hasSubs,
+            parentIndex: parentIdx));
+
+        if (hasSubs) {
+          walk(subs, depth + 1, currentIdx);
         }
       }
     }
 
-    walk(roots, 0);
+    walk(roots, 0, null);
     return chapters;
   }
 
@@ -2668,23 +2680,29 @@ class _ReaderPageState extends State<ReaderPage>
       final raw = parts[i].trim();
       if (raw.isEmpty) continue;
 
-      // Skip duplicate title on first paragraph of chapter
-      if (!firstWritten && normalizedTitle != null) {
-        final normalizedRaw = raw.replaceAll(RegExp(r'\s+'), ' ');
-        // Check if this paragraph matches the chapter title
-        if (normalizedRaw == normalizedTitle) {
-          // Skip this title paragraph, but still mark titleLength
-          titleLength = raw.length;
-          continue;
+      final normalizedRaw = raw.replaceAll(RegExp(r'\s+'), ' ');
+
+      // Check if this paragraph matches chapter title (for any paragraph, not just first)
+      if (normalizedTitle != null && normalizedRaw == normalizedTitle) {
+        if (!firstWritten) {
+          // First occurrence: write as title
+          buffer.write(normalizedRaw);
+          titleLength = normalizedRaw.length;
+          firstWritten = true;
         }
+        // Skip all subsequent title matches (avoid duplicates)
+        continue;
       }
 
+      // For non-title paragraphs
       if (firstWritten) {
         buffer.write('\n\n');
+      } else if (normalizedTitle != null) {
+        // First paragraph is not title, write title first
+        buffer.write(normalizedTitle);
+        buffer.write('\n\n');
       }
-      const String indent = '';
-      final String paraText = indent + raw;
-      buffer.write(paraText);
+      buffer.write(normalizedRaw);
       firstWritten = true;
     }
 
@@ -3589,66 +3607,138 @@ class _ReaderPageState extends State<ReaderPage>
                   ),
                 Divider(color: _panelTextColor.withOpacity(0.1)),
                 Expanded(
-                  child: Scrollbar(
-                    controller: scrollController,
-                    thumbVisibility: true,
-                    child: ListView.builder(
-                      controller: scrollController,
-                      itemExtent: itemExtent,
-                      cacheExtent: itemExtent * 20,
-                      itemCount: (_currentBookFormat == 'txt' && _txtTocParsing)
-                          ? 1
-                          : _chapters.length,
-                      itemBuilder: (context, index) {
-                        if (_currentBookFormat == 'txt' && _txtTocParsing) {
-                          return ListTile(
-                            title: Text(
-                              '目录解析中…',
-                              style: TextStyle(color: _panelTextColor),
-                            ),
-                          );
+                  child: StatefulBuilder(
+                    builder: (context, setModalState) {
+                      // Filter visible chapters based on expand/collapse state
+                      final visibleChapters = <Map<String, dynamic>>[];
+                      for (int i = 0; i < _chapters.length; i++) {
+                        final chapter = _chapters[i];
+                        // Check if this chapter's parent is expanded
+                        bool shouldShow = true;
+                        if (chapter is _EpubReaderChapter) {
+                          int? parentIdx = chapter.parentIndex;
+                          while (parentIdx != null) {
+                            if (!_expandedChapterIndices.contains(parentIdx)) {
+                              shouldShow = false;
+                              break;
+                            }
+                            // Check grandparent
+                            final parentChapter = _chapters[parentIdx];
+                            if (parentChapter is _EpubReaderChapter) {
+                              parentIdx = parentChapter.parentIndex;
+                            } else {
+                              break;
+                            }
+                          }
                         }
-                        final chapter = _chapters[index];
-                        return ListTile(
-                          dense: true,
-                          title: Text(
-                            chapter.title ?? 'Chapter ${index + 1}',
-                            style: TextStyle(
-                              color: index == _currentChapterIndex
-                                  ? AppColors.techBlue
-                                  : _panelTextColor,
-                              fontWeight: index == _currentChapterIndex
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onTap: () {
-                            setState(() {
-                              _currentChapterIndex = index;
-                              _currentPageInChapter = 0;
-                              _pageViewCenterIndex = 1000;
-                            });
-                            if (_pageController.hasClients) {
-                              _pageController.jumpToPage(1000);
+                        if (shouldShow) {
+                          visibleChapters.add({
+                            'index': i,
+                            'chapter': chapter,
+                          });
+                        }
+                      }
+
+                      return Scrollbar(
+                        controller: scrollController,
+                        thumbVisibility: true,
+                        child: ListView.builder(
+                          controller: scrollController,
+                          itemExtent: itemExtent,
+                          cacheExtent: itemExtent * 20,
+                          itemCount: (_currentBookFormat == 'txt' && _txtTocParsing)
+                              ? 1
+                              : visibleChapters.length,
+                          itemBuilder: (context, listIndex) {
+                            if (_currentBookFormat == 'txt' && _txtTocParsing) {
+                              return ListTile(
+                                title: Text(
+                                  '目录解析中…',
+                                  style: TextStyle(color: _panelTextColor),
+                                ),
+                              );
                             }
-                            final translationProvider =
-                                Provider.of<TranslationProvider>(context,
-                                    listen: false);
-                            if (translationProvider.applyToReader) {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                if (!mounted) return;
-                                _translateCurrentPageIfNeeded(
-                                    translationProvider);
-                              });
-                            }
-                            _hideControls();
-                            Navigator.pop(context);
+                            final item = visibleChapters[listIndex];
+                            final index = item['index'] as int;
+                            final chapter = item['chapter'] as _ReaderChapter;
+                            final isExpanded = _expandedChapterIndices.contains(index);
+                            final isEpubWithSubs = chapter is _EpubReaderChapter &&
+                                chapter.hasSubChapters;
+
+                            return ListTile(
+                              dense: true,
+                              title: Text(
+                                chapter.title ?? 'Chapter ${index + 1}',
+                                style: TextStyle(
+                                  color: index == _currentChapterIndex
+                                      ? AppColors.techBlue
+                                      : _panelTextColor,
+                                  fontWeight: index == _currentChapterIndex
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: isEpubWithSubs
+                                  ? GestureDetector(
+                                      onTap: () {
+                                        setModalState(() {
+                                          if (_expandedChapterIndices.contains(index)) {
+                                            _expandedChapterIndices.remove(index);
+                                          } else {
+                                            _expandedChapterIndices.add(index);
+                                          }
+                                        });
+                                      },
+                                      child: Icon(
+                                        isExpanded
+                                            ? Icons.expand_less
+                                            : Icons.expand_more,
+                                        color: _panelTextColor.withOpacity(0.6),
+                                        size: 20,
+                                      ),
+                                    )
+                                  : null,
+                              onTap: () {
+                                if (isEpubWithSubs) {
+                                  // Toggle expand/collapse for parent chapters
+                                  setModalState(() {
+                                    if (_expandedChapterIndices.contains(index)) {
+                                      _expandedChapterIndices.remove(index);
+                                    } else {
+                                      _expandedChapterIndices.add(index);
+                                    }
+                                  });
+                                } else {
+                                  // Navigate to leaf chapters
+                                  setState(() {
+                                    _currentChapterIndex = index;
+                                    _currentPageInChapter = 0;
+                                    _pageViewCenterIndex = 1000;
+                                  });
+                                  if (_pageController.hasClients) {
+                                    _pageController.jumpToPage(1000);
+                                  }
+                                  final translationProvider =
+                                      Provider.of<TranslationProvider>(context,
+                                          listen: false);
+                                  if (translationProvider.applyToReader) {
+                                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                                      if (!mounted) return;
+                                      _translateCurrentPageIfNeeded(
+                                          translationProvider);
+                                    });
+                                  }
+                                  _hideControls();
+                                  Navigator.pop(context);
+                                }
+                              },
+                            );
                           },
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
