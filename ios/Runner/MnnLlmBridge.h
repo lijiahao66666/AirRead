@@ -41,6 +41,12 @@ NS_ASSUME_NONNULL_BEGIN
                onChunk:(void (^)(NSString * _Nullable chunk))onChunk
                 onDone:(void (^)(NSError * _Nullable error))onDone;
 
++ (unsigned long long)getAvailableMemory;
+
++ (unsigned long long)getTotalMemory;
+
++ (BOOL)hasEnoughMemoryForModel:(NSString *)modelPath;
+
 @end
 
 NS_ASSUME_NONNULL_END

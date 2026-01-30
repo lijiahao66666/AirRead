@@ -3027,12 +3027,30 @@ class _ReaderPageState extends State<ReaderPage>
 
     bool fits(int end) {
       final int safeEnd = end.clamp(minEnd, len);
+      // 确保至少有一个字符，避免空字符串导致高度计算错误
+      if (safeEnd <= start) return true;
+      
+      // 检查 viewportHeight 是否有效
+      if (viewportHeight <= 0) {
+        // 如果高度无效，假设内容适合
+        return true;
+      }
+      
       textPainter.text = _buildReaderSpan(
         text: text.substring(start, safeEnd),
         bodyStyle: textStyle,
       );
       textPainter.layout(minWidth: 0, maxWidth: contentWidth);
-      return textPainter.height <= viewportHeight;
+      
+      final height = textPainter.height;
+      final result = height <= viewportHeight;
+      
+      // 调试：如果字符数很少但不适合，打印日志
+      if (!result && (safeEnd - start) < 100) {
+        debugPrint('fits: end=$safeEnd, chars=${safeEnd - start}, height=$height, viewport=$viewportHeight, result=$result');
+      }
+      
+      return result;
     }
 
     int guess = previousPageChars.clamp(200, 6000);
@@ -3042,9 +3060,10 @@ class _ReaderPageState extends State<ReaderPage>
     }
 
     int best = minEnd;
-    if (fits(minEnd)) {
-      best = minEnd;
-    } else {
+    // 只有在 fits(minEnd) 为 true 时才继续查找，否则返回最小值
+    if (!fits(minEnd)) {
+      // 如果连一个字符都不适合，说明高度计算有问题
+      // 但至少返回 minEnd 避免死循环
       return minEnd;
     }
 
@@ -3081,9 +3100,10 @@ class _ReaderPageState extends State<ReaderPage>
       }
       return best;
     } else {
-      int low = minEnd + 1;
+      // 如果 high 不适合，在 [minEnd, high] 范围内二分查找
+      int low = minEnd;
       int hi = high;
-      int localBest = best;
+      int localBest = minEnd;  // 至少返回 minEnd
       while (low <= hi) {
         final mid = (low + hi) >> 1;
         if (fits(mid)) {

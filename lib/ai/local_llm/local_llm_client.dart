@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/utils/memory_utils.dart';
+
 enum LocalLlmModelType {
   qa,
   translation,
@@ -37,6 +39,41 @@ class LocalLlmClient {
       final ok = await _channel.invokeMethod<bool>('isAvailable');
       return ok ?? false;
     } on MissingPluginException {
+      return false;
+    }
+  }
+
+  /// 获取设备可用内存（字节）
+  Future<int?> getAvailableMemory() async {
+    if (kIsWeb) return null;
+    try {
+      final result = await _channel.invokeMethod<int>('getAvailableMemory');
+      return result;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 获取设备总内存（字节）
+  Future<int?> getTotalMemory() async {
+    if (kIsWeb) return null;
+    try {
+      final result = await _channel.invokeMethod<int>('getTotalMemory');
+      return result;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 检查是否有足够内存加载模型
+  Future<bool> hasEnoughMemory(String modelPath) async {
+    if (kIsWeb) return false;
+    try {
+      final result = await _channel.invokeMethod<bool>('hasEnoughMemory', {
+        'modelPath': modelPath,
+      });
+      return result ?? false;
+    } catch (_) {
       return false;
     }
   }
@@ -380,6 +417,28 @@ class LocalLlmClient {
 
   Future<void> _init(String modelPath) async {
     try {
+      // 检查设备是否支持本地模型
+      if (Platform.isIOS) {
+        final isSupported = await MemoryUtils.isDeviceSupportedForLocalModel();
+        if (!isSupported) {
+          final recommendation = await MemoryUtils.getMemoryRecommendation();
+          throw PlatformException(
+            code: 'LocalLlmMemoryInsufficient',
+            message: '设备内存不足以运行本地模型。$recommendation',
+          );
+        }
+        
+        // 检查是否有足够内存
+        final memorySufficient = await this.hasEnoughMemory(modelPath);
+        if (!memorySufficient) {
+          final availableMemory = await getAvailableMemory();
+          throw PlatformException(
+            code: 'LocalLlmMemoryInsufficient',
+            message: '当前可用内存不足（${MemoryUtils.formatMemory(availableMemory ?? 0)}），请关闭其他应用后重试',
+          );
+        }
+      }
+      
       await _channel.invokeMethod<void>('init', {
         'modelPath': modelPath,
       });

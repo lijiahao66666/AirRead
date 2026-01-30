@@ -1,5 +1,7 @@
 #import "MnnLlmBridge.h"
 #import <TargetConditionals.h>
+#import <sys/sysctl.h>
+#import <mach/mach.h>
 
 #if !TARGET_OS_SIMULATOR
 #import <MNN/llm/llm.hpp>
@@ -14,6 +16,10 @@
 static std::unique_ptr<MNN::Transformer::Llm> g_llmInstance;
 static std::mutex g_llmMutex;
 static BOOL g_isStreaming = NO;
+
+// Memory management constants
+static const unsigned long long kMinFreeMemoryRequired = 500 * 1024 * 1024; // 500MB minimum free memory
+static const unsigned long long kMemorySafetyMultiplier = 2; // Model size * 2 for safety
 #endif
 
 @implementation MnnLlmBridge
@@ -24,6 +30,69 @@ static BOOL g_isStreaming = NO;
 #else
     return YES;
 #endif
+}
+
++ (unsigned long long)getAvailableMemory {
+    vm_statistics64_data_t vmStats;
+    mach_msg_type_number_t infoCount = HOST_VM_INFO64_COUNT;
+    kern_return_t kernReturn = host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)&vmStats, &infoCount);
+    
+    if (kernReturn != KERN_SUCCESS) {
+        return 0;
+    }
+    
+    unsigned long long freeMemory = (unsigned long long)vmStats.free_count * (unsigned long long)vm_page_size;
+    unsigned long long inactiveMemory = (unsigned long long)vmStats.inactive_count * (unsigned long long)vm_page_size;
+    
+    return freeMemory + inactiveMemory;
+}
+
++ (unsigned long long)getTotalMemory {
+    unsigned long long totalMemory = 0;
+    size_t size = sizeof(totalMemory);
+    int mib[2] = { CTL_HW, HW_MEMSIZE };
+    sysctl(mib, 2, &totalMemory, &size, NULL, 0);
+    return totalMemory;
+}
+
++ (BOOL)hasEnoughMemoryForModel:(NSString *)modelPath {
+#if TARGET_OS_SIMULATOR
+    return NO;
+#else
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSDictionary *attributes = [fileManager attributesOfItemAtPath:modelPath error:nil];
+    unsigned long long modelSize = [attributes fileSize];
+    
+    if (modelSize == 0) {
+        // Try to calculate from directory
+        modelSize = [self calculateDirectorySize:modelPath];
+    }
+    
+    unsigned long long availableMemory = [self getAvailableMemory];
+    unsigned long long requiredMemory = modelSize * kMemorySafetyMultiplier + kMinFreeMemoryRequired;
+    
+    NSLog(@"[MnnLlmBridge] Model size: %llu MB, Available: %llu MB, Required: %llu MB",
+          modelSize / (1024 * 1024), availableMemory / (1024 * 1024), requiredMemory / (1024 * 1024));
+    
+    return availableMemory >= requiredMemory;
+#endif
+}
+
++ (unsigned long long)calculateDirectorySize:(NSString *)path {
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    unsigned long long totalSize = 0;
+    
+    NSDirectoryEnumerator *enumerator = [fileManager enumeratorAtPath:path];
+    NSString *file;
+    while ((file = [enumerator nextObject])) {
+        NSString *filePath = [path stringByAppendingPathComponent:file];
+        NSDictionary *attributes = [fileManager attributesOfItemAtPath:filePath error:nil];
+        if (attributes) {
+            totalSize += [attributes fileSize];
+        }
+    }
+    
+    return totalSize;
 }
 
 + (BOOL)loadModel:(NSString*)path error:(NSError**)error {
@@ -53,12 +122,32 @@ static BOOL g_isStreaming = NO;
         }
         file.close();
         
-        // Destroy existing instance if any
+        // Check memory availability before loading
+        NSString *modelDir = [path stringByDeletingLastPathComponent];
+        if (![self hasEnoughMemoryForModel:modelDir]) {
+            unsigned long long availableMemory = [self getAvailableMemory];
+            unsigned long long totalMemory = [self getTotalMemory];
+            
+            if (error) {
+                *error = [NSError errorWithDomain:@"MnnLlmBridge"
+                                             code:1011
+                                         userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"设备内存不足。可用: %.1f MB, 总共: %.1f MB。请关闭其他应用后重试。", 
+                                                                                availableMemory / (1024.0 * 1024.0), 
+                                                                                totalMemory / (1024.0 * 1024.0)]}];
+            }
+            return NO;
+        }
+        
+        // Destroy existing instance if any to free memory
         if (g_llmInstance) {
+            NSLog(@"[MnnLlmBridge] Destroying existing LLM instance to free memory");
             MNN::Transformer::Llm::destroy(g_llmInstance.release());
+            // Give system time to reclaim memory
+            [NSThread sleepForTimeInterval:0.1];
         }
         
         // Create new LLM instance
+        NSLog(@"[MnnLlmBridge] Creating LLM instance...");
         MNN::Transformer::Llm* llm = MNN::Transformer::Llm::createLLM(configPath);
         if (!llm) {
             if (error) {
@@ -69,7 +158,8 @@ static BOOL g_isStreaming = NO;
             return NO;
         }
         
-        // Load the model
+        // Load the model with memory optimization
+        NSLog(@"[MnnLlmBridge] Loading model...");
         bool loaded = llm->load();
         if (!loaded) {
             MNN::Transformer::Llm::destroy(llm);
@@ -81,6 +171,7 @@ static BOOL g_isStreaming = NO;
             return NO;
         }
         
+        NSLog(@"[MnnLlmBridge] Model loaded successfully");
         g_llmInstance.reset(llm);
         return YES;
         

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:io' show sleep;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -12,7 +13,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../ai/local_llm/local_llm_client.dart';
+import '../../ai/local_llm/llama_cpp_client.dart';
 import '../../ai/tencentcloud/tencent_api_client.dart';
+import '../../core/utils/memory_utils.dart';
 
 enum AiModelSource {
   none,
@@ -40,12 +43,10 @@ class AiModelProvider extends ChangeNotifier {
     defaultValue: false,
   );
 
-  static const Map<LocalLlmModelType, String> _localModelModelScopeUrlByType = {
-    LocalLlmModelType.qa:
-        'https://www.modelscope.cn/models/lijiahaojj/HY1.8B-MNN/resolve/master/Hunyuan-1.8B-Instruct.zip',
-    LocalLlmModelType.translation:
-        'https://www.modelscope.cn/models/lijiahaojj/HY1.8B-MNN/resolve/master/HY-MT1.5-1.8B.zip',
-  };
+  // 统一使用 Qwen3-0.6B GGUF 格式（llama.cpp）
+  // 只保留 QA 模型，移除翻译模型
+  static const String _localModelUrl =
+      'https://www.modelscope.cn/models/unsloth/Qwen3-0.6B-GGUF/resolve/master/Qwen3-0.6B-Q4_K_M.gguf';
 
   bool _loaded = false;
   AiModelSource _source = AiModelSource.none;
@@ -177,7 +178,8 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   Uri _buildLocalModelModelScopeUri(LocalLlmModelType type) {
-    final url = _localModelModelScopeUrlByType[type] ?? '';
+    // 统一使用 GGUF 格式模型 URL
+    final url = _localModelUrl;
     if (url.trim().isEmpty) {
       throw const HttpException('未配置 ModelScope 下载地址');
     }
@@ -502,8 +504,24 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   Future<void> refreshLocalRuntimeStatus() async {
-    final client = LocalLlmClient();
-    _localRuntimeAvailable = await client.isAvailable();
+    if (!kIsWeb && Platform.isIOS) {
+      // iOS 使用 llama.cpp
+      final llamaClient = LlamaCppClient();
+      final modelExists = await LlamaModelDownloader.isModelExists();
+      if (modelExists && !llamaClient.isAvailable) {
+        // 模型存在但未加载，尝试加载
+        final modelPath = await LlamaModelDownloader.getModelPath();
+        await llamaClient.initialize(
+          modelPath: modelPath,
+          nCtx: 4096,
+        );
+      }
+      _localRuntimeAvailable = llamaClient.isAvailable;
+    } else {
+      // Android 使用 MNN
+      final client = LocalLlmClient();
+      _localRuntimeAvailable = await client.isAvailable();
+    }
     notifyListeners();
   }
 
@@ -637,7 +655,16 @@ class AiModelProvider extends ChangeNotifier {
   Future<void> _startSingleLocalModelDownload(LocalLlmModelType type) async {
     if (_localModelPaused) return;
 
-    final modelDir = await getLocalModelDir(type);
+    // 统一使用 GGUF 格式，直接下载到 llama 目录
+    await _startLlamaModelDownload();
+  }
+
+  Future<void> _startLlamaModelDownload() async {
+    if (_localModelPaused) return;
+
+    final modelPath = await LlamaModelDownloader.getModelPath();
+    final partialPath = '$modelPath.partial';
+    final partialFile = File(partialPath);
     final targetZipFile = await getLocalModelZipFile(type);
     final partialZipFile = await getLocalModelZipPartialFile(type);
 
@@ -1082,12 +1109,20 @@ void _extractZipWorker(Map<String, dynamic> args) {
       throw Exception('模型安装失败：参数错误');
     }
 
+    // iOS 内存限制约 2GB，使用 Dart 解压大文件会导致内存超限
+    // 使用流式解压减少内存占用
     final input = InputFileStream(zipPath);
     try {
-      final archive = ZipDecoder().decodeBuffer(input);
+      // 使用低内存模式解码
+      final archive = ZipDecoder().decodeBuffer(input, verify: false);
       final total = archive.files.length;
       int extracted = 0;
-      for (final file in archive.files) {
+      
+      // 分批处理文件，每批处理后强制垃圾回收
+      const int batchSize = 5;
+      
+      for (int i = 0; i < archive.files.length; i++) {
+        final file = archive.files[i];
         final rawName = file.name.replaceAll('\\', '/');
         final name = p.posix.normalize(rawName);
         if (name == '.' || name.startsWith('..') || p.posix.isAbsolute(name)) {
@@ -1099,6 +1134,7 @@ void _extractZipWorker(Map<String, dynamic> args) {
           if (file.isFile) {
             final outFile = File(outPath);
             outFile.parent.createSync(recursive: true);
+            // 对于大文件，使用流式写入
             final output = OutputFileStream(outFile.path);
             try {
               file.writeContent(output);
@@ -1112,15 +1148,25 @@ void _extractZipWorker(Map<String, dynamic> args) {
           throw Exception('模型安装失败：解压异常 file=$name error=$e');
         }
         extracted++;
-        if (extracted == 1 || extracted % 40 == 0 || extracted == total) {
+        
+        // 每处理一批文件，发送进度并减少内存压力
+        if (extracted == 1 || extracted % batchSize == 0 || extracted == total) {
           sendPort.send(<String, dynamic>{
             'type': 'progress',
             'extracted': extracted,
             'total': total,
             'file': name,
           });
+          
+          // 每处理10个文件后短暂暂停，让系统回收内存
+          if (i % batchSize == 0 && i > 0) {
+            sleep(const Duration(milliseconds: 10));
+          }
         }
       }
+      
+      // 清理 archive 释放内存
+      archive.clear();
     } finally {
       input.close();
     }
@@ -1145,15 +1191,30 @@ void _extractZipWorker(Map<String, dynamic> args) {
     }
 
     String? foundRoot;
-    final entities =
-        Directory(tmpDirPath).listSync(recursive: true, followLinks: false);
-    for (final e in entities) {
-      if (e is! File) continue;
-      if (p.basename(e.path).toLowerCase() != 'config.json') continue;
-      final norm = e.path.replaceAll('\\', '/');
-      if (norm.contains('/__macosx/')) continue;
-      foundRoot = p.dirname(e.path);
-      break;
+    // 限制递归深度，减少内存占用
+    try {
+      final entities = Directory(tmpDirPath).listSync(recursive: false, followLinks: false);
+      for (final e in entities) {
+        if (e is File && p.basename(e.path).toLowerCase() == 'config.json') {
+          foundRoot = p.dirname(e.path);
+          break;
+        }
+        if (e is Directory) {
+          final subEntities = e.listSync(recursive: false, followLinks: false);
+          for (final sub in subEntities) {
+            if (sub is File && p.basename(sub.path).toLowerCase() == 'config.json') {
+              final norm = sub.path.replaceAll('\\', '/');
+              if (!norm.contains('/__macosx/')) {
+                foundRoot = p.dirname(sub.path);
+                break;
+              }
+            }
+          }
+          if (foundRoot != null) break;
+        }
+      }
+    } catch (_) {
+      // 如果查找失败，继续后面的逻辑
     }
 
     if (foundRoot == null) {

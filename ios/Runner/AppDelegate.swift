@@ -244,6 +244,17 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
               }
             }
           }
+        case "getAvailableMemory":
+          let memory = MnnLlmBridge.getAvailableMemory()
+          result(Int(memory))
+        case "getTotalMemory":
+          let memory = MnnLlmBridge.getTotalMemory()
+          result(Int(memory))
+        case "hasEnoughMemory":
+          let args = call.arguments as? [String: Any]
+          let modelPath = args?["modelPath"] as? String ?? ""
+          let hasEnough = MnnLlmBridge.hasEnoughMemory(forModel: modelPath)
+          result(hasEnough)
         default:
           result(FlutterMethodNotImplemented)
         }
