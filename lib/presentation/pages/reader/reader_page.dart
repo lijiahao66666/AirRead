@@ -98,6 +98,7 @@ class _TextReaderChapter implements _ReaderChapter {
 
   Future<String> readPlainText() async {
     final buffer = StringBuffer();
+    // Always write the chapter title at the beginning
     final titleText = _title.trim().isEmpty ? '正文' : _title.trim();
     buffer.write(titleText);
 
@@ -109,9 +110,14 @@ class _TextReaderChapter implements _ReaderChapter {
     String? prevLineInPara;
     int processedLines = 0;
 
+    bool isFirstPara = true;
     void flushPara() {
       if (paraBuffer.isEmpty) return;
-      buffer.write('\n\n');
+      if (isFirstPara) {
+        isFirstPara = false;
+      } else {
+        buffer.write('\n\n');
+      }
       buffer.write(paraBuffer.toString());
       paraBuffer.clear();
       prevLineInPara = null;
@@ -480,13 +486,52 @@ class _ReaderPageState extends State<ReaderPage>
     });
   }
 
+  // Keywords to identify cover/toc chapters that should be skipped
+  static final Set<String> _skipChapterKeywords = {
+    'cover', '封面',
+    'toc', 'table of contents', '目录', '目次',
+  };
+
+  bool _shouldSkipChapter(String? title, String? href) {
+    final t = (title ?? '').toLowerCase().trim();
+    final h = (href ?? '').toLowerCase().trim();
+
+    // Check title keywords
+    for (final keyword in _skipChapterKeywords) {
+      if (t.contains(keyword)) return true;
+    }
+
+    // Check href patterns (common EPUB file naming)
+    if (h.contains('cover') ||
+        h.contains('toc') ||
+        h.contains('titlepage') ||
+        h.contains('copyright')) {
+      return true;
+    }
+
+    return false;
+  }
+
   List<_ReaderChapter> _buildEpubChapters(List<EpubChapterRef> roots) {
     final chapters = <_ReaderChapter>[];
 
     void walk(List<EpubChapterRef> items, int depth) {
       for (final c in items) {
         final rawTitle = (c.Title ?? '').trim();
-        const String prefix = '';
+        final href = c.ContentFileName ?? '';
+
+        // Skip cover/toc chapters
+        if (_shouldSkipChapter(rawTitle, href)) {
+          // Still process sub-chapters if any
+          final subs = c.SubChapters;
+          if (subs != null && subs.isNotEmpty) {
+            walk(subs, depth + 1);
+          }
+          continue;
+        }
+
+        // Add prefix based on depth for hierarchical display
+        final prefix = depth > 0 ? '${'  ' * depth}' : '';
         final displayTitle = rawTitle.isEmpty ? null : '$prefix$rawTitle';
         chapters.add(_EpubReaderChapter(c, titleOverride: displayTitle));
         final subs = c.SubChapters;
@@ -831,14 +876,32 @@ class _ReaderPageState extends State<ReaderPage>
     }
   }
 
+  // Patterns to identify TOC/front matter lines in TXT files
+  static final RegExp _txtTocPattern = RegExp(
+    r'^(目\s*录|contents|目录|目次|table of contents)|'
+    r'^(第[一二三四五六七八九十百千零〇两\d]+章.*|Chapter\s+\d+.*)|'
+    r'^(序\s*(章|言)|前\s*言|楔\s*子|引\s*子)',
+    caseSensitive: false,
+  );
+
   int _txtBodyStart({required String text, required String bookTitle}) {
     final trimmedBookTitle = bookTitle.trim();
     final int bomOffset =
         text.isNotEmpty && text.codeUnitAt(0) == 0xFEFF ? 1 : 0;
-    if (trimmedBookTitle.isEmpty) return bomOffset;
+
+    // Keywords that indicate front matter / TOC sections
+    final frontMatterKeywords = [
+      '封面', '书名', '作者', '版权', '出版', '简介', '目录',
+      'contents', 'cover', 'title', 'author', 'copyright',
+      'introduction', 'preface', '前言', '序言', '说明',
+    ];
+
     int i = bomOffset;
     int scanned = 0;
-    while (i < text.length && scanned < 200) {
+    int firstContentPos = bomOffset;
+    bool foundTitle = false;
+
+    while (i < text.length && scanned < 300) {
       int lineStart = i;
       int lineEnd = i;
       while (lineEnd < text.length) {
@@ -861,14 +924,40 @@ class _ReaderPageState extends State<ReaderPage>
       if (lineEnd > lineStart) {
         final t = text.substring(lineStart, lineEnd).trim();
         if (t.isNotEmpty) {
-          if (t == trimmedBookTitle) return next;
-          return bomOffset;
+          // Check if this is the book title
+          if (!foundTitle && trimmedBookTitle.isNotEmpty && t == trimmedBookTitle) {
+            foundTitle = true;
+            i = next;
+            scanned++;
+            continue;
+          }
+
+          // Check if this looks like TOC or front matter
+          final lowerT = t.toLowerCase();
+          bool isFrontMatter = false;
+          for (final keyword in frontMatterKeywords) {
+            if (lowerT.contains(keyword)) {
+              isFrontMatter = true;
+              break;
+            }
+          }
+
+          // Check if it matches TOC patterns
+          if (!isFrontMatter && _txtTocPattern.hasMatch(t)) {
+            isFrontMatter = true;
+          }
+
+          if (!isFrontMatter) {
+            // This looks like actual content, return this position
+            return lineStart;
+          }
         }
       }
       scanned++;
       i = next;
     }
-    return bomOffset;
+
+    return firstContentPos;
   }
 
   bool _applyPendingRestore() {
@@ -2578,19 +2667,23 @@ class _ReaderPageState extends State<ReaderPage>
     for (int i = 0; i < parts.length; i++) {
       final raw = parts[i].trim();
       if (raw.isEmpty) continue;
+
+      // Skip duplicate title on first paragraph of chapter
+      if (!firstWritten && normalizedTitle != null) {
+        final normalizedRaw = raw.replaceAll(RegExp(r'\s+'), ' ');
+        // Check if this paragraph matches the chapter title
+        if (normalizedRaw == normalizedTitle) {
+          // Skip this title paragraph, but still mark titleLength
+          titleLength = raw.length;
+          continue;
+        }
+      }
+
       if (firstWritten) {
         buffer.write('\n\n');
       }
-      bool isTitle = false;
-      if (!firstWritten && normalizedTitle != null) {
-        final normalizedRaw = raw.replaceAll(RegExp(r'\s+'), ' ');
-        isTitle = normalizedRaw == normalizedTitle;
-      }
       const String indent = '';
       final String paraText = indent + raw;
-      if (isTitle) {
-        titleLength = paraText.length;
-      }
       buffer.write(paraText);
       firstWritten = true;
     }
@@ -3922,8 +4015,8 @@ class _ReaderPageState extends State<ReaderPage>
         double snap(double value) => (value * dpr).roundToDouble() / dpr;
         double snapDown(double value) => (value * dpr).floorToDouble() / dpr;
 
-        final double topMargin = snap(padding.top + 16);
-        final double bottomMargin = snap(padding.bottom + 8);
+        final double topMargin = snap(padding.top + 8);
+        final double bottomMargin = snap(padding.bottom + 4);
 
         double viewportHeight = snapDown(
           constraints.maxHeight - topMargin - bottomMargin - (1 / dpr),
@@ -4982,9 +5075,9 @@ class _ReaderPageState extends State<ReaderPage>
                 SlideTransition(
                   position: _topBarOffset,
                   child: Container(
-                    height: contentTopInset + 64,
+                    height: contentTopInset + 56,
                     padding: EdgeInsets.only(
-                        top: contentTopInset + 8, left: 16, right: 16),
+                        top: contentTopInset + 4, left: 16, right: 16),
                     color: barColor,
                     child: Row(
                       children: [
@@ -5009,8 +5102,8 @@ class _ReaderPageState extends State<ReaderPage>
                     position: _bottomBarOffset,
                     child: Container(
                       padding: EdgeInsets.only(
-                          bottom: contentBottomInset + 24,
-                          top: 20,
+                          bottom: contentBottomInset + 8,
+                          top: 12,
                           left: 24,
                           right: 24),
                       color: barColor,

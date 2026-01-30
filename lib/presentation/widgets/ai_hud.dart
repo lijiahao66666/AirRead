@@ -575,7 +575,7 @@ class _TencentHunyuanSettingsPanelState
   Uri _resolveRedeemScfUri() {
     final raw = _scfUrl.trim();
     if (raw.isEmpty) {
-      throw const LicenseException('兑换服务未配置');
+      throw const LicenseException('兑换服务未配置，请检查网络连接或联系客服');
     }
     return Uri.parse(raw);
   }
