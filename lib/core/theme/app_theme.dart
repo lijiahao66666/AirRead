@@ -63,7 +63,6 @@ class AppTheme {
       ),
     );
   }
-}
 
   /// Returns theme based on current system mode
   static ThemeData getTheme(BuildContext context) {
@@ -72,3 +71,4 @@ class AppTheme {
     
     return brightness == Brightness.dark ? darkTheme : lightTheme;
   }
+}

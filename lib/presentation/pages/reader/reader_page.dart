@@ -562,13 +562,33 @@ class _ReaderPageState extends State<ReaderPage>
 
     // Load Settings
     if (mounted) {
+      // Check system brightness for default theme
+      final brightness = MediaQuery.platformBrightnessOf(context);
+      final isSystemDark = brightness == Brightness.dark;
+      
       setState(() {
         _fontSize = _prefs?.getDouble('fontSize') ?? 18.0;
         _lineHeight = _prefs?.getDouble('lineHeight') ?? 1.4;
+        
         int? colorVal = _prefs?.getInt('bgColor');
-        if (colorVal != null) _bgColor = Color(colorVal);
         int? textVal = _prefs?.getInt('textColor');
-        if (textVal != null) _textColor = Color(textVal);
+        
+        // If no saved colors, use system theme defaults
+        if (colorVal != null) {
+          _bgColor = Color(colorVal);
+        } else {
+          _bgColor = isSystemDark 
+              ? const Color(0xFF1E272C)  // Dark mode default
+              : const Color(0xFFF5F9FA); // Light mode default
+        }
+        
+        if (textVal != null) {
+          _textColor = Color(textVal);
+        } else {
+          _textColor = isSystemDark
+              ? const Color(0xFFE8ECEF)  // Dark mode text
+              : const Color(0xFF2C3E50); // Light mode text
+        }
 
         _aiReadAloudPlaying = false;
       });
