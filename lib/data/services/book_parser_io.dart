@@ -348,7 +348,7 @@ class BookParser {
       for (final l in nonEmpty.take(25)) {
         final m = titleRe.firstMatch(l);
         if (m != null) {
-          final t = (m.group(2) ?? '').trim();
+          final t = (m.group(1) ?? '').trim();
           if (t.isNotEmpty && t.length <= 80 && !chapterRe.hasMatch(t)) {
             pickedTitle = t;
             break;
@@ -369,27 +369,16 @@ class BookParser {
         }
       }
 
-      if (pickedTitle == null) {
-        for (final l in nonEmpty.take(30)) {
-          if (authorRe.hasMatch(l)) continue;
-          if (chapterRe.hasMatch(l)) continue;
-          if (junkRe.hasMatch(l)) continue;
-          final t = l.trim();
-          if (t.length < 2 || t.length > 50) continue;
-          if (RegExp(r'^[\W_]+$').hasMatch(t)) continue;
-          pickedTitle = t;
-          break;
-        }
-      }
-
-      if (pickedTitle != null) {
-        title = pickedTitle;
-      }
+      // Use filename as title, do not override with detected title from content
+      // Only extract author from content
+      // if (pickedTitle != null) {
+      //   title = pickedTitle;
+      // }
 
       for (final l in nonEmpty.take(15)) {
         final m = authorRe.firstMatch(l);
         if (m != null) {
-          final a = (m.group(2) ?? '').trim();
+          final a = (m.group(1) ?? '').trim();
           if (a.isNotEmpty && a.length <= 80) {
             author = a;
             break;
