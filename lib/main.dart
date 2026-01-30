@@ -91,8 +91,8 @@ class AirReadApp extends StatelessWidget {
     return MaterialApp(
       title: '灵阅',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
+      theme: AppTheme.getTheme(context),
+      darkTheme: AppTheme.getDarkTheme(),
       themeMode: ThemeMode.system,
       home: const BookshelfPage(),
     );
