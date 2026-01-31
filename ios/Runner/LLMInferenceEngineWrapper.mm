@@ -225,16 +225,18 @@ private:
             return NO;
         }
         
-        // Configure LLM - 针对MiniCPM4优化配置
-        NSString *tempDirectory = NSTemporaryDirectory();
-        std::string configStr = "{"
-            "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
-            "\"use_mmap\":true,"
-            "\"reuse_kv\":true,"  // 启用KV复用提高性能
-            "\"max_new_tokens\":512,"  // 限制最大token数避免内存问题
-            "\"thread_num\":4"  // 使用4线程优化推理速度
-            "}";
-        _llm->set_config(configStr);
+        // Configure LLM - 使用 config.json 中的配置，不再硬编码
+        // MNN 会自动从 config.json 和 llm_config.json 读取配置
+        // NSString *tempDirectory = NSTemporaryDirectory();
+        // std::string configStr = "{"
+        //     "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
+        //     "\"use_mmap\":true,"
+        //     "\"reuse_kv\":true,"
+        //     "\"max_new_tokens\":512,"
+        //     "\"thread_num\":4"
+        //     "}";
+        // _llm->set_config(configStr);
+        NSLog(@"[LLMInferenceEngineWrapper] Using config from config.json");
         
         // Load model
         _llm->load();
@@ -314,8 +316,8 @@ private:
             // Start inference - 使用直接的 prompt 字符串而不是 history
             NSLog(@"[LLM] Starting inference...");
             
-            // 使用 generate 方法直接传入 prompt 字符串
-            blockSelf->_llm->generate(userInput, &os, 512);
+            // 使用 response 方法直接传入 prompt 字符串
+            blockSelf->_llm->response(userInput, &os, "<eop>", 512);
             
             // Flush any remaining data in stream buffer
             os.flush();
