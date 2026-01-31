@@ -26,14 +26,32 @@ public:
     using CallBack = std::function<void(const char* str, size_t len)>;
     
     Utf8SafeStreamBuffer(CallBack callback) : callback_(callback) {
-        byteBuffer_.reserve(256);
+        // 设置内部缓冲区
+        setp(buffer_, buffer_ + sizeof(buffer_) - 1);
     }
     
     ~Utf8SafeStreamBuffer() {
+        sync();
         flushRemaining();
     }
 
 protected:
+    // 处理单个字符输出 (operator<< char 会调用此方法)
+    virtual int_type overflow(int_type ch) override {
+        if (ch == traits_type::eof()) {
+            return traits_type::not_eof(ch);
+        }
+        
+        // 将字符添加到字节缓冲区
+        byteBuffer_.push_back(static_cast<char>(ch));
+        
+        // 尝试处理完整的UTF-8字符
+        processUtf8Buffer();
+        
+        return ch;
+    }
+    
+    // 处理批量输出 (write/<< string 会调用此方法)
     virtual std::streamsize xsputn(const char* s, std::streamsize n) override {
         if (!callback_ || n <= 0) {
             return n;
@@ -46,6 +64,12 @@ protected:
         processUtf8Buffer();
         
         return n;
+    }
+    
+    // 同步缓冲区
+    virtual int sync() override {
+        processUtf8Buffer();
+        return 0;
     }
 
 private:
@@ -66,16 +90,18 @@ private:
                     i += charLen;
                 } else {
                     // 无效序列，跳过这个字节
+                    NSLog(@"[Utf8SafeStreamBuffer] Invalid UTF-8 sequence at %zu, byte: 0x%02X", i, c);
                     i++;
                 }
             } else {
-                // 不完整的字符，停止处理
+                // 不完整的字符，停止处理，保留到下一次
                 break;
             }
         }
         
         // 发送完整的UTF-8字符串
         if (!outputStr.empty() && callback_) {
+            NSLog(@"[Utf8SafeStreamBuffer] Sending %zu bytes", outputStr.size());
             callback_(outputStr.c_str(), outputStr.size());
         }
         
@@ -87,15 +113,17 @@ private:
     
     size_t getUtf8CharLength(unsigned char firstByte) {
         if ((firstByte & 0x80) == 0) {
-            return 1;  // ASCII
+            return 1;  // ASCII: 0xxxxxxx
         } else if ((firstByte & 0xE0) == 0xC0) {
-            return 2;  // 2-byte UTF-8
+            return 2;  // 2-byte UTF-8: 110xxxxx
         } else if ((firstByte & 0xF0) == 0xE0) {
-            return 3;  // 3-byte UTF-8 (中文)
+            return 3;  // 3-byte UTF-8: 1110xxxx (中文)
         } else if ((firstByte & 0xF8) == 0xF0) {
-            return 4;  // 4-byte UTF-8
+            return 4;  // 4-byte UTF-8: 11110xxx
         }
-        return 1;  // 无效字节，按单字节处理
+        // 无效的起始字节 (10xxxxxx 是 continuation byte)
+        NSLog(@"[Utf8SafeStreamBuffer] Invalid UTF-8 start byte: 0x%02X", firstByte);
+        return 1;  // 按单字节处理，跳过
     }
     
     bool isValidUtf8Sequence(const char* bytes, size_t len) {
@@ -115,6 +143,7 @@ private:
     
     void flushRemaining() {
         if (callback_ && !byteBuffer_.empty()) {
+            NSLog(@"[Utf8SafeStreamBuffer] Flushing remaining %zu bytes", byteBuffer_.size());
             // 尝试最后一次处理
             processUtf8Buffer();
             
@@ -129,6 +158,7 @@ private:
 private:
     CallBack callback_ = nullptr;
     std::string byteBuffer_;  // 字节级缓冲区
+    char buffer_[1024];       // 内部缓冲区
 };
 
 @interface LLMInferenceEngineWrapper () {
@@ -195,13 +225,14 @@ private:
             return NO;
         }
         
-        // Configure LLM - 针对Qwen优化配置
+        // Configure LLM - 针对MiniCPM4优化配置
         NSString *tempDirectory = NSTemporaryDirectory();
         std::string configStr = "{"
             "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
             "\"use_mmap\":true,"
-            "\"reuse_kv\":false,"  // 禁用KV复用避免上下文混乱
-            "\"max_new_tokens\":512"  // 限制最大token数避免内存问题
+            "\"reuse_kv\":true,"  // 启用KV复用提高性能
+            "\"max_new_tokens\":512,"  // 限制最大token数避免内存问题
+            "\"thread_num\":4"  // 使用4线程优化推理速度
             "}";
         _llm->set_config(configStr);
         
@@ -243,17 +274,29 @@ private:
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         @try {
             // 使用UTF-8安全的流缓冲区
-            Utf8SafeStreamBuffer::CallBack callback = [handler](const char* str, size_t len) {
+            __block NSMutableString *accumulatedOutput = [NSMutableString string];
+            
+            Utf8SafeStreamBuffer::CallBack callback = [handler, accumulatedOutput](const char* str, size_t len) mutable {
                 if (handler && str && len > 0) {
                     @autoreleasepool {
+                        // 记录原始字节用于调试
+                        NSMutableString *hexDebug = [NSMutableString stringWithString:@"Bytes: "];
+                        for (size_t i = 0; i < std::min(len, (size_t)16); i++) {
+                            [hexDebug appendFormat:@"%02X ", (unsigned char)str[i]];
+                        }
+                        NSLog(@"[LLM] Raw %s", hexDebug.UTF8String);
+                        
                         NSString *nsOutput = [[NSString alloc] initWithBytes:str
                                                                         length:len
                                                                       encoding:NSUTF8StringEncoding];
                         if (nsOutput && nsOutput.length > 0) {
-                            NSLog(@"[LLM] Output: '%@'", nsOutput);
+                            [accumulatedOutput appendString:nsOutput];
+                            NSLog(@"[LLM] Output chunk (%zu bytes): '%@'", len, nsOutput);
                             dispatch_async(dispatch_get_main_queue(), ^{
                                 handler(nsOutput);
                             });
+                        } else {
+                            NSLog(@"[LLM] Failed to decode bytes as UTF-8, len=%zu", len);
                         }
                     }
                 }
@@ -278,9 +321,12 @@ private:
             }
             NSLog(@"[LLM] Prompt:\n%s", prompt_debug.c_str());
             
-            // Start inference - 使用简单的一次性生成避免复杂的token-by-token控制
-            // 对于Qwen模型，使用简单的response调用更稳定
+            // Start inference
+            NSLog(@"[LLM] Starting inference...");
             blockSelf->_llm->response(blockSelf->_history, &os, "<eop>", 512);
+            
+            // Flush any remaining data in stream buffer
+            os.flush();
             
             // Send end signal
             if (handler) {
@@ -289,7 +335,7 @@ private:
                 });
             }
             
-            NSLog(@"[LLM] Inference completed");
+            NSLog(@"[LLM] Inference completed. Total output: '%@'", accumulatedOutput);
             
         } @catch (NSException *exception) {
             NSLog(@"[LLMInferenceEngineWrapper] Exception during inference: %@", exception.reason);
