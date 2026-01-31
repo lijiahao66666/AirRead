@@ -227,16 +227,14 @@ private:
         
         // Configure LLM - 使用 config.json 中的配置，不再硬编码
         // MNN 会自动从 config.json 和 llm_config.json 读取配置
-        // NSString *tempDirectory = NSTemporaryDirectory();
-        // std::string configStr = "{"
-        //     "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
-        //     "\"use_mmap\":true,"
-        //     "\"reuse_kv\":true,"
-        //     "\"max_new_tokens\":512,"
-        //     "\"thread_num\":4"
-        //     "}";
-        // _llm->set_config(configStr);
-        NSLog(@"[LLMInferenceEngineWrapper] Using config from config.json");
+        NSString *tempDirectory = NSTemporaryDirectory();
+        std::string configStr = "{"
+            "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
+            "\"use_mmap\":true,"
+            "\"reuse_kv\":true"
+            "}";
+        _llm->set_config(configStr);
+        NSLog(@"[LLMInferenceEngineWrapper] Using config from config.json with tmp_path: %s", configStr.c_str());
         
         // Load model
         _llm->load();

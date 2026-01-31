@@ -19,11 +19,11 @@ enum ModelDownloadStatus {
 /// 从 ModelScope 下载 MiniCPM4-0.5B MNN 模型（zip格式）
 class MnnModelDownloader {
   static const String _modelDir = 'models/minicpm4-0.5b-mnn';
-  static const String _zipFileName = 'minicpm4-0.5b-mnn.zip';
+  static const String _zipFileName = 'minicpm4-0.5b.zip';
 
   // ModelScope 下载链接（MiniCPM4-0.5B MNN 模型）
   static const String _downloadUrl =
-      'https://modelscope.cn/models/lijiahaojj/MNN/resolve/master/minicpm4-0.5b-mnn.zip';
+      'https://modelscope.cn/models/lijiahaojj/MNN/resolve/master/minicpm4-0.5b.zip';
 
   // 预估zip文件大小约400MB
   static const int _estimatedZipSize = 400 * 1024 * 1024;
