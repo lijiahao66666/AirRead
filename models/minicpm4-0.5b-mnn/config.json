@@ -1,0 +1,15 @@
+{
+    "llm_model": "llm.mnn",
+    "llm_weight": "llm.mnn.weight",
+    "llm_config": "llm_config.json",
+    "tokenizer_file": "tokenizer.txt",
+    "backend_type": "cpu",
+    "thread_num": 4,
+    "precision": "low",
+    "memory": "low",
+    "sampler_type": "penalty",
+    "penalty": 1.1,
+    "max_new_tokens": 512,
+    "reuse_kv": true,
+    "attention_mode": 8
+}
