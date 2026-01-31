@@ -12,6 +12,7 @@
 .swiftpm/
 migrate_working_dir/
 models/
+assets/models/
 
 # IntelliJ related
 *.iml
@@ -33,6 +34,7 @@ models/
 .pub-cache/
 .pub/
 /build/
+ios/build/
 
 # Symbolication related
 app.*.symbols
