@@ -74,22 +74,24 @@ String buildLocalQaPrompt({
   final historyText = (history ?? '').trim();
   final content = contextService.getContentByScope(contentScope);
 
-  // Qwen3 模型使用简单的用户输入格式
-  // MNN LLM 会根据 config.json 中的 prompt_template 自动添加格式
-  // Qwen 默认格式: <|im_start|>system\n%s<|im_end|>\n<|im_start|>user\n%s<|im_end|>\n<|im_start|>assistant\n%s<|im_end|>
+  // MiniCPM4 模型使用特定的 chat template
+  // Format: <|im_start|>system\n...<|im_end|>\n<|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n
+  String userPrompt;
   switch (qaType) {
     case QAType.summary:
-      return [
+      userPrompt = [
         '请总结以下内容：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
       ].join('\n');
+      break;
     case QAType.keyPoints:
-      return [
+      userPrompt = [
         '请提取以下内容的要点：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
       ].join('\n');
+      break;
     case QAType.general:
       final parts = <String>[
         '基于以下内容回答问题：',
@@ -98,8 +100,21 @@ String buildLocalQaPrompt({
         '',
         '问题：$question',
       ];
-      return parts.join('\n').trim();
+      userPrompt = parts.join('\n').trim();
+      break;
   }
+
+  // 构建 MiniCPM 格式的 prompt
+  final buffer = StringBuffer();
+  buffer.writeln('<|im_start|>system');
+  buffer.writeln('你是一个 helpful 的助手，请根据用户的问题提供简洁准确的回答。');
+  buffer.writeln('<|im_end|>');
+  buffer.writeln('<|im_start|>user');
+  buffer.writeln(userPrompt);
+  buffer.writeln('<|im_end|>');
+  buffer.writeln('<|im_start|>assistant');
+
+  return buffer.toString();
 }
 
 class QAService {

@@ -305,25 +305,17 @@ private:
             Utf8SafeStreamBuffer streambuf(callback);
             std::ostream os(&streambuf);
             
-            // Thread-safe history management
-            {
-                std::lock_guard<std::mutex> lock(blockSelf->_historyMutex);
-                blockSelf->_history.emplace_back(ChatMessage("user", [input UTF8String]));
-            }
-            
-            // Reset stop flag before starting inference
-            blockSelf->_shouldStop = false;
+            // 将输入转换为 std::string
+            std::string userInput = [input UTF8String];
             
             // Debug information for prompt
-            std::string prompt_debug = "";
-            for (const auto& msg : blockSelf->_history) {
-                prompt_debug += msg.first + ": " + msg.second + "\n";
-            }
-            NSLog(@"[LLM] Prompt:\n%s", prompt_debug.c_str());
+            NSLog(@"[LLM] Input prompt:\n%s", userInput.c_str());
             
-            // Start inference
+            // Start inference - 使用直接的 prompt 字符串而不是 history
             NSLog(@"[LLM] Starting inference...");
-            blockSelf->_llm->response(blockSelf->_history, &os, "<eop>", 512);
+            
+            // 使用 generate 方法直接传入 prompt 字符串
+            blockSelf->_llm->generate(userInput, &os, 512);
             
             // Flush any remaining data in stream buffer
             os.flush();
