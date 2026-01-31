@@ -274,9 +274,9 @@ private:
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         @try {
             // 使用UTF-8安全的流缓冲区
-            __block NSMutableString *accumulatedOutput = [NSMutableString string];
+            std::string accumulatedOutput;
             
-            Utf8SafeStreamBuffer::CallBack callback = [handler, accumulatedOutput](const char* str, size_t len) mutable {
+            Utf8SafeStreamBuffer::CallBack callback = [handler, &accumulatedOutput](const char* str, size_t len) {
                 if (handler && str && len > 0) {
                     @autoreleasepool {
                         // 记录原始字节用于调试
@@ -290,7 +290,7 @@ private:
                                                                         length:len
                                                                       encoding:NSUTF8StringEncoding];
                         if (nsOutput && nsOutput.length > 0) {
-                            [accumulatedOutput appendString:nsOutput];
+                            accumulatedOutput.append([nsOutput UTF8String]);
                             NSLog(@"[LLM] Output chunk (%zu bytes): '%@'", len, nsOutput);
                             dispatch_async(dispatch_get_main_queue(), ^{
                                 handler(nsOutput);
@@ -335,7 +335,7 @@ private:
                 });
             }
             
-            NSLog(@"[LLM] Inference completed. Total output: '%@'", accumulatedOutput);
+            NSLog(@"[LLM] Inference completed. Total output length: %zu bytes", accumulatedOutput.length());
             
         } @catch (NSException *exception) {
             NSLog(@"[LLMInferenceEngineWrapper] Exception during inference: %@", exception.reason);
