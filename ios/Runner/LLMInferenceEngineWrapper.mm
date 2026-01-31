@@ -231,10 +231,11 @@ private:
         std::string configStr = "{"
             "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
             "\"use_mmap\":true,"
+            "\"backend_type\":\"cpu\","  // 明确指定使用 CPU 后端，避免 ANE/Metal 错误
             "\"reuse_kv\":true"
             "}";
         _llm->set_config(configStr);
-        NSLog(@"[LLMInferenceEngineWrapper] Using config from config.json with tmp_path: %s", configStr.c_str());
+        NSLog(@"[LLMInferenceEngineWrapper] Using config with backend_type=cpu, tmp_path=%s", configStr.c_str());
         
         // Load model
         _llm->load();
