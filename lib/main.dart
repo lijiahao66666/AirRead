@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:http/http.dart' as http;
 import 'ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import 'ai/tencentcloud/tencent_credentials.dart';
 import 'ai/tencentcloud/tencent_api_client.dart';
@@ -63,6 +65,13 @@ Future<void> main() async {
 
   await TencentApiClient.init();
 
+  // 提前触发网络权限请求（iOS）- 在后台执行，不阻塞启动
+  if (!kIsWeb && Platform.isIOS) {
+    Future.delayed(const Duration(seconds: 2), () {
+      unawaited(_requestNetworkPermission());
+    });
+  }
+
   runApp(
     MultiProvider(
       providers: [
@@ -96,5 +105,17 @@ class AirReadApp extends StatelessWidget {
       themeMode: ThemeMode.system,
       home: const BookshelfPage(),
     );
+  }
+}
+
+/// 请求网络权限（iOS）
+Future<void> _requestNetworkPermission() async {
+  try {
+    // 发送一个简单的网络请求来触发权限弹窗
+    await http
+        .get(Uri.parse('https://www.baidu.com'))
+        .timeout(const Duration(seconds: 5));
+  } catch (e) {
+    // 忽略错误，只需要触发权限请求
   }
 }

@@ -12,7 +12,6 @@ import 'package:uuid/uuid.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../ai/licensing/license_codec.dart';
-import '../../ai/local_llm/local_llm_client.dart';
 import '../../ai/reading/reading_context_service.dart';
 import '../../ai/reading/qa_service.dart';
 export '../../ai/reading/qa_service.dart' show QAStreamChunk, QAType;
@@ -26,6 +25,9 @@ import '../providers/ai_model_provider.dart';
 import '../providers/translation_provider.dart';
 import '../providers/qa_stream_provider.dart';
 import 'glass_panel.dart';
+
+// Re-export ModelInstallStatus for use in this file
+export '../providers/ai_model_provider.dart' show ModelInstallStatus;
 
 enum AiHudRoute {
   main,
@@ -1534,7 +1536,7 @@ class _TencentHunyuanSettingsPanelState
                 const SizedBox(height: 12),
                 if (provider.translationMode == TranslationMode.machine)
                   Text(
-                    '机器翻译：微软+腾讯翻译',
+                    '使用微软+腾讯翻译',
                     style: TextStyle(
                       color: widget.textColor.withOpacity(0.65),
                       fontSize: 13,
@@ -2094,11 +2096,11 @@ class _TencentHunyuanSettingsPanelState
                         _chip(
                           label: '本地',
                           active: aiModel.source == AiModelSource.local,
-                          onTap: () {
+                          onTap: () async {
                             final next = aiModel.source == AiModelSource.local
                                 ? AiModelSource.none
                                 : AiModelSource.local;
-                            unawaited(aiModel.setSource(next));
+                            await aiModel.setSource(next);
                           },
                           textColor: widget.textColor,
                         ),
@@ -2115,6 +2117,7 @@ class _TencentHunyuanSettingsPanelState
                         ),
                       ],
                     ),
+                    // 在线模型提示
                     if (aiModel.source == AiModelSource.online) ...[
                       const SizedBox(height: 12),
                       if (tp.usingPersonalTencentKeys) ...[
@@ -2140,32 +2143,18 @@ class _TencentHunyuanSettingsPanelState
                         _redeemRow(aiModel, cardBg: cardBg),
                       ],
                     ],
+                    // 本地模型提示（与本地按钮左对齐）
+                    if (aiModel.source == AiModelSource.local) ...[
+                      const SizedBox(height: 12),
+                      _localModelStatusRow(
+                        aiModel,
+                        title: 'Qwen3-0.6B',
+                        sizeText: '225M',
+                      ),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
-              if (aiModel.source == AiModelSource.local) ...[
-                _localModelStatusRow(
-                  aiModel,
-                  type: LocalLlmModelType.qa,
-                  title: 'Hunyuan-1.8B-Instruct',
-                  sizeText: '830M',
-                  capabilityText: '问答',
-                ),
-                if (!aiModel.localModelDownloading &&
-                    !aiModel.localModelInstalling &&
-                    aiModel.localModelError.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    aiModel.localModelError,
-                    style: const TextStyle(
-                      color: Colors.redAccent,
-                      fontSize: 13,
-                      height: 1.35,
-                    ),
-                  ),
-                ],
-              ],
               const SizedBox(height: 10),
               _itemBox(
                 Column(
@@ -2265,139 +2254,14 @@ class _TencentHunyuanSettingsPanelState
 
   Widget _localModelStatusRow(
     AiModelProvider aiModel, {
-    required LocalLlmModelType type,
     required String title,
     required String sizeText,
-    required String capabilityText,
   }) {
-    String text = '$title未下载($sizeText)，下载后可在无网环境使用$capabilityText';
-    Widget? action;
-
-    if (aiModel.isLocalModelInstallingByType(type)) {
-      text = '$title安装中…';
-      action = const SizedBox(
-        width: 16,
-        height: 16,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          value: null,
-          color: AppColors.techBlue,
-        ),
-      );
-    } else if (aiModel.isLocalModelDownloadingByType(type)) {
-      text = '$title下载中，下载后可在无网环境使用$capabilityText';
-      String pctText = '';
-      final total = aiModel.localModelTotalBytesByType(type);
-      final double progress =
-          aiModel.localModelProgressByType(type).clamp(0.0, 1.0);
-      if (total > 0) {
-        final pct = (progress * 100).round();
-        pctText = '$pct%';
-      }
-      action = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              value: total > 0 ? progress : null,
-              color: AppColors.techBlue,
-            ),
-          ),
-          if (pctText.isNotEmpty) ...[
-            const SizedBox(width: 8),
-            Text(
-              pctText,
-              style: const TextStyle(
-                color: AppColors.techBlue,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-          const SizedBox(width: 12),
-          InkWell(
-            onTap: aiModel.pauseLocalModelDownload,
-            child: Text(
-              '暂停',
-              style: TextStyle(
-                color: widget.textColor.withOpacity(0.6),
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ],
-      );
-    } else if (aiModel.isLocalModelQueuedByType(type)) {
-      text = '$title已加入队列，等待下载…';
-      action = Text(
-        '队列中',
-        style: TextStyle(
-          color: widget.textColor.withOpacity(0.6),
-          fontSize: 13,
-        ),
-      );
-    } else if (aiModel.isLocalModelPausedByType(type)) {
-      text = '$title下载已暂停，点击下载继续';
-      String pctText = '';
-      final total = aiModel.localModelTotalBytesByType(type);
-      final double progress =
-          aiModel.localModelProgressByType(type).clamp(0.0, 1.0);
-      if (total > 0) {
-        final pct = (progress * 100).round();
-        pctText = '$pct%';
-      }
-      action = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (pctText.isNotEmpty) ...[
-            Text(
-              pctText,
-              style: TextStyle(
-                color: widget.textColor.withOpacity(0.6),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(width: 12),
-          ],
-          InkWell(
-            onTap: () => aiModel.startLocalModelDownloadForType(type),
-            child: const Text(
-              '下载',
-              style: TextStyle(
-                color: AppColors.techBlue,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      );
-    } else if (aiModel.localModelExistsByType(type)) {
-      text = '可在无网环境使用$capabilityText';
-      action = null;
-    } else {
-      action = InkWell(
-        onTap: () => aiModel.startLocalModelDownloadForType(type),
-        child: const Text(
-          '下载',
-          style: TextStyle(
-            color: AppColors.techBlue,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      );
-    }
-
     return Row(
       children: [
         Expanded(
           child: Text(
-            text,
+            '$title($sizeText)',
             style: TextStyle(
               color: widget.textColor.withOpacity(0.65),
               fontSize: 13,
@@ -2405,13 +2269,90 @@ class _TencentHunyuanSettingsPanelState
             ),
           ),
         ),
-        if (action != null) ...[
-          const SizedBox(width: 12),
-          action,
-        ],
+        _buildModelActionButton(aiModel),
       ],
     );
   }
+
+  /// 构建模型操作按钮（下载/安装中/已安装）
+  Widget _buildModelActionButton(AiModelProvider aiModel) {
+    // 根据安装状态显示不同按钮
+    switch (aiModel.modelInstallStatus) {
+      case ModelInstallStatus.notInstalled:
+      case ModelInstallStatus.failed:
+        // 未安装或失败，显示下载文字按钮（类似购买/兑换样式）
+        return TextButton(
+          onPressed: () => aiModel.startModelDownload(),
+          style: TextButton.styleFrom(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(0, 0),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            foregroundColor: AppColors.techBlue,
+          ),
+          child: const Text(
+            '下载',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        );
+
+      case ModelInstallStatus.installing:
+        // 安装中，显示圆圈进度和取消按钮
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 圆圈进度
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                value: aiModel.downloadProgress > 0 ? aiModel.downloadProgress : null,
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.techBlue),
+                backgroundColor: widget.textColor.withOpacity(0.1),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // 取消文字按钮
+            TextButton(
+              onPressed: () => aiModel.cancelModelDownload(),
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 0),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: widget.textColor.withOpacity(0.6),
+              ),
+              child: const Text(
+                '取消',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+              ),
+            ),
+          ],
+        );
+
+      case ModelInstallStatus.installed:
+        // 已安装，显示已就绪状态（不需要等待LLM初始化成功）
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.check_circle,
+              color: Colors.green,
+              size: 16,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '已就绪',
+              style: TextStyle(
+                color: Colors.green,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        );
+    }
+  }
+
 }
 
 class _MainPanel extends StatelessWidget {
@@ -2457,21 +2398,12 @@ class _MainPanel extends StatelessWidget {
       AiModelSource.none => false,
       AiModelSource.online =>
         onlineEntitled || (usingPersonalKeys && personalKeysUsable),
-      AiModelSource.local => aiModel.isLocalQaModelReady,
+      // 本地模型：只要模型文件已安装就认为是就绪的（不需要等待LLM初始化）
+      AiModelSource.local => aiModel.isModelInstalled,
     };
 
     final String localQaSubtitle = switch (source) {
-      AiModelSource.local when !qaReady =>
-        aiModel.isLocalModelInstallingByType(LocalLlmModelType.qa)
-            ? '模型安装中，安装后可使用'
-            : (aiModel.isLocalModelDownloadingByType(LocalLlmModelType.qa) ||
-                    aiModel.isLocalModelQueuedByType(LocalLlmModelType.qa))
-                ? '模型下载中，下载后可使用'
-                : aiModel.isLocalModelPausedByType(LocalLlmModelType.qa)
-                    ? '模型下载已暂停，继续后可使用'
-                    : !aiModel.localModelExistsByType(LocalLlmModelType.qa)
-                        ? '模型未下载，下载后可使用'
-                        : '模型准备中，稍后可使用',
+      AiModelSource.local when !qaReady => '本地模型未就绪，下载完成后可用',
       _ => '',
     };
 

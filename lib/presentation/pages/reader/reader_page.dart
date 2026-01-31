@@ -4365,7 +4365,7 @@ class _ReaderPageState extends State<ReaderPage>
               (tp.translationMode == TranslationMode.bigModel &&
                   (aiModel.pointsBalance > 0 || personalUsable));
           final canExplain = (aiModel.source == AiModelSource.local &&
-                  aiModel.isLocalQaModelReady) ||
+                  aiModel.loaded) ||
               (aiModel.source == AiModelSource.online &&
                   (aiModel.pointsBalance > 0 || personalUsable));
 

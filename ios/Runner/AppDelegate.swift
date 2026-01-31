@@ -2,6 +2,98 @@ import UIKit
 import Flutter
 import AVFoundation
 
+// MARK: - MNN LLM Bridge
+final class MnnLlmBridge: NSObject {
+    private var engine: LLMInferenceEngineWrapper?
+    private var isInitialized = false
+    
+    static func isAvailable() -> Bool {
+        return true
+    }
+    
+    func initialize(_ modelPath: String, completion: @escaping (Bool) -> Void) {
+        engine = LLMInferenceEngineWrapper(modelPath: modelPath) { [weak self] success in
+            self?.isInitialized = success
+            completion(success)
+        }
+    }
+    
+    func chatOnce(_ userText: String, maxNewTokens: Int, maxInputTokens: Int, temperature: Double, topP: Double, topK: Int, minP: Double, presencePenalty: Double, repetitionPenalty: Double, enableThinking: Bool) -> String? {
+        // 同步调用不支持，返回 nil
+        return nil
+    }
+    
+    func chatStream(_ userText: String, maxNewTokens: Int, maxInputTokens: Int, temperature: Double, topP: Double, topK: Int, minP: Double, presencePenalty: Double, repetitionPenalty: Double, enableThinking: Bool, onChunk: @escaping (String) -> Void, onDone: @escaping (Error?) -> Void) {
+        guard let engine = engine, isInitialized else {
+            onDone(NSError(domain: "MnnLlmBridge", code: 1005, userInfo: [NSLocalizedDescriptionKey: "LLM not initialized"]))
+            return
+        }
+        
+        engine.processInput(userText, withStreamHandler: { chunk in
+            onChunk(chunk)
+            if chunk == "<eop>" {
+                onDone(nil)
+            }
+        })
+    }
+    
+    func cancelCurrentStream() {
+        engine?.cancelInference()
+    }
+    
+    func dumpConfig() -> String? {
+        guard isInitialized else { return nil }
+        return "{\"model\":\"MiniCPM-0.5B\",\"backend\":\"CPU\",\"threads\":4}"
+    }
+}
+
+// MARK: - MNN LLM Stream Handler
+final class MnnLlmStreamHandler: NSObject, FlutterStreamHandler {
+  private var eventSink: FlutterEventSink?
+  private var cancelled: Bool = false
+
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    eventSink = events
+    cancelled = false
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    cancelled = true
+    eventSink = nil
+    return nil
+  }
+
+  func send(_ event: Any) {
+    if cancelled { return }
+    if let sink = eventSink {
+      sink(event)
+    }
+  }
+
+  func sendChunk(_ chunk: String) {
+    if chunk == "<eop>" {
+      sendDone()
+    } else {
+      send(["type": "chunk", "data": chunk])
+    }
+  }
+
+  func sendDone() {
+    send(["type": "done"])
+  }
+
+  func sendError(_ error: String) {
+    send(["type": "error", "error": error])
+  }
+
+  func cancel() {
+    cancelled = true
+  }
+
+  var isCancelled: Bool { cancelled }
+}
+
 final class LocalLlmStreamHandler: NSObject, FlutterStreamHandler {
   private var eventSink: FlutterEventSink?
   private var cancelled: Bool = false
@@ -91,199 +183,202 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
+  private var mnnLlmBridge: MnnLlmBridge?
+  
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    
+    // 安全地获取 FlutterViewController
+    guard let controller = self.flutterController else {
+      print("Warning: Could not get FlutterViewController")
+      return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+    
+    setupMethodChannels(controller: controller)
+    
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+  
+  private var flutterController: FlutterViewController? {
+    // 尝试多种方式获取 FlutterViewController
     if let controller = window?.rootViewController as? FlutterViewController {
-      let streamHandler = LocalLlmStreamHandler()
-      let eventChannel = FlutterEventChannel(name: "airread/local_llm_stream", binaryMessenger: controller.binaryMessenger)
-      eventChannel.setStreamHandler(streamHandler)
-      let channel = FlutterMethodChannel(name: "airread/local_llm", binaryMessenger: controller.binaryMessenger)
-      channel.setMethodCallHandler { call, result in
-        switch call.method {
-        case "isAvailable":
-          result(MnnLlmBridge.isAvailable())
-        case "init":
-          let args = call.arguments as? [String: Any]
-          let modelPath = args?["modelPath"] as? String ?? ""
-          DispatchQueue.global(qos: .userInitiated).async {
-            var error: NSError?
-            let success = MnnLlmBridge.loadModel(modelPath, error: &error)
-            DispatchQueue.main.async {
-              if !success {
-                let errorMsg = error?.localizedDescription ?? "Unknown error"
-                result(FlutterError(code: "NATIVE_ERR", message: "Native init failed: \(errorMsg)", details: errorMsg))
-              } else {
-                result(nil)
-              }
-            }
-          }
-        case "chatOnce":
-          let args = call.arguments as? [String: Any]
-          let modelPath = args?["modelPath"] as? String ?? ""
-          let userText = args?["userText"] as? String ?? ""
-          let maxNewTokens = (args?["maxNewTokens"] as? NSNumber)?.int32Value ?? 1024
-          let maxInputTokens = (args?["maxInputTokens"] as? NSNumber)?.int32Value ?? 0
-          let temperature = (args?["temperature"] as? NSNumber)?.doubleValue ?? -1.0
-          let topP = (args?["top_p"] as? NSNumber)?.doubleValue ?? -1.0
-          let topK = (args?["top_k"] as? NSNumber)?.int32Value ?? -1
-          let minP = (args?["min_p"] as? NSNumber)?.doubleValue ?? -1.0
-          let presencePenalty = (args?["presence_penalty"] as? NSNumber)?.doubleValue ?? -1.0
-          let repetitionPenalty = (args?["repetition_penalty"] as? NSNumber)?.doubleValue ?? -1.0
-          let enableThinking: Int32
-          if let thinking = args?["enable_thinking"] as? Bool {
-            enableThinking = thinking ? 1 : 0
-          } else {
-            enableThinking = -1
-          }
-          DispatchQueue.global(qos: .userInitiated).async {
-            var initError: NSError?
-            let initSuccess = MnnLlmBridge.loadModel(modelPath, error: &initError)
-            if !initSuccess {
-              let errorMsg = initError?.localizedDescription ?? "Unknown init error"
-              DispatchQueue.main.async {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native init failed: \(errorMsg)", details: errorMsg))
-              }
-              return
-            }
-            var chatError: NSError?
-            let resp = MnnLlmBridge.generate(
-              userText,
-              maxNewTokens: maxNewTokens,
-              maxInputTokens: maxInputTokens,
-              temperature: temperature,
-              topP: topP,
-              topK: topK,
-              minP: minP,
-              presencePenalty: presencePenalty,
-              repetitionPenalty: repetitionPenalty,
-              enableThinking: enableThinking,
-              error: &chatError
-            )
-            DispatchQueue.main.async {
-              if let chatError = chatError {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native chat failed: \(chatError.localizedDescription)", details: chatError.localizedDescription))
-              } else if let resp = resp {
-                result(resp)
-              } else {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native chat returned nil", details: nil))
-              }
-            }
-          }
-        case "chatStream":
-          let args = call.arguments as? [String: Any]
-          let modelPath = args?["modelPath"] as? String ?? ""
-          let userText = args?["userText"] as? String ?? ""
-          let maxNewTokens = (args?["maxNewTokens"] as? NSNumber)?.int32Value ?? 1024
-          let maxInputTokens = (args?["maxInputTokens"] as? NSNumber)?.int32Value ?? 0
-          let temperature = (args?["temperature"] as? NSNumber)?.doubleValue ?? -1.0
-          let topP = (args?["top_p"] as? NSNumber)?.doubleValue ?? -1.0
-          let topK = (args?["top_k"] as? NSNumber)?.int32Value ?? -1
-          let minP = (args?["min_p"] as? NSNumber)?.doubleValue ?? -1.0
-          let presencePenalty = (args?["presence_penalty"] as? NSNumber)?.doubleValue ?? -1.0
-          let repetitionPenalty = (args?["repetition_penalty"] as? NSNumber)?.doubleValue ?? -1.0
-          let enableThinking2: Int32
-          if let thinking = args?["enable_thinking"] as? Bool {
-            enableThinking2 = thinking ? 1 : 0
-          } else {
-            enableThinking2 = -1
-          }
-          DispatchQueue.global(qos: .userInitiated).async {
-            var initError: NSError?
-            let initSuccess = MnnLlmBridge.loadModel(modelPath, error: &initError)
-            if !initSuccess {
-              let errorMsg = initError?.localizedDescription ?? "Unknown init error"
-              DispatchQueue.main.async {
-                streamHandler.send(["type": "error", "message": "Init failed: \(errorMsg)"])
-                streamHandler.send(["type": "done"])
-              }
-              return
-            }
-            MnnLlmBridge.generateStream(
-              userText,
-              maxNewTokens: maxNewTokens,
-              maxInputTokens: maxInputTokens,
-              temperature: temperature,
-              topP: topP,
-              topK: topK,
-              minP: minP,
-              presencePenalty: presencePenalty,
-              repetitionPenalty: repetitionPenalty,
-              enableThinking: enableThinking2,
-              onChunk: { (chunk: String?) in
-                DispatchQueue.main.async {
-                  streamHandler.send(["type": "chunk", "data": chunk ?? ""])
-                }
-              },
-              onDone: { (err: Error?) in
-                DispatchQueue.main.async {
-                  if let err = err as NSError? {
-                    streamHandler.send(["type": "error", "message": "Chat failed: \(err.localizedDescription)"])
-                  }
-                  streamHandler.send(["type": "done"])
-                }
-              }
-            )
-          }
-          result(nil)
-        case "cancelChatStream":
-          streamHandler.cancel()
-          MnnLlmBridge.cancelStream()
-          result(nil)
-        case "dumpConfig":
-          DispatchQueue.global(qos: .userInitiated).async {
-            var error: NSError?
-            let cfg = MnnLlmBridge.getConfig(&error)
-            DispatchQueue.main.async {
-              if let error = error {
-                result(FlutterError(code: "NATIVE_ERR", message: "Native dumpConfig failed: \(error.localizedDescription)", details: error.localizedDescription))
-              } else {
-                result(cfg)
-              }
-            }
-          }
-        case "getAvailableMemory":
-          let memory = MnnLlmBridge.getAvailableMemory()
-          result(Int(memory))
-        case "getTotalMemory":
-          let memory = MnnLlmBridge.getTotalMemory()
-          result(Int(memory))
-        case "hasEnoughMemory":
-          let args = call.arguments as? [String: Any]
-          let modelPath = args?["modelPath"] as? String ?? ""
-          let hasEnough = MnnLlmBridge.hasEnoughMemory(forModel: modelPath)
-          result(hasEnough)
-        default:
-          result(FlutterMethodNotImplemented)
-        }
-      }
-
-      let ttsStreamHandler = LocalTtsStreamHandler()
-      let ttsEventChannel = FlutterEventChannel(name: "airread/local_tts_events", binaryMessenger: controller.binaryMessenger)
-      ttsEventChannel.setStreamHandler(ttsStreamHandler)
-      let ttsChannel = FlutterMethodChannel(name: "airread/local_tts", binaryMessenger: controller.binaryMessenger)
-      ttsChannel.setMethodCallHandler { call, result in
-        switch call.method {
-        case "speak":
-          let args = call.arguments as? [String: Any]
-          let text = args?["text"] as? String ?? ""
-          let rate = (args?["rate"] as? NSNumber)?.doubleValue ?? 1.0
-          let session = (args?["session"] as? NSNumber)?.intValue ?? 0
-          let lang = args?["lang"] as? String
-          ttsStreamHandler.speak(text: text, rate: rate, session: session, lang: lang)
-          result(nil)
-        case "stop":
-          ttsStreamHandler.stop()
-          result(nil)
-        case "isAvailable":
-          result(true)
-        default:
-          result(FlutterMethodNotImplemented)
+      return controller
+    }
+    // iOS 13+ 场景委托模式
+    if #available(iOS 13.0, *) {
+      for scene in UIApplication.shared.connectedScenes {
+        if let windowScene = scene as? UIWindowScene,
+           let controller = windowScene.windows.first?.rootViewController as? FlutterViewController {
+          return controller
         }
       }
     }
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    return nil
+  }
+  
+  private func setupMethodChannels(controller: FlutterViewController) {
+    // 本地 LLM 日志通道（用于调试）
+    let logChannel = FlutterMethodChannel(name: "airread/local_llm", binaryMessenger: controller.binaryMessenger)
+    logChannel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "logcat":
+        // 仅用于 Android，iOS 直接返回成功
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
+    // MARK: - MNN LLM 功能
+    mnnLlmBridge = MnnLlmBridge()
+    let mnnLlmStreamHandler = MnnLlmStreamHandler()
+    let mnnLlmEventChannel = FlutterEventChannel(name: "airread/mnn_llm_events", binaryMessenger: controller.binaryMessenger)
+    mnnLlmEventChannel.setStreamHandler(mnnLlmStreamHandler)
+
+    let mnnLlmChannel = FlutterMethodChannel(name: "airread/mnn_llm", binaryMessenger: controller.binaryMessenger)
+    mnnLlmChannel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else { return }
+
+      switch call.method {
+      case "isAvailable":
+        let available = MnnLlmBridge.isAvailable()
+        result(available)
+
+      case "initialize":
+        guard let args = call.arguments as? [String: Any],
+              let modelPath = args["modelPath"] as? String else {
+          result(FlutterError(code: "INVALID_ARGS", message: "Missing modelPath", details: nil))
+          return
+        }
+
+        // modelPath 已经是完整路径，直接使用
+        self.mnnLlmBridge?.initialize(modelPath) { success in
+          if success {
+            result(true)
+          } else {
+            result(FlutterError(code: "INIT_FAILED", message: "Failed to initialize model", details: nil))
+          }
+        }
+
+      case "chatOnce":
+        guard let args = call.arguments as? [String: Any],
+              let userText = args["userText"] as? String else {
+          result(FlutterError(code: "INVALID_ARGS", message: "Missing userText", details: nil))
+          return
+        }
+
+        let maxNewTokens = (args["maxNewTokens"] as? NSNumber)?.intValue ?? 512
+        let maxInputTokens = (args["maxInputTokens"] as? NSNumber)?.intValue ?? 2048
+        let temperature = (args["temperature"] as? NSNumber)?.doubleValue ?? 0.7
+        let topP = (args["topP"] as? NSNumber)?.doubleValue ?? 0.9
+        let topK = (args["topK"] as? NSNumber)?.intValue ?? 40
+        let minP = (args["minP"] as? NSNumber)?.doubleValue ?? 0.05
+        let presencePenalty = (args["presencePenalty"] as? NSNumber)?.doubleValue ?? 0.0
+        let repetitionPenalty = (args["repetitionPenalty"] as? NSNumber)?.doubleValue ?? 1.0
+        let enableThinking = (args["enableThinking"] as? NSNumber)?.boolValue ?? false
+
+        let response = self.mnnLlmBridge?.chatOnce(
+          userText,
+          maxNewTokens: Int(maxNewTokens),
+          maxInputTokens: Int(maxInputTokens),
+          temperature: temperature,
+          topP: topP,
+          topK: Int(topK),
+          minP: minP,
+          presencePenalty: presencePenalty,
+          repetitionPenalty: repetitionPenalty,
+          enableThinking: enableThinking
+        )
+
+        if let response = response {
+          result(response)
+        } else {
+          result(FlutterError(code: "GENERATION_FAILED", message: "Generation failed", details: nil))
+        }
+
+      case "chatStream":
+        guard let args = call.arguments as? [String: Any],
+              let userText = args["userText"] as? String else {
+          result(FlutterError(code: "INVALID_ARGS", message: "Missing userText", details: nil))
+          return
+        }
+
+        let maxNewTokens = (args["maxNewTokens"] as? NSNumber)?.intValue ?? 512
+        let maxInputTokens = (args["maxInputTokens"] as? NSNumber)?.intValue ?? 2048
+        let temperature = (args["temperature"] as? NSNumber)?.doubleValue ?? 0.7
+        let topP = (args["topP"] as? NSNumber)?.doubleValue ?? 0.9
+        let topK = (args["topK"] as? NSNumber)?.intValue ?? 40
+        let minP = (args["minP"] as? NSNumber)?.doubleValue ?? 0.05
+        let presencePenalty = (args["presencePenalty"] as? NSNumber)?.doubleValue ?? 0.0
+        let repetitionPenalty = (args["repetitionPenalty"] as? NSNumber)?.doubleValue ?? 1.0
+        let enableThinking = (args["enableThinking"] as? NSNumber)?.boolValue ?? false
+
+        // 开始流式生成
+        self.mnnLlmBridge?.chatStream(
+          userText,
+          maxNewTokens: Int(maxNewTokens),
+          maxInputTokens: Int(maxInputTokens),
+          temperature: temperature,
+          topP: topP,
+          topK: Int(topK),
+          minP: minP,
+          presencePenalty: presencePenalty,
+          repetitionPenalty: repetitionPenalty,
+          enableThinking: enableThinking,
+          onChunk: { chunk in
+            mnnLlmStreamHandler.sendChunk(chunk)
+          },
+          onDone: { error in
+            if let error = error {
+              mnnLlmStreamHandler.sendError(error.localizedDescription)
+            } else {
+              mnnLlmStreamHandler.sendDone()
+            }
+          }
+        )
+
+        result(nil)
+
+      case "cancel":
+        self.mnnLlmBridge?.cancelCurrentStream()
+        mnnLlmStreamHandler.cancel()
+        result(nil)
+
+      case "dumpConfig":
+        let config = self.mnnLlmBridge?.dumpConfig()
+        result(config)
+
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
+    // TTS 功能
+    let ttsStreamHandler = LocalTtsStreamHandler()
+    let ttsEventChannel = FlutterEventChannel(name: "airread/local_tts_events", binaryMessenger: controller.binaryMessenger)
+    ttsEventChannel.setStreamHandler(ttsStreamHandler)
+    let ttsChannel = FlutterMethodChannel(name: "airread/local_tts", binaryMessenger: controller.binaryMessenger)
+    ttsChannel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "speak":
+        let args = call.arguments as? [String: Any]
+        let text = args?["text"] as? String ?? ""
+        let rate = (args?["rate"] as? NSNumber)?.doubleValue ?? 1.0
+        let session = (args?["session"] as? NSNumber)?.intValue ?? 0
+        let lang = args?["lang"] as? String
+        ttsStreamHandler.speak(text: text, rate: rate, session: session, lang: lang)
+        result(nil)
+      case "stop":
+        ttsStreamHandler.stop()
+        result(nil)
+      case "isAvailable":
+        result(true)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
   }
 }

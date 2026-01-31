@@ -61,8 +61,6 @@ dependencies:
   url_launcher: ^6.3.1
   cryptography: ^2.7.0
   fast_gbk: ^1.0.0
-  device_info_plus: ^11.3.0
-  llama_cpp_dart: ^0.0.1
 
 
 dev_dependencies:
@@ -94,6 +92,8 @@ flutter:
   assets:
     - assets/
     - assets/fonts/
+    # MNN模型文件改为运行时下载，不再打包进App
+    # - assets/models/minicpm4-0.5b-mnn/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
