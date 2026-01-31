@@ -2149,7 +2149,7 @@ class _TencentHunyuanSettingsPanelState
                       _localModelStatusRow(
                         aiModel,
                         title: 'Qwen3-0.6B',
-                         sizeText: '270M',
+                        sizeText: '225M',
                       ),
                     ],
                   ],

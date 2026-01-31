@@ -25,6 +25,8 @@ typedef void (^StreamOutputHandler)(NSString * _Nonnull output);
 
 - (void)cancelInference;
 
+- (void)clearHistory;
+
 - (BOOL)isModelReady;
 
 - (BOOL)isProcessing;

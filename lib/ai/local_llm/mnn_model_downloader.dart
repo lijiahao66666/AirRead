@@ -16,17 +16,17 @@ enum ModelDownloadStatus {
 }
 
 /// MNN 模型下载器
-/// 从 ModelScope 下载 Qwen3-0.6B MNN 模型（zip格式）
+/// 从 ModelScope 下载 MiniCPM4-0.5B MNN 模型（zip格式）
 class MnnModelDownloader {
-  static const String _modelDir = 'models/qwen3-0.6b-mnn';
-  static const String _zipFileName = 'qwen3-0.6b-mnn.zip';
+  static const String _modelDir = 'models/minicpm4-0.5b-mnn';
+  static const String _zipFileName = 'minicpm4-0.5b-mnn.zip';
 
-  // ModelScope 下载链接（Qwen3-0.6B MNN int4 量化模型）
+  // ModelScope 下载链接（MiniCPM4-0.5B MNN 模型）
   static const String _downloadUrl =
-      'https://modelscope.cn/models/lijiahaojj/MNN/resolve/master/qwen3-0.6B.zip';
+      'https://modelscope.cn/models/lijiahaojj/MNN/resolve/master/minicpm4-0.5b-mnn.zip';
 
-  // 预估zip文件大小约600MB
-  static const int _estimatedZipSize = 600 * 1024 * 1024;
+  // 预估zip文件大小约400MB
+  static const int _estimatedZipSize = 400 * 1024 * 1024;
 
   // 模型文件列表（用于检查完整性）
   static final List<String> _modelFiles = [
@@ -137,7 +137,7 @@ class MnnModelDownloader {
       }
 
       // 下载zip文件
-      _currentFile = 'qwen3-0.6b-mnn.zip';
+      _currentFile = 'minicpm4-0.5b-mnn.zip';
       _currentFileController.add(_currentFile);
 
       final downloadSuccess = await _downloadZipFile(zipFilePath, (received, total) {

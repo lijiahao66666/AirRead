@@ -74,26 +74,24 @@ String buildLocalQaPrompt({
   final historyText = (history ?? '').trim();
   final content = contextService.getContentByScope(contentScope);
 
-  // Qwen3 模型支持 /think 模式启用推理能力
+  // Qwen3 模型使用简单的用户输入格式
   // MNN LLM 会根据 config.json 中的 prompt_template 自动添加格式
+  // Qwen 默认格式: <|im_start|>system\n%s<|im_end|>\n<|im_start|>user\n%s<|im_end|>\n<|im_start|>assistant\n%s<|im_end|>
   switch (qaType) {
     case QAType.summary:
       return [
-        '/think',
         '请总结以下内容：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
       ].join('\n');
     case QAType.keyPoints:
       return [
-        '/think',
         '请提取以下内容的要点：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
       ].join('\n');
     case QAType.general:
       final parts = <String>[
-        '/think',
         '基于以下内容回答问题：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1200),
@@ -177,7 +175,7 @@ class QAService {
   }) async* {
     // 使用适合平台的本地 LLM 客户端
     final client = createLocalLlmClient();
-    final initialized = await client.initialize(model: 'qwen3-0.6b-mnn');
+    final initialized = await client.initialize(model: 'minicpm4-0.5b-mnn');
 
     if (!initialized) {
       yield QAStreamChunk(

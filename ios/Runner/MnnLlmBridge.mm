@@ -6,6 +6,7 @@
 //
 
 #import "MnnLlmBridge.h"
+#import "LLMInferenceEngineWrapper.h"
 #import <Foundation/Foundation.h>
 
 // 模拟器不支持 MNN
@@ -15,21 +16,10 @@
 #define MNN_NOT_AVAILABLE 0
 #endif
 
-#if !MNN_NOT_AVAILABLE
-// 导入 MNN 头文件 (CocoaPods)
-#import <MNN/MNN.h>
-#endif
-
-#include <mutex>
-#include <sstream>
-#include <string>
-
-// 全局 LLM 实例和锁
-static std::mutex g_llmMutex;
-static void* g_llmInstance = nullptr;
-static BOOL g_isCancelled = NO;
-
-@implementation MnnLlmBridge
+@implementation MnnLlmBridge {
+    LLMInferenceEngineWrapper *_engine;
+    NSString *_modelPath;
+}
 
 + (BOOL)isAvailable {
 #if MNN_NOT_AVAILABLE
@@ -51,17 +41,21 @@ static BOOL g_isCancelled = NO;
             return NO;
         }
         
-        std::lock_guard<std::mutex> lock(g_llmMutex);
+        _modelPath = modelPath;
         
-        // 清理旧实例
-        if (g_llmInstance) {
-            g_llmInstance = nullptr;
-        }
+        // 使用 LLMInferenceEngineWrapper 初始化
+        __block BOOL initSuccess = NO;
+        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
         
-        // 模拟成功
-        g_llmInstance = (void*)0x1;
+        _engine = [[LLMInferenceEngineWrapper alloc] initWithModelPath:modelPath completion:^(BOOL success) {
+            initSuccess = success;
+            dispatch_semaphore_signal(semaphore);
+        }];
         
-        return YES;
+        // 等待初始化完成（最多30秒）
+        dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
+        
+        return initSuccess;
     } @catch (NSException *exception) {
         NSLog(@"[MnnLlmBridge] Exception: %@", exception.reason);
         return NO;
@@ -83,17 +77,25 @@ static BOOL g_isCancelled = NO;
     return nil;
 #else
     @try {
-        std::lock_guard<std::mutex> lock(g_llmMutex);
-        
-        if (!g_llmInstance) {
+        if (!_engine || ![_engine isModelReady]) {
             return nil;
         }
         
-        // 重置取消标志
-        g_isCancelled = NO;
+        __block NSString *fullResponse = @"";
+        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
         
-        // 模拟生成
-        return @"这是一个模拟回复。实际集成 MNN 后将使用真实模型生成。";
+        [_engine processInput:userText withStreamHandler:^(NSString * _Nonnull output) {
+            if ([output isEqualToString:@"<eop>"]) {
+                dispatch_semaphore_signal(semaphore);
+            } else {
+                fullResponse = [fullResponse stringByAppendingString:output];
+            }
+        }];
+        
+        // 等待生成完成（最多60秒）
+        dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC));
+        
+        return fullResponse;
     } @catch (NSException *exception) {
         NSLog(@"[MnnLlmBridge] Exception: %@", exception.reason);
         return nil;
@@ -123,39 +125,32 @@ static BOOL g_isCancelled = NO;
 #else
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
-            std::lock_guard<std::mutex> lock(g_llmMutex);
-            
-            if (!g_llmInstance) {
-                if (onDone) {
-                    onDone([NSError errorWithDomain:@"MnnLlmBridge"
-                                               code:1005
-                                           userInfo:@{NSLocalizedDescriptionKey: @"LLM not initialized"}]);
-                }
+            if (!self->_engine || ![self->_engine isModelReady]) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (onDone) {
+                        onDone([NSError errorWithDomain:@"MnnLlmBridge"
+                                                   code:1005
+                                               userInfo:@{NSLocalizedDescriptionKey: @"LLM not initialized"}]);
+                    }
+                });
                 return;
             }
             
-            // 重置取消标志
-            g_isCancelled = NO;
-            
-            // 模拟流式生成
-            NSArray *mockChunks = @[@"这是", @"一个", @"模拟", @"的", @"流式", @"回复", @"。", @"实际", @"集成", @" MNN ", @"后", @"将", @"使用", @"真实", @"模型", @"生成", @"。"];
-            for (NSString *chunk in mockChunks) {
-                if (g_isCancelled) break;
-                
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    if (!g_isCancelled && onChunk) {
-                        onChunk(chunk);
-                    }
-                });
-                
-                [NSThread sleepForTimeInterval:0.1];
-            }
-            
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (!g_isCancelled && onDone) {
-                    onDone(nil);
+            [self->_engine processInput:userText withStreamHandler:^(NSString * _Nonnull output) {
+                if ([output isEqualToString:@"<eop>"]) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (onDone) {
+                            onDone(nil);
+                        }
+                    });
+                } else {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (onChunk) {
+                            onChunk(output);
+                        }
+                    });
                 }
-            });
+            }];
         } @catch (NSException *exception) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (onDone) {
@@ -170,7 +165,8 @@ static BOOL g_isCancelled = NO;
 }
 
 - (void)cancelCurrentStream {
-    g_isCancelled = YES;
+    // LLMInferenceEngineWrapper 支持取消
+    [_engine cancelInference];
 }
 
 - (nullable NSString *)dumpConfig {
@@ -178,13 +174,11 @@ static BOOL g_isCancelled = NO;
     return nil;
 #else
     @try {
-        std::lock_guard<std::mutex> lock(g_llmMutex);
-        
-        if (!g_llmInstance) {
+        if (!_engine || ![_engine isModelReady]) {
             return nil;
         }
         
-        return @"{\"model\":\"MiniCPM-0.5B\",\"backend\":\"CPU\",\"threads\":4}";
+        return [@{@"model": _modelPath ?: @"unknown", @"backend": @"MNN", @"ready": @YES} description];
     } @catch (NSException *exception) {
         NSLog(@"[MnnLlmBridge] Exception: %@", exception.reason);
         return nil;
