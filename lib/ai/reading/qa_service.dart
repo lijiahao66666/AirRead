@@ -105,16 +105,9 @@ String buildLocalQaPrompt({
   }
 
   // 构建 MiniCPM 格式的 prompt
-  final buffer = StringBuffer();
-  buffer.writeln('<|im_start|>system');
-  buffer.writeln('你是一个 helpful 的助手，请根据用户的问题提供简洁准确的回答。');
-  buffer.writeln('<|im_end|>');
-  buffer.writeln('<|im_start|>user');
-  buffer.writeln(userPrompt);
-  buffer.writeln('<|im_end|>');
-  buffer.writeln('<|im_start|>assistant');
-
-  return buffer.toString();
+  // 直接传递简单的文本，让 MNN 的 jinja 模板自动处理格式
+  // MiniCPM 的 jinja 模板会自动添加 < |im_start|>, < |im_end|> 标记
+  return userPrompt;
 }
 
 class QAService {
