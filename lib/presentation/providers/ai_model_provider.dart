@@ -163,9 +163,9 @@ class AiModelProvider extends ChangeNotifier {
 
     try {
       final success = await _llmClient!.initialize(
-        model: 'minicpm4-0.5b-mnn',
+        model: 'qwen3-0.6b-mnn',
       ).timeout(
-        const Duration(seconds: 60),  // 增加到60秒，MiniCPM4-0.5B需要更长时间
+        const Duration(seconds: 60),  // 增加到60秒，Qwen3-0.6B需要更长时间
         onTimeout: () {
           debugPrint('[AiModelProvider] LLM initialization timed out');
           return false;

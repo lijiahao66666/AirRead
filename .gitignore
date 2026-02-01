@@ -5,14 +5,10 @@
 *.swp
 .DS_Store
 .atom/
-.build/
 .buildlog/
 .history
 .svn/
-.swiftpm/
 migrate_working_dir/
-models/
-assets/models/
 
 # IntelliJ related
 *.iml
@@ -34,7 +30,6 @@ assets/models/
 .pub-cache/
 .pub/
 /build/
-ios/build/
 
 # Symbolication related
 app.*.symbols
@@ -53,9 +48,6 @@ airread_license.py
 # Native build artifacts
 .cxx/
 android/app/.cxx/
-
-# 软著申请材料
-软著材料/
 .tmp_mnn*
 
 # AI Assistant tools
@@ -70,28 +62,3 @@ config.json
 key.properties
 *.keystore
 *.jks
-
-# 软著申请材料
-软著材料/
-
-# Binary frameworks and libraries
-ios/Frameworks/
-android/app/src/main/jniLibs/
-*.so
-*.dylib
-*.dll
-*.exe
-
-# Build artifacts
-*.o
-*.a
-*.lib
-*.obj
-*.pdb
-*.ilk
-*.exp
-*.lib
-*.manifest
-*.res
-*.rc
-*.ico

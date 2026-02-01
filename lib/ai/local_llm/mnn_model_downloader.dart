@@ -16,17 +16,17 @@ enum ModelDownloadStatus {
 }
 
 /// MNN 模型下载器
-/// 从 ModelScope 下载 MiniCPM4-0.5B MNN 模型（zip格式）
+/// 从 ModelScope 下载 Qwen3-0.6B MNN 模型（zip格式）
 class MnnModelDownloader {
-  static const String _modelDir = 'models/minicpm4-0.5b-mnn';
-  static const String _zipFileName = 'minicpm4-0.5b.zip';
+  static const String _modelDir = 'models/qwen3-0.6b-mnn';
+  static const String _zipFileName = 'qwen3-0.6B.zip';
 
-  // ModelScope 下载链接（MiniCPM4-0.5B MNN 模型）
+  // ModelScope 下载链接（Qwen3-0.6B MNN 模型）
   static const String _downloadUrl =
-      'https://modelscope.cn/models/lijiahaojj/MNN/resolve/master/minicpm4-0.5b.zip';
+      'https://modelscope.cn/models/lijiahaojj/MNN/resolve/master/qwen3-0.6B.zip';
 
-  // 预估zip文件大小约400MB
-  static const int _estimatedZipSize = 400 * 1024 * 1024;
+  // 预估zip文件大小约260MB
+  static const int _estimatedZipSize = 260 * 1024 * 1024;
 
   // 模型文件列表（用于检查完整性）
   static final List<String> _modelFiles = [
@@ -137,10 +137,11 @@ class MnnModelDownloader {
       }
 
       // 下载zip文件
-      _currentFile = 'minicpm4-0.5b-mnn.zip';
+      _currentFile = 'qwen3-0.6b-mnn.zip';
       _currentFileController.add(_currentFile);
 
-      final downloadSuccess = await _downloadZipFile(zipFilePath, (received, total) {
+      final downloadSuccess =
+          await _downloadZipFile(zipFilePath, (received, total) {
         _progress = received / total;
         _progressController.add(_progress);
       });
@@ -206,10 +207,19 @@ class MnnModelDownloader {
       debugPrint('[MnnModelDownloader] Downloading zip from $_downloadUrl');
 
       final request = http.Request('GET', Uri.parse(_downloadUrl));
-      final response = await _httpClient!.send(request);
+      request.headers['User-Agent'] = 'AirRead/1.0';
+
+      // 设置超时
+      final response = await _httpClient!.send(request).timeout(
+        const Duration(minutes: 10),
+        onTimeout: () {
+          throw Exception('Download timeout after 10 minutes');
+        },
+      );
 
       if (response.statusCode != 200) {
-        debugPrint('[MnnModelDownloader] Failed to download zip: ${response.statusCode}');
+        debugPrint(
+            '[MnnModelDownloader] Failed to download zip: ${response.statusCode}');
         return false;
       }
 
@@ -231,6 +241,12 @@ class MnnModelDownloader {
       await sink.close();
       debugPrint('[MnnModelDownloader] Zip file downloaded successfully');
       return true;
+    } on SocketException catch (e) {
+      debugPrint('[MnnModelDownloader] Network error: $e');
+      return false;
+    } on TimeoutException catch (e) {
+      debugPrint('[MnnModelDownloader] Download timeout: $e');
+      return false;
     } catch (e) {
       debugPrint('[MnnModelDownloader] Error downloading zip: $e');
       return false;
@@ -254,7 +270,9 @@ class MnnModelDownloader {
         final fileName = file.name;
 
         // 跳过目录和隐藏文件
-        if (file.isFile && !fileName.startsWith('__MACOSX/') && !fileName.startsWith('.')) {
+        if (file.isFile &&
+            !fileName.startsWith('__MACOSX/') &&
+            !fileName.startsWith('.')) {
           // 提取文件名（去掉目录路径）
           final baseName = p.basename(fileName);
 

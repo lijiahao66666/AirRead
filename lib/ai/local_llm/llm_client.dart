@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'ollama_client.dart';
-import 'ollama_model_downloader.dart';
 import 'mnn_client.dart';
 import 'model_manager.dart';
 
@@ -15,61 +13,23 @@ abstract class LlmClient {
     required String prompt,
     int maxTokens = 512,
     double temperature = 0.7,
+    double topP = 0.9,
+    int topK = 40,
+    double minP = 0.0,
+    double repetitionPenalty = 1.1,
   });
 
   Stream<String> generateStream({
     required String prompt,
     int maxTokens = 512,
     double temperature = 0.7,
+    double topP = 0.9,
+    int topK = 40,
+    double minP = 0.0,
+    double repetitionPenalty = 1.1,
   });
 
   Future<void> dispose();
-}
-
-class LlmClientOllama implements LlmClient {
-  final OllamaClient _client = OllamaClient();
-
-  @override
-  bool get isAvailable => _client.isAvailable;
-
-  @override
-  String? get currentModel => _client.currentModel;
-
-  @override
-  Future<bool> initialize({String? model}) async {
-    return await _client.initialize(model: model);
-  }
-
-  @override
-  Future<String> generate({
-    required String prompt,
-    int maxTokens = 512,
-    double temperature = 0.7,
-  }) async {
-    return await _client.generate(
-      prompt: prompt,
-      maxTokens: maxTokens,
-      temperature: temperature,
-    );
-  }
-
-  @override
-  Stream<String> generateStream({
-    required String prompt,
-    int maxTokens = 512,
-    double temperature = 0.7,
-  }) async* {
-    yield* _client.generateStream(
-      prompt: prompt,
-      maxTokens: maxTokens,
-      temperature: temperature,
-    );
-  }
-
-  @override
-  Future<void> dispose() async {
-    await _client.dispose();
-  }
 }
 
 class LlmClientMnn implements LlmClient {
@@ -84,6 +44,13 @@ class LlmClientMnn implements LlmClient {
 
   @override
   Future<bool> initialize({String? model}) async {
+    // 如果已经初始化了相同的模型，则跳过
+    if (_client.isAvailable && (_currentModel == model || model == null)) {
+      debugPrint(
+          '[LlmClientMnn] Already initialized with model: $_currentModel');
+      return true;
+    }
+
     // 检查平台是否支持 MNN
     final platformAvailable = await MnnClient.isPlatformAvailable();
     if (!platformAvailable) {
@@ -92,7 +59,7 @@ class LlmClientMnn implements LlmClient {
     }
 
     // 获取模型路径
-    // 如果传入的 model 是相对路径（如 'minicpm4-0.5b-mnn'），则获取完整路径
+    // 如果传入的 model 是相对路径（如 'qwen3-0.6b-mnn'），则获取完整路径
     // 如果传入的 model 已经是完整路径，则直接使用
     String? modelPath;
     if (model == null) {
@@ -104,17 +71,17 @@ class LlmClientMnn implements LlmClient {
       // 是相对路径，获取完整路径
       modelPath = await ModelManager.getModelPath();
     }
-    
+
     if (modelPath == null) {
       debugPrint('[LlmClientMnn] Model path is null');
       return false;
     }
-    
+
     debugPrint('[LlmClientMnn] Initializing with modelPath: $modelPath');
 
     final result = await _client.initialize(modelPath: modelPath);
     if (result) {
-      _currentModel = model ?? 'minicpm4-0.5b-mnn';
+      _currentModel = model ?? 'qwen3-0.6b-mnn';
       debugPrint('[LlmClientMnn] Initialization successful');
     } else {
       debugPrint('[LlmClientMnn] Initialization failed');
@@ -123,7 +90,7 @@ class LlmClientMnn implements LlmClient {
   }
 
   Future<String?> _getDefaultModelPath() async {
-    // 默认模型路径：应用文档目录下的 models/minicpm4-0.5b-mnn
+    // 默认模型路径：应用文档目录下的 models/qwen3-0.6b-mnn
     final modelPath = await ModelManager.getModelPath();
     return modelPath;
   }
@@ -133,11 +100,19 @@ class LlmClientMnn implements LlmClient {
     required String prompt,
     int maxTokens = 512,
     double temperature = 0.7,
+    double topP = 0.9,
+    int topK = 40,
+    double minP = 0.0,
+    double repetitionPenalty = 1.1,
   }) async {
     final result = await _client.generate(
       prompt: prompt,
       maxTokens: maxTokens,
       temperature: temperature,
+      topP: topP,
+      topK: topK,
+      minP: minP,
+      repetitionPenalty: repetitionPenalty,
     );
 
     if (result == null) {
@@ -152,11 +127,19 @@ class LlmClientMnn implements LlmClient {
     required String prompt,
     int maxTokens = 512,
     double temperature = 0.7,
+    double topP = 0.9,
+    int topK = 40,
+    double minP = 0.0,
+    double repetitionPenalty = 1.1,
   }) async* {
     yield* _client.generateStream(
       prompt: prompt,
       maxTokens: maxTokens,
       temperature: temperature,
+      topP: topP,
+      topK: topK,
+      minP: minP,
+      repetitionPenalty: repetitionPenalty,
     );
   }
 
@@ -168,11 +151,11 @@ class LlmClientMnn implements LlmClient {
 
 /// 创建适合当前平台的本地 LLM 客户端
 LlmClient createLocalLlmClient() {
-  if (Platform.isIOS) {
-    // iOS 使用 MNN
+  if (Platform.isIOS || Platform.isAndroid) {
+    // iOS 和 Android 使用 MNN
     return LlmClientMnn();
   } else {
-    // Android 和其他平台使用 Ollama
-    return LlmClientOllama();
+    // 其他平台暂不支持
+    throw UnsupportedError('Local LLM is only supported on iOS and Android.');
   }
 }

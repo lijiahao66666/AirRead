@@ -71,42 +71,59 @@ String buildLocalQaPrompt({
   required QAContentScope contentScope,
   String? history,
 }) {
-  final historyText = (history ?? '').trim();
   final content = contextService.getContentByScope(contentScope);
+  final historyText = (history ?? '').trim();
 
-  // MiniCPM4 模型使用特定的 chat template
+  // Qwen3/ChatML 模型使用特定的 chat template
   // Format: <|im_start|>system\n...<|im_end|>\n<|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n
   String userPrompt;
   switch (qaType) {
     case QAType.summary:
-      userPrompt = [
-        '请总结以下内容：',
-        _tailText(
-            _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
-      ].join('\n');
+      final cleanedContent = _tailText(
+          _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600);
+      userPrompt = '请总结以下内容，用清晰的要点列出：\n\n'
+          '$cleanedContent\n\n'
+          '要求：仅基于内容总结，不要编造。\n'
+          '输出：先列提纲（不超过6条），再给出总结（260字以内）。';
       break;
     case QAType.keyPoints:
-      userPrompt = [
-        '请提取以下内容的要点：',
-        _tailText(
-            _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
-      ].join('\n');
+      final cleanedContent = _tailText(
+          _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600);
+      userPrompt = '请从以下内容中提取关键要点，控制在5条以内：\n\n'
+          '$cleanedContent\n\n'
+          '要求：仅基于内容提取，不要编造；覆盖事件、人物变化、伏笔线索。\n'
+          '输出：不超过5条，每条一句话。';
       break;
     case QAType.general:
-      final parts = <String>[
-        '基于以下内容回答问题：',
-        _tailText(
-            _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1200),
-        '',
-        '问题：$question',
-      ];
-      userPrompt = parts.join('\n').trim();
+      final cleanedContent = _tailText(
+          _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1200);
+      final buffer = StringBuffer()
+        ..writeln('你是阅读助手。请仅基于【当前阅读内容】与【历史问答】作答。')
+        ..writeln('要求：1) 优先在内容中定位答案并直接回答。 2) 必要时引用原文短句。 3) 不要编造。')
+        ..writeln()
+        ..writeln('【当前阅读内容】')
+        ..writeln(cleanedContent)
+        ..writeln();
+
+      if (historyText.isNotEmpty) {
+        buffer
+          ..writeln('【历史问答（最近对话）】')
+          ..writeln(historyText)
+          ..writeln();
+      }
+
+      buffer
+        ..writeln('【用户问题】')
+        ..writeln(question)
+        ..writeln()
+        ..writeln('请给出清晰、准确的回答。');
+
+      userPrompt = buffer.toString().trim();
       break;
   }
 
-  // 构建 MiniCPM 格式的 prompt
+  // 构建 prompt
   // 直接传递简单的文本，让 MNN 的 jinja 模板自动处理格式
-  // MiniCPM 的 jinja 模板会自动添加 < |im_start|>, < |im_end|> 标记
   return userPrompt;
 }
 
@@ -183,7 +200,7 @@ class QAService {
   }) async* {
     // 使用适合平台的本地 LLM 客户端
     final client = createLocalLlmClient();
-    final initialized = await client.initialize(model: 'minicpm4-0.5b-mnn');
+    final initialized = await client.initialize(model: 'qwen3-0.6b-mnn');
 
     if (!initialized) {
       yield QAStreamChunk(
@@ -202,13 +219,17 @@ class QAService {
     );
 
     // MNN 使用固定的上下文大小
-    const maxCtx = 2048;
+    const maxCtx = 4096;
     final caps = _computeLocalCaps(maxCtx);
 
     await for (final delta in client.generateStream(
       prompt: prompt,
       maxTokens: caps.maxNewTokens,
       temperature: 0.6,
+      topP: 0.95,
+      topK: 20,
+      minP: 0.0,
+      repetitionPenalty: 1.0,
     )) {
       if (delta.isEmpty) continue;
       yield QAStreamChunk(content: delta);

@@ -6,8 +6,9 @@ import 'package:flutter/services.dart';
 import 'model_manager.dart';
 
 class MnnClient {
-  static const MethodChannel _channel = MethodChannel('airread/mnn_llm');
-  static const EventChannel _eventChannel = EventChannel('airread/mnn_llm_events');
+  static const MethodChannel _channel = MethodChannel('airread/local_llm');
+  static const EventChannel _eventChannel =
+      EventChannel('airread/local_llm_stream');
 
   bool _isInitialized = false;
   String? _modelPath;
@@ -18,9 +19,20 @@ class MnnClient {
   String? get modelPath => _modelPath;
 
   static Future<bool> isPlatformAvailable() async {
+    // 桌面端暂时返回 true 以支持开发测试（使用模拟实现或通过插件支持）
+    if (!kIsWeb &&
+        (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+      return true;
+    }
     try {
-      final result = await _channel.invokeMethod<bool>('isAvailable');
-      return result ?? false;
+      final isAvailable = await _channel.invokeMethod<bool>('isAvailable');
+      if (isAvailable == false && Platform.isAndroid) {
+        final error = await _channel.invokeMethod<String>('getNativeLoadError');
+        if (error != null) {
+          debugPrint('[MnnClient] MNN not available due to: $error');
+        }
+      }
+      return isAvailable ?? false;
     } catch (e) {
       debugPrint('[MnnClient] isPlatformAvailable error: $e');
       return false;
@@ -105,12 +117,63 @@ class MnnClient {
 
     final completer = Completer<void>();
     final controller = StreamController<String>();
+    final decoderSink = utf8.decoder.startChunkedConversion(controller);
+    StreamSubscription? subscription;
+
+    controller.onCancel = () {
+      debugPrint('MnnClient: Controller cancelled, cancelling subscription');
+      subscription?.cancel();
+      decoderSink.close();
+      cancel(); // 调用 native 的 cancel 方法
+    };
 
     try {
+      // 1. 先监听事件通道，确保 streamSink 已准备好
+      subscription = _eventChannel.receiveBroadcastStream().listen(
+        (dynamic event) {
+          if (event is Map) {
+            final type = event['type'] as String?;
+            if (type == 'chunk') {
+              final data = event['data'];
+              if (data is String) {
+                if (data.isNotEmpty) {
+                  controller.add(data);
+                }
+              } else if (data is Uint8List) {
+                if (data.isNotEmpty) {
+                  decoderSink.add(data);
+                }
+              }
+            } else if (type == 'done') {
+              debugPrint('MnnClient: Stream done');
+              subscription?.cancel();
+              decoderSink.close();
+            } else if (type == 'error') {
+              final msg = event['data'] as String? ?? 'Unknown error';
+              debugPrint('MnnClient: Stream error: $msg');
+              subscription?.cancel();
+              controller.addError(msg);
+              decoderSink.close();
+            }
+          }
+        },
+        onError: (dynamic error) {
+          debugPrint('MnnClient: EventChannel error: $error');
+          subscription?.cancel();
+          controller.addError(error);
+          decoderSink.close();
+        },
+        onDone: () {
+          debugPrint('MnnClient: EventChannel done');
+          decoderSink.close();
+        },
+      );
+
+      // 2. 再调用 native 启动生成
       await _channel.invokeMethod('chatStream', {
         'userText': prompt,
         'maxNewTokens': maxTokens,
-        'maxInputTokens': 2048,
+        'maxInputTokens': 4096,
         'temperature': temperature,
         'topP': topP,
         'topK': topK,
@@ -120,49 +183,20 @@ class MnnClient {
         'enableThinking': enableThinking,
       });
 
-      // 监听事件通道
-      _eventChannel.receiveBroadcastStream().listen(
-        (dynamic event) {
-          if (event is Map) {
-            final type = event['type'] as String?;
-            if (type == 'chunk') {
-              final chunk = event['data'] as String?;
-              if (chunk != null && chunk.isNotEmpty) {
-                controller.add(chunk);
-              }
-            } else if (type == 'done') {
-              controller.close();
-              completer.complete();
-            } else if (type == 'error') {
-              final errorMsg = event['error'] as String? ?? 'Unknown error';
-              controller.addError(Exception(errorMsg));
-              controller.close();
-              completer.completeError(Exception(errorMsg));
-            }
-          }
-        },
-        onError: (dynamic error) {
-          controller.addError(error);
-          controller.close();
-          completer.completeError(error);
-        },
-        onDone: () {
-          if (!completer.isCompleted) {
-            completer.complete();
-          }
-        },
-      );
-
       yield* controller.stream;
     } catch (e) {
+      debugPrint('MnnClient: invokeMethod error: $e');
+      subscription?.cancel();
       controller.close();
       throw Exception('Failed to start stream: $e');
+    } finally {
+      await subscription?.cancel();
     }
   }
 
   Future<void> cancel() async {
     try {
-      await _channel.invokeMethod('cancel');
+      await _channel.invokeMethod('cancelChatStream');
     } catch (e) {
       debugPrint('[MnnClient] cancel error: $e');
     }

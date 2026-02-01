@@ -194,22 +194,38 @@ class MainActivity: FlutterActivity() {
 
     companion object {
         private var nativeLibLoaded: Boolean = false
+        private var lastLoadError: String? = null
+
         init {
             try {
-                try {
-                    System.loadLibrary("MNN")
-                } catch (_: UnsatisfiedLinkError) {}
-                try {
-                    System.loadLibrary("MNN_Express")
-                } catch (_: UnsatisfiedLinkError) {}
-                try {
-                    System.loadLibrary("llm")
-                } catch (_: UnsatisfiedLinkError) {}
-                System.loadLibrary("mnn_bridge")
-                nativeLibLoaded = true
-            } catch (e: UnsatisfiedLinkError) {
-                // Ignore if libraries are missing during dev without MNN
-                println("Failed to load native libraries: $e")
+                Log.i("MainActivity", "Starting to load native libraries...")
+                // 尝试加载库，即使部分失败也继续，只要 mnn_bridge 加载成功即可
+                val libs = listOf(
+                    "c++_shared", "mnncore", "MNN", "MNN_Express",
+                    "MNNOpenCV", "MNN_CL", "MNN_Vulkan", "llm", "mnn_bridge"
+                )
+
+                for (lib in libs) {
+                    try {
+                        System.loadLibrary(lib)
+                        Log.i("MainActivity", "Successfully loaded native library: $lib")
+                        if (lib == "mnn_bridge") {
+                            nativeLibLoaded = true
+                        }
+                    } catch (e: UnsatisfiedLinkError) {
+                        val errMsg = "Failed to load native library $lib: ${e.message}"
+                        Log.w("MainActivity", errMsg)
+                        lastLoadError = errMsg
+                    }
+                }
+
+                if (nativeLibLoaded) {
+                    Log.i("MainActivity", "Native libraries (at least mnn_bridge) loaded successfully")
+                } else {
+                    Log.e("MainActivity", "Failed to load essential native library mnn_bridge. Last error: $lastLoadError")
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Unexpected error loading native libraries: $e")
                 nativeLibLoaded = false
             }
         }
@@ -229,7 +245,7 @@ class MainActivity: FlutterActivity() {
         presencePenalty: Double,
         repetitionPenalty: Double,
         enableThinking: Int
-    ): String
+    ): ByteArray?
     external fun nativeChatStream(
         prompt: String,
         maxNewTokens: Int,
@@ -246,10 +262,11 @@ class MainActivity: FlutterActivity() {
 
     @Keep
     inner class LocalLlmStreamCallback {
-        fun onChunk(text: String) {
-            if (text.isEmpty()) return
+        fun onChunk(data: ByteArray) {
+            if (data.isEmpty()) return
             val sink = streamSink ?: return
-            runOnUiThread { sink.success(mapOf("type" to "chunk", "data" to text)) }
+            // 将字节数组传递给 Flutter，由 Flutter 处理解码，避免 JNI UTF-8 校验闪退
+            runOnUiThread { sink.success(mapOf("type" to "chunk", "data" to data)) }
         }
 
         fun onDone() {
@@ -273,6 +290,7 @@ class MainActivity: FlutterActivity() {
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     streamSink = events
+                    streamCancelled = false
                 }
 
                 override fun onCancel(arguments: Any?) {
@@ -354,7 +372,7 @@ class MainActivity: FlutterActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "init" -> {
+                "init", "initialize" -> {
                     if (!nativeLibLoaded) {
                         result.error("NOT_AVAILABLE", "Native library not loaded", null)
                         return@setMethodCallHandler
@@ -372,7 +390,7 @@ class MainActivity: FlutterActivity() {
                     if (modelPath != null) {
                         try {
                             nativeInit(modelPath)
-                            result.success(null)
+                            result.success(true)
                         } catch (e: UnsatisfiedLinkError) {
                             result.error("NATIVE_ERR", "Native init failed", e.toString())
                         }
@@ -396,18 +414,19 @@ class MainActivity: FlutterActivity() {
                     }
                     val userText = call.argument<String>("userText")
                     if (userText != null) {
-                        val maxNewTokens = call.argument<Int>("maxNewTokens") ?: DEFAULT_MAX_NEW_TOKENS
-                        val maxInputTokens = call.argument<Int>("maxInputTokens") ?: 0
-                        val temperature = call.argument<Number>("temperature")?.toDouble() ?: -1.0
-                        val topP = call.argument<Number>("top_p")?.toDouble() ?: -1.0
-                        val topK = call.argument<Number>("top_k")?.toInt() ?: -1
-                        val minP = call.argument<Number>("min_p")?.toDouble() ?: -1.0
-                        val presencePenalty = call.argument<Number>("presence_penalty")?.toDouble() ?: -1.0
-                        val repetitionPenalty = call.argument<Number>("repetition_penalty")?.toDouble() ?: -1.0
-                        val enableThinking = call.argument<Boolean>("enable_thinking")?.let { if (it) 1 else 0 } ?: -1
+                        val maxNewTokens = call.argument<Number>("maxNewTokens")?.toInt() ?: 128
+                        val maxInputTokens = call.argument<Number>("maxInputTokens")?.toInt() ?: 512
+                        val temperature = call.argument<Number>("temperature")?.toDouble() ?: 0.7
+                        val topP = call.argument<Number>("topP")?.toDouble() ?: 0.9
+                        val topK = call.argument<Number>("topK")?.toInt() ?: 40
+                        val minP = call.argument<Number>("minP")?.toDouble() ?: 0.05
+                        val presencePenalty = call.argument<Number>("presencePenalty")?.toDouble() ?: 0.0
+                        val repetitionPenalty = call.argument<Number>("repetitionPenalty")?.toDouble() ?: 1.1
+                        val enableThinking = if (call.argument<Boolean>("enableThinking") == true) 1 else 0
                         llmExecutor.execute {
                             try {
-                                val response = nativeChat(
+                                Log.i("MainActivity", "Calling nativeChat...")
+                                val responseBytes = nativeChat(
                                     userText,
                                     maxNewTokens,
                                     maxInputTokens,
@@ -419,6 +438,9 @@ class MainActivity: FlutterActivity() {
                                     repetitionPenalty,
                                     enableThinking
                                 )
+                                Log.i("MainActivity", "nativeChat returned, bytes length: ${responseBytes?.size ?: 0}")
+                                val response = responseBytes?.let { String(it, Charsets.UTF_8) }
+                                Log.i("MainActivity", "Decoded response length: ${response?.length ?: 0}")
                                 runOnUiThread { result.success(response) }
                             } catch (e: UnsatisfiedLinkError) {
                                 runOnUiThread { result.error("NATIVE_ERR", "Native chat failed", e.toString()) }
@@ -448,15 +470,15 @@ class MainActivity: FlutterActivity() {
                         result.error("INVALID_ARG", "User text is null", null)
                         return@setMethodCallHandler
                     }
-                    val maxNewTokens = call.argument<Int>("maxNewTokens") ?: DEFAULT_MAX_NEW_TOKENS
-                    val maxInputTokens = call.argument<Int>("maxInputTokens") ?: 0
-                    val temperature = call.argument<Number>("temperature")?.toDouble() ?: -1.0
-                    val topP = call.argument<Number>("top_p")?.toDouble() ?: -1.0
-                    val topK = call.argument<Number>("top_k")?.toInt() ?: -1
-                    val minP = call.argument<Number>("min_p")?.toDouble() ?: -1.0
-                    val presencePenalty = call.argument<Number>("presence_penalty")?.toDouble() ?: -1.0
-                    val repetitionPenalty = call.argument<Number>("repetition_penalty")?.toDouble() ?: -1.0
-                    val enableThinking = call.argument<Boolean>("enable_thinking")?.let { if (it) 1 else 0 } ?: -1
+                    val maxNewTokens = call.argument<Number>("maxNewTokens")?.toInt() ?: 128
+                    val maxInputTokens = call.argument<Number>("maxInputTokens")?.toInt() ?: 512
+                    val temperature = call.argument<Number>("temperature")?.toDouble() ?: 0.7
+                    val topP = call.argument<Number>("topP")?.toDouble() ?: 0.9
+                    val topK = call.argument<Number>("topK")?.toInt() ?: 40
+                    val minP = call.argument<Number>("minP")?.toDouble() ?: 0.05
+                    val presencePenalty = call.argument<Number>("presencePenalty")?.toDouble() ?: 0.0
+                    val repetitionPenalty = call.argument<Number>("repetitionPenalty")?.toDouble() ?: 1.1
+                    val enableThinking = if (call.argument<Boolean>("enableThinking") == true) 1 else 0
                     streamCancelled = false
                     val callback = LocalLlmStreamCallback()
                     llmExecutor.execute {
@@ -494,8 +516,12 @@ class MainActivity: FlutterActivity() {
                     try {
                         result.success(nativeIsAvailable())
                     } catch (e: UnsatisfiedLinkError) {
+                        Log.e("MainActivity", "nativeIsAvailable symbol not found: ${e.message}")
                         result.success(false)
                     }
+                }
+                "getNativeLoadError" -> {
+                    result.success(lastLoadError)
                 }
                 "dumpConfig" -> {
                     if (!nativeLibLoaded) {

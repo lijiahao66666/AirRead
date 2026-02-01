@@ -40,7 +40,7 @@ dependencies:
   google_fonts: ^6.2.0
   sqflite: ^2.3.3+1
   path: ^1.9.0
-  file_picker: ^8.0.5
+  file_picker: 8.0.5
   shared_preferences: ^2.2.3
   flutter_svg: ^2.0.10+1
   uuid: ^4.5.2
@@ -89,9 +89,9 @@ flutter:
   uses-material-design: true
 
   # Add assets support
-  assets:
-    - assets/
-    - assets/fonts/
+  # assets:
+  #   - assets/
+  #   - assets/fonts/
     # MNN模型文件改为运行时下载，不再打包进App
     # - assets/models/minicpm4-0.5b-mnn/
 
@@ -138,5 +138,5 @@ flutter_icons:
     generate: true
     image_path: "app_icon.png"
 
-dependency_overrides:
-  win32: ^5.6.0
+# dependency_overrides:
+#   win32: ^5.5.4

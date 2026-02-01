@@ -218,7 +218,13 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           );
 
           final sizedPanel = isQa
-              ? SizedBox(height: qaHeight, child: panel)
+              ? ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: qaMinHeight,
+                    maxHeight: qaHeight,
+                  ),
+                  child: panel,
+                )
               : ConstrainedBox(
                   constraints: BoxConstraints(maxHeight: nonQaMaxHeight),
                   child: panel,
