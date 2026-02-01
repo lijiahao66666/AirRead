@@ -282,80 +282,113 @@ private:
     LLMInferenceEngineWrapper *blockSelf = self;
     
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-        @try {
-            // 设置推理参数
-            std::string configStr = "{";
-            configStr += "\"max_new_tokens\": " + std::to_string(maxNewTokens) + ",";
-            configStr += "\"max_input_tokens\": " + std::to_string(maxInputTokens) + ",";
-            configStr += "\"temperature\": " + std::to_string(temperature) + ",";
-            configStr += "\"top_p\": " + std::to_string(topP) + ",";
-            configStr += "\"top_k\": " + std::to_string(topK) + ",";
-            configStr += "\"min_p\": " + std::to_string(minP) + ",";
-            configStr += "\"presence_penalty\": " + std::to_string(presencePenalty) + ",";
-            configStr += "\"repetition_penalty\": " + std::to_string(repetitionPenalty);
-            configStr += "}";
-            
-            blockSelf->_llm->set_config(configStr);
-            NSLog(@"[LLM] Config set: %s", configStr.c_str());
+        try {
+            @try {
+                // 设置推理参数
+                std::string configStr = "{";
+                configStr += "\"max_new_tokens\": " + std::to_string(maxNewTokens) + ",";
+                configStr += "\"max_input_tokens\": " + std::to_string(maxInputTokens) + ",";
+                configStr += "\"temperature\": " + std::to_string(temperature) + ",";
+                configStr += "\"top_p\": " + std::to_string(topP) + ",";
+                configStr += "\"top_k\": " + std::to_string(topK) + ",";
+                configStr += "\"min_p\": " + std::to_string(minP) + ",";
+                configStr += "\"presence_penalty\": " + std::to_string(presencePenalty) + ",";
+                configStr += "\"repetition_penalty\": " + std::to_string(repetitionPenalty);
+                configStr += "}";
+                
+                blockSelf->_llm->set_config(configStr);
+                NSLog(@"[LLM] Config set: %s", configStr.c_str());
 
-            // 使用UTF-8安全的流缓冲区
-            std::string accumulatedOutput;
-            
-            Utf8SafeStreamBuffer::CallBack callback = [handler, &accumulatedOutput](const char* str, size_t len) {
-                if (handler && str && len > 0) {
-                    @autoreleasepool {
-                        // 记录原始字节用于调试
-                        NSMutableString *hexDebug = [NSMutableString stringWithString:@"Bytes: "];
-                        for (size_t i = 0; i < std::min(len, (size_t)16); i++) {
-                            [hexDebug appendFormat:@"%02X ", (unsigned char)str[i]];
-                        }
-                        NSLog(@"[LLM] Raw %s", hexDebug.UTF8String);
-                        
-                        NSString *nsOutput = [[NSString alloc] initWithBytes:str
-                                                                        length:len
-                                                                      encoding:NSUTF8StringEncoding];
-                        if (nsOutput && nsOutput.length > 0) {
-                            accumulatedOutput.append([nsOutput UTF8String]);
-                            NSLog(@"[LLM] Output chunk (%zu bytes): '%@'", len, nsOutput);
-                            dispatch_async(dispatch_get_main_queue(), ^{
-                                handler(nsOutput);
-                            });
-                        } else {
-                            NSLog(@"[LLM] Failed to decode bytes as UTF-8, len=%zu", len);
+                // 使用UTF-8安全的流缓冲区
+                std::string accumulatedOutput;
+                
+                // 获取 atomic 指针以避免 lambda 中的 ivar 访问权限问题
+                std::atomic<bool>* shouldStopPtr = &blockSelf->_shouldStop;
+                
+                Utf8SafeStreamBuffer::CallBack callback = [handler, &accumulatedOutput, shouldStopPtr](const char* str, size_t len) {
+                    // Check for cancellation
+                    if (shouldStopPtr->load()) {
+                        throw std::runtime_error("Generation cancelled by user");
+                    }
+
+                    if (handler && str && len > 0) {
+                        @autoreleasepool {
+                            NSString *nsOutput = [[NSString alloc] initWithBytes:str
+                                                                            length:len
+                                                                          encoding:NSUTF8StringEncoding];
+                            if (nsOutput && nsOutput.length > 0) {
+                                accumulatedOutput.append([nsOutput UTF8String]);
+                                dispatch_async(dispatch_get_main_queue(), ^{
+                                    handler(nsOutput);
+                                });
+                            } else {
+                                NSLog(@"[LLM] Failed to decode bytes as UTF-8, len=%zu", len);
+                            }
                         }
                     }
+                };
+                
+                Utf8SafeStreamBuffer streambuf(callback);
+                std::ostream os(&streambuf);
+                
+                // 将输入转换为 std::string
+                std::string userInput = [input UTF8String];
+                
+                // Apply ChatML prompt template if needed (Matching Android implementation)
+                std::string fullPrompt = userInput;
+                if (fullPrompt.find("<|im_start|>") == std::string::npos && 
+                    fullPrompt.find("<user>") == std::string::npos &&
+                    fullPrompt.find("<chat_user>") == std::string::npos) {
+                    
+                    // Note: tokenizer usually adds BOS (<s>) automatically
+                    fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
                 }
-            };
-            
-            Utf8SafeStreamBuffer streambuf(callback);
-            std::ostream os(&streambuf);
-            
-            // 将输入转换为 std::string
-            std::string userInput = [input UTF8String];
-            
-            // Debug information for prompt
-            NSLog(@"[LLM] Input prompt:\n%s", userInput.c_str());
-            
-            // Start inference - 使用直接的 prompt 字符串而不是 history
-            NSLog(@"[LLM] Starting inference...");
-            
-            // 使用 response 方法直接传入 prompt 字符串
-            blockSelf->_llm->response(userInput, &os, "<eop>");
-            
-            // Flush any remaining data in stream buffer
-            os.flush();
-            
-            // Send end signal
+                
+                // Debug information for prompt
+                NSLog(@"[LLM] Input prompt:\n%s", fullPrompt.c_str());
+                
+                // Start inference
+                NSLog(@"[LLM] Starting inference...");
+                
+                // 使用 response 方法传入处理后的 fullPrompt
+                // 显式传递 maxNewTokens 以确保截断正确
+                blockSelf->_llm->response(fullPrompt, &os, "<eop>", (int)maxNewTokens);
+                
+                // Flush any remaining data in stream buffer
+                os.flush();
+                
+                // Send end signal
+                if (handler) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        handler(@"<eop>");
+                    });
+                }
+                
+                NSLog(@"[LLM] Inference completed. Total output length: %zu bytes", accumulatedOutput.length());
+                
+            } @catch (NSException *exception) {
+                NSLog(@"[LLMInferenceEngineWrapper] ObjC Exception during inference: %@", exception.reason);
+                if (handler) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        handler(@"<eop>");
+                    });
+                }
+            }
+        } catch (const std::exception& e) {
+            std::string err = e.what();
+            if (err == "Generation cancelled by user") {
+                NSLog(@"[LLM] Inference cancelled by user");
+            } else {
+                NSLog(@"[LLM] C++ Exception during inference: %s", e.what());
+            }
+            // Even if cancelled or error, ensure we send eop to close the stream
             if (handler) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     handler(@"<eop>");
                 });
             }
-            
-            NSLog(@"[LLM] Inference completed. Total output length: %zu bytes", accumulatedOutput.length());
-            
-        } @catch (NSException *exception) {
-            NSLog(@"[LLMInferenceEngineWrapper] Exception during inference: %@", exception.reason);
+        } catch (...) {
+            NSLog(@"[LLM] Unknown C++ Exception during inference");
             if (handler) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     handler(@"<eop>");
