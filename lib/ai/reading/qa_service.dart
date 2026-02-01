@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import '../hunyuan/hunyuan_text_client.dart';
-import '../local_llm/local_llm_client.dart';
+import '../local_llm/llm_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
 import '../../presentation/providers/ai_model_provider.dart';
 import 'reading_context_service.dart';
@@ -74,48 +74,40 @@ String buildLocalQaPrompt({
   final historyText = (history ?? '').trim();
   final content = contextService.getContentByScope(contentScope);
 
+  // MiniCPM4 模型使用特定的 chat template
+  // Format: <|im_start|>system\n...<|im_end|>\n<|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n
+  String userPrompt;
   switch (qaType) {
     case QAType.summary:
-      return [
-        '/think',
-        '你是阅读助手。请仅基于以下内容做简要总结，避免重复表述。',
+      userPrompt = [
+        '请总结以下内容：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
-        '',
-        '要求：列出提纲（不超过6条），然后给出总结（260字以内）。',
       ].join('\n');
+      break;
     case QAType.keyPoints:
-      return [
-        '/think',
-        '你是阅读助手。请仅基于以下内容提取关键要点，避免重复表述。',
+      userPrompt = [
+        '请提取以下内容的要点：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600),
-        '',
-        '要求：筛选关键要点（不超过5条），每条一句话，覆盖事件、人物变化、伏笔线索。',
       ].join('\n');
+      break;
     case QAType.general:
       final parts = <String>[
-        '/think',
-        '你是阅读助手。请根据「当前阅读内容」与「历史问答」回答「用户问题」。',
-        '规则：优先在内容中定位答案并直接回答，必要时引用原文短句作为依据；不要编造；只有确实找不到再说“文中未提及/需要更多上下文”。',
-        '【当前阅读内容】',
+        '基于以下内容回答问题：',
         _tailText(
             _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1200),
-      ];
-      if (historyText.isNotEmpty) {
-        parts.addAll([
-          '',
-          '【历史问答】',
-          _tailText(_squashSpaces(historyText), 400),
-        ]);
-      }
-      parts.addAll([
         '',
-        '【用户问题】',
-        _clipText(_squashSpaces(question), 200),
-      ]);
-      return parts.join('\n').trim();
+        '问题：$question',
+      ];
+      userPrompt = parts.join('\n').trim();
+      break;
   }
+
+  // 构建 MiniCPM 格式的 prompt
+  // 直接传递简单的文本，让 MNN 的 jinja 模板自动处理格式
+  // MiniCPM 的 jinja 模板会自动添加 < |im_start|>, < |im_end|> 标记
+  return userPrompt;
 }
 
 class QAService {
@@ -189,7 +181,18 @@ class QAService {
     QAType qaType, {
     String? history,
   }) async* {
-    final client = LocalLlmClient(modelType: LocalLlmModelType.qa);
+    // 使用适合平台的本地 LLM 客户端
+    final client = createLocalLlmClient();
+    final initialized = await client.initialize(model: 'minicpm4-0.5b-mnn');
+
+    if (!initialized) {
+      yield QAStreamChunk(
+        content: '本地模型初始化失败，请检查模型文件是否正确放置。',
+        isComplete: true,
+      );
+      return;
+    }
+
     final prompt = buildLocalQaPrompt(
       contextService: contextService,
       question: question,
@@ -198,23 +201,20 @@ class QAService {
       history: history,
     );
 
-    final maxCtx = await client.getMaxContextTokens();
+    // MNN 使用固定的上下文大小
+    const maxCtx = 2048;
     final caps = _computeLocalCaps(maxCtx);
 
-    await for (final delta in client.chatStream(
-      userText: prompt,
-      maxNewTokens: caps.maxNewTokens,
-      maxInputTokens: caps.maxInputTokens,
+    await for (final delta in client.generateStream(
+      prompt: prompt,
+      maxTokens: caps.maxNewTokens,
       temperature: 0.6,
-      topP: 0.95,
-      topK: 20,
-      minP: 0,
-      presencePenalty: 1.5,
-      enableThinking: true,
     )) {
       if (delta.isEmpty) continue;
       yield QAStreamChunk(content: delta);
     }
+
+    await client.dispose();
   }
 
   _LocalCaps _computeLocalCaps(int? maxContextTokens) {

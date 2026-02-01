@@ -11,6 +11,8 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+models/
+assets/models/
 
 # IntelliJ related
 *.iml
@@ -32,6 +34,7 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+ios/build/
 
 # Symbolication related
 app.*.symbols
@@ -70,3 +73,25 @@ key.properties
 
 # 软著申请材料
 软著材料/
+
+# Binary frameworks and libraries
+ios/Frameworks/
+android/app/src/main/jniLibs/
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Build artifacts
+*.o
+*.a
+*.lib
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.manifest
+*.res
+*.rc
+*.ico
