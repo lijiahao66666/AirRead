@@ -84,7 +84,17 @@
         __block NSString *fullResponse = @"";
         dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
         
-        [_engine processInput:userText withStreamHandler:^(NSString * _Nonnull output) {
+        [_engine processInput:userText
+                 maxNewTokens:maxNewTokens
+               maxInputTokens:maxInputTokens
+                  temperature:temperature
+                         topP:topP
+                         topK:topK
+                         minP:minP
+              presencePenalty:presencePenalty
+            repetitionPenalty:repetitionPenalty
+               enableThinking:enableThinking
+            withStreamHandler:^(NSString * _Nonnull output) {
             if ([output isEqualToString:@"<eop>"]) {
                 dispatch_semaphore_signal(semaphore);
             } else {
@@ -136,7 +146,17 @@
                 return;
             }
             
-            [self->_engine processInput:userText withStreamHandler:^(NSString * _Nonnull output) {
+            [self->_engine processInput:userText
+                           maxNewTokens:maxNewTokens
+                         maxInputTokens:maxInputTokens
+                            temperature:temperature
+                                   topP:topP
+                                   topK:topK
+                                   minP:minP
+                        presencePenalty:presencePenalty
+                      repetitionPenalty:repetitionPenalty
+                         enableThinking:enableThinking
+                      withStreamHandler:^(NSString * _Nonnull output) {
                 if ([output isEqualToString:@"<eop>"]) {
                     dispatch_async(dispatch_get_main_queue(), ^{
                         if (onDone) {

@@ -21,6 +21,15 @@ typedef void (^StreamOutputHandler)(NSString * _Nonnull output);
                        completion:(ModelLoadingCompletionHandler)completionHandler;
 
 - (void)processInput:(NSString *)input
+        maxNewTokens:(NSInteger)maxNewTokens
+      maxInputTokens:(NSInteger)maxInputTokens
+         temperature:(double)temperature
+                topP:(double)topP
+                topK:(NSInteger)topK
+                minP:(double)minP
+     presencePenalty:(double)presencePenalty
+   repetitionPenalty:(double)repetitionPenalty
+      enableThinking:(BOOL)enableThinking
    withStreamHandler:(StreamOutputHandler)handler;
 
 - (void)cancelInference;

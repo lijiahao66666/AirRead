@@ -17,11 +17,11 @@ class ModelManager {
     return await MnnModelDownloader.getDownloadedSize();
   }
 
-  /// 获取模型总大小（字节）- 预估260MB
+  /// 获取模型总大小（字节）- 预估390MB
   static int get totalSize => MnnModelDownloader.estimatedTotalSize;
 
   /// 获取格式化的模型大小文本
-  static String get formattedTotalSize => '260MB';
+  static String get formattedTotalSize => '390MB';
 
   /// 安装模型（从网络下载）
   /// 返回下载器实例，用于监听进度

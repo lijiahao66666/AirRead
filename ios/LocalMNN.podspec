@@ -12,7 +12,7 @@ Pod::Spec.new do |s|
   s.vendored_frameworks = 'Frameworks/MNN.framework'
   
   # 源文件
-  s.source_files = 'Runner/LLMInferenceEngineWrapper.{h,mm}'
+  s.source_files = 'Runner/LLMInferenceEngineWrapper.{h,mm}', 'Runner/MnnLlmBridge.{h,mm}'
   
   # 依赖
   s.frameworks = 'Foundation', 'Metal', 'MetalPerformanceShaders'

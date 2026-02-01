@@ -2,53 +2,8 @@ import UIKit
 import Flutter
 import AVFoundation
 
-// MARK: - MNN LLM Bridge
-final class MnnLlmBridge: NSObject {
-    private var engine: LLMInferenceEngineWrapper?
-    private var isInitialized = false
-    
-    static func isAvailable() -> Bool {
-        return true
-    }
-    
-    func initialize(_ modelPath: String, completion: @escaping (Bool) -> Void) {
-        engine = LLMInferenceEngineWrapper(modelPath: modelPath) { [weak self] success in
-            self?.isInitialized = success
-            completion(success)
-        }
-    }
-    
-    func chatOnce(_ userText: String, maxNewTokens: Int, maxInputTokens: Int, temperature: Double, topP: Double, topK: Int, minP: Double, presencePenalty: Double, repetitionPenalty: Double, enableThinking: Bool) -> String? {
-        // 同步调用不支持，返回 nil
-        return nil
-    }
-    
-    func chatStream(_ userText: String, maxNewTokens: Int, maxInputTokens: Int, temperature: Double, topP: Double, topK: Int, minP: Double, presencePenalty: Double, repetitionPenalty: Double, enableThinking: Bool, onChunk: @escaping (String) -> Void, onDone: @escaping (Error?) -> Void) {
-        guard let engine = engine, isInitialized else {
-            onDone(NSError(domain: "MnnLlmBridge", code: 1005, userInfo: [NSLocalizedDescriptionKey: "LLM not initialized"]))
-            return
-        }
-        
-        engine.processInput(userText, withStreamHandler: { chunk in
-            onChunk(chunk)
-            if chunk == "<eop>" {
-                onDone(nil)
-            }
-        })
-    }
-    
-    func cancelCurrentStream() {
-        engine?.cancelInference()
-    }
-    
-    func dumpConfig() -> String? {
-        guard isInitialized else { return nil }
-        return "{\"model\":\"MiniCPM-0.5B\",\"backend\":\"CPU\",\"threads\":4}"
-    }
-}
-
-// MARK: - MNN LLM Stream Handler
-final class MnnLlmStreamHandler: NSObject, FlutterStreamHandler {
+// MARK: - Local LLM Stream Handler
+final class LocalLlmStreamHandler: NSObject, FlutterStreamHandler {
   private var eventSink: FlutterEventSink?
   private var cancelled: Bool = false
 
@@ -84,37 +39,7 @@ final class MnnLlmStreamHandler: NSObject, FlutterStreamHandler {
   }
 
   func sendError(_ error: String) {
-    send(["type": "error", "error": error])
-  }
-
-  func cancel() {
-    cancelled = true
-  }
-
-  var isCancelled: Bool { cancelled }
-}
-
-final class LocalLlmStreamHandler: NSObject, FlutterStreamHandler {
-  private var eventSink: FlutterEventSink?
-  private var cancelled: Bool = false
-
-  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
-    eventSink = events
-    cancelled = false
-    return nil
-  }
-
-  func onCancel(withArguments arguments: Any?) -> FlutterError? {
-    cancelled = true
-    eventSink = nil
-    return nil
-  }
-
-  func send(_ event: Any) {
-    if cancelled { return }
-    if let sink = eventSink {
-      sink(event)
-    }
+    send(["type": "error", "data": error])
   }
 
   func cancel() {
@@ -220,26 +145,14 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
   }
   
   private func setupMethodChannels(controller: FlutterViewController) {
-    // 本地 LLM 日志通道（用于调试）
-    let logChannel = FlutterMethodChannel(name: "airread/local_llm", binaryMessenger: controller.binaryMessenger)
-    logChannel.setMethodCallHandler { call, result in
-      switch call.method {
-      case "logcat":
-        // 仅用于 Android，iOS 直接返回成功
-        result(nil)
-      default:
-        result(FlutterMethodNotImplemented)
-      }
-    }
-
     // MARK: - MNN LLM 功能
     mnnLlmBridge = MnnLlmBridge()
-    let mnnLlmStreamHandler = MnnLlmStreamHandler()
-    let mnnLlmEventChannel = FlutterEventChannel(name: "airread/mnn_llm_events", binaryMessenger: controller.binaryMessenger)
-    mnnLlmEventChannel.setStreamHandler(mnnLlmStreamHandler)
+    let localLlmStreamHandler = LocalLlmStreamHandler()
+    let localLlmEventChannel = FlutterEventChannel(name: "airread/local_llm_stream", binaryMessenger: controller.binaryMessenger)
+    localLlmEventChannel.setStreamHandler(localLlmStreamHandler)
 
-    let mnnLlmChannel = FlutterMethodChannel(name: "airread/mnn_llm", binaryMessenger: controller.binaryMessenger)
-    mnnLlmChannel.setMethodCallHandler { [weak self] call, result in
+    let localLlmChannel = FlutterMethodChannel(name: "airread/local_llm", binaryMessenger: controller.binaryMessenger)
+    localLlmChannel.setMethodCallHandler { [weak self] call, result in
       guard let self = self else { return }
 
       switch call.method {
@@ -255,12 +168,11 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
         }
 
         // modelPath 已经是完整路径，直接使用
-        self.mnnLlmBridge?.initialize(modelPath) { success in
-          if success {
-            result(true)
-          } else {
-            result(FlutterError(code: "INIT_FAILED", message: "Failed to initialize model", details: nil))
-          }
+        let success = self.mnnLlmBridge?.initialize(modelPath) ?? false
+        if success {
+          result(true)
+        } else {
+          result(FlutterError(code: "INIT_FAILED", message: "Failed to initialize model", details: nil))
         }
 
       case "chatOnce":
@@ -329,27 +241,31 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           repetitionPenalty: repetitionPenalty,
           enableThinking: enableThinking,
           onChunk: { chunk in
-            mnnLlmStreamHandler.sendChunk(chunk)
+            localLlmStreamHandler.sendChunk(chunk)
           },
           onDone: { error in
             if let error = error {
-              mnnLlmStreamHandler.sendError(error.localizedDescription)
+              localLlmStreamHandler.sendError(error.localizedDescription)
             } else {
-              mnnLlmStreamHandler.sendDone()
+              localLlmStreamHandler.sendDone()
             }
           }
         )
 
         result(nil)
 
-      case "cancel":
+      case "cancelChatStream":
         self.mnnLlmBridge?.cancelCurrentStream()
-        mnnLlmStreamHandler.cancel()
+        localLlmStreamHandler.cancel()
         result(nil)
 
       case "dumpConfig":
         let config = self.mnnLlmBridge?.dumpConfig()
         result(config)
+
+      case "logcat":
+        // 仅用于 Android，iOS 直接返回成功
+        result(nil)
 
       default:
         result(FlutterMethodNotImplemented)

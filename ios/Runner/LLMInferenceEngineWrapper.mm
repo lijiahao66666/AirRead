@@ -249,6 +249,15 @@ private:
 }
 
 - (void)processInput:(NSString *)input
+        maxNewTokens:(NSInteger)maxNewTokens
+      maxInputTokens:(NSInteger)maxInputTokens
+         temperature:(double)temperature
+                topP:(double)topP
+                topK:(NSInteger)topK
+                minP:(double)minP
+     presencePenalty:(double)presencePenalty
+   repetitionPenalty:(double)repetitionPenalty
+      enableThinking:(BOOL)enableThinking
    withStreamHandler:(StreamOutputHandler)handler {
     if (!_llm) {
         if (handler) {
@@ -274,6 +283,21 @@ private:
     
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         @try {
+            // 设置推理参数
+            std::string configStr = "{";
+            configStr += "\"max_new_tokens\": " + std::to_string(maxNewTokens) + ",";
+            configStr += "\"max_input_tokens\": " + std::to_string(maxInputTokens) + ",";
+            configStr += "\"temperature\": " + std::to_string(temperature) + ",";
+            configStr += "\"top_p\": " + std::to_string(topP) + ",";
+            configStr += "\"top_k\": " + std::to_string(topK) + ",";
+            configStr += "\"min_p\": " + std::to_string(minP) + ",";
+            configStr += "\"presence_penalty\": " + std::to_string(presencePenalty) + ",";
+            configStr += "\"repetition_penalty\": " + std::to_string(repetitionPenalty);
+            configStr += "}";
+            
+            blockSelf->_llm->set_config(configStr);
+            NSLog(@"[LLM] Config set: %s", configStr.c_str());
+
             // 使用UTF-8安全的流缓冲区
             std::string accumulatedOutput;
             
@@ -316,7 +340,7 @@ private:
             NSLog(@"[LLM] Starting inference...");
             
             // 使用 response 方法直接传入 prompt 字符串
-            blockSelf->_llm->response(userInput, &os, "<eop>", 512);
+            blockSelf->_llm->response(userInput, &os, "<eop>");
             
             // Flush any remaining data in stream buffer
             os.flush();
