@@ -168,12 +168,14 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
         }
 
         // modelPath 已经是完整路径，直接使用
-        let success = self.mnnLlmBridge?.initialize(modelPath) ?? false
-        if success {
-          result(true)
-        } else {
-          result(FlutterError(code: "INIT_FAILED", message: "Failed to initialize model", details: nil))
-        }
+        // 使用异步初始化
+        self.mnnLlmBridge?.initialize(modelPath, completion: { success in
+            if success {
+                result(true)
+            } else {
+                result(FlutterError(code: "INIT_FAILED", message: "Failed to initialize model", details: nil))
+            }
+        })
 
       case "chatOnce":
         guard let args = call.arguments as? [String: Any],

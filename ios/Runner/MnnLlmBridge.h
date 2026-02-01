@@ -13,7 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (BOOL)isAvailable;
 
-- (BOOL)initialize:(NSString *)modelPath;
+- (void)initialize:(NSString *)modelPath completion:(void (^)(BOOL success))completion;
 
 - (nullable NSString *)chatOnce:(NSString *)userText
                    maxNewTokens:(NSInteger)maxNewTokens

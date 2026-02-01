@@ -29,36 +29,37 @@
 #endif
 }
 
-- (BOOL)initialize:(NSString *)modelPath {
+- (void)initialize:(NSString *)modelPath completion:(void (^)(BOOL success))completion {
 #if MNN_NOT_AVAILABLE
-    return NO;
+    if (completion) completion(NO);
 #else
     @try {
         // 检查配置文件是否存在
         NSString *configPath = [modelPath stringByAppendingPathComponent:@"config.json"];
         if (![[NSFileManager defaultManager] fileExistsAtPath:configPath]) {
             NSLog(@"[MnnLlmBridge] Config file not found at %@", configPath);
-            return NO;
+            if (completion) completion(NO);
+            return;
         }
         
         _modelPath = modelPath;
         
-        // 使用 LLMInferenceEngineWrapper 初始化
-        __block BOOL initSuccess = NO;
-        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+        NSLog(@"[MnnLlmBridge] Starting initialization with path: %@", modelPath);
         
+        // 异步初始化，不再阻塞等待
         _engine = [[LLMInferenceEngineWrapper alloc] initWithModelPath:modelPath completion:^(BOOL success) {
-            initSuccess = success;
-            dispatch_semaphore_signal(semaphore);
+            if (success) {
+                NSLog(@"[MnnLlmBridge] LLMInferenceEngineWrapper initialized successfully");
+            } else {
+                NSLog(@"[MnnLlmBridge] LLMInferenceEngineWrapper initialization failed");
+            }
+            if (completion) {
+                completion(success);
+            }
         }];
-        
-        // 等待初始化完成（最多30秒）
-        dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
-        
-        return initSuccess;
     } @catch (NSException *exception) {
         NSLog(@"[MnnLlmBridge] Exception: %@", exception.reason);
-        return NO;
+        if (completion) completion(NO);
     }
 #endif
 }

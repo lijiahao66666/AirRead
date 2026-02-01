@@ -351,17 +351,23 @@ private:
                 std::string userInput = [input UTF8String];
                 
                 // Apply ChatML prompt template if needed (Matching Android implementation)
+                // 检查 Dart 层是否已经应用了模板
                 std::string fullPrompt = userInput;
-                if (fullPrompt.find("<|im_start|>") == std::string::npos && 
-                    fullPrompt.find("<user>") == std::string::npos &&
-                    fullPrompt.find("<chat_user>") == std::string::npos) {
-                    
+                
+                // 更精确的检查，防止重复添加模板
+                // Dart 层的 buildLocalQaPrompt 已经生成了完整的 ChatML 格式：
+                // <|im_start|>system...<|im_end|>\n<|im_start|>user...<|im_end|>\n<|im_start|>assistant\n
+                
+                bool hasTemplate = (fullPrompt.find("<|im_start|>") != std::string::npos);
+                
+                if (!hasTemplate) {
+                    // 如果没有模板标记，说明是纯文本输入，应用默认模板
                     // Note: tokenizer usually adds BOS (<s>) automatically
                     fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
                 }
                 
                 // Debug information for prompt
-                NSLog(@"[LLM] Input prompt:\n%s", fullPrompt.c_str());
+                NSLog(@"[LLM] Input prompt (first 100 chars):\n%.100s...", fullPrompt.c_str());
                 
                 // Start inference
                 NSLog(@"[LLM] Starting inference...");
