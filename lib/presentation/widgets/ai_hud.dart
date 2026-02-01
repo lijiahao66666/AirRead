@@ -2155,7 +2155,7 @@ class _TencentHunyuanSettingsPanelState
                       _localModelStatusRow(
                         aiModel,
                         title: 'Qwen3-0.6B',
-                        sizeText: '225M',
+                        sizeText: '272M',
                       ),
                     ],
                   ],
@@ -2311,7 +2311,9 @@ class _TencentHunyuanSettingsPanelState
               width: 16,
               height: 16,
               child: CircularProgressIndicator(
-                value: aiModel.downloadProgress > 0 ? aiModel.downloadProgress : null,
+                value: aiModel.downloadProgress > 0
+                    ? aiModel.downloadProgress
+                    : null,
                 strokeWidth: 2,
                 valueColor: AlwaysStoppedAnimation<Color>(AppColors.techBlue),
                 backgroundColor: widget.textColor.withOpacity(0.1),
@@ -2358,7 +2360,6 @@ class _TencentHunyuanSettingsPanelState
         );
     }
   }
-
 }
 
 class _MainPanel extends StatelessWidget {
