@@ -10,8 +10,6 @@
 
 #import "MnnLlmBridge.h"
 
-#endif /* Runner_Bridging_Header_h */
-
 // Flutter
 #import <Flutter/Flutter.h>
 #import "GeneratedPluginRegistrant.h"

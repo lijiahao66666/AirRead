@@ -208,42 +208,58 @@ private:
         return YES;
     }
     
-    @try {
-        // Check if config.json exists
-        NSString *configPath = [_modelPath stringByAppendingPathComponent:@"config.json"];
-        if (![[NSFileManager defaultManager] fileExistsAtPath:configPath]) {
-            NSLog(@"[LLMInferenceEngineWrapper] Config file not found at %@", configPath);
+    try {
+        @try {
+            // Check if config.json exists
+            NSString *configPath = [_modelPath stringByAppendingPathComponent:@"config.json"];
+            if (![[NSFileManager defaultManager] fileExistsAtPath:configPath]) {
+                NSLog(@"[LLMInferenceEngineWrapper] Config file not found at %@", configPath);
+                return NO;
+            }
+            
+            std::string config_path = [configPath UTF8String];
+            
+            // Create LLM instance
+            _llm.reset(Llm::createLLM(config_path));
+            if (!_llm) {
+                NSLog(@"[LLMInferenceEngineWrapper] Failed to create LLM instance");
+                return NO;
+            }
+            
+            // Configure LLM - 使用 config.json 中的配置，不再硬编码
+            // MNN 会自动从 config.json 和 llm_config.json 读取配置
+            NSString *tempDirectory = NSTemporaryDirectory();
+            std::string configStr = "{"
+                "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
+                "\"use_mmap\":true,"
+                "\"backend_type\":\"cpu\","  // 明确指定使用 CPU 后端，避免 ANE/Metal 错误
+                "\"reuse_kv\":true"
+                "}";
+            _llm->set_config(configStr);
+            NSLog(@"[LLMInferenceEngineWrapper] Using config with backend_type=cpu, tmp_path=%s", configStr.c_str());
+            
+            // Load model
+            bool loaded = _llm->load();
+            if (!loaded) {
+                NSLog(@"[LLMInferenceEngineWrapper] _llm->load() returned false");
+                _llm.reset();
+                return NO;
+            }
+            
+            NSLog(@"[LLMInferenceEngineWrapper] Model loaded successfully from %@", _modelPath);
+            return YES;
+        } @catch (NSException *exception) {
+            NSLog(@"[LLMInferenceEngineWrapper] ObjC Exception during model loading: %@", exception.reason);
+            _llm.reset();
             return NO;
         }
-        
-        std::string config_path = [configPath UTF8String];
-        
-        // Create LLM instance
-        _llm.reset(Llm::createLLM(config_path));
-        if (!_llm) {
-            NSLog(@"[LLMInferenceEngineWrapper] Failed to create LLM instance");
-            return NO;
-        }
-        
-        // Configure LLM - 使用 config.json 中的配置，不再硬编码
-        // MNN 会自动从 config.json 和 llm_config.json 读取配置
-        NSString *tempDirectory = NSTemporaryDirectory();
-        std::string configStr = "{"
-            "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
-            "\"use_mmap\":true,"
-            "\"backend_type\":\"cpu\","  // 明确指定使用 CPU 后端，避免 ANE/Metal 错误
-            "\"reuse_kv\":true"
-            "}";
-        _llm->set_config(configStr);
-        NSLog(@"[LLMInferenceEngineWrapper] Using config with backend_type=cpu, tmp_path=%s", configStr.c_str());
-        
-        // Load model
-        _llm->load();
-        
-        NSLog(@"[LLMInferenceEngineWrapper] Model loaded successfully from %@", _modelPath);
-        return YES;
-    } @catch (NSException *exception) {
-        NSLog(@"[LLMInferenceEngineWrapper] Exception during model loading: %@", exception.reason);
+    } catch (const std::exception& e) {
+        NSLog(@"[LLMInferenceEngineWrapper] C++ Exception during model loading: %s", e.what());
+        _llm.reset();
+        return NO;
+    } catch (...) {
+        NSLog(@"[LLMInferenceEngineWrapper] Unknown C++ Exception during model loading");
+        _llm.reset();
         return NO;
     }
 }

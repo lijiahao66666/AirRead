@@ -79,6 +79,40 @@ class LlmClientMnn implements LlmClient {
 
     debugPrint('[LlmClientMnn] Initializing with modelPath: $modelPath');
 
+    // Debug: Check model files
+    try {
+      final dir = Directory(modelPath);
+      debugPrint('[LlmClientMnn] Checking model directory: ${dir.path}');
+      if (await dir.exists()) {
+        final files = await dir.list().toList();
+        debugPrint('[LlmClientMnn] Model directory contents (${files.length} files):');
+        for (final file in files) {
+          if (file is File) {
+            final size = await file.length();
+            debugPrint('  - ${file.path.split('/').last}: $size bytes');
+          } else {
+            debugPrint('  - ${file.path.split('/').last} (Dir)');
+          }
+        }
+        
+        // Check specific required files
+        final requiredFiles = ['config.json', 'llm.mnn', 'tokenizer.txt'];
+        for (var f in requiredFiles) {
+          final file = File('${dir.path}/$f');
+          if (!await file.exists()) {
+             debugPrint('[LlmClientMnn] CRITICAL ERROR: Required file missing: $f');
+          } else {
+             final size = await file.length();
+             if (size == 0) debugPrint('[LlmClientMnn] CRITICAL ERROR: File empty: $f');
+          }
+        }
+      } else {
+        debugPrint('[LlmClientMnn] CRITICAL ERROR: Model directory does not exist!');
+      }
+    } catch (e) {
+      debugPrint('[LlmClientMnn] Error checking model files: $e');
+    }
+
     final result = await _client.initialize(modelPath: modelPath);
     if (result) {
       _currentModel = model ?? 'qwen3-0.6b-mnn';
