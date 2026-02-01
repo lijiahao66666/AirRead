@@ -229,7 +229,7 @@ class QAService {
       topP: 0.95,
       topK: 20,
       minP: 0.0,
-      repetitionPenalty: 1.0,
+      repetitionPenalty: 1.1,
     )) {
       if (delta.isEmpty) continue;
       yield QAStreamChunk(content: delta);
@@ -239,59 +239,12 @@ class QAService {
   }
 
   _LocalCaps _computeLocalCaps(int? maxContextTokens) {
-    var maxInput = _localQaMaxInputTokens;
-    var maxNew = _localQaMaxNewTokens;
+    final contextSize = maxContextTokens ?? 4096;
+    final usable = contextSize - _localQaContextReserveTokens;
 
-    if (maxInput > _localQaHardMaxInputTokens) {
-      maxInput = _localQaHardMaxInputTokens;
-    }
-    if (maxNew > _localQaHardMaxNewTokens) {
-      maxNew = _localQaHardMaxNewTokens;
-    }
-
-    if (maxContextTokens != null && maxContextTokens > 0) {
-      final usable = maxContextTokens - _localQaContextReserveTokens;
-      if (usable > 0) {
-        if (maxNew > usable ~/ 3) {
-          maxNew = usable ~/ 3;
-        }
-        if (maxNew < 192) maxNew = 192;
-
-        final canUseForInput = usable - maxNew;
-        if (canUseForInput > 0) {
-          if (maxInput > canUseForInput) {
-            maxInput = canUseForInput;
-          }
-        } else {
-          maxInput = 512;
-          if (maxInput > usable) {
-            maxInput = usable;
-          }
-          maxNew = usable - maxInput;
-          if (maxNew < 64) maxNew = 64;
-        }
-      } else {
-        maxInput = 256;
-        maxNew = 64;
-      }
-    } else {
-      const usable = 4096 - _localQaContextReserveTokens;
-      if (usable > 0) {
-        if (maxNew > usable ~/ 3) maxNew = usable ~/ 3;
-        if (maxNew < 192) maxNew = 192;
-        final canUseForInput = usable - maxNew;
-        if (canUseForInput > 0 && maxInput > canUseForInput) {
-          maxInput = canUseForInput;
-        }
-      }
-    }
-
-    if (maxInput > _localQaHardMaxInputTokens) {
-      maxInput = _localQaHardMaxInputTokens;
-    }
-    if (maxNew > _localQaHardMaxNewTokens) maxNew = _localQaHardMaxNewTokens;
-    if (maxNew < 64) maxNew = 64;
-    if (maxInput < 256) maxInput = 256;
+    // 分配策略：1/3 给输出，2/3 给输入，但有最小值和硬限制
+    int maxNew = (usable ~/ 3).clamp(64, _localQaHardMaxNewTokens);
+    int maxInput = (usable - maxNew).clamp(256, _localQaHardMaxInputTokens);
 
     return _LocalCaps(maxInputTokens: maxInput, maxNewTokens: maxNew);
   }

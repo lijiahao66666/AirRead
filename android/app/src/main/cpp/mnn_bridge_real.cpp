@@ -127,9 +127,8 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
         fullPrompt.find("<chat_user>") == std::string::npos) {
         
         // 注意：tokenizer 通常会自动添加 BOS (<s>)，所以这里不重复添加
-            fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
-            // LOGI("Applied ChatML template: %s", fullPrompt.c_str());
-        }
+        fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
+    }
     
     {
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -283,7 +282,6 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz
         
         // 注意：tokenizer 通常会自动添加 BOS (<s>)，所以这里不重复添加
         fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
-        // LOGI("Applied ChatML template for stream: %s", fullPrompt.c_str());
     }
     
     // 创建回调包装器
@@ -329,9 +327,7 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz
             try {
                 g_llm->response(fullPrompt, &customOs, nullptr, maxNewTokens);
             } catch (const std::runtime_error& e) {
-                if (std::string(e.what()) == "Generation cancelled by user") {
-                    // LOGI("Generation cancelled via exception");
-                } else {
+                if (std::string(e.what()) != "Generation cancelled by user") {
                     throw;
                 }
             }

@@ -7,17 +7,6 @@ import 'mnn_model_downloader.dart';
 /// 模型管理器
 /// 负责检查、下载和管理 MNN 模型
 class ModelManager {
-  static const String _modelDir = 'models/qwen3-0.6b-mnn';
-
-  static final List<String> _modelFiles = [
-    'config.json',
-    'llm_config.json',
-    'llm.mnn',
-    'llm.mnn.json',
-    'llm.mnn.weight',
-    'tokenizer.txt',
-  ];
-
   /// 检查模型是否已安装到文档目录
   static Future<bool> isModelInstalled() async {
     return await MnnModelDownloader.isModelDownloaded();
@@ -29,7 +18,7 @@ class ModelManager {
   }
 
   /// 获取模型总大小（字节）- 预估260MB
-  static int get totalSize => 260 * 1024 * 1024;
+  static int get totalSize => MnnModelDownloader.estimatedTotalSize;
 
   /// 获取格式化的模型大小文本
   static String get formattedTotalSize => '260MB';

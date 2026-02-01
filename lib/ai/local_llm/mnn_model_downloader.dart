@@ -26,7 +26,8 @@ class MnnModelDownloader {
       'https://modelscope.cn/models/lijiahaojj/MNN/resolve/master/qwen3-0.6B.zip';
 
   // 预估zip文件大小约260MB
-  static const int _estimatedZipSize = 260 * 1024 * 1024;
+  static const int estimatedTotalSize = 260 * 1024 * 1024;
+  static const int _estimatedZipSize = estimatedTotalSize;
 
   // 模型文件列表（用于检查完整性）
   static final List<String> _modelFiles = [

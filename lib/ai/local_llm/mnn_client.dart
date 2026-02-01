@@ -70,9 +70,9 @@ class MnnClient {
     double temperature = 0.7,
     double topP = 0.9,
     int topK = 40,
-    double minP = 0.05,
+    double minP = 0.0,
     double presencePenalty = 0.0,
-    double repetitionPenalty = 1.0,
+    double repetitionPenalty = 1.1,
     bool enableThinking = false,
   }) async {
     if (!_isInitialized) {
@@ -106,16 +106,15 @@ class MnnClient {
     double temperature = 0.7,
     double topP = 0.9,
     int topK = 40,
-    double minP = 0.05,
+    double minP = 0.0,
     double presencePenalty = 0.0,
-    double repetitionPenalty = 1.0,
+    double repetitionPenalty = 1.1,
     bool enableThinking = false,
   }) async* {
     if (!_isInitialized) {
       throw Exception('MNN client not initialized');
     }
 
-    final completer = Completer<void>();
     final controller = StreamController<String>();
     final decoderSink = utf8.decoder.startChunkedConversion(controller);
     StreamSubscription? subscription;
@@ -124,7 +123,7 @@ class MnnClient {
       debugPrint('MnnClient: Controller cancelled, cancelling subscription');
       subscription?.cancel();
       decoderSink.close();
-      cancel(); // 调用 native 的 cancel 方法
+      cancel();
     };
 
     try {
