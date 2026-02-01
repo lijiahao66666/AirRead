@@ -23,7 +23,7 @@ class MnnModelDownloader {
 
   // ModelScope 下载链接（Qwen3-0.6B MNN 模型）
   static const String _downloadUrl =
-      'https://modelscope.cn/models/lijiahaojj/MNN/resolve/master/Qwen3-0.6B-MNN.zip';
+      'https://modelscope.cn/models/lijiahaojj/MNN/resolve/master/qwen3-0.6B-mnn.zip';
 
   // 预估zip文件大小约390MB
   static const int estimatedTotalSize = 390 * 1024 * 1024;
