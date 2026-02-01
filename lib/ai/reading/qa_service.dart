@@ -76,6 +76,17 @@ String buildLocalQaPrompt({
 
   // Qwen3/ChatML 模型使用特定的 chat template
   // Format: <|im_start|>system\n...<|im_end|>\n<|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n
+  // Native 代码 (LLMInferenceEngineWrapper.mm) 已经会检查并自动添加模板，
+  // 为了避免不必要的混乱，我们在这里返回纯文本内容，让 Native 层统一处理。
+  // 但如果我们需要控制 system prompt，最好还是在这里拼好，并确保 Native 识别。
+  
+  // 之前的 Native 逻辑：
+  // if (!hasTemplate) fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
+  
+  // 我们的 generateQAPrompt 生成的是 "纯文本"（包含了 system 指令，但没有 chatml 标记）
+  // 为了让 system 指令生效，我们需要在这里手动包裹 ChatML 格式，
+  // 并且确保 Native 层能检测到我们已经包裹了。
+
   String userPrompt;
   switch (qaType) {
     case QAType.summary:
@@ -95,36 +106,24 @@ String buildLocalQaPrompt({
           '输出：不超过5条，每条一句话。';
       break;
     case QAType.general:
-      final cleanedContent = _tailText(
-          _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1200);
-      final buffer = StringBuffer()
-        ..writeln('你是阅读助手。请仅基于【当前阅读内容】与【历史问答】作答。')
-        ..writeln('要求：1) 优先在内容中定位答案并直接回答。 2) 必要时引用原文短句。 3) 不要编造。')
-        ..writeln()
-        ..writeln('【当前阅读内容】')
-        ..writeln(cleanedContent)
-        ..writeln();
-
-      if (historyText.isNotEmpty) {
-        buffer
-          ..writeln('【历史问答（最近对话）】')
-          ..writeln(historyText)
-          ..writeln();
-      }
-
-      buffer
-        ..writeln('【用户问题】')
-        ..writeln(question)
-        ..writeln()
-        ..writeln('请给出清晰、准确的回答。');
-
-      userPrompt = buffer.toString().trim();
+      userPrompt = contextService.generateQAPrompt(
+        question,
+        contentScope,
+        history: history,
+      );
       break;
   }
-
-  // 构建 prompt
-  // 直接传递简单的文本，让 MNN 的 jinja 模板自动处理格式
-  return userPrompt;
+  
+  // 手动构建 ChatML 格式，确保 system prompt 被正确分离
+  // Qwen 的 system prompt 通常放在开头
+  // <|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n...\n<|im_end|>\n<|im_start|>assistant\n
+  
+  // 我们的 userPrompt 其实已经包含了 "你是阅读助手..." 这样的 system 指令。
+  // 所以我们可以把它整个放在 user message 里，或者尝试拆分。
+  // 简单起见，我们把它放在 user message 里，因为这是最稳妥的。
+  
+  // 关键修正：确保换行符是 \n 而不是 \r\n，且不要有多余的空格干扰 Native 的检测
+  return '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n$userPrompt<|im_end|>\n<|im_start|>assistant\n';
 }
 
 class QAService {
