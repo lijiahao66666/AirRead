@@ -18,12 +18,15 @@ class _AirTitleState extends State<AirTitle> with SingleTickerProviderStateMixin
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2600),
+      duration: const Duration(milliseconds: 3200),
     );
-    _controller.forward(from: 0).whenComplete(() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      setState(() {
-        _settled = true;
+      _controller.forward(from: 0).whenComplete(() {
+        if (!mounted) return;
+        setState(() {
+          _settled = true;
+        });
       });
     });
   }
@@ -42,7 +45,7 @@ class _AirTitleState extends State<AirTitle> with SingleTickerProviderStateMixin
 
     final onSurface = scheme.onSurface;
     final baseA = isDark ? AppColors.neonCyan : AppColors.techBlue;
-    final baseB = isDark ? AppColors.techBlue : AppColors.deepSpace;
+    final baseB = isDark ? AppColors.techBlue : AppColors.neonCyan;
 
     const titleText = '灵阅';
 
@@ -53,7 +56,7 @@ class _AirTitleState extends State<AirTitle> with SingleTickerProviderStateMixin
             ? LinearGradient(
                 colors: [
                   baseA,
-                  Color.lerp(baseA, Colors.white, isDark ? 0.30 : 0.22) ?? baseA,
+                  Color.lerp(baseA, baseB, 0.45) ?? baseA,
                   baseB,
                 ],
                 stops: const [0.0, 0.5, 1.0],
@@ -62,14 +65,14 @@ class _AirTitleState extends State<AirTitle> with SingleTickerProviderStateMixin
               )
             : () {
                 final c = _controller.value;
-                const w = 0.18;
+                const w = 0.26;
                 final s0 = (c - w).clamp(0.0, 1.0);
                 final s1 = c.clamp(0.0, 1.0);
                 final s2 = (c + w).clamp(0.0, 1.0);
                 return LinearGradient(
                   colors: [
                     baseA,
-                    Color.lerp(baseA, Colors.white, isDark ? 0.36 : 0.26) ??
+                    Color.lerp(baseA, Colors.white, isDark ? 0.26 : 0.22) ??
                         baseA,
                     baseB,
                   ],
@@ -95,7 +98,8 @@ class _AirTitleState extends State<AirTitle> with SingleTickerProviderStateMixin
         final strokeColor = (isDark ? Colors.black : Colors.white).withAlpha(40);
         final shadowColor = (isDark ? Colors.black : Colors.white).withAlpha(22);
 
-        return Column(
+        return RepaintBoundary(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Stack(
@@ -132,6 +136,7 @@ class _AirTitleState extends State<AirTitle> with SingleTickerProviderStateMixin
               ),
             ),
           ],
+          ),
         );
       },
     );

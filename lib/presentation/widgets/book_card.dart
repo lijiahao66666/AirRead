@@ -140,18 +140,7 @@ class _BookCardState extends State<BookCard> {
             },
           ),
           const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: widget.book.percentage,
-            backgroundColor: scheme.onSurface.withOpacityCompat(isDark ? 0.16 : 0.08),
-            valueColor: AlwaysStoppedAnimation<Color>(
-              widget.book.percentage > 0
-                  ? AppColors.techBlue
-                  : Colors.transparent,
-            ),
-            borderRadius: BorderRadius.circular(2),
-            minHeight: 2,
-          ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Align(
             alignment: Alignment.centerRight,
             child: Builder(
