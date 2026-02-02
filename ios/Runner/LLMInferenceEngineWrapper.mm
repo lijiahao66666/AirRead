@@ -12,6 +12,7 @@
 #include <atomic>
 #include <vector>
 #include <utility>
+#include <TargetConditionals.h>
 #import "LLMInferenceEngineWrapper.h"
 
 // MNN Headers
@@ -102,7 +103,12 @@ private:
         
         // 发送完整的UTF-8字符串
         if (!outputStr.empty() && callback_) {
-            NSLog(@"[Utf8SafeStreamBuffer] Sending %zu bytes", outputStr.size());
+            NSMutableString *hex = [NSMutableString stringWithCapacity:(NSUInteger)outputStr.size() * 3];
+            size_t n = outputStr.size() > 16 ? 16 : outputStr.size();
+            for (size_t j = 0; j < n; j++) {
+                [hex appendFormat:@"%02X ", (unsigned char)outputStr[j]];
+            }
+            NSLog(@"[Utf8SafeStreamBuffer] Sending %zu bytes, first=%@", outputStr.size(), hex);
             callback_(outputStr.c_str(), outputStr.size());
         }
         
@@ -228,14 +234,12 @@ private:
                 return NO;
             }
             
-            // Configure LLM - 使用 config.json 中的配置，不再硬编码
-            // MNN 会自动从 config.json 和 llm_config.json 读取配置
+            // Configure LLM - 最小化覆盖项，只设置运行必须参数
             NSString *tempDirectory = NSTemporaryDirectory();
             std::string configStr = "{"
                 "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
-                "\"use_mmap\":true,"
-                "\"backend_type\":\"cpu\","  // 明确指定使用 CPU 后端，避免 ANE/Metal 错误
-                "\"reuse_kv\":true"
+                "\"use_mmap\":false,"
+                "\"backend_type\":\"cpu\""
                 "}";
             bool loadConfigOk = _llm->set_config(configStr);
             NSLog(@"[LLMInferenceEngineWrapper] Using config with backend_type=cpu, tmp_path=%s, set_config=%s", configStr.c_str(), loadConfigOk ? "true" : "false");
@@ -301,14 +305,16 @@ private:
     
     // Store reference for block execution
     LLMInferenceEngineWrapper *blockSelf = self;
+    NSInteger maxNewTokensForRun = maxNewTokens;
+    NSInteger maxInputTokensForRun = maxInputTokens;
     
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         try {
             @try {
                 // 设置推理参数
                 std::string configStr = "{";
-                configStr += "\"max_new_tokens\": " + std::to_string(maxNewTokens) + ",";
-                configStr += "\"max_input_tokens\": " + std::to_string(maxInputTokens) + ",";
+                configStr += "\"max_new_tokens\": " + std::to_string(maxNewTokensForRun) + ",";
+                configStr += "\"max_input_tokens\": " + std::to_string(maxInputTokensForRun) + ",";
                 configStr += "\"temperature\": " + std::to_string(temperature) + ",";
                 configStr += "\"top_p\": " + std::to_string(topP) + ",";
                 configStr += "\"top_k\": " + std::to_string(topK) + ",";
@@ -399,7 +405,7 @@ private:
                     return;
                 }
 
-                blockSelf->_llm->response(inputIds, &os, nullptr, (int)maxNewTokens);
+                blockSelf->_llm->response(inputIds, &os, nullptr, (int)maxNewTokensForRun);
 
                 if (accumulatedOutput.size() <= 4) {
                     std::string plain = userInput;
@@ -441,6 +447,23 @@ private:
                           context->gen_seq_len,
                           (long long)context->prefill_us,
                           (long long)context->decode_us);
+                    if (!context->output_tokens.empty()) {
+                        NSMutableString *ids = [NSMutableString string];
+                        size_t showIds = context->output_tokens.size() > 16 ? 16 : context->output_tokens.size();
+                        for (size_t i = 0; i < showIds; i++) {
+                            [ids appendFormat:@"%d ", context->output_tokens[i]];
+                        }
+                        NSLog(@"[LLM] First token ids (up to 16): %@", ids);
+                        bool allSame = true;
+                        int firstId = context->output_tokens[0];
+                        for (size_t i = 1; i < context->output_tokens.size(); i++) {
+                            if (context->output_tokens[i] != firstId) {
+                                allSame = false;
+                                break;
+                            }
+                        }
+                        NSLog(@"[LLM] All tokens same: %s", allSame ? "true" : "false");
+                    }
                     if (!context->output_tokens.empty()) {
                         std::string firstDecoded;
                         size_t show = context->output_tokens.size() > 8 ? 8 : context->output_tokens.size();

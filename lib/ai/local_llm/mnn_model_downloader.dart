@@ -80,9 +80,18 @@ class MnnModelDownloader {
       // 检查所有必需文件是否存在
       for (final fileName in _criticalFiles) {
         final filePath = p.join(modelDir, fileName);
-        if (!await File(filePath).exists()) {
+        final f = File(filePath);
+        if (!await f.exists()) {
           debugPrint('[MnnModelDownloader] Missing critical file: $fileName');
           return false;
+        }
+        final minBytes = _minExpectedBytes(fileName);
+        if (minBytes != null) {
+          final size = await f.length();
+          if (size < minBytes) {
+            debugPrint('[MnnModelDownloader] Critical file too small: $fileName size=$size min=$minBytes');
+            return false;
+          }
         }
       }
 
@@ -237,6 +246,7 @@ class MnnModelDownloader {
       final file = File(savePath);
       final sink = file.openWrite();
       int receivedBytes = 0;
+      final expectedBytes = response.contentLength;
 
       await for (final chunk in response.stream) {
         if (_cancelled) {
@@ -249,11 +259,73 @@ class MnnModelDownloader {
       }
 
       await sink.close();
+
+      if (expectedBytes != null && expectedBytes > 0 && receivedBytes != expectedBytes) {
+        debugPrint(
+            '[MnnModelDownloader] Download size mismatch for $fileName: received=$receivedBytes expected=$expectedBytes');
+        try {
+          await file.delete();
+        } catch (_) {}
+        return false;
+      }
+
+      final looksTextPointer = await _looksLikeTextPointer(file);
+      if (looksTextPointer) {
+        debugPrint('[MnnModelDownloader] Downloaded content looks like a text pointer/html for $fileName');
+        try {
+          await file.delete();
+        } catch (_) {}
+        return false;
+      }
+
+      final minBytes = _minExpectedBytes(fileName);
+      if (minBytes != null && receivedBytes < minBytes) {
+        debugPrint(
+            '[MnnModelDownloader] File too small for $fileName: received=$receivedBytes minExpected=$minBytes');
+        try {
+          await file.delete();
+        } catch (_) {}
+        return false;
+      }
+
       debugPrint('[MnnModelDownloader] $fileName downloaded successfully');
       return true;
     } catch (e) {
       debugPrint('[MnnModelDownloader] Error downloading $fileName: $e');
       return false;
+    }
+  }
+
+  static Future<bool> _looksLikeTextPointer(File file) async {
+    try {
+      final raf = await file.open();
+      final bytes = await raf.read(512);
+      await raf.close();
+      if (bytes.isEmpty) return true;
+
+      final text = String.fromCharCodes(bytes).toLowerCase();
+      if (text.contains('git-lfs.github.com')) return true;
+      if (text.contains('<html') || text.contains('<!doctype html')) return true;
+      if (text.contains('access denied') || text.contains('forbidden')) return true;
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static int? _minExpectedBytes(String fileName) {
+    switch (fileName) {
+      case 'llm.mnn.weight':
+        return 100 * 1024 * 1024;
+      case 'llm.mnn':
+        return 200 * 1024;
+      case 'tokenizer.txt':
+        return 4 * 1024;
+      case 'config.json':
+      case 'llm_config.json':
+        return 200;
+      default:
+        return null;
     }
   }
 

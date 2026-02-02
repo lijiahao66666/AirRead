@@ -123,7 +123,7 @@ String buildLocalQaPrompt({
   // 简单起见，我们把它放在 user message 里，因为这是最稳妥的。
   
   // 关键修正：确保换行符是 \n 而不是 \r\n，且不要有多余的空格干扰 Native 的检测
-  return '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n$userPrompt<|im_end|>\n<|im_start|>assistant\n';
+  return '<|im_start|>system\nYou are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user.\n你可以在 <think>...</think> 中输出思考过程，但必须在 </think> 后继续输出最终答案，不要在 </think> 后直接结束。<|im_end|>\n<|im_start|>user\n$userPrompt<|im_end|>\n<|im_start|>assistant\n';
 }
 
 class QAService {

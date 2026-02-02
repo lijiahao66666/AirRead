@@ -4151,7 +4151,6 @@ class _ReaderPageState extends State<ReaderPage>
         double viewportHeight = snapDown(
           constraints.maxHeight - topMargin - bottomMargin - (1 / dpr),
         );
-        if (viewportHeight <= 0) viewportHeight = 500;
 
         final TextStyle effectiveTextStyle =
             (Theme.of(context).textTheme.bodyLarge ?? const TextStyle())
@@ -4161,16 +4160,37 @@ class _ReaderPageState extends State<ReaderPage>
           color: _textColor,
         );
 
-        final double contentWidth =
-            (constraints.maxWidth - 48).clamp(0, constraints.maxWidth);
+        final double maxWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.of(context).size.width;
+        final double rawContentWidth = (maxWidth - 48);
+        final double safeMaxWidth = maxWidth <= 1 ? 1 : maxWidth;
+        final double safeContentWidth = rawContentWidth.isFinite
+            ? rawContentWidth.clamp(safeMaxWidth < 40 ? 1.0 : 40.0, safeMaxWidth)
+            : (safeMaxWidth < 40 ? 1.0 : 40.0);
+
+        final textScaler = MediaQuery.of(context).textScaler;
+        final probe = TextPainter(
+          textDirection: TextDirection.ltr,
+          textScaler: textScaler,
+          strutStyle:
+              StrutStyle.fromTextStyle(effectiveTextStyle, forceStrutHeight: true),
+          text: TextSpan(text: 'A', style: effectiveTextStyle),
+        )..layout(minWidth: 0, maxWidth: safeContentWidth);
+        final double minLineHeight = probe.height;
+        if (viewportHeight <= 0) {
+          viewportHeight = minLineHeight > 0 ? minLineHeight : 500;
+        } else if (minLineHeight > 0 && viewportHeight < minLineHeight) {
+          viewportHeight = minLineHeight;
+        }
 
         _lastPaginationViewportHeight = viewportHeight;
-        _lastPaginationContentWidth = contentWidth;
+        _lastPaginationContentWidth = safeContentWidth;
 
         _scheduleTextPaginationForChapter(
           chapterIndex: chapterIndex,
           viewportHeight: viewportHeight,
-          contentWidth: contentWidth,
+          contentWidth: safeContentWidth,
           minPages: (pageIndex + 3).clamp(6, 999999),
         );
         final tp = Provider.of<TranslationProvider>(context, listen: false);
@@ -4178,7 +4198,7 @@ class _ReaderPageState extends State<ReaderPage>
           _schedulePlainPaginationForChapter(
             chapterIndex: chapterIndex,
             viewportHeight: viewportHeight,
-            contentWidth: contentWidth,
+            contentWidth: safeContentWidth,
             minPages: (pageIndex + 3).clamp(6, 999999),
           );
         }
@@ -4200,14 +4220,14 @@ class _ReaderPageState extends State<ReaderPage>
           _scheduleTextPaginationForChapter(
             chapterIndex: chapterIndex,
             viewportHeight: viewportHeight,
-            contentWidth: contentWidth,
+            contentWidth: safeContentWidth,
             minPages: (pageIndex + 3).clamp(6, 999999),
           );
           if (tp.applyToReader) {
             _schedulePlainPaginationForChapter(
               chapterIndex: chapterIndex,
               viewportHeight: viewportHeight,
-              contentWidth: contentWidth,
+              contentWidth: safeContentWidth,
               minPages: (pageIndex + 3).clamp(6, 999999),
             );
           }
@@ -4228,7 +4248,7 @@ class _ReaderPageState extends State<ReaderPage>
               _scheduleTextPaginationForChapter(
                 chapterIndex: chapterIndex,
                 viewportHeight: viewportHeight,
-                contentWidth: contentWidth,
+                contentWidth: safeContentWidth,
                 minPages: (displayRanges.length + 30).clamp(30, 999999),
               );
               return const Center(child: CircularProgressIndicator());
