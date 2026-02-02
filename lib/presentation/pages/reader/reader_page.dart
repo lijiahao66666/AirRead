@@ -804,19 +804,65 @@ class _ReaderPageState extends State<ReaderPage>
     if (!mounted) return;
     try {
       final booksProvider = Provider.of<BooksProvider>(context, listen: false);
+      final overall = _computeOverallProgress().clamp(0.0, 1.0);
       await booksProvider.saveReadingProgress(
         bookId: widget.bookId,
         chapterIndex: _currentChapterIndex,
         pageInChapter: _currentPageInChapter,
         progress: _currentPageProgressInChapter.clamp(0.0, 1.0),
+        overallProgress: overall,
       );
       _currentBook = _currentBook?.copyWith(
         readingChapter: _currentChapterIndex,
         readingPage: _currentPageInChapter,
         readingProgress: _currentPageProgressInChapter.clamp(0.0, 1.0),
+        percentage: overall,
         lastRead: DateTime.now(),
       );
     } catch (_) {}
+  }
+
+  double _computeOverallProgress() {
+    final totalChapters = _chapters.length;
+    if (totalChapters <= 0) return 0.0;
+    final chapterIndex = _currentChapterIndex.clamp(0, totalChapters - 1);
+    final within = _computeChapterProgressByParagraphs(chapterIndex);
+    if (totalChapters == 1) return within;
+    return (chapterIndex + within) / totalChapters;
+  }
+
+  double _computeChapterProgressByParagraphs(int chapterIndex) {
+    final plainText = _getPlainTextForChapter(chapterIndex);
+    if (plainText.isEmpty) return 0.0;
+    final paragraphs = _getParagraphsForChapter(chapterIndex, plainText);
+    final totalParas = paragraphs.length;
+    if (totalParas <= 0) return 0.0;
+
+    final ranges = _chapterPageRanges[chapterIndex] ??
+        _chapterFallbackPageRanges[chapterIndex];
+    final effectiveText = _chapterEffectiveText[chapterIndex] ?? plainText;
+    if (ranges == null || ranges.isEmpty) {
+      final p = _currentPageProgressInChapter.clamp(0.0, 1.0);
+      return p;
+    }
+    final safeIndex = _currentPageInChapter.clamp(0, ranges.length - 1);
+    final offset = ranges[safeIndex].start.clamp(0, effectiveText.length);
+
+    int paraIndex = 0;
+    int i = 0;
+    final int limit = offset.clamp(0, effectiveText.length);
+    while (i + 1 < limit) {
+      if (effectiveText.codeUnitAt(i) == 10 &&
+          effectiveText.codeUnitAt(i + 1) == 10) {
+        paraIndex++;
+        i += 2;
+      } else {
+        i++;
+      }
+    }
+    if (paraIndex <= 0) return 0.0;
+    if (paraIndex >= totalParas) return 1.0;
+    return (paraIndex / totalParas).clamp(0.0, 1.0);
   }
 
   void _saveProgressDebounced() {

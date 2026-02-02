@@ -263,6 +263,7 @@ class BooksProvider extends ChangeNotifier {
     required int chapterIndex,
     required int pageInChapter,
     required double progress,
+    double? overallProgress,
   }) async {
     final index = _books.indexWhere((b) => b.id == bookId);
     if (index == -1) return;
@@ -272,6 +273,7 @@ class BooksProvider extends ChangeNotifier {
       readingChapter: chapterIndex,
       readingPage: pageInChapter,
       readingProgress: progress,
+      percentage: overallProgress ?? _books[index].percentage,
       lastRead: now,
     );
 

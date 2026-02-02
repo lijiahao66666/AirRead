@@ -108,6 +108,8 @@ class _BookCardState extends State<BookCard> {
             widget.book.title,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  height: 1.15,
                 ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -140,7 +142,21 @@ class _BookCardState extends State<BookCard> {
             },
           ),
           const SizedBox(height: 8),
-          const SizedBox(height: 2),
+          if (widget.book.percentage > 0) ...[
+            LinearProgressIndicator(
+              value: widget.book.percentage.clamp(0.0, 1.0),
+              backgroundColor:
+                  scheme.onSurface.withOpacityCompat(isDark ? 0.16 : 0.08),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                AppColors.techBlue,
+              ),
+              borderRadius: BorderRadius.circular(2),
+              minHeight: 2,
+            ),
+            const SizedBox(height: 4),
+          ] else ...[
+            const SizedBox(height: 2),
+          ],
           Align(
             alignment: Alignment.centerRight,
             child: Builder(
@@ -148,7 +164,17 @@ class _BookCardState extends State<BookCard> {
                 final total = widget.book.totalPages;
                 final current = widget.book.currentPage;
                 if (total <= 0) {
-                  return const SizedBox.shrink();
+                  final p = widget.book.percentage;
+                  if (p <= 0) return const SizedBox.shrink();
+                  final String percent =
+                      (p * 100).clamp(0, 100).toStringAsFixed(0);
+                  return Text(
+                    '$percent%',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurface.withOpacityCompat(0.55),
+                          fontSize: 10,
+                        ),
+                  );
                 }
                 if (current <= 0) {
                   return const SizedBox.shrink();
