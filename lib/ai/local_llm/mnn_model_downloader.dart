@@ -61,6 +61,11 @@ class MnnModelDownloader {
   double get progress => _progress;
   String get currentFile => _currentFile;
 
+  static const int _defaultMaxAttemptsPerFile = 0;
+  static const Duration _defaultInitialBackoff = Duration(milliseconds: 800);
+  static const Duration _defaultMaxBackoff = Duration(seconds: 30);
+  static const Duration _defaultRequestTimeout = Duration(minutes: 20);
+
   /// 获取模型目录路径
   static Future<String> getModelDir() async {
     final appDir = await getApplicationDocumentsDirectory();
@@ -175,7 +180,7 @@ class MnnModelDownloader {
         // 如果文件已存在且大小匹配（这里很难预知大小，所以简单覆盖或者跳过）
         // 为确保完整性，我们选择覆盖下载
         
-        final success = await _downloadSingleFile(
+        final success = await _downloadSingleFileWithRetry(
           fileName, 
           filePath, 
           (bytes) {
@@ -217,83 +222,200 @@ class MnnModelDownloader {
     }
   }
 
-  /// 下载单个文件
-  Future<bool> _downloadSingleFile(
+  Future<bool> _downloadSingleFileWithRetry(
     String fileName,
     String savePath,
-    Function(int received) onProgress,
+    Function(int receivedTotal) onProgress,
   ) async {
-    try {
-      final url = '$_baseUrl$fileName';
-      debugPrint('[MnnModelDownloader] Downloading $fileName from $url');
+    int attempt = 0;
+    Duration backoff = _defaultInitialBackoff;
+    while (!_cancelled) {
+      attempt++;
 
-      final request = http.Request('GET', Uri.parse(url));
-      request.headers['User-Agent'] = 'AirRead/1.0';
-
-      final response = await _httpClient!.send(request).timeout(
-        const Duration(minutes: 20), // 大文件给多点时间
-        onTimeout: () {
-          throw Exception('Download timeout for $fileName');
-        },
+      final existingBytes = await _safeFileLength(savePath);
+      final res = await _downloadSingleFileOnce(
+        fileName: fileName,
+        savePath: savePath,
+        existingBytes: existingBytes,
+        onProgress: onProgress,
       );
 
-      if (response.statusCode != 200) {
-        debugPrint(
-            '[MnnModelDownloader] Failed to download $fileName: ${response.statusCode}');
+      if (res == _DownloadResult.success) return true;
+      if (res == _DownloadResult.cancelled) return false;
+      if (res == _DownloadResult.fatal) return false;
+
+      if (_defaultMaxAttemptsPerFile > 0 && attempt >= _defaultMaxAttemptsPerFile) {
         return false;
       }
 
-      final file = File(savePath);
-      final sink = file.openWrite();
-      int receivedBytes = 0;
-      final expectedBytes = response.contentLength;
+      await Future<void>.delayed(backoff + _jitter(backoff));
+      backoff = _nextBackoff(backoff);
+    }
+    return false;
+  }
 
+  Duration _nextBackoff(Duration current) {
+    final nextMs = (current.inMilliseconds * 2).clamp(
+      _defaultInitialBackoff.inMilliseconds,
+      _defaultMaxBackoff.inMilliseconds,
+    );
+    return Duration(milliseconds: nextMs);
+  }
+
+  Duration _jitter(Duration base) {
+    final ms = base.inMilliseconds;
+    if (ms <= 0) return Duration.zero;
+    final jitter = (ms * 0.2).round();
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final r = (now % (jitter * 2 + 1)) - jitter;
+    return Duration(milliseconds: r);
+  }
+
+  static Future<int> _safeFileLength(String path) async {
+    try {
+      final f = File(path);
+      if (!await f.exists()) return 0;
+      return await f.length();
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// 下载单个文件
+  Future<_DownloadResult> _downloadSingleFileOnce({
+    required String fileName,
+    required String savePath,
+    required int existingBytes,
+    required Function(int receivedTotal) onProgress,
+  }) async {
+    final client = _httpClient;
+    if (client == null) return _DownloadResult.retryable;
+
+    final url = '$_baseUrl$fileName';
+    debugPrint('[MnnModelDownloader] Downloading $fileName from $url');
+
+    http.StreamedResponse response;
+    try {
+      final request = http.Request('GET', Uri.parse(url));
+      request.headers['User-Agent'] = 'AirRead/1.0';
+      if (existingBytes > 0) {
+        request.headers['Range'] = 'bytes=$existingBytes-';
+      }
+
+      response = await client.send(request).timeout(
+        _defaultRequestTimeout,
+        onTimeout: () {
+          throw TimeoutException('Download timeout for $fileName');
+        },
+      );
+    } catch (e) {
+      if (_cancelled) return _DownloadResult.cancelled;
+      if (_isRetryableException(e)) return _DownloadResult.retryable;
+      return _DownloadResult.fatal;
+    }
+
+    if (_cancelled) return _DownloadResult.cancelled;
+
+    if (response.statusCode != 200 && response.statusCode != 206) {
+      debugPrint('[MnnModelDownloader] Failed to download $fileName: ${response.statusCode}');
+      if (_isRetryableStatusCode(response.statusCode)) return _DownloadResult.retryable;
+      return _DownloadResult.fatal;
+    }
+
+    final file = File(savePath);
+    int startOffset = 0;
+    bool append = false;
+
+    if (response.statusCode == 206 && existingBytes > 0) {
+      startOffset = existingBytes;
+      append = true;
+    } else if (existingBytes > 0 && response.statusCode == 200) {
+      try {
+        await file.writeAsBytes(const [], mode: FileMode.write);
+      } catch (_) {}
+      startOffset = 0;
+      append = false;
+    }
+
+    final totalBytes = _totalBytesFromResponse(response);
+    final sink = file.openWrite(mode: append ? FileMode.append : FileMode.write);
+    int receivedBytes = 0;
+
+    try {
       await for (final chunk in response.stream) {
         if (_cancelled) {
-          sink.close();
-          return false;
+          await sink.close();
+          return _DownloadResult.cancelled;
         }
         sink.add(chunk);
         receivedBytes += chunk.length;
-        onProgress(receivedBytes);
+        onProgress(startOffset + receivedBytes);
       }
-
       await sink.close();
-
-      if (expectedBytes != null && expectedBytes > 0 && receivedBytes != expectedBytes) {
-        debugPrint(
-            '[MnnModelDownloader] Download size mismatch for $fileName: received=$receivedBytes expected=$expectedBytes');
-        try {
-          await file.delete();
-        } catch (_) {}
-        return false;
-      }
-
-      final looksTextPointer = await _looksLikeTextPointer(file);
-      if (looksTextPointer) {
-        debugPrint('[MnnModelDownloader] Downloaded content looks like a text pointer/html for $fileName');
-        try {
-          await file.delete();
-        } catch (_) {}
-        return false;
-      }
-
-      final minBytes = _minExpectedBytes(fileName);
-      if (minBytes != null && receivedBytes < minBytes) {
-        debugPrint(
-            '[MnnModelDownloader] File too small for $fileName: received=$receivedBytes minExpected=$minBytes');
-        try {
-          await file.delete();
-        } catch (_) {}
-        return false;
-      }
-
-      debugPrint('[MnnModelDownloader] $fileName downloaded successfully');
-      return true;
     } catch (e) {
-      debugPrint('[MnnModelDownloader] Error downloading $fileName: $e');
-      return false;
+      try {
+        await sink.close();
+      } catch (_) {}
+      if (_cancelled) return _DownloadResult.cancelled;
+      if (_isRetryableException(e)) return _DownloadResult.retryable;
+      return _DownloadResult.retryable;
     }
+
+    final finalSize = await _safeFileLength(savePath);
+    if (totalBytes != null && totalBytes > 0 && finalSize != totalBytes) {
+      debugPrint('[MnnModelDownloader] Incomplete file for $fileName: size=$finalSize total=$totalBytes');
+      return _DownloadResult.retryable;
+    }
+
+    final looksTextPointer = await _looksLikeTextPointer(file);
+    if (looksTextPointer) {
+      debugPrint('[MnnModelDownloader] Downloaded content looks like a text pointer/html for $fileName');
+      try {
+        await file.delete();
+      } catch (_) {}
+      return _DownloadResult.fatal;
+    }
+
+    final minBytes = _minExpectedBytes(fileName);
+    if (minBytes != null && finalSize < minBytes) {
+      debugPrint('[MnnModelDownloader] File too small for $fileName: size=$finalSize minExpected=$minBytes');
+      return _DownloadResult.retryable;
+    }
+
+    debugPrint('[MnnModelDownloader] $fileName downloaded successfully');
+    return _DownloadResult.success;
+  }
+
+  static bool _isRetryableStatusCode(int code) {
+    if (code == 408) return true;
+    if (code == 429) return true;
+    if (code >= 500 && code <= 599) return true;
+    return false;
+  }
+
+  static bool _isRetryableException(Object e) {
+    if (e is SocketException) return true;
+    if (e is TimeoutException) return true;
+    if (e is HandshakeException) return true;
+    if (e is HttpException) return true;
+    if (e is http.ClientException) return true;
+    return false;
+  }
+
+  static int? _totalBytesFromResponse(http.StreamedResponse response) {
+    if (response.statusCode == 200) return response.contentLength;
+    final contentRange = response.headers['content-range'] ?? response.headers['Content-Range'];
+    if (contentRange == null) return null;
+    return parseTotalBytesFromContentRange(contentRange);
+  }
+
+  static int? parseTotalBytesFromContentRange(String value) {
+    final v = value.trim();
+    final slash = v.lastIndexOf('/');
+    if (slash < 0) return null;
+    final totalStr = v.substring(slash + 1).trim();
+    if (totalStr == '*' || totalStr.isEmpty) return null;
+    return int.tryParse(totalStr);
   }
 
   static Future<bool> _looksLikeTextPointer(File file) async {
@@ -366,4 +488,11 @@ class MnnModelDownloader {
     _progressController.close();
     _currentFileController.close();
   }
+}
+
+enum _DownloadResult {
+  success,
+  retryable,
+  fatal,
+  cancelled,
 }
