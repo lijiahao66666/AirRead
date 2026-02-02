@@ -11,6 +11,7 @@ class AirTitle extends StatefulWidget {
 
 class _AirTitleState extends State<AirTitle> with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  bool _settled = false;
 
   @override
   void initState() {
@@ -18,7 +19,13 @@ class _AirTitleState extends State<AirTitle> with SingleTickerProviderStateMixin
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2600),
-    )..repeat();
+    );
+    _controller.forward(from: 0).whenComplete(() {
+      if (!mounted) return;
+      setState(() {
+        _settled = true;
+      });
+    });
   }
 
   @override
@@ -42,23 +49,35 @@ class _AirTitleState extends State<AirTitle> with SingleTickerProviderStateMixin
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
-        final t = _controller.value;
-        final c = t;
-        const w = 0.18;
-        final s0 = (c - w).clamp(0.0, 1.0);
-        final s1 = c.clamp(0.0, 1.0);
-        final s2 = (c + w).clamp(0.0, 1.0);
-
-        final titleGradient = LinearGradient(
-          colors: [
-            baseA,
-            Color.lerp(baseA, Colors.white, isDark ? 0.36 : 0.26) ?? baseA,
-            baseB,
-          ],
-          stops: [s0, s1, s2],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        );
+        final titleGradient = _settled
+            ? LinearGradient(
+                colors: [
+                  baseA,
+                  Color.lerp(baseA, Colors.white, isDark ? 0.30 : 0.22) ?? baseA,
+                  baseB,
+                ],
+                stops: const [0.0, 0.5, 1.0],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              )
+            : () {
+                final c = _controller.value;
+                const w = 0.18;
+                final s0 = (c - w).clamp(0.0, 1.0);
+                final s1 = c.clamp(0.0, 1.0);
+                final s2 = (c + w).clamp(0.0, 1.0);
+                return LinearGradient(
+                  colors: [
+                    baseA,
+                    Color.lerp(baseA, Colors.white, isDark ? 0.36 : 0.26) ??
+                        baseA,
+                    baseB,
+                  ],
+                  stops: [s0, s1, s2],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                );
+              }();
 
         final titleStyle = GoogleFonts.notoSansSc(
           fontSize: 30,
