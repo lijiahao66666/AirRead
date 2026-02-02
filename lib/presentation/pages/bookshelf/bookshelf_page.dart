@@ -76,6 +76,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
   @override
   Widget build(BuildContext context) {
     final booksProvider = Provider.of<BooksProvider>(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     // Filter books based on search query
     final displayBooks = _filterBooks(booksProvider.books);
 
@@ -84,11 +87,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
       resizeToAvoidBottomInset:
           false, // Prevent keyboard/system UI from resizing layout
       appBar: AppBar(
-        systemOverlayStyle: const SystemUiOverlayStyle(
+        systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
           systemNavigationBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.dark,
-          systemNavigationBarIconBrightness: Brightness.dark,
+          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+          systemNavigationBarIconBrightness:
+              isDark ? Brightness.light : Brightness.dark,
           systemNavigationBarContrastEnforced: false,
         ),
         backgroundColor: Colors.transparent,
@@ -122,12 +126,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
             children: [
               // Background Gradient (Flat / Clean)
               Container(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [AppColors.airBlue, AppColors.mistWhite],
-                    stops: [0.0, 0.3],
+                    colors: isDark
+                        ? const [Color(0xFF0E1418), AppColors.nightBg]
+                        : const [AppColors.airBlue, AppColors.mistWhite],
+                    stops: const [0.0, 0.3],
                   ),
                 ),
               ),
@@ -148,32 +154,37 @@ class _BookshelfPageState extends State<BookshelfPage> {
                               child: GlassPanel(
                                 borderRadius:
                                     BorderRadius.circular(AppTokens.radiusMd),
-                                surfaceColor: Colors.white,
-                                opacity: 0.60,
+                                surfaceColor: isDark
+                                    ? const Color(0xFF1E272C)
+                                    : Colors.white,
+                                opacity: isDark ? 0.72 : 0.60,
                                 border: Border.all(
-                                  color:
-                                      AppColors.deepSpace.withOpacityCompat(0.06),
+                                  color: scheme.onSurface
+                                      .withOpacityCompat(isDark ? 0.12 : 0.06),
                                   width: AppTokens.stroke,
                                 ),
                                 child: TextField(
                                   controller: _searchController,
                                   onChanged: _onSearchChanged,
-                                  style: const TextStyle(
-                                      color: AppColors.deepSpace),
+                                  style:
+                                      TextStyle(color: scheme.onSurface),
                                   decoration: InputDecoration(
                                     hintText: '搜索书名或作者',
-                                    hintStyle: const TextStyle(
-                                        color: AppColors.softGrey),
-                                    prefixIcon: const Icon(Icons.search,
-                                        color: AppColors.softGrey),
+                                    hintStyle: TextStyle(
+                                        color: scheme.onSurface
+                                            .withOpacityCompat(0.45)),
+                                    prefixIcon: Icon(Icons.search,
+                                        color: scheme.onSurface
+                                            .withOpacityCompat(0.45)),
                                     border: InputBorder.none,
                                     contentPadding: const EdgeInsets.symmetric(
                                         horizontal: 16, vertical: 12),
                                     suffixIcon: _searchQuery.isNotEmpty
                                         ? IconButton(
-                                            icon: const Icon(Icons.close,
+                                            icon: Icon(Icons.close,
                                                 size: 20,
-                                                color: AppColors.softGrey),
+                                                color: scheme.onSurface
+                                                    .withOpacityCompat(0.45)),
                                             onPressed: () {
                                               _searchController.clear();
                                               _onSearchChanged('');
@@ -220,17 +231,17 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                 children: [
                                   Icon(Icons.library_books_outlined,
                                       size: 80,
-                                      color:
-                                          AppColors.softGrey
-                                              .withOpacityCompat(0.3)),
+                                      color: scheme.onSurface
+                                          .withOpacityCompat(0.22)),
                                   const SizedBox(height: 24),
                                   Text(
                                     _searchQuery.isNotEmpty
                                         ? '未找到相关书籍'
                                         : '书架空空如也，快去导入书籍吧！',
                                     textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: AppColors.softGrey,
+                                    style: TextStyle(
+                                      color: scheme.onSurface
+                                          .withOpacityCompat(0.55),
                                       fontSize: 16,
                                     ),
                                   ),
@@ -337,8 +348,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
                     borderRadius: const BorderRadius.vertical(
                       top: Radius.circular(AppTokens.radiusLg),
                     ),
-                    surfaceColor: Colors.white,
-                    opacity: 0.92,
+                    surfaceColor:
+                        isDark ? const Color(0xFF1E272C) : Colors.white,
+                    opacity: isDark ? 0.94 : 0.92,
                     boxShadow: AppTokens.shadowSoft,
                     child: Padding(
                       padding: EdgeInsets.fromLTRB(
@@ -361,16 +373,17 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                 icon: const Icon(
                                     Icons.vertical_align_top_rounded,
                                     size: 28),
-                                color: AppColors.deepSpace,
-                                disabledColor: Colors.grey[300],
+                                color: scheme.onSurface,
+                                disabledColor:
+                                    scheme.onSurface.withOpacityCompat(0.25),
                               ),
                               Text(
                                 '置顶',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: booksProvider.selectedBookIds.isEmpty
-                                      ? Colors.grey[300]
-                                      : AppColors.deepSpace,
+                                      ? scheme.onSurface.withOpacityCompat(0.25)
+                                      : scheme.onSurface,
                                 ),
                               )
                             ],
@@ -407,14 +420,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                 icon: const Icon(Icons.delete_outline_rounded,
                                     size: 28),
                                 color: Colors.redAccent,
-                                disabledColor: Colors.grey[300],
+                                disabledColor:
+                                    scheme.onSurface.withOpacityCompat(0.25),
                               ),
                               Text(
                                 '删除',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: booksProvider.selectedBookIds.isEmpty
-                                      ? Colors.grey[300]
+                                      ? scheme.onSurface.withOpacityCompat(0.25)
                                       : Colors.redAccent,
                                 ),
                               )
@@ -440,7 +454,9 @@ Widget _buildActionButton({
   required String tooltip,
   bool isActive = false,
 }) {
-  final onSurface = Theme.of(context).colorScheme.onSurface;
+  final theme = Theme.of(context);
+  final onSurface = theme.colorScheme.onSurface;
+  final isDark = theme.brightness == Brightness.dark;
 
   return Material(
     color: Colors.transparent,
@@ -452,8 +468,8 @@ Widget _buildActionButton({
         height: 48,
         child: GlassPanel(
           borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-          surfaceColor: Colors.white,
-          opacity: isActive ? 0.72 : 0.60,
+          surfaceColor: isDark ? const Color(0xFF1E272C) : Colors.white,
+          opacity: isActive ? (isDark ? 0.86 : 0.72) : (isDark ? 0.72 : 0.60),
           border: Border.all(
             color: (isActive ? AppColors.techBlue : onSurface)
                 .withOpacityCompat(isActive ? 0.28 : 0.08),
@@ -462,7 +478,7 @@ Widget _buildActionButton({
           child: Center(
             child: Icon(
               icon,
-              color: isActive ? AppColors.techBlue : AppColors.deepSpace,
+              color: isActive ? AppColors.techBlue : onSurface,
               size: 24,
             ),
           ),

@@ -285,6 +285,7 @@ class _ReaderPageState extends State<ReaderPage>
   double _lineHeight = 1.4;
   Color _bgColor = const Color(0xFFF5F9FA); // Default (Day)
   Color _textColor = const Color(0xFF2C3E50);
+  bool _followSystemTheme = true;
 
   // AI companion toggles (continuous features).
   //
@@ -471,6 +472,24 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   @override
+  void didChangePlatformBrightness() {
+    if (!mounted) return;
+    if (!_followSystemTheme) return;
+    final isSystemDark = WidgetsBinding
+            .instance.platformDispatcher.platformBrightness ==
+        Brightness.dark;
+    setState(() {
+      if (isSystemDark) {
+        _bgColor = const Color(0xFF121212);
+        _textColor = const Color(0xFFEEEEEE);
+      } else {
+        _bgColor = const Color(0xFFF5F9FA);
+        _textColor = const Color(0xFF2C3E50);
+      }
+    });
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
@@ -569,30 +588,24 @@ class _ReaderPageState extends State<ReaderPage>
       setState(() {
         _fontSize = _prefs?.getDouble('fontSize') ?? 18.0;
         _lineHeight = _prefs?.getDouble('lineHeight') ?? 1.4;
-        
-        int? colorVal = _prefs?.getInt('bgColor');
-        int? textVal = _prefs?.getInt('textColor');
-        
-        // If no saved colors, use system theme defaults
-        if (colorVal != null) {
-          _bgColor = Color(colorVal);
+        _followSystemTheme = true;
+        if (isSystemDark) {
+          _bgColor = const Color(0xFF121212);
+          _textColor = const Color(0xFFEEEEEE);
         } else {
-          _bgColor = isSystemDark 
-              ? const Color(0xFF1E272C)  // Dark mode default
-              : const Color(0xFFF5F9FA); // Light mode default
-        }
-        
-        if (textVal != null) {
-          _textColor = Color(textVal);
-        } else {
-          _textColor = isSystemDark
-              ? const Color(0xFFE8ECEF)  // Dark mode text
-              : const Color(0xFF2C3E50); // Light mode text
+          _bgColor = const Color(0xFFF5F9FA);
+          _textColor = const Color(0xFF2C3E50);
         }
 
         _aiReadAloudPlaying = false;
       });
     }
+
+    try {
+      await _prefs?.remove('reader_follow_system_theme');
+      await _prefs?.remove('bgColor');
+      await _prefs?.remove('textColor');
+    } catch (_) {}
 
     await _loadBookContent();
 
@@ -672,8 +685,11 @@ class _ReaderPageState extends State<ReaderPage>
     final booksProvider = Provider.of<BooksProvider>(context, listen: false);
     await prefs.setDouble('fontSize', _fontSize);
     await prefs.setDouble('lineHeight', _lineHeight);
-    await prefs.setInt('bgColor', _bgColor.toARGB32());
-    await prefs.setInt('textColor', _textColor.toARGB32());
+    try {
+      await prefs.remove('reader_follow_system_theme');
+      await prefs.remove('bgColor');
+      await prefs.remove('textColor');
+    } catch (_) {}
 
     try {
       booksProvider.saveReadingSettingsToDb(
@@ -3851,6 +3867,45 @@ class _ReaderPageState extends State<ReaderPage>
                             color: _panelTextColor)),
                     const SizedBox(height: 24),
 
+                    Row(
+                      children: [
+                        Icon(Icons.brightness_4_rounded,
+                            color: _panelTextColor.withOpacityCompat(0.5)),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Text(
+                            '跟随系统深色模式',
+                            style: TextStyle(
+                                fontSize: 14, color: _panelTextColor),
+                          ),
+                        ),
+                        Switch(
+                          value: _followSystemTheme,
+                          activeThumbColor: AppColors.techBlue,
+                          onChanged: (v) {
+                            setSheetState(() {});
+                            setState(() {
+                              _followSystemTheme = v;
+                              if (_followSystemTheme) {
+                                final isSystemDark =
+                                    MediaQuery.platformBrightnessOf(context) ==
+                                        Brightness.dark;
+                                if (isSystemDark) {
+                                  _bgColor = const Color(0xFF121212);
+                                  _textColor = const Color(0xFFEEEEEE);
+                                } else {
+                                  _bgColor = const Color(0xFFF5F9FA);
+                                  _textColor = const Color(0xFF2C3E50);
+                                }
+                              }
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
                     // Font Size
                     Row(
                       children: [
@@ -3946,6 +4001,7 @@ class _ReaderPageState extends State<ReaderPage>
     return GestureDetector(
       onTap: () {
         setState(() {
+          _followSystemTheme = false;
           _bgColor = color;
           _textColor = textColor;
         });

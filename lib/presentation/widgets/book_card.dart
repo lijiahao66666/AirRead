@@ -37,6 +37,9 @@ class BookCard extends StatefulWidget {
 class _BookCardState extends State<BookCard> {
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     return GestureDetector(
       onTap: widget.onTap,
       child: Column(
@@ -46,13 +49,13 @@ class _BookCardState extends State<BookCard> {
           Expanded(
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: scheme.surface,
                 borderRadius: BorderRadius.circular(AppTokens.radiusMd),
                 border: Border.all(
-                  color: AppColors.deepSpace.withOpacityCompat(0.06),
+                  color: scheme.onSurface.withOpacityCompat(isDark ? 0.16 : 0.06),
                   width: AppTokens.stroke,
                 ),
-                boxShadow: AppTokens.shadowTight,
+                boxShadow: isDark ? null : AppTokens.shadowTight,
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(AppTokens.radiusMd),
@@ -71,18 +74,19 @@ class _BookCardState extends State<BookCard> {
                           decoration: BoxDecoration(
                             color: widget.isSelected
                                 ? AppColors.techBlue
-                                : Colors.white.withOpacityCompat(0.8),
+                                : scheme.surface.withOpacityCompat(0.82),
                             shape: BoxShape.circle,
                             border: Border.all(
                               color: widget.isSelected
                                   ? AppColors.techBlue
-                                  : Colors.grey.withOpacityCompat(0.6),
+                                  : scheme.onSurface.withOpacityCompat(0.28),
                               width: 1.5,
                             ),
                             boxShadow: [
                               if (!widget.isSelected)
                                 BoxShadow(
-                                  color: Colors.black.withOpacityCompat(0.1),
+                                  color: Colors.black.withOpacityCompat(
+                                      isDark ? 0.24 : 0.10),
                                   blurRadius: 4,
                                   offset: const Offset(0, 2),
                                 )
@@ -114,7 +118,7 @@ class _BookCardState extends State<BookCard> {
               final isUnknown =
                   author.isEmpty || author.toLowerCase() == 'unknown';
               final style = Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.softGrey,
+                    color: scheme.onSurface.withOpacityCompat(0.55),
                   );
               final reservedHeight = (style?.fontSize ?? 12) *
                       ((style?.height ?? 1.25).clamp(1.0, 2.0)).toDouble() +
@@ -138,7 +142,7 @@ class _BookCardState extends State<BookCard> {
           const SizedBox(height: 8),
           LinearProgressIndicator(
             value: widget.book.percentage,
-            backgroundColor: AppColors.mistWhite,
+            backgroundColor: scheme.onSurface.withOpacityCompat(isDark ? 0.16 : 0.08),
             valueColor: AlwaysStoppedAnimation<Color>(
               widget.book.percentage > 0
                   ? AppColors.techBlue
@@ -166,7 +170,7 @@ class _BookCardState extends State<BookCard> {
                 return Text(
                   '$percent%',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.softGrey,
+                        color: scheme.onSurface.withOpacityCompat(0.55),
                         fontSize: 10,
                       ),
                 );

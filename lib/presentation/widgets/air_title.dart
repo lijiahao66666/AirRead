@@ -6,9 +6,12 @@ class AirTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ShaderMask(
-      shaderCallback: (bounds) => const LinearGradient(
-        colors: [AppColors.deepSpace, AppColors.techBlue],
+      shaderCallback: (bounds) => LinearGradient(
+        colors: isDark
+            ? const [AppColors.techBlue, AppColors.neonCyan]
+            : const [AppColors.deepSpace, AppColors.techBlue],
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
       ).createShader(bounds),
