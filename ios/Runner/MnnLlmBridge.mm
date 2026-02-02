@@ -9,8 +9,10 @@
 #import "LLMInferenceEngineWrapper.h"
 #import <Foundation/Foundation.h>
 
-// 模拟器不支持 MNN
-#if TARGET_OS_SIMULATOR
+// 模拟器支持情况：
+// - Apple Silicon 模拟器（arm64）可用
+// - Intel 模拟器（x86_64）不可用
+#if TARGET_OS_SIMULATOR && !defined(__arm64__)
 #define MNN_NOT_AVAILABLE 1
 #else
 #define MNN_NOT_AVAILABLE 0
@@ -130,7 +132,7 @@
     if (onDone) {
         onDone([NSError errorWithDomain:@"MnnLlmBridge"
                                    code:1001
-                               userInfo:@{NSLocalizedDescriptionKey: @"MNN not available on simulator"}]);
+                               userInfo:@{NSLocalizedDescriptionKey: @"MNN not available on x86_64 simulator"}]);
     }
     return;
 #else

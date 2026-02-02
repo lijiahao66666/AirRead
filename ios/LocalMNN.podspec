@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.ios.deployment_target = '14.0'
   
   # 框架
-  s.vendored_frameworks = 'Frameworks/MNN.framework'
+  s.vendored_frameworks = 'Frameworks/MNN.xcframework'
   
   # 源文件
   s.source_files = 'Runner/LLMInferenceEngineWrapper.{h,mm}', 'Runner/MnnLlmBridge.{h,mm}'
@@ -25,5 +25,9 @@ Pod::Spec.new do |s|
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',
     'OTHER_CPLUSPLUSFLAGS' => '$(inherited) -std=c++17'
+  }
+
+  s.pod_target_xcconfig = {
+    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386 x86_64'
   }
 end

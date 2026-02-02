@@ -91,6 +91,7 @@ private:
                 } else {
                     // 无效序列，跳过这个字节
                     NSLog(@"[Utf8SafeStreamBuffer] Invalid UTF-8 sequence at %zu, byte: 0x%02X", i, c);
+                    invalidBytes_++;
                     i++;
                 }
             } else {
@@ -159,6 +160,7 @@ private:
     CallBack callback_ = nullptr;
     std::string byteBuffer_;  // 字节级缓冲区
     char buffer_[1024];       // 内部缓冲区
+    size_t invalidBytes_ = 0;
 };
 
 @interface LLMInferenceEngineWrapper () {
@@ -235,8 +237,8 @@ private:
                 "\"backend_type\":\"cpu\","  // 明确指定使用 CPU 后端，避免 ANE/Metal 错误
                 "\"reuse_kv\":true"
                 "}";
-            _llm->set_config(configStr);
-            NSLog(@"[LLMInferenceEngineWrapper] Using config with backend_type=cpu, tmp_path=%s", configStr.c_str());
+            bool loadConfigOk = _llm->set_config(configStr);
+            NSLog(@"[LLMInferenceEngineWrapper] Using config with backend_type=cpu, tmp_path=%s, set_config=%s", configStr.c_str(), loadConfigOk ? "true" : "false");
             
             // Load model
             bool loaded = _llm->load();
@@ -246,6 +248,9 @@ private:
                 return NO;
             }
             
+            std::string dumped = _llm->dump_config();
+            NSLog(@"[LLMInferenceEngineWrapper] dump_config (first 400 chars):\n%.400s", dumped.c_str());
+
             NSLog(@"[LLMInferenceEngineWrapper] Model loaded successfully from %@", _modelPath);
             return YES;
         } @catch (NSException *exception) {
@@ -312,8 +317,10 @@ private:
                 configStr += "\"repetition_penalty\": " + std::to_string(repetitionPenalty);
                 configStr += "}";
                 
-                blockSelf->_llm->set_config(configStr);
-                NSLog(@"[LLM] Config set: %s", configStr.c_str());
+                bool inferConfigOk = blockSelf->_llm->set_config(configStr);
+                NSLog(@"[LLM] Config set: %s (set_config=%s)", configStr.c_str(), inferConfigOk ? "true" : "false");
+
+                blockSelf->_llm->reset();
 
                 // 使用UTF-8安全的流缓冲区
                 std::string accumulatedOutput;
@@ -338,7 +345,12 @@ private:
                                     handler(nsOutput);
                                 });
                             } else {
-                                NSLog(@"[LLM] Failed to decode bytes as UTF-8, len=%zu", len);
+                                NSMutableString *hex = [NSMutableString stringWithCapacity:(NSUInteger)len * 3];
+                                size_t n = len > 16 ? 16 : len;
+                                for (size_t i = 0; i < n; i++) {
+                                    [hex appendFormat:@"%02X ", (unsigned char)str[i]];
+                                }
+                                NSLog(@"[LLM] Failed to decode bytes as UTF-8, len=%zu, first=%@", len, hex);
                             }
                         }
                     }
@@ -358,7 +370,10 @@ private:
                 // Dart 层的 buildLocalQaPrompt 已经生成了完整的 ChatML 格式：
                 // <|im_start|>system...<|im_end|>\n<|im_start|>user...<|im_end|>\n<|im_start|>assistant\n
                 
-                bool hasTemplate = (fullPrompt.find("<|im_start|>") != std::string::npos);
+                bool hasTemplate =
+                    (fullPrompt.find("<|im_start|>") != std::string::npos) ||
+                    (fullPrompt.find("<user>") != std::string::npos) ||
+                    (fullPrompt.find("<chat_user>") != std::string::npos);
                 
                 if (!hasTemplate) {
                     // 如果没有模板标记，说明是纯文本输入，应用默认模板
@@ -372,12 +387,71 @@ private:
                 // Start inference
                 NSLog(@"[LLM] Starting inference...");
                 
-                // 使用 response 方法传入处理后的 fullPrompt
-                // 显式传递 maxNewTokens 以确保截断正确
-                blockSelf->_llm->response(fullPrompt, &os, "<eop>", (int)maxNewTokens);
+                std::vector<int> inputIds = blockSelf->_llm->tokenizer_encode(fullPrompt);
+                if (inputIds.empty()) {
+                    if (handler) {
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            handler(@"Error: Tokenization failed (empty input ids)");
+                            handler(@"<eop>");
+                        });
+                    }
+                    blockSelf->_isProcessing = false;
+                    return;
+                }
+
+                blockSelf->_llm->response(inputIds, &os, nullptr, (int)maxNewTokens);
+
+                if (accumulatedOutput.size() <= 4) {
+                    std::string plain = userInput;
+                    bool looksChatML = plain.find("<|im_start|>") != std::string::npos;
+                    if (looksChatML) {
+                        std::string extractedUser = plain;
+                        {
+                            std::string marker = "<|im_start|>user\n";
+                            auto u0 = plain.find(marker);
+                            if (u0 != std::string::npos) {
+                                u0 += marker.size();
+                                auto u1 = plain.find("<|im_end|>", u0);
+                                if (u1 != std::string::npos && u1 >= u0) {
+                                    extractedUser = plain.substr(u0, u1 - u0);
+                                } else {
+                                    extractedUser = plain.substr(u0);
+                                }
+                            }
+                        }
+
+                        std::vector<ChatMessage> chat;
+                        chat.emplace_back(ChatMessage("system", "You are a helpful assistant."));
+                        chat.emplace_back(ChatMessage("user", extractedUser));
+
+                        accumulatedOutput.clear();
+                        blockSelf->_llm->reset();
+                        blockSelf->_llm->response(chat, &os, nullptr, (int)maxNewTokens);
+                    }
+                }
                 
                 // Flush any remaining data in stream buffer
                 os.flush();
+
+                auto context = blockSelf->_llm->getContext();
+                if (context) {
+                    NSLog(@"[LLM] Status=%d, output_tokens=%zu, gen_seq_len=%d, prefill_us=%lld, decode_us=%lld",
+                          (int)context->status,
+                          context->output_tokens.size(),
+                          context->gen_seq_len,
+                          (long long)context->prefill_us,
+                          (long long)context->decode_us);
+                    if (!context->output_tokens.empty()) {
+                        std::string firstDecoded;
+                        size_t show = context->output_tokens.size() > 8 ? 8 : context->output_tokens.size();
+                        for (size_t i = 0; i < show; i++) {
+                            firstDecoded += blockSelf->_llm->tokenizer_decode(context->output_tokens[i]);
+                        }
+                        NSLog(@"[LLM] First decoded (up to 8 tokens):\n%.200s", firstDecoded.c_str());
+                    }
+                } else {
+                    NSLog(@"[LLM] Context is null after inference");
+                }
                 
                 // Send end signal
                 if (handler) {
