@@ -2682,12 +2682,33 @@ class _ReaderPageState extends State<ReaderPage>
 
     text = text.replaceAll(RegExp(r'<[^>]+>', multiLine: true), ' ');
 
+    text = text.replaceAll('&nbsp;', ' ');
+    text = text.replaceAll('&#160;', ' ');
+    text = text.replaceAll('&#xA0;', ' ');
+    text = text.replaceAll('&ensp;', ' ');
+    text = text.replaceAll('&emsp;', ' ');
+    text = text.replaceAll('&#12288;', ' ');
+    text = text.replaceAll('&#x3000;', ' ');
+
     text = text.replaceAll(RegExp(r'\r\n?'), '\n');
+    text = text.replaceAll(String.fromCharCode(0x00A0), ' ');
+    text = text.replaceAll(String.fromCharCode(0x3000), ' ');
+    text = text.replaceAll(String.fromCharCode(0xFEFF), ' ');
+    text = text.replaceAll(String.fromCharCode(0x200B), '');
+    text = text.replaceAll(RegExp(r'[\u2000-\u200A\u202F\u205F]'), ' ');
     text = text.replaceAll(RegExp(r'[ \t]+'), ' ');
+    text = text.replaceAll(RegExp(r' *\n *'), '\n');
     text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n');
     text = text.trim();
 
     final parts = text.split(RegExp(r'\n+'));
+    final paragraphs = <String>[];
+    for (int i = 0; i < parts.length; i++) {
+      final raw = parts[i].trim();
+      if (raw.isEmpty) continue;
+      paragraphs.add(raw.replaceAll(RegExp(r'\s+'), ' '));
+    }
+
     final buffer = StringBuffer();
     int titleLength = 0;
     bool firstWritten = false;
@@ -2696,29 +2717,96 @@ class _ReaderPageState extends State<ReaderPage>
         (chapterTitle != null && chapterTitle.trim().isNotEmpty)
             ? chapterTitle.trim().replaceAll(RegExp(r'\s+'), ' ')
             : null;
-    for (int i = 0; i < parts.length; i++) {
-      final raw = parts[i].trim();
-      if (raw.isEmpty) continue;
 
-      final normalizedRaw = raw.replaceAll(RegExp(r'\s+'), ' ');
+    int skipPrefix = 0;
+    String? detectedTitle;
+    if (paragraphs.isNotEmpty) {
+      String joinPrefix(int k) =>
+          paragraphs.take(k).join().replaceAll(RegExp(r'\s+'), '');
 
-      // Check if this paragraph matches chapter title (for any paragraph, not just first)
+      int findPrefixMatch(String target) {
+        final t = target.replaceAll(RegExp(r'\s+'), '');
+        final maxK = paragraphs.length < 8 ? paragraphs.length : 8;
+        for (int k = 2; k <= maxK; k++) {
+          bool ok = true;
+          for (int i = 0; i < k; i++) {
+            if (paragraphs[i].length > 2) {
+              ok = false;
+              break;
+            }
+          }
+          if (!ok) continue;
+          if (joinPrefix(k) == t) return k;
+        }
+        return 0;
+      }
+
+      if (normalizedTitle != null) {
+        final k = findPrefixMatch(normalizedTitle);
+        if (k > 0) {
+          detectedTitle = normalizedTitle;
+          skipPrefix = k;
+        }
+      } else {
+        const commonHeadings = <String>[
+          '简介',
+          '前言',
+          '序言',
+          '引子',
+          '楔子',
+          '后记',
+          '致谢',
+          '目录',
+          'contents',
+          'tableofcontents',
+          'introduction',
+          'preface',
+        ];
+        final lowerJoined = joinPrefix(8).toLowerCase();
+        for (final h in commonHeadings) {
+          final target = h.replaceAll(' ', '');
+          final k = findPrefixMatch(target);
+          if (k > 0) {
+            detectedTitle = h == target ? h : target;
+            skipPrefix = k;
+            break;
+          }
+          if (lowerJoined.startsWith(target.toLowerCase())) {
+            final maxK = paragraphs.length < 8 ? paragraphs.length : 8;
+            for (int k2 = 2; k2 <= maxK; k2++) {
+              if (joinPrefix(k2).toLowerCase() == target.toLowerCase()) {
+                detectedTitle = h;
+                skipPrefix = k2;
+                break;
+              }
+            }
+            if (skipPrefix > 0) break;
+          }
+        }
+      }
+    }
+
+    if (detectedTitle != null && detectedTitle.trim().isNotEmpty) {
+      buffer.write(detectedTitle);
+      titleLength = detectedTitle.length;
+      firstWritten = true;
+    }
+
+    for (int i = skipPrefix; i < paragraphs.length; i++) {
+      final normalizedRaw = paragraphs[i];
+
       if (normalizedTitle != null && normalizedRaw == normalizedTitle) {
         if (!firstWritten) {
-          // First occurrence: write as title
           buffer.write(normalizedRaw);
           titleLength = normalizedRaw.length;
           firstWritten = true;
         }
-        // Skip all subsequent title matches (avoid duplicates)
         continue;
       }
 
-      // For non-title paragraphs
       if (firstWritten) {
         buffer.write('\n\n');
       } else if (normalizedTitle != null) {
-        // First paragraph is not title, write title first
         buffer.write(normalizedTitle);
         buffer.write('\n\n');
       }
