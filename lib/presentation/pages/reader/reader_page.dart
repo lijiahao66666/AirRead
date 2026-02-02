@@ -107,6 +107,7 @@ class _TextReaderChapter implements _ReaderChapter {
     final int start = _start.clamp(0, _sourceText.length);
     final int end = _end.clamp(start, _sourceText.length);
     if (start >= end) return buffer.toString();
+    buffer.write('\n\n');
 
     final paraBuffer = StringBuffer();
     String? prevLineInPara;
@@ -124,6 +125,82 @@ class _TextReaderChapter implements _ReaderChapter {
       paraBuffer.clear();
       prevLineInPara = null;
     }
+
+    bool looksLikeParagraphStart(String rawLine, String t) {
+      if (rawLine.startsWith('\u3000\u3000')) return true;
+      if (rawLine.startsWith('  ')) return true;
+      if (rawLine.startsWith('\t')) return true;
+      if (RegExp(r'^[-*•]\s+').hasMatch(t)) return true;
+      if (RegExp(r'^\d{1,3}[\.、]\s*').hasMatch(t)) return true;
+      if (RegExp(r'^[一二三四五六七八九十]{1,3}[、\.]\s*').hasMatch(t)) {
+        return true;
+      }
+      return false;
+    }
+
+    bool endsSentence(String s) {
+      if (s.isEmpty) return false;
+      final last = s.codeUnitAt(s.length - 1);
+      if (last == 0x3002) return true;
+      if (last == 0xFF01) return true;
+      if (last == 0xFF1F) return true;
+      if (last == 0x002E) return true;
+      if (last == 0x003F) return true;
+      if (last == 0x0021) return true;
+      if (s.endsWith('……')) return true;
+      if (s.endsWith('...')) return true;
+      return false;
+    }
+
+    int sampleNonEmpty = 0;
+    int sampleBlank = 0;
+    int sampleIndent = 0;
+    int sampleLenSum = 0;
+    int sampleLines = 0;
+    int j = start;
+    while (j < end && sampleLines < 200) {
+      int lineStart = j;
+      int lineEnd = j;
+      while (lineEnd < end) {
+        final int cu = _sourceText.codeUnitAt(lineEnd);
+        if (cu == 10 || cu == 13) break;
+        lineEnd++;
+      }
+      int next = lineEnd;
+      if (next < end) {
+        final int cu = _sourceText.codeUnitAt(next);
+        if (cu == 13) {
+          next++;
+          if (next < end && _sourceText.codeUnitAt(next) == 10) {
+            next++;
+          }
+        } else if (cu == 10) {
+          next++;
+        }
+      }
+      final rawLine = _sourceText.substring(lineStart, lineEnd);
+      final t = rawLine.trim();
+      if (t.isEmpty) {
+        sampleBlank++;
+      } else {
+        sampleNonEmpty++;
+        sampleLenSum += t.length;
+        if (looksLikeParagraphStart(rawLine, t)) sampleIndent++;
+      }
+      sampleLines++;
+      j = next;
+    }
+
+    final bool hasBlankLines = sampleBlank >= 2;
+    final double avgLen =
+        sampleNonEmpty == 0 ? 0 : (sampleLenSum / sampleNonEmpty);
+    final double indentRatio =
+        sampleNonEmpty == 0 ? 0 : (sampleIndent / sampleNonEmpty);
+
+    final bool splitEachLine =
+        !hasBlankLines && indentRatio < 0.12 && avgLen > 0 && avgLen <= 40;
+    final bool wrapByPunctuation =
+        !hasBlankLines && !splitEachLine && avgLen >= 55 && indentRatio < 0.08;
 
     int i = start;
     while (i < end) {
@@ -154,6 +231,17 @@ class _TextReaderChapter implements _ReaderChapter {
       if (t.isEmpty) {
         flushPara();
       } else {
+        if (paraBuffer.isNotEmpty && looksLikeParagraphStart(rawLine, t)) {
+          flushPara();
+        }
+        if (splitEachLine) {
+          if (paraBuffer.isNotEmpty) {
+            flushPara();
+          }
+          paraBuffer.write(t);
+          prevLineInPara = t;
+          flushPara();
+        } else {
         if (paraBuffer.isNotEmpty) {
           final glue =
               (prevLineInPara != null && _isCjk(prevLineInPara!) && _isCjk(t))
@@ -163,6 +251,10 @@ class _TextReaderChapter implements _ReaderChapter {
         }
         paraBuffer.write(t);
         prevLineInPara = t;
+        if (wrapByPunctuation && endsSentence(t)) {
+          flushPara();
+        }
+        }
       }
 
       processedLines++;
