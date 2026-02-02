@@ -75,7 +75,7 @@ class GlassPanel extends StatelessWidget {
     final effectiveBorder = border ??
         Border(
           top: BorderSide(
-            color: onSurface.withOpacity(AppTokens.borderOpacity),
+            color: onSurface.withOpacityCompat(AppTokens.borderOpacity),
             width: AppTokens.stroke,
           ),
         );
@@ -87,7 +87,7 @@ class GlassPanel extends StatelessWidget {
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
-            color: base.withOpacity(opacity),
+            color: base.withOpacityCompat(opacity),
             borderRadius: borderRadius,
             border: effectiveBorder,
             boxShadow: boxShadow,

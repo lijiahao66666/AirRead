@@ -151,7 +151,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                 surfaceColor: Colors.white,
                                 opacity: 0.60,
                                 border: Border.all(
-                                  color: AppColors.deepSpace.withOpacity(0.06),
+                                  color:
+                                      AppColors.deepSpace.withOpacityCompat(0.06),
                                   width: AppTokens.stroke,
                                 ),
                                 child: TextField(
@@ -220,7 +221,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                   Icon(Icons.library_books_outlined,
                                       size: 80,
                                       color:
-                                          AppColors.softGrey.withOpacity(0.3)),
+                                          AppColors.softGrey
+                                              .withOpacityCompat(0.3)),
                                   const SizedBox(height: 24),
                                   Text(
                                     _searchQuery.isNotEmpty
@@ -454,7 +456,7 @@ Widget _buildActionButton({
           opacity: isActive ? 0.72 : 0.60,
           border: Border.all(
             color: (isActive ? AppColors.techBlue : onSurface)
-                .withOpacity(isActive ? 0.28 : 0.08),
+                .withOpacityCompat(isActive ? 0.28 : 0.08),
             width: AppTokens.stroke,
           ),
           child: Center(

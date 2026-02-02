@@ -68,7 +68,7 @@ class TranslationSheet extends StatelessWidget {
                     const Spacer(),
                     IconButton(
                       icon:
-                          Icon(Icons.close, color: panelText.withOpacity(0.7)),
+                          Icon(Icons.close, color: panelText.withOpacityCompat(0.7)),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
@@ -140,7 +140,7 @@ class TranslationSheet extends StatelessWidget {
                       Text(
                         '提示：翻译是否在正文中生效，请在“AI伴读”主面板开启/关闭。',
                         style: TextStyle(
-                          color: panelText.withOpacity(0.65),
+                          color: panelText.withOpacityCompat(0.65),
                           fontSize: 12,
                           height: 1.4,
                         ),
@@ -164,10 +164,11 @@ class TranslationSheet extends StatelessWidget {
     final isDark = panelBg.computeLuminance() < 0.5;
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.06) : AppColors.mistWhite,
+        color:
+            isDark ? Colors.white.withOpacityCompat(0.06) : AppColors.mistWhite,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-            color: panelText.withOpacity(0.06), width: AppTokens.stroke),
+            color: panelText.withOpacityCompat(0.06), width: AppTokens.stroke),
       ),
       padding: const EdgeInsets.all(16),
       child: child,
@@ -187,11 +188,13 @@ class TranslationSheet extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: active
-              ? AppColors.techBlue.withOpacity(0.12)
+              ? AppColors.techBlue.withOpacityCompat(0.12)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: active ? AppColors.techBlue : textColor.withOpacity(0.18),
+            color: active
+                ? AppColors.techBlue
+                : textColor.withOpacityCompat(0.18),
             width: AppTokens.stroke,
           ),
         ),
@@ -199,7 +202,8 @@ class TranslationSheet extends StatelessWidget {
           label,
           style: TextStyle(
             fontSize: 12,
-            color: active ? AppColors.techBlue : textColor.withOpacity(0.75),
+            color:
+                active ? AppColors.techBlue : textColor.withOpacityCompat(0.75),
             fontWeight: active ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
@@ -224,7 +228,8 @@ class TranslationSheet extends StatelessWidget {
         SizedBox(
           height: 50,
           child: DropdownButtonFormField<String>(
-            value: items.containsKey(value) ? value : items.keys.first,
+            key: ValueKey('$label|$value'),
+            initialValue: items.containsKey(value) ? value : items.keys.first,
             dropdownColor: dropdownColor,
             decoration: InputDecoration(
               isDense: true,

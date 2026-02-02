@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'model_manager.dart';
 
 class MnnClient {
   static const MethodChannel _channel = MethodChannel('airread/local_llm');

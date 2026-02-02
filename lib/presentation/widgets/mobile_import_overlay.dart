@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_tokens.dart';
 
 class MobileImportOverlay extends StatelessWidget {
   const MobileImportOverlay({super.key});
@@ -8,7 +9,7 @@ class MobileImportOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Colors.black.withOpacity(0.7),
+      color: Colors.black.withOpacityCompat(0.7),
       alignment: Alignment.center,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
@@ -32,7 +33,7 @@ class MobileImportOverlay extends StatelessWidget {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.techBlue.withOpacity(0.4),
+                    color: AppColors.techBlue.withOpacityCompat(0.4),
                     blurRadius: 10,
                     spreadRadius: 2,
                   ),

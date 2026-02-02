@@ -72,7 +72,6 @@ String buildLocalQaPrompt({
   String? history,
 }) {
   final content = contextService.getContentByScope(contentScope);
-  final historyText = (history ?? '').trim();
 
   // Qwen3/ChatML 模型使用特定的 chat template
   // Format: <|im_start|>system\n...<|im_end|>\n<|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n
@@ -130,8 +129,6 @@ class QAService {
   final ReadingContextService contextService;
   final TencentCredentials credentials;
   final QAContentScope contentScope;
-  static const int _localQaMaxNewTokens = 1024;
-  static const int _localQaMaxInputTokens = 4096;
   static const int _localQaHardMaxNewTokens = 1536;
   static const int _localQaHardMaxInputTokens = 6144;
   static const int _localQaContextReserveTokens = 512;
@@ -247,12 +244,6 @@ class QAService {
 
     return _LocalCaps(maxInputTokens: maxInput, maxNewTokens: maxNew);
   }
-}
-
-String _clipText(String input, int maxChars) {
-  final s = input.trim();
-  if (s.length <= maxChars) return s;
-  return s.substring(0, maxChars);
 }
 
 String _tailText(String input, int maxChars) {

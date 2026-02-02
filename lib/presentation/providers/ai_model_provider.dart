@@ -1,9 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../ai/local_llm/llm_client.dart';
 import '../../ai/local_llm/model_manager.dart';
@@ -34,9 +30,6 @@ class AiModelProvider extends ChangeNotifier {
   static const String _kQAContentScope = 'qa_content_scope';
   static const String _kPointsBalance = 'points_balance';
 
-  static const MethodChannel _androidLogcatChannel =
-      MethodChannel('airread/local_llm');
-
   LlmClient? _llmClient;
   AiModelSource _source = AiModelSource.none;
   QAContentScope _qaContentScope = QAContentScope.slidingWindow;
@@ -57,21 +50,6 @@ class AiModelProvider extends ChangeNotifier {
       unawaited(setPointsBalance(v));
     };
     _load();
-  }
-
-  void _debugLog(String message) {
-    debugPrint('[AiModelProvider] $message');
-    if (!kIsWeb && Platform.isAndroid) {
-      unawaited(
-        _androidLogcatChannel.invokeMethod<void>(
-          'logcat',
-          <String, String>{
-            'tag': 'AiModelProvider',
-            'message': message,
-          },
-        ).catchError((_) {}),
-      );
-    }
   }
 
   QAContentScope get qaContentScope => _qaContentScope;
@@ -218,8 +196,6 @@ class AiModelProvider extends ChangeNotifier {
         case ModelDownloadStatus.extracting:
           // 下载和解压中状态，保持安装中
           _modelInstallStatus = ModelInstallStatus.installing;
-          break;
-        default:
           break;
       }
       notifyListeners();

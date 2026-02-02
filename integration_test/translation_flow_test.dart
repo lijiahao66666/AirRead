@@ -249,13 +249,16 @@ Future<void> _assertLocalTranslationWorks(WidgetTester tester) async {
   debugPrint(
       '[integration_test] aiModel.loaded=${aiModel.loaded} source=${aiModel.source.name}');
   debugPrint(
-      '[integration_test] localRuntimeAvailable=${aiModel.localRuntimeAvailable} translationReady=${aiModel.isLocalTranslationModelReady}');
+      '[integration_test] modelInstalled=${aiModel.isModelInstalled} loaded=${aiModel.loaded}');
 
   if (aiModel.source != AiModelSource.local) {
     throw TestFailure('expected local model source, got ${aiModel.source}');
   }
-  if (!aiModel.isLocalTranslationModelReady) {
-    throw TestFailure('local translation model not ready');
+  if (!aiModel.isModelInstalled) {
+    throw TestFailure('local model not installed');
+  }
+  if (!aiModel.loaded) {
+    throw TestFailure('local model not loaded');
   }
 
   final out = await tester.runAsync(() async {
@@ -314,9 +317,10 @@ void main() {
       final element = tester.element(find.byType(MaterialApp));
       final aiModel = element.read<AiModelProvider>();
       return aiModel.source == AiModelSource.local &&
-          aiModel.isLocalTranslationModelReady;
+          aiModel.isModelInstalled &&
+          aiModel.loaded;
     },
-        onTimeout: 'Local translation model not ready',
+        onTimeout: 'Local model not ready',
         timeout: const Duration(minutes: 3));
 
     await _tapScreenCenter(tester);

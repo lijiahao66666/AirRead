@@ -49,7 +49,7 @@ class _BookCardState extends State<BookCard> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(AppTokens.radiusMd),
                 border: Border.all(
-                  color: AppColors.deepSpace.withOpacity(0.06),
+                  color: AppColors.deepSpace.withOpacityCompat(0.06),
                   width: AppTokens.stroke,
                 ),
                 boxShadow: AppTokens.shadowTight,
@@ -71,18 +71,18 @@ class _BookCardState extends State<BookCard> {
                           decoration: BoxDecoration(
                             color: widget.isSelected
                                 ? AppColors.techBlue
-                                : Colors.white.withOpacity(0.8),
+                                : Colors.white.withOpacityCompat(0.8),
                             shape: BoxShape.circle,
                             border: Border.all(
                               color: widget.isSelected
                                   ? AppColors.techBlue
-                                  : Colors.grey.withOpacity(0.6),
+                                  : Colors.grey.withOpacityCompat(0.6),
                               width: 1.5,
                             ),
                             boxShadow: [
                               if (!widget.isSelected)
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.1),
+                                  color: Colors.black.withOpacityCompat(0.1),
                                   blurRadius: 4,
                                   offset: const Offset(0, 2),
                                 )
@@ -239,7 +239,7 @@ class _BookCardState extends State<BookCard> {
               height: 140,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.18),
+                color: Colors.white.withOpacityCompat(0.18),
               ),
             ),
           ),
@@ -251,7 +251,7 @@ class _BookCardState extends State<BookCard> {
               height: 180,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.12),
+                color: Colors.white.withOpacityCompat(0.12),
               ),
             ),
           ),
@@ -259,7 +259,7 @@ class _BookCardState extends State<BookCard> {
             child: Icon(
               Icons.book_outlined,
               size: 48,
-              color: Colors.white.withOpacity(0.85),
+              color: Colors.white.withOpacityCompat(0.85),
             ),
           ),
         ],

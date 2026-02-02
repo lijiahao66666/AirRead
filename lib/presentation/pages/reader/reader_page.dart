@@ -538,7 +538,7 @@ class _ReaderPageState extends State<ReaderPage>
         final hasSubs = subs != null && subs.isNotEmpty;
 
         // Add prefix based on depth for hierarchical display
-        final prefix = depth > 0 ? '${'  ' * depth}' : '';
+        final prefix = depth > 0 ? ('  ' * depth) : '';
         final displayTitle = rawTitle.isEmpty ? null : '$prefix$rawTitle';
         
         final currentIdx = chapters.length;
@@ -672,8 +672,8 @@ class _ReaderPageState extends State<ReaderPage>
     final booksProvider = Provider.of<BooksProvider>(context, listen: false);
     await prefs.setDouble('fontSize', _fontSize);
     await prefs.setDouble('lineHeight', _lineHeight);
-    await prefs.setInt('bgColor', _bgColor.value);
-    await prefs.setInt('textColor', _textColor.value);
+    await prefs.setInt('bgColor', _bgColor.toARGB32());
+    await prefs.setInt('textColor', _textColor.toARGB32());
 
     try {
       booksProvider.saveReadingSettingsToDb(
@@ -1560,7 +1560,7 @@ class _ReaderPageState extends State<ReaderPage>
         final panelText = _panelTextColor;
         final panelBg = _panelBgColor;
         final cardBg = panelBg.computeLuminance() < 0.5
-            ? Colors.white.withOpacity(0.06)
+            ? Colors.white.withOpacityCompat(0.06)
             : AppColors.mistWhite;
         return GlassPanel.sheet(
           surfaceColor: panelBg,
@@ -1590,7 +1590,7 @@ class _ReaderPageState extends State<ReaderPage>
                         const Spacer(),
                         IconButton(
                           icon: Icon(Icons.close,
-                              color: panelText.withOpacity(0.7)),
+                              color: panelText.withOpacityCompat(0.7)),
                           onPressed: () => Navigator.pop(context),
                         ),
                       ],
@@ -1615,7 +1615,7 @@ class _ReaderPageState extends State<ReaderPage>
                                 borderRadius:
                                     BorderRadius.circular(AppTokens.radiusMd),
                                 border: Border.all(
-                                  color: panelText.withOpacity(0.08),
+                                  color: panelText.withOpacityCompat(0.08),
                                   width: AppTokens.stroke,
                                 ),
                               ),
@@ -1623,7 +1623,7 @@ class _ReaderPageState extends State<ReaderPage>
                               child: SelectableText(
                                 text,
                                 style: TextStyle(
-                                  color: panelText.withOpacity(0.9),
+                                  color: panelText.withOpacityCompat(0.9),
                                   height: 1.5,
                                 ),
                               ),
@@ -1643,7 +1643,7 @@ class _ReaderPageState extends State<ReaderPage>
                                 borderRadius:
                                     BorderRadius.circular(AppTokens.radiusMd),
                                 border: Border.all(
-                                  color: panelText.withOpacity(0.08),
+                                  color: panelText.withOpacityCompat(0.08),
                                   width: AppTokens.stroke,
                                 ),
                               ),
@@ -1651,7 +1651,7 @@ class _ReaderPageState extends State<ReaderPage>
                               child: SelectableText(
                                 displayTranslation,
                                 style: TextStyle(
-                                  color: panelText.withOpacity(0.9),
+                                  color: panelText.withOpacityCompat(0.9),
                                   height: 1.5,
                                 ),
                               ),
@@ -1765,33 +1765,6 @@ class _ReaderPageState extends State<ReaderPage>
     if (paras.isEmpty) return null;
     if (paragraphIndex < 0 || paragraphIndex >= paras.length) return null;
     return paras[paragraphIndex].text;
-  }
-
-  Future<void> _startReadAloudFromParagraphIndex(int paragraphIndex) async {
-    final cfg = context.read<TranslationProvider>();
-    final queue = _buildReadAloudQueue();
-    if (queue.isEmpty) return;
-
-    final idx = queue.indexWhere((e) => e.paragraphIndex == paragraphIndex);
-    if (idx < 0) return;
-
-    await _stopReadAloud(keepResume: true);
-    if (!mounted) return;
-
-    final session = ++_readAloudSession;
-    _readAloudQueue = queue;
-    _readAloudQueuePos = idx;
-    _readAloudResumeParagraphIndex = paragraphIndex;
-    _readAloudHighlightText = null;
-    _readAloudTranslationRevision = cfg.cacheRevision;
-
-    if (cfg.readAloudEngine == ReadAloudEngine.local) {
-      await _readAloudPlayer.stop();
-      await _speakLocalQueueItem(session);
-      return;
-    }
-
-    await _playOnlineQueueItem(session);
   }
 
   List<_ReadAloudChunk> _buildReadAloudQueue() {
@@ -2488,7 +2461,9 @@ class _ReaderPageState extends State<ReaderPage>
     messenger.hideCurrentMaterialBanner();
 
     final bgColor =
-        isError ? Colors.red.withOpacity(0.95) : Colors.green.withOpacity(0.95);
+        isError
+            ? Colors.red.withOpacityCompat(0.95)
+            : Colors.green.withOpacityCompat(0.95);
 
     messenger.showMaterialBanner(
       MaterialBanner(
@@ -2541,12 +2516,12 @@ class _ReaderPageState extends State<ReaderPage>
     final isDarkBg = _bgColor.computeLuminance() < 0.5;
     final shadow = <BoxShadow>[
       BoxShadow(
-        color: Colors.black.withOpacity(isDarkBg ? 0.55 : 0.22),
+        color: Colors.black.withOpacityCompat(isDarkBg ? 0.55 : 0.22),
         blurRadius: 18,
         offset: const Offset(0, 10),
       ),
       BoxShadow(
-        color: Colors.white.withOpacity(isDarkBg ? 0.06 : 0.75),
+        color: Colors.white.withOpacityCompat(isDarkBg ? 0.06 : 0.75),
         blurRadius: 10,
         offset: const Offset(0, -4),
       ),
@@ -2586,7 +2561,7 @@ class _ReaderPageState extends State<ReaderPage>
                 opacity: 0.92,
                 blurSigma: 14,
                 border: Border.all(
-                  color: onSurface.withOpacity(0.08),
+                  color: onSurface.withOpacityCompat(0.08),
                   width: AppTokens.stroke,
                 ),
                 child: InkWell(
@@ -2619,7 +2594,7 @@ class _ReaderPageState extends State<ReaderPage>
                             color:
                                 (_aiReadAloudPlaying || _aiReadAloudPreparing)
                                     ? AppColors.techBlue
-                                    : onSurface.withOpacity(0.5),
+                                    : onSurface.withOpacityCompat(0.5),
                             size: 24,
                           ),
                           if (_aiReadAloudPreparing)
@@ -2629,7 +2604,7 @@ class _ReaderPageState extends State<ReaderPage>
                               child: CircularProgressIndicator(
                                 strokeWidth: 2.2,
                                 valueColor: AlwaysStoppedAnimation<Color>(
-                                  AppColors.techBlue.withOpacity(0.7),
+                                  AppColors.techBlue.withOpacityCompat(0.7),
                                 ),
                               ),
                             ),
@@ -2975,11 +2950,11 @@ class _ReaderPageState extends State<ReaderPage>
     final placeholderStyle = bodyStyle.copyWith(
       fontStyle: FontStyle.italic,
       fontSize: bodyStyle.fontSize == null ? null : bodyStyle.fontSize! * 0.92,
-      color: (bodyStyle.color ?? _textColor).withOpacity(0.55),
+      color: (bodyStyle.color ?? _textColor).withOpacityCompat(0.55),
     );
 
     final highlightStyle = bodyStyle.copyWith(
-      backgroundColor: AppColors.techBlue.withOpacity(0.12),
+      backgroundColor: AppColors.techBlue.withOpacityCompat(0.12),
     );
 
     final gapStyle = bodyStyle.copyWith(
@@ -3112,97 +3087,59 @@ class _ReaderPageState extends State<ReaderPage>
     final int len = text.length;
     final int minEnd = (start + 1).clamp(0, len);
     if (minEnd >= len) return len;
+    if (viewportHeight <= 0 || contentWidth <= 0) return minEnd;
 
-    bool fits(int end) {
-      final int safeEnd = end.clamp(minEnd, len);
-      // 确保至少有一个字符，避免空字符串导致高度计算错误
-      if (safeEnd <= start) return true;
-      
-      // 检查 viewportHeight 是否有效
-      if (viewportHeight <= 0) {
-        // 如果高度无效，假设内容适合
-        return true;
-      }
-      
-      textPainter.text = _buildReaderSpan(
-        text: text.substring(start, safeEnd),
-        bodyStyle: textStyle,
-      );
+    int probeChars = previousPageChars.clamp(512, 16000);
+    int probeEnd = (start + probeChars).clamp(minEnd, len);
+
+    while (true) {
+      final slice = text.substring(start, probeEnd);
+      textPainter.text = _buildReaderSpan(text: slice, bodyStyle: textStyle);
       textPainter.layout(minWidth: 0, maxWidth: contentWidth);
-      
-      final height = textPainter.height;
-      final result = height <= viewportHeight;
-      
-      // 调试：如果字符数很少但不适合，打印日志
-      if (!result && (safeEnd - start) < 100) {
-        debugPrint('fits: end=$safeEnd, chars=${safeEnd - start}, height=$height, viewport=$viewportHeight, result=$result');
+
+      if (probeEnd >= len) break;
+      if (textPainter.height >= viewportHeight) break;
+
+      final int curChars = probeEnd - start;
+      final int nextChars = (curChars * 2).clamp(curChars + 1, 65536);
+      final int nextEnd = (start + nextChars).clamp(probeEnd + 1, len);
+      if (nextEnd == probeEnd) break;
+      probeEnd = nextEnd;
+    }
+
+    final localLen = (probeEnd - start).clamp(1, 1 << 30);
+    final lines = textPainter.computeLineMetrics();
+    if (lines.isEmpty) return minEnd;
+
+    final double lineHeight = textPainter.preferredLineHeight;
+    final double safetyPx = (lineHeight * 0.10).clamp(2.0, 8.0);
+    final double dyLimit = (viewportHeight - safetyPx).clamp(0, viewportHeight);
+
+    int lastVisibleLine = 0;
+    for (int i = 0; i < lines.length; i++) {
+      final lineBottom = lines[i].baseline + lines[i].descent;
+      if (lineBottom <= dyLimit) {
+        lastVisibleLine = i;
+      } else {
+        break;
       }
-      
-      return result;
     }
 
-    int guess = previousPageChars.clamp(200, 6000);
-    int high = (start + guess).clamp(minEnd, len);
-    if (high == minEnd) {
-      high = (minEnd + 1).clamp(minEnd, len);
-    }
+    final double dx = (contentWidth - 1).clamp(0, contentWidth);
+    final double dy = (lines[lastVisibleLine].baseline + (lines[lastVisibleLine].descent * 0.5))
+        .clamp(0, dyLimit);
+    final pos = textPainter.getPositionForOffset(Offset(dx, dy));
+    int localEnd = pos.offset.clamp(1, localLen);
 
-    int best = minEnd;
-    // 只有在 fits(minEnd) 为 true 时才继续查找，否则返回最小值
-    if (!fits(minEnd)) {
-      // 如果连一个字符都不适合，说明高度计算有问题
-      // 但至少返回 minEnd 避免死循环
-      return minEnd;
-    }
+    final boundary = textPainter.getLineBoundary(TextPosition(offset: localEnd));
+    localEnd = boundary.end.clamp(1, localLen);
 
-    if (high >= len) {
-      return fits(len) ? len : best;
+    int end = (start + localEnd).clamp(minEnd, len);
+    while (end > minEnd && _isSkippableWhitespaceCu(text.codeUnitAt(end - 1))) {
+      end--;
     }
-
-    if (fits(high)) {
-      int lastGood = high;
-      int step = guess;
-      while (lastGood < len) {
-        step = (step * 2).clamp(256, 65536);
-        final nextHigh = (lastGood + step).clamp(lastGood + 1, len);
-        if (nextHigh == lastGood) break;
-        if (fits(nextHigh)) {
-          lastGood = nextHigh;
-          best = lastGood;
-          if (lastGood == len) return len;
-        } else {
-          int low = lastGood + 1;
-          int hi = nextHigh;
-          int localBest = lastGood;
-          while (low <= hi) {
-            final mid = (low + hi) >> 1;
-            if (fits(mid)) {
-              localBest = mid;
-              low = mid + 1;
-            } else {
-              hi = mid - 1;
-            }
-          }
-          return localBest;
-        }
-      }
-      return best;
-    } else {
-      // 如果 high 不适合，在 [minEnd, high] 范围内二分查找
-      int low = minEnd;
-      int hi = high;
-      int localBest = minEnd;  // 至少返回 minEnd
-      while (low <= hi) {
-        final mid = (low + hi) >> 1;
-        if (fits(mid)) {
-          localBest = mid;
-          low = mid + 1;
-        } else {
-          hi = mid - 1;
-        }
-      }
-      return localBest;
-    }
+    if (end <= start) return minEnd;
+    return end;
   }
 
   void _scheduleTextPaginationForChapter({
@@ -3297,6 +3234,10 @@ class _ReaderPageState extends State<ReaderPage>
           List<TextRange>.from(_chapterPageRanges[chapterIndex] ?? const []);
       int start = ranges.isEmpty ? 0 : ranges.last.end;
       final int len = effectiveText.length;
+      while (start < len &&
+          _isSkippableWhitespaceCu(effectiveText.codeUnitAt(start))) {
+        start++;
+      }
       final textPainter = TextPainter(
         textDirection: TextDirection.ltr,
         textScaler: textScaler,
@@ -3456,6 +3397,9 @@ class _ReaderPageState extends State<ReaderPage>
           _chapterPlainPageRanges[chapterIndex] ?? const []);
       int start = ranges.isEmpty ? 0 : ranges.last.end;
       final int len = plainText.length;
+      while (start < len && _isSkippableWhitespaceCu(plainText.codeUnitAt(start))) {
+        start++;
+      }
       final textPainter = TextPainter(
         textDirection: TextDirection.ltr,
         textScaler: textScaler,
@@ -3719,21 +3663,21 @@ class _ReaderPageState extends State<ReaderPage>
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             valueColor: AlwaysStoppedAnimation<Color>(
-                                _panelTextColor.withOpacity(0.6)),
+                                _panelTextColor.withOpacityCompat(0.6)),
                           ),
                         ),
                         const SizedBox(width: 10),
                         Text(
                           '解析中…',
                           style: TextStyle(
-                            color: _panelTextColor.withOpacity(0.7),
+                            color: _panelTextColor.withOpacityCompat(0.7),
                             fontSize: 12,
                           ),
                         ),
                       ],
                     ),
                   ),
-                Divider(color: _panelTextColor.withOpacity(0.1)),
+                Divider(color: _panelTextColor.withOpacityCompat(0.1)),
                 Expanded(
                   child: StatefulBuilder(
                     builder: (context, setModalState) {
@@ -3823,7 +3767,8 @@ class _ReaderPageState extends State<ReaderPage>
                                         isExpanded
                                             ? Icons.expand_less
                                             : Icons.expand_more,
-                                        color: _panelTextColor.withOpacity(0.6),
+                                        color:
+                                            _panelTextColor.withOpacityCompat(0.6),
                                         size: 20,
                                       ),
                                     )
@@ -3910,7 +3855,7 @@ class _ReaderPageState extends State<ReaderPage>
                     Row(
                       children: [
                         Icon(Icons.format_size,
-                            color: _panelTextColor.withOpacity(0.5)),
+                            color: _panelTextColor.withOpacityCompat(0.5)),
                         const SizedBox(width: 16),
                         Text('A-',
                             style: TextStyle(
@@ -3943,7 +3888,7 @@ class _ReaderPageState extends State<ReaderPage>
                     Row(
                       children: [
                         Icon(Icons.format_line_spacing,
-                            color: _panelTextColor.withOpacity(0.5)),
+                            color: _panelTextColor.withOpacityCompat(0.5)),
                         const SizedBox(width: 16),
                         Expanded(
                           child: Slider(
@@ -3997,7 +3942,7 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   Widget _buildThemeOption(Color color, Color textColor, String label) {
-    bool isSelected = _bgColor.value == color.value;
+    bool isSelected = _bgColor.toARGB32() == color.toARGB32();
     return GestureDetector(
       onTap: () {
         setState(() {
@@ -4026,7 +3971,7 @@ class _ReaderPageState extends State<ReaderPage>
               style: TextStyle(
                   color: isSelected
                       ? AppColors.techBlue
-                      : _panelTextColor.withOpacity(0.5),
+                      : _panelTextColor.withOpacityCompat(0.5),
                   fontSize: 12)),
         ],
       ),
@@ -4054,7 +3999,7 @@ class _ReaderPageState extends State<ReaderPage>
           height: 48,
           decoration: BoxDecoration(
             color: isActive
-                ? AppColors.techBlue.withOpacity(0.1)
+                ? AppColors.techBlue.withOpacityCompat(0.1)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
           ),
@@ -4233,12 +4178,7 @@ class _ReaderPageState extends State<ReaderPage>
         double snap(double value) => (value * dpr).roundToDouble() / dpr;
         double snapDown(double value) => (value * dpr).floorToDouble() / dpr;
 
-        final double topMargin = snap(padding.top + 8);
-        final double bottomMargin = snap(padding.bottom + 4);
-
-        double viewportHeight = snapDown(
-          constraints.maxHeight - topMargin - bottomMargin - (1 / dpr),
-        );
+        final double safeBottom = _contentBottomInset ?? padding.bottom;
 
         final TextStyle effectiveTextStyle =
             (Theme.of(context).textTheme.bodyLarge ?? const TextStyle())
@@ -4261,11 +4201,28 @@ class _ReaderPageState extends State<ReaderPage>
         final probe = TextPainter(
           textDirection: TextDirection.ltr,
           textScaler: textScaler,
+          textHeightBehavior: const TextHeightBehavior(
+            applyHeightToFirstAscent: false,
+            applyHeightToLastDescent: false,
+          ),
           strutStyle:
               StrutStyle.fromTextStyle(effectiveTextStyle, forceStrutHeight: true),
-          text: TextSpan(text: 'A', style: effectiveTextStyle),
+          text: TextSpan(text: '国Ay', style: effectiveTextStyle),
         )..layout(minWidth: 0, maxWidth: safeContentWidth);
         final double minLineHeight = probe.height;
+        final double topExtra =
+            snap((minLineHeight * 0.18).clamp(4.0, 10.0));
+        final double bottomExtra =
+            snap((minLineHeight * 0.28).clamp(10.0, 18.0));
+        final double topMargin = snap(padding.top + topExtra);
+        final double bottomMargin = snap(safeBottom + bottomExtra);
+
+        double viewportHeight = snapDown(
+          constraints.maxHeight -
+              topMargin -
+              bottomMargin -
+              (1 / dpr),
+        );
         if (viewportHeight <= 0) {
           viewportHeight = minLineHeight > 0 ? minLineHeight : 500;
         } else if (minLineHeight > 0 && viewportHeight < minLineHeight) {
@@ -4452,37 +4409,34 @@ class _ReaderPageState extends State<ReaderPage>
   }) {
     return SizedBox(
       width: double.infinity,
-      child: SelectableText.rich(
-        bodySpan,
-        style: bodyStyle,
-        strutStyle: StrutStyle.fromTextStyle(bodyStyle, forceStrutHeight: true),
-        contextMenuBuilder: (context, state) {
-          final selection = state.textEditingValue.selection;
-          final hasSelection = !selection.isCollapsed;
-          final selectedText = hasSelection
-              ? state.textEditingValue.text
-                  .substring(selection.start, selection.end)
-                  .trim()
-              : '';
+      child: Builder(
+        builder: (context) {
+          String selectedText = '';
+          return SelectionArea(
+            onSelectionChanged: (value) {
+              selectedText = ((value as dynamic)?.plainText as String?)?.trim() ?? '';
+            },
+            contextMenuBuilder: (context, selectableRegionState) {
+              final text = selectedText.trim();
           final tp = context.read<TranslationProvider>();
           final aiModel = context.read<AiModelProvider>();
-          final showReadCurrent = isCurrentPage && tp.aiReadAloudEnabled;
           final personalUsable = tp.usingPersonalTencentKeys &&
               getEmbeddedPublicHunyuanCredentials().isUsable;
-          final canTranslate = tp.translationMode == TranslationMode.machine ||
-              (tp.translationMode == TranslationMode.bigModel &&
-                  (aiModel.pointsBalance > 0 || personalUsable));
-          final canExplain = (aiModel.source == AiModelSource.local &&
-                  aiModel.loaded) ||
-              (aiModel.source == AiModelSource.online &&
-                  (aiModel.pointsBalance > 0 || personalUsable));
+          final canTranslate = text.isNotEmpty &&
+              (tp.translationMode == TranslationMode.machine ||
+                  (tp.translationMode == TranslationMode.bigModel &&
+                      (aiModel.pointsBalance > 0 || personalUsable)));
+          final canExplain = text.isNotEmpty &&
+              ((aiModel.source == AiModelSource.local && aiModel.loaded) ||
+                  (aiModel.source == AiModelSource.online &&
+                      (aiModel.pointsBalance > 0 || personalUsable)));
 
           final isDarkBg = _bgColor.computeLuminance() < 0.5;
           final toolbarBg = isDarkBg
-              ? Colors.white.withOpacity(0.94)
-              : AppColors.deepSpace.withOpacity(0.92);
+              ? Colors.white.withOpacityCompat(0.94)
+              : AppColors.deepSpace.withOpacityCompat(0.92);
           final toolbarFg = isDarkBg ? AppColors.deepSpace : Colors.white;
-          final disabledFg = toolbarFg.withOpacity(0.38);
+          final disabledFg = toolbarFg.withOpacityCompat(0.38);
           final baseTheme = Theme.of(context);
           final themed = baseTheme.copyWith(
             colorScheme: baseTheme.colorScheme.copyWith(
@@ -4498,105 +4452,78 @@ class _ReaderPageState extends State<ReaderPage>
             ),
           );
 
+          final items = <ContextMenuButtonItem>[
+            if (canTranslate)
+              ContextMenuButtonItem(
+                onPressed: () {
+                  ContextMenuController.removeAny();
+                  selectableRegionState.hideToolbar();
+                  unawaited(_showSelectionTranslation(text));
+                },
+                type: ContextMenuButtonType.custom,
+                label: '翻译',
+              ),
+            if (canExplain)
+              ContextMenuButtonItem(
+                onPressed: () {
+                  ContextMenuController.removeAny();
+                  selectableRegionState.hideToolbar();
+                  unawaited(_openAiHud(
+                    initialRoute: AiHudRoute.qa,
+                    initialQaText: text,
+                    autoSendInitialQa: true,
+                  ));
+                },
+                type: ContextMenuButtonType.custom,
+                label: '解释',
+              ),
+          ];
+          final ContextMenuButtonItem? copyItem =
+              selectableRegionState.contextMenuButtonItems
+                  .where((e) => e.type == ContextMenuButtonType.copy)
+                  .cast<ContextMenuButtonItem?>()
+                  .firstWhere((e) => e != null, orElse: () => null);
+          final ContextMenuButtonItem? selectAllItem =
+              selectableRegionState.contextMenuButtonItems
+                  .where((e) => e.type == ContextMenuButtonType.selectAll)
+                  .cast<ContextMenuButtonItem?>()
+                  .firstWhere((e) => e != null, orElse: () => null);
+          if (copyItem != null) {
+            items.add(
+              ContextMenuButtonItem(
+                onPressed: copyItem.onPressed,
+                type: copyItem.type,
+                label: '复制',
+              ),
+            );
+          }
+          if (selectAllItem != null) {
+            items.add(
+              ContextMenuButtonItem(
+                onPressed: selectAllItem.onPressed,
+                type: selectAllItem.type,
+                label: '全选',
+              ),
+            );
+          }
+
           return Theme(
             data: themed,
-            child: AdaptiveTextSelectionToolbar(
-              anchors: state.contextMenuAnchors,
-              children: [
-                if (canTranslate)
-                  TextButton(
-                    onPressed: selectedText.isEmpty
-                        ? null
-                        : () {
-                            final selection = state.textEditingValue.selection;
-                            state.hideToolbar();
-                            state.userUpdateTextEditingValue(
-                              state.textEditingValue.copyWith(
-                                selection: TextSelection.collapsed(
-                                  offset: selection.end,
-                                ),
-                              ),
-                              SelectionChangedCause.toolbar,
-                            );
-                            unawaited(_showSelectionTranslation(selectedText));
-                          },
-                    child: const Text('翻译'),
-                  ),
-                if (canExplain)
-                  TextButton(
-                    onPressed: selectedText.isEmpty
-                        ? null
-                        : () {
-                            final selection = state.textEditingValue.selection;
-                            state.hideToolbar();
-                            state.userUpdateTextEditingValue(
-                              state.textEditingValue.copyWith(
-                                selection: TextSelection.collapsed(
-                                  offset: selection.end,
-                                ),
-                              ),
-                              SelectionChangedCause.toolbar,
-                            );
-                            unawaited(_openAiHud(
-                              initialRoute: AiHudRoute.qa,
-                              initialQaText: selectedText,
-                              autoSendInitialQa: true,
-                            ));
-                          },
-                    child: const Text('解释'),
-                  ),
-                if (showReadCurrent)
-                  TextButton(
-                    onPressed: () {
-                      final text = state.textEditingValue.text;
-                      final start = selection.start.clamp(0, text.length);
-                      int seg = 0;
-                      int scan = 0;
-                      while (true) {
-                        final idx = text.indexOf('\n\n', scan);
-                        if (idx < 0 || idx >= start) break;
-                        seg++;
-                        scan = idx + 2;
-                      }
-                      final visible = _currentPageParagraphsByIndex();
-                      final keys = visible.keys.toList()..sort();
-                      if (keys.isEmpty) return;
-                      final paragraphIndex =
-                          keys[seg.clamp(0, keys.length - 1)];
-                      final currentSelection = state.textEditingValue.selection;
-                      state.hideToolbar();
-                      state.userUpdateTextEditingValue(
-                        state.textEditingValue.copyWith(
-                          selection: TextSelection.collapsed(
-                            offset: currentSelection.end,
-                          ),
-                        ),
-                        SelectionChangedCause.toolbar,
-                      );
-                      unawaited(
-                          _startReadAloudFromParagraphIndex(paragraphIndex));
-                    },
-                    child: const Text('读当前'),
-                  ),
-                TextButton(
-                  onPressed: selectedText.isEmpty
-                      ? null
-                      : () {
-                          Clipboard.setData(ClipboardData(text: selectedText));
-                          final selection = state.textEditingValue.selection;
-                          state.hideToolbar();
-                          state.userUpdateTextEditingValue(
-                            state.textEditingValue.copyWith(
-                              selection: TextSelection.collapsed(
-                                offset: selection.end,
-                              ),
-                            ),
-                            SelectionChangedCause.toolbar,
-                          );
-                        },
-                  child: const Text('复制'),
-                ),
-              ],
+            child: AdaptiveTextSelectionToolbar.buttonItems(
+              anchors: selectableRegionState.contextMenuAnchors,
+              buttonItems: items,
+            ),
+          );
+            },
+            child: Text.rich(
+              bodySpan,
+              style: bodyStyle,
+              strutStyle:
+                  StrutStyle.fromTextStyle(bodyStyle, forceStrutHeight: true),
+              textHeightBehavior: const TextHeightBehavior(
+                applyHeightToFirstAscent: false,
+                applyHeightToLastDescent: false,
+              ),
             ),
           );
         },
@@ -5281,7 +5208,7 @@ class _ReaderPageState extends State<ReaderPage>
       ),
       child: PopScope(
         canPop: false,
-        onPopInvoked: (didPop) {
+        onPopInvokedWithResult: (didPop, result) {
           if (didPop) return;
           _popReader();
         },
@@ -5364,7 +5291,7 @@ class _ReaderPageState extends State<ReaderPage>
                                     shape: BoxShape.circle,
                                     boxShadow: [
                                       BoxShadow(
-                                        color: AppColors.techBlue.withOpacity(
+                                        color: AppColors.techBlue.withOpacityCompat(
                                             0.4 * _pulseController.value),
                                         blurRadius:
                                             10 + (10 * _pulseController.value),

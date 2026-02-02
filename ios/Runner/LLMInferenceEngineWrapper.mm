@@ -21,6 +21,12 @@ using namespace MNN::Transformer;
 
 using ChatMessage = std::pair<std::string, std::string>;
 
+#if DEBUG
+#define ARLog(...) NSLog(__VA_ARGS__)
+#else
+#define ARLog(...)
+#endif
+
 // UTF-8 安全流缓冲区 - 累积字节直到形成完整UTF-8字符
 class Utf8SafeStreamBuffer : public std::streambuf {
 public:
@@ -91,7 +97,7 @@ private:
                     i += charLen;
                 } else {
                     // 无效序列，跳过这个字节
-                    NSLog(@"[Utf8SafeStreamBuffer] Invalid UTF-8 sequence at %zu, byte: 0x%02X", i, c);
+                    ARLog(@"[Utf8SafeStreamBuffer] Invalid UTF-8 sequence at %zu, byte: 0x%02X", i, c);
                     invalidBytes_++;
                     i++;
                 }
@@ -108,7 +114,7 @@ private:
             for (size_t j = 0; j < n; j++) {
                 [hex appendFormat:@"%02X ", (unsigned char)outputStr[j]];
             }
-            NSLog(@"[Utf8SafeStreamBuffer] Sending %zu bytes, first=%@", outputStr.size(), hex);
+            ARLog(@"[Utf8SafeStreamBuffer] Sending %zu bytes, first=%@", outputStr.size(), hex);
             callback_(outputStr.c_str(), outputStr.size());
         }
         
@@ -150,7 +156,7 @@ private:
     
     void flushRemaining() {
         if (callback_ && !byteBuffer_.empty()) {
-            NSLog(@"[Utf8SafeStreamBuffer] Flushing remaining %zu bytes", byteBuffer_.size());
+            ARLog(@"[Utf8SafeStreamBuffer] Flushing remaining %zu bytes", byteBuffer_.size());
             // 尝试最后一次处理
             processUtf8Buffer();
             
@@ -242,7 +248,7 @@ private:
                 "\"backend_type\":\"cpu\""
                 "}";
             bool loadConfigOk = _llm->set_config(configStr);
-            NSLog(@"[LLMInferenceEngineWrapper] Using config with backend_type=cpu, tmp_path=%s, set_config=%s", configStr.c_str(), loadConfigOk ? "true" : "false");
+            ARLog(@"[LLMInferenceEngineWrapper] Using config with backend_type=cpu, tmp_path=%s, set_config=%s", configStr.c_str(), loadConfigOk ? "true" : "false");
             
             // Load model
             bool loaded = _llm->load();
@@ -253,9 +259,9 @@ private:
             }
             
             std::string dumped = _llm->dump_config();
-            NSLog(@"[LLMInferenceEngineWrapper] dump_config (first 400 chars):\n%.400s", dumped.c_str());
+            ARLog(@"[LLMInferenceEngineWrapper] dump_config (first 400 chars):\n%.400s", dumped.c_str());
 
-            NSLog(@"[LLMInferenceEngineWrapper] Model loaded successfully from %@", _modelPath);
+            ARLog(@"[LLMInferenceEngineWrapper] Model loaded successfully from %@", _modelPath);
             return YES;
         } @catch (NSException *exception) {
             NSLog(@"[LLMInferenceEngineWrapper] ObjC Exception during model loading: %@", exception.reason);
@@ -324,7 +330,7 @@ private:
                 configStr += "}";
                 
                 bool inferConfigOk = blockSelf->_llm->set_config(configStr);
-                NSLog(@"[LLM] Config set: %s (set_config=%s)", configStr.c_str(), inferConfigOk ? "true" : "false");
+                ARLog(@"[LLM] Config set: %s (set_config=%s)", configStr.c_str(), inferConfigOk ? "true" : "false");
 
                 blockSelf->_llm->reset();
 
@@ -388,10 +394,10 @@ private:
                 }
                 
                 // Debug information for prompt
-                NSLog(@"[LLM] Input prompt (first 100 chars):\n%.100s...", fullPrompt.c_str());
+                ARLog(@"[LLM] Input prompt (first 100 chars):\n%.100s...", fullPrompt.c_str());
                 
                 // Start inference
-                NSLog(@"[LLM] Starting inference...");
+                ARLog(@"[LLM] Starting inference...");
                 
                 std::vector<int> inputIds = blockSelf->_llm->tokenizer_encode(fullPrompt);
                 if (inputIds.empty()) {
@@ -441,7 +447,7 @@ private:
 
                 auto context = blockSelf->_llm->getContext();
                 if (context) {
-                    NSLog(@"[LLM] Status=%d, output_tokens=%zu, gen_seq_len=%d, prefill_us=%lld, decode_us=%lld",
+                    ARLog(@"[LLM] Status=%d, output_tokens=%zu, gen_seq_len=%d, prefill_us=%lld, decode_us=%lld",
                           (int)context->status,
                           context->output_tokens.size(),
                           context->gen_seq_len,
@@ -453,7 +459,7 @@ private:
                         for (size_t i = 0; i < showIds; i++) {
                             [ids appendFormat:@"%d ", context->output_tokens[i]];
                         }
-                        NSLog(@"[LLM] First token ids (up to 16): %@", ids);
+                        ARLog(@"[LLM] First token ids (up to 16): %@", ids);
                         bool allSame = true;
                         int firstId = context->output_tokens[0];
                         for (size_t i = 1; i < context->output_tokens.size(); i++) {
@@ -462,7 +468,7 @@ private:
                                 break;
                             }
                         }
-                        NSLog(@"[LLM] All tokens same: %s", allSame ? "true" : "false");
+                        ARLog(@"[LLM] All tokens same: %s", allSame ? "true" : "false");
                     }
                     if (!context->output_tokens.empty()) {
                         std::string firstDecoded;
@@ -470,10 +476,10 @@ private:
                         for (size_t i = 0; i < show; i++) {
                             firstDecoded += blockSelf->_llm->tokenizer_decode(context->output_tokens[i]);
                         }
-                        NSLog(@"[LLM] First decoded (up to 8 tokens):\n%.200s", firstDecoded.c_str());
+                        ARLog(@"[LLM] First decoded (up to 8 tokens):\n%.200s", firstDecoded.c_str());
                     }
                 } else {
-                    NSLog(@"[LLM] Context is null after inference");
+                    ARLog(@"[LLM] Context is null after inference");
                 }
                 
                 // Send end signal
@@ -483,7 +489,7 @@ private:
                     });
                 }
                 
-                NSLog(@"[LLM] Inference completed. Total output length: %zu bytes", accumulatedOutput.length());
+                ARLog(@"[LLM] Inference completed. Total output length: %zu bytes", accumulatedOutput.length());
                 
             } @catch (NSException *exception) {
                 NSLog(@"[LLMInferenceEngineWrapper] ObjC Exception during inference: %@", exception.reason);
@@ -526,7 +532,7 @@ private:
     if (_llm) {
         _llm->reset();
     }
-    NSLog(@"[LLM] History cleared");
+    ARLog(@"[LLM] History cleared");
 }
 
 - (void)cancelInference {

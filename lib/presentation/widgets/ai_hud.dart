@@ -134,7 +134,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
 
     return PopScope(
       canPop: _stack.length <= 1,
-      onPopInvoked: (didPop) {
+      onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
         if (_stack.length > 1) _pop();
       },
@@ -257,7 +257,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
         if (_route != AiHudRoute.main)
           IconButton(
             icon: Icon(Icons.arrow_back,
-                color: widget.textColor.withOpacity(0.8)),
+                color: widget.textColor.withOpacityCompat(0.8)),
             onPressed: _pop,
             tooltip: '返回',
           )
@@ -277,7 +277,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           IconButton(
             tooltip: 'AI设置',
             icon: Icon(Icons.tune_rounded,
-                color: widget.textColor.withOpacity(0.75)),
+                color: widget.textColor.withOpacityCompat(0.75)),
             onPressed: () => _push(AiHudRoute.tencentSettings),
           ),
       ],
@@ -456,7 +456,7 @@ class _TencentHunyuanSettingsPanelState
   @override
   Widget build(BuildContext context) {
     final Color cardBg =
-        widget.isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
+        widget.isDark ? Colors.white.withOpacityCompat(0.07) : AppColors.mistWhite;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 6),
@@ -776,7 +776,8 @@ class _TencentHunyuanSettingsPanelState
         color: cardBg,
         borderRadius: BorderRadius.circular(AppTokens.radiusMd),
         border: Border.all(
-            color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+            color: widget.textColor.withOpacityCompat(0.08),
+            width: AppTokens.stroke),
       ),
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -800,7 +801,7 @@ class _TencentHunyuanSettingsPanelState
                     scale: 0.9,
                     child: Switch(
                       value: _userKeysEnabled,
-                      activeColor: AppColors.techBlue,
+                      activeThumbColor: AppColors.techBlue,
                       onChanged: _setUserTencentKeysEnabled,
                     ),
                   ),
@@ -812,7 +813,7 @@ class _TencentHunyuanSettingsPanelState
             Text(
               '可填写腾讯个人开发者的SecretId,SecretKey，会操作的看官自己操作，请放心，app内部不会盗用和泄露此信息，可自己通过控制台查看用量，需要开通混元大模型，机器翻译，语音合成完整使用AI伴读功能，无需购买积分。',
               style: TextStyle(
-                color: widget.textColor.withOpacity(0.65),
+                color: widget.textColor.withOpacityCompat(0.65),
                 fontSize: 13,
                 height: 1.35,
               ),
@@ -830,21 +831,21 @@ class _TencentHunyuanSettingsPanelState
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
-                    color: widget.textColor.withOpacity(0.18),
+                    color: widget.textColor.withOpacityCompat(0.18),
                     width: AppTokens.stroke,
                   ),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
-                    color: widget.textColor.withOpacity(0.18),
+                    color: widget.textColor.withOpacityCompat(0.18),
                     width: AppTokens.stroke,
                   ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
-                    color: AppColors.techBlue.withOpacity(0.6),
+                    color: AppColors.techBlue.withOpacityCompat(0.6),
                     width: AppTokens.stroke,
                   ),
                 ),
@@ -865,21 +866,21 @@ class _TencentHunyuanSettingsPanelState
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
-                    color: widget.textColor.withOpacity(0.18),
+                    color: widget.textColor.withOpacityCompat(0.18),
                     width: AppTokens.stroke,
                   ),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
-                    color: widget.textColor.withOpacity(0.18),
+                    color: widget.textColor.withOpacityCompat(0.18),
                     width: AppTokens.stroke,
                   ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
-                    color: AppColors.techBlue.withOpacity(0.6),
+                    color: AppColors.techBlue.withOpacityCompat(0.6),
                     width: AppTokens.stroke,
                   ),
                 ),
@@ -932,7 +933,7 @@ class _TencentHunyuanSettingsPanelState
                       child: Text(
                         '清除',
                         style: TextStyle(
-                          color: widget.textColor.withOpacity(0.7),
+                          color: widget.textColor.withOpacityCompat(0.7),
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
@@ -997,7 +998,7 @@ class _TencentHunyuanSettingsPanelState
           child: Text(
             '剩余积分：${aiModel.pointsBalance}',
             style: TextStyle(
-              color: widget.textColor.withOpacity(0.75),
+              color: widget.textColor.withOpacityCompat(0.75),
               fontSize: 13,
               fontWeight: FontWeight.w600,
               height: 1.0,
@@ -1137,26 +1138,26 @@ class _TencentHunyuanSettingsPanelState
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(
-                            color: widget.textColor.withOpacity(0.18),
+                            color: widget.textColor.withOpacityCompat(0.18),
                             width: AppTokens.stroke,
                           ),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(
-                            color: widget.textColor.withOpacity(0.18),
+                            color: widget.textColor.withOpacityCompat(0.18),
                             width: AppTokens.stroke,
                           ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(
-                            color: AppColors.techBlue.withOpacity(0.6),
+                            color: AppColors.techBlue.withOpacityCompat(0.6),
                             width: AppTokens.stroke,
                           ),
                         ),
                         hintStyle: TextStyle(
-                            color: widget.textColor.withOpacity(0.45)),
+                            color: widget.textColor.withOpacityCompat(0.45)),
                       ),
                       style: TextStyle(color: widget.textColor, fontSize: 13),
                       onSubmitted: (_) async {
@@ -1188,7 +1189,7 @@ class _TencentHunyuanSettingsPanelState
                       ? null
                       : () => Navigator.of(dialogContext).pop(),
                   style: TextButton.styleFrom(
-                    foregroundColor: widget.textColor.withOpacity(0.75),
+                    foregroundColor: widget.textColor.withOpacityCompat(0.75),
                   ),
                   child: const Text('取消'),
                 ),
@@ -1242,7 +1243,7 @@ class _TencentHunyuanSettingsPanelState
                   ListTile(
                     dense: true,
                     textColor: widget.textColor,
-                    iconColor: widget.textColor.withOpacity(0.75),
+                    iconColor: widget.textColor.withOpacityCompat(0.75),
                     title: Text(
                       sku.label,
                       style: const TextStyle(fontSize: 13),
@@ -1260,7 +1261,7 @@ class _TencentHunyuanSettingsPanelState
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
               style: TextButton.styleFrom(
-                foregroundColor: widget.textColor.withOpacity(0.75),
+                foregroundColor: widget.textColor.withOpacityCompat(0.75),
               ),
               child: const Text('关闭'),
             ),
@@ -1489,7 +1490,8 @@ class _TencentHunyuanSettingsPanelState
         color: cardBg,
         borderRadius: BorderRadius.circular(AppTokens.radiusMd),
         border: Border.all(
-            color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+            color: widget.textColor.withOpacityCompat(0.08),
+            width: AppTokens.stroke),
       ),
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -1544,7 +1546,7 @@ class _TencentHunyuanSettingsPanelState
                   Text(
                     '使用微软+腾讯翻译',
                     style: TextStyle(
-                      color: widget.textColor.withOpacity(0.65),
+                      color: widget.textColor.withOpacityCompat(0.65),
                       fontSize: 13,
                       height: 1.35,
                     ),
@@ -1554,7 +1556,7 @@ class _TencentHunyuanSettingsPanelState
                     Text(
                       '使用腾讯混元翻译大模型（个人密钥）',
                       style: TextStyle(
-                        color: widget.textColor.withOpacity(0.65),
+                        color: widget.textColor.withOpacityCompat(0.65),
                         fontSize: 13,
                         height: 1.35,
                       ),
@@ -1564,7 +1566,7 @@ class _TencentHunyuanSettingsPanelState
                       '使用腾讯混元翻译大模型'
                       '${aiModel.pointsBalance > 0 ? '' : '，需要购买积分后使用'}',
                       style: TextStyle(
-                        color: widget.textColor.withOpacity(0.65),
+                        color: widget.textColor.withOpacityCompat(0.65),
                         fontSize: 13,
                         height: 1.35,
                       ),
@@ -1670,7 +1672,7 @@ class _TencentHunyuanSettingsPanelState
     required Color textColor,
   }) {
     const Color activeColor = AppColors.techBlue;
-    final inactiveColor = textColor.withOpacity(0.4);
+    final inactiveColor = textColor.withOpacityCompat(0.4);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1687,7 +1689,7 @@ class _TencentHunyuanSettingsPanelState
                     child: Container(
                       height: 2,
                       decoration: BoxDecoration(
-                        color: textColor.withOpacity(0.18),
+                        color: textColor.withOpacityCompat(0.18),
                         borderRadius: BorderRadius.circular(999),
                       ),
                     ),
@@ -1727,7 +1729,7 @@ class _TencentHunyuanSettingsPanelState
         Text(
           '当前：${_getSpeedLabel(value)}',
           style: TextStyle(
-            color: textColor.withOpacity(0.65),
+            color: textColor.withOpacityCompat(0.65),
             fontSize: 12,
           ),
         ),
@@ -1760,7 +1762,8 @@ class _TencentHunyuanSettingsPanelState
         color: cardBg,
         borderRadius: BorderRadius.circular(AppTokens.radiusMd),
         border: Border.all(
-            color: widget.textColor.withOpacity(0.08), width: AppTokens.stroke),
+                color: widget.textColor.withOpacityCompat(0.08),
+                width: AppTokens.stroke),
       ),
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -1813,7 +1816,7 @@ class _TencentHunyuanSettingsPanelState
                   Text(
                     '本地朗读不可用',
                     style: TextStyle(
-                      color: widget.textColor.withOpacity(0.65),
+                      color: widget.textColor.withOpacityCompat(0.65),
                       fontSize: 13,
                       height: 1.35,
                     ),
@@ -1825,7 +1828,7 @@ class _TencentHunyuanSettingsPanelState
                     Text(
                       '使用腾讯大模型朗读（个人密钥）',
                       style: TextStyle(
-                        color: widget.textColor.withOpacity(0.65),
+                        color: widget.textColor.withOpacityCompat(0.65),
                         fontSize: 13,
                         height: 1.35,
                       ),
@@ -1835,7 +1838,7 @@ class _TencentHunyuanSettingsPanelState
                       '使用腾讯大模型朗读'
                       '${aiModel.pointsBalance > 0 ? '' : '，需要购买积分后使用'}',
                       style: TextStyle(
-                        color: widget.textColor.withOpacity(0.65),
+                        color: widget.textColor.withOpacityCompat(0.65),
                         fontSize: 13,
                         height: 1.35,
                       ),
@@ -1964,11 +1967,13 @@ class _TencentHunyuanSettingsPanelState
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: active
-              ? AppColors.techBlue.withOpacity(0.12)
+              ? AppColors.techBlue.withOpacityCompat(0.12)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: active ? AppColors.techBlue : textColor.withOpacity(0.18),
+            color: active
+                ? AppColors.techBlue
+                : textColor.withOpacityCompat(0.18),
             width: AppTokens.stroke,
           ),
         ),
@@ -1981,7 +1986,9 @@ class _TencentHunyuanSettingsPanelState
               style: TextStyle(
                 fontSize: 13,
                 color:
-                    active ? AppColors.techBlue : textColor.withOpacity(0.75),
+                    active
+                        ? AppColors.techBlue
+                        : textColor.withOpacityCompat(0.75),
                 fontWeight: active ? FontWeight.w600 : FontWeight.w500,
                 height: 1.1,
               ),
@@ -2011,10 +2018,11 @@ class _TencentHunyuanSettingsPanelState
         SizedBox(
           height: 32,
           child: DropdownButtonFormField<String>(
-            value: items.containsKey(value) ? value : items.keys.first,
+            key: ValueKey('$label|$value'),
+            initialValue: items.containsKey(value) ? value : items.keys.first,
             dropdownColor: bg,
             style: TextStyle(color: textColor, fontSize: 13),
-            iconEnabledColor: textColor.withOpacity(0.75),
+            iconEnabledColor: textColor.withOpacityCompat(0.75),
             decoration: InputDecoration(
               isDense: true,
               filled: true,
@@ -2026,14 +2034,14 @@ class _TencentHunyuanSettingsPanelState
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: textColor.withOpacity(0.18),
+                  color: textColor.withOpacityCompat(0.18),
                   width: AppTokens.stroke,
                 ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: textColor.withOpacity(0.18),
+                  color: textColor.withOpacityCompat(0.18),
                   width: AppTokens.stroke,
                 ),
               ),
@@ -2066,7 +2074,7 @@ class _TencentHunyuanSettingsPanelState
             color: cardBg,
             borderRadius: BorderRadius.circular(AppTokens.radiusMd),
             border: Border.all(
-                color: widget.textColor.withOpacity(0.08),
+                color: widget.textColor.withOpacityCompat(0.08),
                 width: AppTokens.stroke),
           ),
           padding: const EdgeInsets.all(14),
@@ -2130,7 +2138,7 @@ class _TencentHunyuanSettingsPanelState
                         Text(
                           '使用腾讯混元大模型（个人密钥）',
                           style: TextStyle(
-                            color: widget.textColor.withOpacity(0.65),
+                            color: widget.textColor.withOpacityCompat(0.65),
                             fontSize: 13,
                             height: 1.35,
                           ),
@@ -2140,7 +2148,7 @@ class _TencentHunyuanSettingsPanelState
                           '使用腾讯混元大模型'
                           '${aiModel.pointsBalance > 0 ? '' : '，需要购买积分后使用'}',
                           style: TextStyle(
-                            color: widget.textColor.withOpacity(0.65),
+                            color: widget.textColor.withOpacityCompat(0.65),
                             fontSize: 13,
                             height: 1.35,
                           ),
@@ -2227,13 +2235,13 @@ class _TencentHunyuanSettingsPanelState
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: active
-              ? AppColors.techBlue.withOpacity(0.12)
+              ? AppColors.techBlue.withOpacityCompat(0.12)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: active
                 ? AppColors.techBlue
-                : widget.textColor.withOpacity(0.18),
+                : widget.textColor.withOpacityCompat(0.18),
             width: AppTokens.stroke,
           ),
         ),
@@ -2247,7 +2255,7 @@ class _TencentHunyuanSettingsPanelState
                 fontSize: 13,
                 color: active
                     ? AppColors.techBlue
-                    : widget.textColor.withOpacity(0.75),
+                    : widget.textColor.withOpacityCompat(0.75),
                 fontWeight: active ? FontWeight.w600 : FontWeight.w500,
                 height: 1.1,
               ),
@@ -2269,7 +2277,7 @@ class _TencentHunyuanSettingsPanelState
           child: Text(
             '$title($sizeText)',
             style: TextStyle(
-              color: widget.textColor.withOpacity(0.65),
+              color: widget.textColor.withOpacityCompat(0.65),
               fontSize: 13,
               height: 1.35,
             ),
@@ -2315,8 +2323,9 @@ class _TencentHunyuanSettingsPanelState
                     ? aiModel.downloadProgress
                     : null,
                 strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(AppColors.techBlue),
-                backgroundColor: widget.textColor.withOpacity(0.1),
+                valueColor:
+                    const AlwaysStoppedAnimation<Color>(AppColors.techBlue),
+                backgroundColor: widget.textColor.withOpacityCompat(0.1),
               ),
             ),
             const SizedBox(width: 8),
@@ -2327,7 +2336,7 @@ class _TencentHunyuanSettingsPanelState
                 padding: EdgeInsets.zero,
                 minimumSize: const Size(0, 0),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                foregroundColor: widget.textColor.withOpacity(0.6),
+                foregroundColor: widget.textColor.withOpacityCompat(0.6),
               ),
               child: const Text(
                 '取消',
@@ -2339,7 +2348,7 @@ class _TencentHunyuanSettingsPanelState
 
       case ModelInstallStatus.installed:
         // 已安装，显示已就绪状态（不需要等待LLM初始化成功）
-        return Row(
+        return const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
@@ -2347,7 +2356,7 @@ class _TencentHunyuanSettingsPanelState
               color: Colors.green,
               size: 16,
             ),
-            const SizedBox(width: 4),
+            SizedBox(width: 4),
             Text(
               '已就绪',
               style: TextStyle(
@@ -2512,10 +2521,10 @@ class _MainPanel extends StatelessWidget {
     required ValueChanged<bool>? onChanged,
   }) {
     final Color cardBg =
-        isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
+        isDark ? Colors.white.withOpacityCompat(0.07) : AppColors.mistWhite;
     final Color borderColor = value
-        ? AppColors.techBlue.withOpacity(0.55)
-        : textColor.withOpacity(0.08);
+        ? AppColors.techBlue.withOpacityCompat(0.55)
+        : textColor.withOpacityCompat(0.08);
 
     final bool disabled = onChanged == null;
 
@@ -2544,15 +2553,15 @@ class _MainPanel extends StatelessWidget {
                       height: 36,
                       decoration: BoxDecoration(
                         color: value
-                            ? AppColors.techBlue.withOpacity(0.12)
-                            : textColor.withOpacity(0.06),
+                            ? AppColors.techBlue.withOpacityCompat(0.12)
+                            : textColor.withOpacityCompat(0.06),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
                         icon,
                         color: value
                             ? AppColors.techBlue
-                            : textColor.withOpacity(0.8),
+                            : textColor.withOpacityCompat(0.8),
                         size: 20,
                       ),
                     ),
@@ -2572,7 +2581,7 @@ class _MainPanel extends StatelessWidget {
                           Text(
                             subtitle,
                             style: TextStyle(
-                              color: textColor.withOpacity(0.65),
+                              color: textColor.withOpacityCompat(0.65),
                               fontSize: 12,
                               height: 1.35,
                             ),
@@ -2588,7 +2597,7 @@ class _MainPanel extends StatelessWidget {
           const SizedBox(width: 6),
           Switch(
             value: value,
-            activeColor: AppColors.techBlue,
+            activeThumbColor: AppColors.techBlue,
             onChanged: onChanged,
           ),
         ],
@@ -2602,7 +2611,7 @@ class _MainPanel extends StatelessWidget {
     required VoidCallback onTap,
   }) {
     final Color cardBg =
-        isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
+        isDark ? Colors.white.withOpacityCompat(0.07) : AppColors.mistWhite;
 
     return InkWell(
       onTap: enabled ? onTap : null,
@@ -2612,7 +2621,7 @@ class _MainPanel extends StatelessWidget {
           color: cardBg,
           borderRadius: BorderRadius.circular(AppTokens.radiusMd),
           border: Border.all(
-              color: textColor.withOpacity(0.08), width: AppTokens.stroke),
+              color: textColor.withOpacityCompat(0.08), width: AppTokens.stroke),
         ),
         padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
         child: Row(
@@ -2622,14 +2631,16 @@ class _MainPanel extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 color: enabled
-                    ? AppColors.techBlue.withOpacity(0.12)
-                    : textColor.withOpacity(0.06),
+                    ? AppColors.techBlue.withOpacityCompat(0.12)
+                    : textColor.withOpacityCompat(0.06),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
                 Icons.question_answer,
                 color:
-                    enabled ? AppColors.techBlue : textColor.withOpacity(0.7),
+                    enabled
+                        ? AppColors.techBlue
+                        : textColor.withOpacityCompat(0.7),
                 size: 20,
               ),
             ),
@@ -2653,7 +2664,7 @@ class _MainPanel extends StatelessWidget {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: textColor.withOpacity(0.65),
+                      color: textColor.withOpacityCompat(0.65),
                       fontSize: 12,
                       height: 1.35,
                     ),
@@ -2661,7 +2672,7 @@ class _MainPanel extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: textColor.withOpacity(0.6)),
+            Icon(Icons.chevron_right, color: textColor.withOpacityCompat(0.6)),
           ],
         ),
       ),
@@ -3211,7 +3222,7 @@ class _QaPanelState extends State<_QaPanel> {
     messenger.hideCurrentMaterialBanner();
     messenger.showMaterialBanner(
       MaterialBanner(
-        backgroundColor: Colors.red.withOpacity(0.95),
+        backgroundColor: Colors.red.withOpacityCompat(0.95),
         content: Text(
           message,
           style: const TextStyle(color: Colors.white),
@@ -3233,7 +3244,7 @@ class _QaPanelState extends State<_QaPanel> {
   @override
   Widget build(BuildContext context) {
     final Color cardBg =
-        widget.isDark ? Colors.white.withOpacity(0.07) : AppColors.mistWhite;
+        widget.isDark ? Colors.white.withOpacityCompat(0.07) : AppColors.mistWhite;
 
     Widget actionChip({
       required String label,
@@ -3248,13 +3259,13 @@ class _QaPanelState extends State<_QaPanel> {
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             color: disabled
-                ? AppColors.techBlue.withOpacity(0.05)
-                : AppColors.techBlue.withOpacity(0.12),
+                ? AppColors.techBlue.withOpacityCompat(0.05)
+                : AppColors.techBlue.withOpacityCompat(0.12),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
               color: disabled
-                  ? AppColors.techBlue.withOpacity(0.2)
-                  : AppColors.techBlue.withOpacity(0.35),
+                  ? AppColors.techBlue.withOpacityCompat(0.2)
+                  : AppColors.techBlue.withOpacityCompat(0.35),
               width: AppTokens.stroke,
             ),
           ),
@@ -3266,7 +3277,7 @@ class _QaPanelState extends State<_QaPanel> {
                 style: TextStyle(
                   fontSize: 13,
                   color: disabled
-                      ? AppColors.techBlue.withOpacity(0.4)
+                      ? AppColors.techBlue.withOpacityCompat(0.4)
                       : AppColors.techBlue,
                   fontWeight: FontWeight.w600,
                   height: 1.2,
@@ -3285,7 +3296,7 @@ class _QaPanelState extends State<_QaPanel> {
           color: cardBg,
           borderRadius: BorderRadius.circular(AppTokens.radiusMd),
           border: Border.all(
-              color: widget.textColor.withOpacity(0.08),
+              color: widget.textColor.withOpacityCompat(0.08),
               width: AppTokens.stroke),
         ),
         padding: const EdgeInsets.all(14),
@@ -3307,20 +3318,20 @@ class _QaPanelState extends State<_QaPanel> {
                         children: [
                           Expanded(
                               child: Divider(
-                                  color: widget.textColor.withOpacity(0.1))),
+                                  color: widget.textColor.withOpacityCompat(0.1))),
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             child: Text(
                               m.text,
                               style: TextStyle(
                                 fontSize: 13,
-                                color: widget.textColor.withOpacity(0.4),
+                                color: widget.textColor.withOpacityCompat(0.4),
                               ),
                             ),
                           ),
                           Expanded(
                               child: Divider(
-                                  color: widget.textColor.withOpacity(0.1))),
+                                  color: widget.textColor.withOpacityCompat(0.1))),
                         ],
                       ),
                     );
@@ -3328,8 +3339,8 @@ class _QaPanelState extends State<_QaPanel> {
 
                   final bool isUser = m.role == _QaRole.user;
                   final Color bubbleBg = isUser
-                      ? AppColors.techBlue.withOpacity(0.18)
-                      : widget.textColor.withOpacity(0.06);
+                      ? AppColors.techBlue.withOpacityCompat(0.18)
+                      : widget.textColor.withOpacityCompat(0.06);
                   final Alignment align =
                       isUser ? Alignment.centerRight : Alignment.centerLeft;
                   return Align(
@@ -3344,7 +3355,7 @@ class _QaPanelState extends State<_QaPanel> {
                         color: bubbleBg,
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: widget.textColor.withOpacity(0.08),
+                          color: widget.textColor.withOpacityCompat(0.08),
                           width: AppTokens.stroke,
                         ),
                       ),
@@ -3382,7 +3393,7 @@ class _QaPanelState extends State<_QaPanel> {
                                           '深度思考',
                                           style: TextStyle(
                                             color: widget.textColor
-                                                .withOpacity(0.72),
+                                                .withOpacityCompat(0.72),
                                             fontSize: 15,
                                           ),
                                         ),
@@ -3393,7 +3404,7 @@ class _QaPanelState extends State<_QaPanel> {
                                               : Icons.expand_less,
                                           size: 18,
                                           color: widget.textColor
-                                              .withOpacity(0.55),
+                                              .withOpacityCompat(0.55),
                                         ),
                                       ],
                                     ),
@@ -3405,7 +3416,7 @@ class _QaPanelState extends State<_QaPanel> {
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 10, vertical: 10),
                                       decoration: BoxDecoration(
-                                        color: widget.textColor.withOpacity(
+                                        color: widget.textColor.withOpacityCompat(
                                             widget.isDark ? 0.06 : 0.035),
                                         borderRadius: BorderRadius.circular(12),
                                       ),
@@ -3418,7 +3429,7 @@ class _QaPanelState extends State<_QaPanel> {
                                             m.reasoning.trim(),
                                             style: TextStyle(
                                               color: widget.textColor
-                                                  .withOpacity(0.78),
+                                                  .withOpacityCompat(0.78),
                                               height: 1.35,
                                               fontSize: 13,
                                             ),
@@ -3463,7 +3474,7 @@ class _QaPanelState extends State<_QaPanel> {
                   padding: const EdgeInsets.symmetric(vertical: 8.0),
                   child: Text('思考中...',
                       style: TextStyle(
-                          color: widget.textColor.withOpacity(0.6),
+                          color: widget.textColor.withOpacityCompat(0.6),
                           fontSize: 15)),
                 ),
               ),
