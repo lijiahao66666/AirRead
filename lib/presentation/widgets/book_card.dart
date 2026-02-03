@@ -142,52 +142,51 @@ class _BookCardState extends State<BookCard> {
             },
           ),
           const SizedBox(height: 8),
-          if (widget.book.percentage > 0) ...[
-            LinearProgressIndicator(
-              value: widget.book.percentage.clamp(0.0, 1.0),
-              backgroundColor:
-                  scheme.onSurface.withOpacityCompat(isDark ? 0.16 : 0.08),
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                AppColors.techBlue,
-              ),
-              borderRadius: BorderRadius.circular(2),
-              minHeight: 2,
-            ),
-            const SizedBox(height: 4),
-          ] else ...[
-            const SizedBox(height: 2),
-          ],
+          Builder(
+            builder: (context) {
+              final total = widget.book.totalPages;
+              final current = widget.book.currentPage;
+              final double progress = total > 0 && current > 0
+                  ? (current / total).clamp(0.0, 1.0)
+                  : widget.book.percentage.clamp(0.0, 1.0);
+              final barColor =
+                  progress > 0 ? AppColors.techBlue : Colors.transparent;
+              return LinearProgressIndicator(
+                value: progress,
+                backgroundColor:
+                    scheme.onSurface.withOpacityCompat(isDark ? 0.16 : 0.08),
+                valueColor: AlwaysStoppedAnimation<Color>(barColor),
+                borderRadius: BorderRadius.circular(2),
+                minHeight: 2,
+              );
+            },
+          ),
+          const SizedBox(height: 4),
           Align(
             alignment: Alignment.centerRight,
             child: Builder(
               builder: (context) {
                 final total = widget.book.totalPages;
                 final current = widget.book.currentPage;
-                if (total <= 0) {
-                  final p = widget.book.percentage;
-                  if (p <= 0) return const SizedBox.shrink();
-                  final String percent =
-                      (p * 100).clamp(0, 100).toStringAsFixed(0);
-                  return Text(
+                final bool canUsePages = total > 0 && current > 0;
+                final double progress = canUsePages
+                    ? (current / total).clamp(0.0, 1.0)
+                    : widget.book.percentage.clamp(0.0, 1.0);
+                final bool show = progress > 0;
+                final String percent =
+                    (progress * 100).clamp(0, 100).toStringAsFixed(0);
+                return Visibility(
+                  visible: show,
+                  maintainState: true,
+                  maintainAnimation: true,
+                  maintainSize: true,
+                  child: Text(
                     '$percent%',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: scheme.onSurface.withOpacityCompat(0.55),
                           fontSize: 10,
                         ),
-                  );
-                }
-                if (current <= 0) {
-                  return const SizedBox.shrink();
-                }
-                final double ratio = current / total;
-                final String percent =
-                    (ratio * 100).clamp(0, 100).toStringAsFixed(0);
-                return Text(
-                  '$percent%',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurface.withOpacityCompat(0.55),
-                        fontSize: 10,
-                      ),
+                  ),
                 );
               },
             ),
