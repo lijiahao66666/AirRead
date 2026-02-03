@@ -61,6 +61,9 @@ dependencies:
   url_launcher: ^6.3.1
   cryptography: ^2.7.0
   fast_gbk: ^1.0.0
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
 
 
 dev_dependencies:
