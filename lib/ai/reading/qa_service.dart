@@ -4,7 +4,37 @@ import '../hunyuan/hunyuan_text_client.dart';
 import '../local_llm/llm_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
 import '../../presentation/providers/ai_model_provider.dart';
-import 'reading_context_service.dart';
+class ReadingContextService {
+  final Map<int, String> chapterContentCache;
+  final int currentChapterIndex;
+  final int currentPageInChapter;
+  final Map<int, List<String>> chapterPageRanges;
+
+  ReadingContextService({
+    required this.chapterContentCache,
+    required this.currentChapterIndex,
+    required this.currentPageInChapter,
+    required this.chapterPageRanges,
+  });
+
+  String getContentByScope(QAContentScope scope) {
+    final chapterContent = chapterContentCache[currentChapterIndex] ?? '';
+    if (chapterContent.isEmpty) return '';
+
+    // TODO: Implement more sophisticated scope logic
+    // For now, we return the whole chapter content or a truncated version
+    // based on some simple heuristics.
+    
+    // 简单清理 XML 标签等
+    final cleaned = _cleanContent(chapterContent);
+    return cleaned;
+  }
+  
+  String _cleanContent(String content) {
+    // 简单移除 HTML/XML 标签
+    return content.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+  }
+}
 
 // QA类型枚举
 enum QAType {
@@ -105,9 +135,10 @@ String buildLocalQaPrompt({
           '输出：不超过5条，每条一句话。';
       break;
     case QAType.general:
-      userPrompt = contextService.generateQAPrompt(
+      userPrompt = _buildGeneralQaPrompt(
         question,
         contentScope,
+        contextService,
         history: history,
       );
       break;
