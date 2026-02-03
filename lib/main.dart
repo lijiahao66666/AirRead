@@ -14,6 +14,7 @@ import 'core/theme/app_theme.dart';
 import 'presentation/pages/bookshelf/bookshelf_page.dart';
 import 'presentation/providers/ai_model_provider.dart';
 import 'presentation/providers/books_provider.dart';
+import 'presentation/providers/read_aloud_provider.dart';
 import 'presentation/providers/translation_provider.dart';
 import 'presentation/providers/qa_stream_provider.dart';
 
@@ -84,6 +85,14 @@ Future<void> main() async {
           update: (_, aiModel, provider) {
             final p = provider ?? TranslationProvider(aiModel: aiModel);
             p.updateAiModel(aiModel);
+            return p;
+          },
+        ),
+        ChangeNotifierProxyProvider<TranslationProvider, ReadAloudProvider>(
+          create: (_) => ReadAloudProvider(),
+          update: (_, tp, provider) {
+            final p = provider ?? ReadAloudProvider();
+            p.updateTranslationProvider(tp);
             return p;
           },
         ),

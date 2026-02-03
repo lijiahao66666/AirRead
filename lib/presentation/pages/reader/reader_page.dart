@@ -14,6 +14,7 @@ import '../../widgets/ai_hud.dart';
 import '../../widgets/glass_panel.dart';
 import '../../providers/books_provider.dart';
 import '../../providers/ai_model_provider.dart';
+import '../../providers/read_aloud_provider.dart';
 import '../../providers/translation_provider.dart';
 import '../../../data/services/book_parser.dart';
 import '../../../data/models/book.dart';
@@ -467,6 +468,8 @@ class _ReaderPageState extends State<ReaderPage>
   bool? _lastTranslationApplyToReader;
   TranslationDisplayMode? _lastTranslationDisplayMode;
   bool _relocateAfterTranslationChangeScheduled = false;
+  bool _readAloudSyncScheduled = false;
+  String? _lastReadAloudSyncKey;
 
   // For Horizontal Mode, we use a PageController with a large initial index to simulate infinite scrolling
   // But strictly mapping pages is better.
@@ -1883,6 +1886,7 @@ class _ReaderPageState extends State<ReaderPage>
     required bool enabled,
   }) async {
     if (!mounted) return;
+    final rap = context.read<ReadAloudProvider>();
 
     try {
       await provider.setAiReadAloudEnabled(enabled);
@@ -1893,22 +1897,109 @@ class _ReaderPageState extends State<ReaderPage>
     }
 
     if (!enabled) {
-      await _stopReadAloud(keepResume: true);
-      if (!mounted) return;
-      setState(() {
-        _readAloudHighlightText = null;
-      });
+      await rap.stop(keepResume: true);
       return;
     }
     if (!mounted) return;
-    final resume = _readAloudResumeParagraphIndex;
-    if (resume != null) {
-      final highlight = _paragraphTextForIndex(resume);
-      if (highlight != null && highlight.trim().isNotEmpty) {
-        _readAloudHighlightText = highlight;
-      }
-    }
     setState(() {});
+  }
+
+  Future<List<ReaderParagraph>> _paragraphsForChapter(int chapterIndex) async {
+    await _ensureChapterContentCached(chapterIndex);
+    if (!mounted) return const [];
+    final plainText = _getPlainTextForChapter(chapterIndex);
+    if (plainText.isEmpty) return const [];
+    return _getParagraphsForChapter(chapterIndex, plainText);
+  }
+
+  Future<void> _startReadAloudFromSelection(String selectedText) async {
+    if (!mounted) return;
+    final tp = context.read<TranslationProvider>();
+    final rap = context.read<ReadAloudProvider>();
+    if (!tp.aiReadAloudEnabled) return;
+    final Map<int, String> pageParas = _currentPageParagraphsByIndex();
+    int? startParagraphIndex;
+    final trimmed = selectedText.trim();
+    if (trimmed.isNotEmpty && pageParas.isNotEmpty) {
+      final entries = pageParas.entries.toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
+      for (final e in entries) {
+        final t = e.value;
+        if (t.contains(trimmed) || trimmed.contains(t.trim())) {
+          startParagraphIndex = e.key;
+          break;
+        }
+      }
+      startParagraphIndex ??= entries.first.key;
+    }
+    startParagraphIndex ??= 0;
+
+    final chapterIndex = _currentChapterIndex;
+    final paras = await _paragraphsForChapter(chapterIndex);
+    if (!mounted) return;
+    await rap.startOrResume(
+          bookId: widget.bookId,
+          chapterIndex: chapterIndex,
+          paragraphs: paras,
+          startParagraphIndex: startParagraphIndex,
+        );
+  }
+
+  void _scheduleSyncToReadAloudPosition(ReadAloudPosition pos) {
+    final key = '${pos.bookId}|${pos.chapterIndex}|${pos.paragraphIndex}';
+    if (key == _lastReadAloudSyncKey) return;
+    if (_readAloudSyncScheduled) return;
+    _readAloudSyncScheduled = true;
+    _lastReadAloudSyncKey = key;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(() async {
+        _readAloudSyncScheduled = false;
+        if (!mounted) return;
+        final rap = context.read<ReadAloudProvider>();
+        final latest = rap.position;
+        if (latest == null) return;
+        final latestKey =
+            '${latest.bookId}|${latest.chapterIndex}|${latest.paragraphIndex}';
+        if (latestKey != key) return;
+        if (latest.bookId != widget.bookId) return;
+
+        final targetChapter = latest.chapterIndex;
+        await _ensureChapterContentCached(targetChapter);
+        if (!mounted) return;
+        final plainText = _getPlainTextForChapter(targetChapter);
+        if (plainText.isEmpty) return;
+        final paragraphs = _getParagraphsForChapter(targetChapter, plainText);
+        if (latest.paragraphIndex < 0 ||
+            latest.paragraphIndex >= paragraphs.length) {
+          return;
+        }
+        final p = paragraphs[latest.paragraphIndex];
+        final progress = plainText.isNotEmpty
+            ? (p.start / plainText.length).clamp(0.0, 1.0)
+            : 0.0;
+
+        if (targetChapter != _currentChapterIndex) {
+          setState(() {
+            _currentChapterIndex = targetChapter;
+            _currentPageInChapter = 0;
+            _pendingRestoreProgress = progress;
+            _pageViewCenterIndex = 1000;
+          });
+          if (_pageController.hasClients) {
+            _pageController.jumpToPage(1000);
+          }
+          return;
+        }
+
+        setState(() {
+          _relocateCurrentPageToProgress(progress);
+          _pageViewCenterIndex = 1000;
+        });
+        if (_pageController.hasClients) {
+          _pageController.jumpToPage(1000);
+        }
+      }());
+    });
   }
 
   String? _paragraphTextForIndex(int paragraphIndex) {
@@ -2645,6 +2736,18 @@ class _ReaderPageState extends State<ReaderPage>
     if (!context.watch<TranslationProvider>().aiReadAloudEnabled) {
       return const SizedBox.shrink();
     }
+    final readAloud = context.watch<ReadAloudProvider>();
+    final active = readAloud.playing || readAloud.preparing;
+    if (active) {
+      if (!_readAloudAnimController.isAnimating) {
+        _readAloudAnimController.repeat(reverse: true);
+      }
+    } else {
+      if (_readAloudAnimController.isAnimating) {
+        _readAloudAnimController.stop();
+        _readAloudAnimController.reset();
+      }
+    }
 
     final Color surface = _panelBgColor;
     final Color onSurface = _panelTextColor;
@@ -2721,11 +2824,28 @@ class _ReaderPageState extends State<ReaderPage>
                 child: InkWell(
                   borderRadius: BorderRadius.circular(999),
                   onTap: () {
-                    if (_aiReadAloudPlaying || _aiReadAloudPreparing) {
-                      _stopReadAloud(keepResume: true);
+                    if (readAloud.playing || readAloud.preparing) {
+                      unawaited(readAloud.pause());
                       return;
                     }
-                    _startReadAloud();
+                    unawaited(() async {
+                      final tp = context.read<TranslationProvider>();
+                      final rap = context.read<ReadAloudProvider>();
+                      if (!tp.aiReadAloudEnabled) return;
+                      final resume = rap.position;
+                      int targetChapter = _currentChapterIndex;
+                      if (resume != null && resume.bookId == widget.bookId) {
+                        targetChapter = resume.chapterIndex;
+                      }
+                      final paras = await _paragraphsForChapter(targetChapter);
+                      if (!mounted) return;
+                      await rap.startOrResume(
+                        bookId: widget.bookId,
+                        chapterIndex: targetChapter,
+                        paragraphs: paras,
+                        startParagraphIndex: null,
+                      );
+                    }());
                   },
                   child: SizedBox(
                     width: fabSize,
@@ -2734,7 +2854,7 @@ class _ReaderPageState extends State<ReaderPage>
                       animation: _readAloudAnimController,
                       builder: (context, child) {
                         final active =
-                            _aiReadAloudPlaying || _aiReadAloudPreparing;
+                            readAloud.playing || readAloud.preparing;
                         final scale = active
                             ? 1.0 + (_readAloudAnimController.value * 0.2)
                             : 1.0;
@@ -2746,12 +2866,12 @@ class _ReaderPageState extends State<ReaderPage>
                           Icon(
                             Icons.volume_up_rounded,
                             color:
-                                (_aiReadAloudPlaying || _aiReadAloudPreparing)
+                                (readAloud.playing || readAloud.preparing)
                                     ? AppColors.techBlue
                                     : onSurface.withOpacityCompat(0.5),
                             size: 24,
                           ),
-                          if (_aiReadAloudPreparing)
+                          if (readAloud.preparing)
                             SizedBox(
                               width: 34,
                               height: 34,
@@ -3030,6 +3150,7 @@ class _ReaderPageState extends State<ReaderPage>
   TextSpan _buildReaderSpan({
     required String text,
     required TextStyle bodyStyle,
+    String? highlightText,
   }) {
     const marker = '翻译中...';
     const int markerLen = marker.length;
@@ -3037,7 +3158,7 @@ class _ReaderPageState extends State<ReaderPage>
 
     final List<InlineSpan> children = [];
 
-    final highlightText = _readAloudHighlightText;
+    highlightText ??= _readAloudHighlightText;
     int hiStart = -1;
     int hiEnd = -1;
     if (highlightText != null && highlightText.trim().isNotEmpty) {
@@ -3248,7 +3369,11 @@ class _ReaderPageState extends State<ReaderPage>
 
     while (true) {
       final slice = text.substring(start, probeEnd);
-      textPainter.text = _buildReaderSpan(text: slice, bodyStyle: textStyle);
+      textPainter.text = _buildReaderSpan(
+        text: slice,
+        bodyStyle: textStyle,
+        highlightText: null,
+      );
       textPainter.layout(minWidth: 0, maxWidth: contentWidth);
 
       if (probeEnd >= len) break;
@@ -4551,9 +4676,16 @@ class _ReaderPageState extends State<ReaderPage>
         final int start = range.start.clamp(0, effectiveText.length);
         final int end = range.end.clamp(start, effectiveText.length);
         String pageText = effectiveText.substring(start, end);
+        final rap = context.watch<ReadAloudProvider>();
+        final String? highlightText = (tp.aiReadAloudEnabled &&
+                rap.position?.bookId == widget.bookId &&
+                rap.position?.chapterIndex == chapterIndex)
+            ? rap.highlightText
+            : null;
         final TextSpan span = _buildReaderSpan(
           text: pageText,
           bodyStyle: effectiveTextStyle,
+          highlightText: highlightText,
         );
 
         return Stack(
@@ -4613,9 +4745,11 @@ class _ReaderPageState extends State<ReaderPage>
             contextMenuBuilder: (context, selectableRegionState) {
               final text = selectedText.trim();
           final tp = context.read<TranslationProvider>();
+          final readAloud = context.read<ReadAloudProvider>();
           final aiModel = context.read<AiModelProvider>();
           final personalUsable = tp.usingPersonalTencentKeys &&
               getEmbeddedPublicHunyuanCredentials().isUsable;
+          final canReadCurrent = tp.aiReadAloudEnabled && text.isNotEmpty;
           final canTranslate = text.isNotEmpty &&
               (tp.translationMode == TranslationMode.machine ||
                   (tp.translationMode == TranslationMode.bigModel &&
@@ -4647,6 +4781,20 @@ class _ReaderPageState extends State<ReaderPage>
           );
 
           final items = <ContextMenuButtonItem>[
+            if (canReadCurrent)
+              ContextMenuButtonItem(
+                onPressed: () {
+                  ContextMenuController.removeAny();
+                  selectableRegionState.hideToolbar();
+                  unawaited(() async {
+                    await readAloud.stop(keepResume: true);
+                    if (!mounted) return;
+                    await _startReadAloudFromSelection(text);
+                  }());
+                },
+                type: ContextMenuButtonType.custom,
+                label: '读当前',
+              ),
             if (canTranslate)
               ContextMenuButtonItem(
                 onPressed: () {
@@ -5295,6 +5443,11 @@ class _ReaderPageState extends State<ReaderPage>
   @override
   Widget build(BuildContext context) {
     final tp = context.watch<TranslationProvider>();
+    final readAloud = context.watch<ReadAloudProvider>();
+    final pos = readAloud.position;
+    if (pos != null && pos.bookId == widget.bookId && tp.aiReadAloudEnabled) {
+      _scheduleSyncToReadAloudPosition(pos);
+    }
     final currentReadAloudEngine = tp.readAloudEngine;
     final lastReadAloudEngine = _lastReadAloudEngine;
     bool engineChanged = false;
@@ -5306,12 +5459,9 @@ class _ReaderPageState extends State<ReaderPage>
       _lastReadAloudEngine = currentReadAloudEngine;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        if (!_aiReadAloudPlaying && !_aiReadAloudPreparing) return;
-        unawaited(() async {
-          await _stopReadAloud(keepResume: true);
-          if (!mounted) return;
-          await _startReadAloud();
-        }());
+        final rap = context.read<ReadAloudProvider>();
+        if (!rap.playing && !rap.preparing) return;
+        unawaited(rap.restartFromCurrentPosition());
       });
     }
     final lastTtsSpeed = _lastTtsSpeed;
@@ -5338,12 +5488,9 @@ class _ReaderPageState extends State<ReaderPage>
     if (ttsConfigChanged && !engineChanged) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        if (!_aiReadAloudPlaying && !_aiReadAloudPreparing) return;
-        unawaited(() async {
-          await _stopReadAloud(keepResume: true);
-          if (!mounted) return;
-          await _startReadAloud();
-        }());
+        final rap = context.read<ReadAloudProvider>();
+        if (!rap.playing && !rap.preparing) return;
+        unawaited(rap.restartFromCurrentPosition());
       });
     }
     _scheduleRelocateAfterTranslationChange(tp);
