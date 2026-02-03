@@ -15,6 +15,8 @@ import 'presentation/providers/ai_model_provider.dart';
 import 'presentation/providers/books_provider.dart';
 import 'presentation/providers/translation_provider.dart';
 import 'presentation/providers/qa_stream_provider.dart';
+import 'presentation/providers/library_test_provider.dart';
+import 'presentation/providers/link_discovery_provider.dart';
 
 import 'package:flutter/services.dart';
 
@@ -78,6 +80,8 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => BooksProvider()),
         ChangeNotifierProvider(create: (_) => AiModelProvider()),
         ChangeNotifierProvider(create: (_) => QaStreamProvider()),
+        ChangeNotifierProvider(create: (_) => LibraryTestProvider()),
+        ChangeNotifierProvider(create: (_) => LinkDiscoveryProvider()),
         ChangeNotifierProxyProvider<AiModelProvider, TranslationProvider>(
           create: (_) => TranslationProvider(),
           update: (_, aiModel, provider) {

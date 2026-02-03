@@ -12,6 +12,7 @@ import '../../widgets/glass_panel.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../reader/reader_page.dart';
+import '../test/library_test_page.dart';
 import '../../../data/models/book.dart';
 
 class BookshelfPage extends StatefulWidget {
@@ -98,7 +99,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        title: const AirTitle(),
+        title: GestureDetector(
+          onLongPress: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const LibraryTestPage()),
+            );
+          },
+          child: const AirTitle(),
+        ),
         automaticallyImplyLeading: false,
       ),
       body: LayoutBuilder(
@@ -166,8 +175,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                 child: TextField(
                                   controller: _searchController,
                                   onChanged: _onSearchChanged,
-                                  style:
-                                      TextStyle(color: scheme.onSurface),
+                                  style: TextStyle(color: scheme.onSurface),
                                   decoration: InputDecoration(
                                     hintText: '搜索书名或作者',
                                     hintStyle: TextStyle(
