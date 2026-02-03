@@ -327,7 +327,9 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz
             try {
                 g_llm->response(fullPrompt, &customOs, nullptr, maxNewTokens);
             } catch (const std::runtime_error& e) {
-                if (std::string(e.what()) != "Generation cancelled by user") {
+                if (std::string(e.what()) == "Generation cancelled by user") {
+                    LOGI("Generation cancelled by user (caught in response wrapper)");
+                } else {
                     throw;
                 }
             }

@@ -340,7 +340,7 @@ private:
                 // 获取 atomic 指针以避免 lambda 中的 ivar 访问权限问题
                 std::atomic<bool>* shouldStopPtr = &blockSelf->_shouldStop;
                 
-                Utf8SafeStreamBuffer::CallBack callback = [handler, &accumulatedOutput, shouldStopPtr](const char* str, size_t len) {
+                Utf8SafeStreamBuffer::CallBack callback = [handler, &accumulatedOutput, shouldStopPtr, enableThinking](const char* str, size_t len) {
                     // Check for cancellation
                     if (shouldStopPtr->load()) {
                         throw std::runtime_error("Generation cancelled by user");
