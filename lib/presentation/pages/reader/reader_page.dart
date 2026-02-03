@@ -6,6 +6,8 @@ import 'package:epubx/epubx.dart';
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/theme/app_colors.dart';
@@ -403,6 +405,7 @@ class _ReaderPageState extends State<ReaderPage>
   final AudioPlayer _readAloudPlayer = AudioPlayer();
   final Map<String, Uint8List> _readAloudAudioCache = {};
   final Map<String, Future<Uint8List>> _readAloudAudioInFlight = {};
+  String? _readAloudTempFilePath;
   TencentTtsClient? _tencentTtsClient;
   final WebSpeechTts _webSpeechTts = createWebSpeechTts();
   bool _currentPageTranslateResumeScheduled = false;
@@ -759,6 +762,7 @@ class _ReaderPageState extends State<ReaderPage>
     _progressSaveTimer?.cancel();
     _localTtsSub?.cancel();
     unawaited(_webSpeechTts.stop());
+    unawaited(_cleanupReadAloudTempFile());
     _readAloudPlayer.dispose();
     _pageController.dispose();
     // for (var c in _chapterControllers.values) c.dispose(); // Removed
@@ -2284,7 +2288,17 @@ class _ReaderPageState extends State<ReaderPage>
         _aiReadAloudPreparing = false;
       });
       await _readAloudPlayer.stop();
-      await _readAloudPlayer.play(BytesSource(bytes));
+      await _cleanupReadAloudTempFile();
+      if (kIsWeb) {
+        await _readAloudPlayer.play(BytesSource(bytes));
+      } else {
+        final dir = await getTemporaryDirectory();
+        final file =
+            File('${dir.path}/tts_${session}_${DateTime.now().microsecondsSinceEpoch}.mp3');
+        await file.writeAsBytes(bytes, flush: true);
+        _readAloudTempFilePath = file.path;
+        await _readAloudPlayer.play(DeviceFileSource(file.path));
+      }
       _scheduleOnlinePrefetchWindow(session);
     } catch (e) {
       if (!mounted) return;
@@ -2462,11 +2476,24 @@ class _ReaderPageState extends State<ReaderPage>
       }
     } catch (_) {}
     await _readAloudPlayer.stop();
+    await _cleanupReadAloudTempFile();
     if (!mounted) return;
     setState(() {
       _aiReadAloudPlaying = false;
       _aiReadAloudPreparing = false;
     });
+  }
+
+  Future<void> _cleanupReadAloudTempFile() async {
+    final path = _readAloudTempFilePath;
+    if (path == null || path.isEmpty) return;
+    _readAloudTempFilePath = null;
+    try {
+      final f = File(path);
+      if (await f.exists()) {
+        await f.delete();
+      }
+    } catch (_) {}
   }
 
   void _onReadAloudPlayerComplete() {
