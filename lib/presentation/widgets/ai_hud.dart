@@ -3152,17 +3152,6 @@ class _QaPanelState extends State<_QaPanel> {
     _performQa(text, QAType.general, historyText);
   }
 
-  Future<void> _cancelActive() async {
-    await (_qaStream ?? context.read<QaStreamProvider>()).cancel(widget.bookId);
-    if (!mounted) return;
-    setState(() {
-      _messageState = _MessageState.idle;
-      _activeReplyIndex = null;
-      _activeStreamReplyIndex = null;
-    });
-    _schedulePersist();
-  }
-
   Future<void> _performQa(
       String question, QAType qaType, String history) async {
     final qaStream = _qaStream ?? context.read<QaStreamProvider>();
@@ -3516,8 +3505,6 @@ class _QaPanelState extends State<_QaPanel> {
                               .contains(LogicalKeyboardKey.shiftRight)) {
                         if (_messageState == _MessageState.idle) {
                           _send();
-                        } else {
-                          _cancelActive();
                         }
                         return KeyEventResult.handled;
                       }
@@ -3542,8 +3529,6 @@ class _QaPanelState extends State<_QaPanel> {
                       onSubmitted: (_) {
                         if (_messageState == _MessageState.idle) {
                           _send();
-                        } else {
-                          _cancelActive();
                         }
                       },
                     ),
@@ -3551,9 +3536,7 @@ class _QaPanelState extends State<_QaPanel> {
                 ),
                 const SizedBox(width: 10),
                 ElevatedButton(
-                  onPressed: _messageState == _MessageState.idle
-                      ? _send
-                      : _cancelActive,
+                  onPressed: _messageState == _MessageState.idle ? _send : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.techBlue,
                     foregroundColor: Colors.white,
@@ -3563,9 +3546,12 @@ class _QaPanelState extends State<_QaPanel> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
+                    disabledBackgroundColor:
+                        AppColors.techBlue.withOpacityCompat(0.45),
+                    disabledForegroundColor:
+                        Colors.white.withOpacityCompat(0.75),
                   ),
-                  child:
-                      Text(_messageState == _MessageState.idle ? '发送' : '取消'),
+                  child: const Text('发送'),
                 ),
               ],
             ),

@@ -343,7 +343,7 @@ private:
                 Utf8SafeStreamBuffer::CallBack callback = [handler, &accumulatedOutput, shouldStopPtr, enableThinking](const char* str, size_t len) {
                     // Check for cancellation
                     if (shouldStopPtr->load()) {
-                        throw std::runtime_error("Generation cancelled by user");
+                        return;
                     }
 
                     if (handler && str && len > 0) {
