@@ -3526,6 +3526,19 @@ class _QaPanelState extends State<_QaPanel> {
                         border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12)),
                       ),
+                      contextMenuBuilder: (context, editableTextState) {
+                        final List<ContextMenuButtonItem> buttonItems =
+                            editableTextState.contextMenuButtonItems;
+                        // 移除 "扫描文本" (liveTextInput)
+                        buttonItems.removeWhere((ContextMenuButtonItem buttonItem) {
+                          return buttonItem.type ==
+                              ContextMenuButtonType.liveTextInput;
+                        });
+                        return AdaptiveTextSelectionToolbar.buttonItems(
+                          anchors: editableTextState.contextMenuAnchors,
+                          buttonItems: buttonItems,
+                        );
+                      },
                       onSubmitted: (_) {
                         if (_messageState == _MessageState.idle) {
                           _send();
