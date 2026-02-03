@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui'; // for TextRange
 
 import '../hunyuan/hunyuan_text_client.dart';
 import '../local_llm/llm_client.dart';
@@ -8,7 +9,7 @@ class ReadingContextService {
   final Map<int, String> chapterContentCache;
   final int currentChapterIndex;
   final int currentPageInChapter;
-  final Map<int, List<String>> chapterPageRanges;
+  final Map<int, List<TextRange>> chapterPageRanges;
 
   ReadingContextService({
     required this.chapterContentCache,
@@ -83,15 +84,52 @@ String buildOnlineQaPrompt({
           '输出：不超过5条，每条一句话。';
       break;
     case QAType.general:
-      prompt = contextService.generateQAPrompt(
+      prompt = _buildGeneralQaPrompt(
         question,
         contentScope,
+        contextService,
         history: history,
       );
       break;
   }
 
   return prompt;
+}
+
+String _buildGeneralQaPrompt(
+  String userQuestion,
+  QAContentScope scope,
+  ReadingContextService contextService, {
+  String? history,
+}) {
+  final content = contextService.getContentByScope(scope).trim();
+  final historyText = (history ?? '').trim();
+
+  final buffer = StringBuffer()
+    ..writeln('你是阅读助手。请仅基于【当前阅读内容】与【历史问答】作答。')
+    ..writeln('要求：')
+    ..writeln('1) 优先在内容中定位答案并直接回答。')
+    ..writeln('2) 必要时引用原文短句作为依据（可简短摘录）。')
+    ..writeln('3) 不要编造；只有确实找不到再说“文中未提及/需要更多上下文”。')
+    ..writeln()
+    ..writeln('【当前阅读内容】')
+    ..writeln(content.isEmpty ? '（当前阅读内容为空）' : content)
+    ..writeln();
+
+  if (historyText.isNotEmpty) {
+    buffer
+      ..writeln('【历史问答（最近对话）】')
+      ..writeln(historyText)
+      ..writeln();
+  }
+
+  buffer
+    ..writeln('【用户问题】')
+    ..writeln(userQuestion)
+    ..writeln()
+    ..writeln('请给出清晰、准确的回答。');
+
+  return buffer.toString().trim();
 }
 
 String buildLocalQaPrompt({
