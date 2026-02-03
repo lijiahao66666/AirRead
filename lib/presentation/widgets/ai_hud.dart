@@ -3529,10 +3529,12 @@ class _QaPanelState extends State<_QaPanel> {
                       contextMenuBuilder: (context, editableTextState) {
                         final List<ContextMenuButtonItem> buttonItems =
                             editableTextState.contextMenuButtonItems;
-                        // 移除 "扫描文本" (liveTextInput)
+                        // 仅保留基础编辑功能 (复制/粘贴/剪切/全选)，确保双端一致且清爽
                         buttonItems.removeWhere((ContextMenuButtonItem buttonItem) {
-                          return buttonItem.type ==
-                              ContextMenuButtonType.liveTextInput;
+                          return buttonItem.type != ContextMenuButtonType.cut &&
+                              buttonItem.type != ContextMenuButtonType.copy &&
+                              buttonItem.type != ContextMenuButtonType.paste &&
+                              buttonItem.type != ContextMenuButtonType.selectAll;
                         });
                         return AdaptiveTextSelectionToolbar.buttonItems(
                           anchors: editableTextState.contextMenuAnchors,

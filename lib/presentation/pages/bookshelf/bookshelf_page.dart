@@ -168,6 +168,25 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                   onChanged: _onSearchChanged,
                                   style:
                                       TextStyle(color: scheme.onSurface),
+                                  contextMenuBuilder: (context, editableTextState) {
+                                    final List<ContextMenuButtonItem> buttonItems =
+                                        editableTextState.contextMenuButtonItems;
+                                    // 仅保留基础编辑功能，过滤掉 Android 可能出现的 Share/SearchWeb 等
+                                    buttonItems.removeWhere((ContextMenuButtonItem buttonItem) {
+                                      return buttonItem.type !=
+                                              ContextMenuButtonType.cut &&
+                                          buttonItem.type !=
+                                              ContextMenuButtonType.copy &&
+                                          buttonItem.type !=
+                                              ContextMenuButtonType.paste &&
+                                          buttonItem.type !=
+                                              ContextMenuButtonType.selectAll;
+                                    });
+                                    return AdaptiveTextSelectionToolbar.buttonItems(
+                                      anchors: editableTextState.contextMenuAnchors,
+                                      buttonItems: buttonItems,
+                                    );
+                                  },
                                   decoration: InputDecoration(
                                     hintText: '搜索书名或作者',
                                     hintStyle: TextStyle(
