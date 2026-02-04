@@ -87,6 +87,13 @@ class ReadAloudProvider extends ChangeNotifier {
       EventChannel('airread/local_tts_events');
 
   TranslationProvider? _tp;
+  ReadAloudEngine? _lastEngine;
+  int? _lastVoiceType;
+  double? _lastTtsSpeed;
+  double? _lastLocalTtsSpeed;
+  bool? _lastReadTranslationEnabled;
+  String? _lastSourceLang;
+  String? _lastTargetLang;
   SharedPreferences? _prefs;
   StreamSubscription<dynamic>? _localTtsSub;
   StreamSubscription<void>? _playerCompleteSub;
@@ -142,6 +149,13 @@ class ReadAloudProvider extends ChangeNotifier {
         old.removeListener(_onTtsConfigChanged);
       } catch (_) {}
     }
+    _lastEngine = tp.readAloudEngine;
+    _lastVoiceType = tp.ttsVoiceType;
+    _lastTtsSpeed = tp.ttsSpeed;
+    _lastLocalTtsSpeed = tp.localTtsSpeed;
+    _lastReadTranslationEnabled = tp.readTranslationEnabled;
+    _lastSourceLang = tp.config.sourceLang;
+    _lastTargetLang = tp.config.targetLang;
     tp.addListener(_onTtsConfigChanged);
   }
 
@@ -180,6 +194,32 @@ class ReadAloudProvider extends ChangeNotifier {
   void _onTtsConfigChanged() {
     final tp = _tp;
     if (tp == null) return;
+    final engineChanged = _lastEngine != tp.readAloudEngine;
+    final voiceChanged = _lastVoiceType != tp.ttsVoiceType;
+    final speedChanged = _lastTtsSpeed != tp.ttsSpeed;
+    final localSpeedChanged = _lastLocalTtsSpeed != tp.localTtsSpeed;
+    final readTrChanged =
+        _lastReadTranslationEnabled != tp.readTranslationEnabled;
+    final fromChanged = _lastSourceLang != tp.config.sourceLang;
+    final toChanged = _lastTargetLang != tp.config.targetLang;
+
+    final changed = engineChanged ||
+        voiceChanged ||
+        speedChanged ||
+        localSpeedChanged ||
+        readTrChanged ||
+        fromChanged ||
+        toChanged;
+    if (!changed) return;
+
+    _lastEngine = tp.readAloudEngine;
+    _lastVoiceType = tp.ttsVoiceType;
+    _lastTtsSpeed = tp.ttsSpeed;
+    _lastLocalTtsSpeed = tp.localTtsSpeed;
+    _lastReadTranslationEnabled = tp.readTranslationEnabled;
+    _lastSourceLang = tp.config.sourceLang;
+    _lastTargetLang = tp.config.targetLang;
+
     if (!_playing && !_preparing) return;
     unawaited(restartFromCurrentPosition());
   }

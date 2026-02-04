@@ -5758,51 +5758,6 @@ class _ReaderPageState extends State<ReaderPage>
       _scheduleSyncToReadAloudPosition(pos);
       _maybeAutoContinueToNextChapter(readAloud, pos);
     }
-    final currentReadAloudEngine = tp.readAloudEngine;
-    final lastReadAloudEngine = _lastReadAloudEngine;
-    bool engineChanged = false;
-    bool ttsConfigChanged = false;
-    if (lastReadAloudEngine == null) {
-      _lastReadAloudEngine = currentReadAloudEngine;
-    } else if (lastReadAloudEngine != currentReadAloudEngine) {
-      engineChanged = true;
-      _lastReadAloudEngine = currentReadAloudEngine;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final rap = context.read<ReadAloudProvider>();
-        if (!rap.playing && !rap.preparing) return;
-        unawaited(rap.restartFromCurrentPosition());
-      });
-    }
-    final lastTtsSpeed = _lastTtsSpeed;
-    if (lastTtsSpeed == null) {
-      _lastTtsSpeed = tp.ttsSpeed;
-    } else if (lastTtsSpeed != tp.ttsSpeed) {
-      _lastTtsSpeed = tp.ttsSpeed;
-      ttsConfigChanged = true;
-    }
-    final lastVoiceType = _lastTtsVoiceType;
-    if (lastVoiceType == null) {
-      _lastTtsVoiceType = tp.ttsVoiceType;
-    } else if (lastVoiceType != tp.ttsVoiceType) {
-      _lastTtsVoiceType = tp.ttsVoiceType;
-      ttsConfigChanged = true;
-    }
-    final lastReadTranslation = _lastReadTranslationEnabled;
-    if (lastReadTranslation == null) {
-      _lastReadTranslationEnabled = tp.readTranslationEnabled;
-    } else if (lastReadTranslation != tp.readTranslationEnabled) {
-      _lastReadTranslationEnabled = tp.readTranslationEnabled;
-      ttsConfigChanged = true;
-    }
-    if (ttsConfigChanged && !engineChanged) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final rap = context.read<ReadAloudProvider>();
-        if (!rap.playing && !rap.preparing) return;
-        unawaited(rap.restartFromCurrentPosition());
-      });
-    }
     _scheduleRelocateAfterTranslationChange(tp);
     _scheduleCurrentPageTranslateResume(tp);
 
