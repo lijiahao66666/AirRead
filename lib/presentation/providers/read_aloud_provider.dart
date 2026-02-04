@@ -102,6 +102,10 @@ class ReadAloudProvider extends ChangeNotifier {
   final WebSpeechTts _webSpeechTts = createWebSpeechTts();
   String? _tempFilePath;
   String? _currentLocalToken;
+  String? _lastLocalDoneToken;
+  int? _lastLocalDoneSession;
+  int? _lastLocalDoneQueuePos;
+  DateTime? _lastLocalDoneAt;
 
   TencentTtsClient? _tencentTtsClient;
   final Map<String, Uint8List> _onlineAudioCache = {};
@@ -187,6 +191,8 @@ class ReadAloudProvider extends ChangeNotifier {
             }
             if (session != null && session != _session) return;
             if (type == 'done') {
+              if (token is String && token == _lastLocalDoneToken) return;
+              _lastLocalDoneToken = token is String ? token : null;
               _onLocalChunkDone();
             } else if (type == 'error') {
               final msg = (event['message'] ?? '').toString();
@@ -835,6 +841,17 @@ class ReadAloudProvider extends ChangeNotifier {
     final tp = _tp;
     if (tp == null) return;
     if (tp.readAloudEngine != ReadAloudEngine.local) return;
+
+    final lastAt = _lastLocalDoneAt;
+    if (_lastLocalDoneSession == _session &&
+        _lastLocalDoneQueuePos == _queuePos &&
+        lastAt != null &&
+        DateTime.now().difference(lastAt) < const Duration(milliseconds: 400)) {
+      return;
+    }
+    _lastLocalDoneSession = _session;
+    _lastLocalDoneQueuePos = _queuePos;
+    _lastLocalDoneAt = DateTime.now();
 
     final session = _session;
     final next = _queuePos + 1;
