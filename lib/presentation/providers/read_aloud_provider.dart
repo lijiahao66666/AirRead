@@ -18,6 +18,8 @@ class ReadAloudPosition {
   final int chapterIndex;
   final int paragraphIndex;
   final int chunkIndexInParagraph;
+  final int highlightOffsetInParagraph;
+  final int chapterTextOffset;
   final String highlightText;
 
   const ReadAloudPosition({
@@ -25,6 +27,8 @@ class ReadAloudPosition {
     required this.chapterIndex,
     required this.paragraphIndex,
     required this.chunkIndexInParagraph,
+    required this.highlightOffsetInParagraph,
+    required this.chapterTextOffset,
     required this.highlightText,
   });
 
@@ -33,6 +37,8 @@ class ReadAloudPosition {
         'chapterIndex': chapterIndex,
         'paragraphIndex': paragraphIndex,
         'chunkIndexInParagraph': chunkIndexInParagraph,
+        'highlightOffsetInParagraph': highlightOffsetInParagraph,
+        'chapterTextOffset': chapterTextOffset,
         'highlightText': highlightText,
       };
 
@@ -42,6 +48,9 @@ class ReadAloudPosition {
     final chapterIndex = _asInt(value['chapterIndex']);
     final paragraphIndex = _asInt(value['paragraphIndex']);
     final chunkIndexInParagraph = _asInt(value['chunkIndexInParagraph']);
+    final highlightOffsetInParagraph =
+        _asInt(value['highlightOffsetInParagraph']) ?? 0;
+    final chapterTextOffset = _asInt(value['chapterTextOffset']) ?? 0;
     final highlightText = (value['highlightText'] ?? '').toString();
     if (bookId.isEmpty ||
         chapterIndex == null ||
@@ -54,6 +63,8 @@ class ReadAloudPosition {
       chapterIndex: chapterIndex,
       paragraphIndex: paragraphIndex,
       chunkIndexInParagraph: chunkIndexInParagraph,
+      highlightOffsetInParagraph: highlightOffsetInParagraph,
+      chapterTextOffset: chapterTextOffset,
       highlightText: highlightText,
     );
   }
@@ -85,11 +96,13 @@ class ReadAloudProvider extends ChangeNotifier {
   final Map<String, Uint8List> _onlineAudioCache = {};
   final Map<String, Future<Uint8List>> _onlineAudioInFlight = {};
   final int _onlinePrefetchDistance = 3;
+  bool _ignoreNextOnlineComplete = false;
 
   bool _initialized = false;
   bool _playing = false;
   bool _preparing = false;
   bool _paused = false;
+  bool _endedNaturally = false;
   int _session = 0;
 
   String? _bookId;
@@ -108,6 +121,7 @@ class ReadAloudProvider extends ChangeNotifier {
   bool get playing => _playing;
   bool get preparing => _preparing;
   bool get paused => _paused;
+  bool get endedNaturally => _endedNaturally;
 
   String? get bookId => _bookId;
   int? get chapterIndex => _chapterIndex;
@@ -208,6 +222,7 @@ class ReadAloudProvider extends ChangeNotifier {
     int? startParagraphIndex,
   }) async {
     await _init();
+    _endedNaturally = false;
     attachChapter(bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
 
     final tp = _tp;
@@ -240,10 +255,7 @@ class ReadAloudProvider extends ChangeNotifier {
         ? savedPosition.chunkIndexInParagraph
         : 0;
 
-    final queue = _buildQueue(
-      paragraphs: paragraphs,
-      startParagraphIndex: startPara,
-    );
+    final queue = _buildQueue(paragraphs: paragraphs, startParagraphIndex: 0);
     if (queue.isEmpty) return false;
 
     final session = ++_session;
@@ -288,6 +300,7 @@ class ReadAloudProvider extends ChangeNotifier {
   Future<void> resume() async {
     if (!_paused) return;
     if (_queue.isEmpty) return;
+    _endedNaturally = false;
     final session = ++_session;
     _paused = false;
     _playing = true;
@@ -296,9 +309,217 @@ class ReadAloudProvider extends ChangeNotifier {
     await _playCurrentChunk(session);
   }
 
-  Future<void> stop({bool keepResume = true}) async {
+  Future<void> skipToPreviousChunk() async {
+    await stepToPreviousChunk(keepPaused: false);
+  }
+
+  Future<void> skipToNextChunk() async {
+    await stepToNextChunk(keepPaused: false);
+  }
+
+  Future<bool> stepToPreviousChunk({required bool keepPaused}) async {
+    if (_queue.isEmpty) return false;
+    final prev = (_queuePos - 1).clamp(0, _queue.length - 1);
+    if (prev == _queuePos) return false;
+    await _cancelCurrentOutput();
+    _queuePos = prev;
+    _endedNaturally = false;
+    if (keepPaused) {
+      await _persistCurrentQueuePosition();
+      _paused = true;
+      _playing = false;
+      _preparing = false;
+      notifyListeners();
+      return true;
+    }
+    final session = ++_session;
+    _paused = false;
+    _playing = true;
+    _preparing = true;
+    notifyListeners();
+    await _playCurrentChunk(session);
+    return true;
+  }
+
+  Future<bool> stepToNextChunk({required bool keepPaused}) async {
+    if (_queue.isEmpty) return false;
+    final next = (_queuePos + 1).clamp(0, _queue.length - 1);
+    if (next == _queuePos) return false;
+    await _cancelCurrentOutput();
+    _queuePos = next;
+    _endedNaturally = false;
+    if (keepPaused) {
+      await _persistCurrentQueuePosition();
+      _paused = true;
+      _playing = false;
+      _preparing = false;
+      notifyListeners();
+      return true;
+    }
+    final session = ++_session;
+    _paused = false;
+    _playing = true;
+    _preparing = true;
+    notifyListeners();
+    await _playCurrentChunk(session);
+    return true;
+  }
+
+  Future<bool> seekToChapterStart({
+    required String bookId,
+    required int chapterIndex,
+    required List<ReaderParagraph> paragraphs,
+    required bool keepPaused,
+  }) async {
+    return seekToChapterPosition(
+      bookId: bookId,
+      chapterIndex: chapterIndex,
+      paragraphs: paragraphs,
+      paragraphIndex: 0,
+      chunkIndexInParagraph: 0,
+      keepPaused: keepPaused,
+    );
+  }
+
+  Future<bool> seekToChapterEnd({
+    required String bookId,
+    required int chapterIndex,
+    required List<ReaderParagraph> paragraphs,
+    required bool keepPaused,
+  }) async {
+    await _init();
+    _endedNaturally = false;
+    attachChapter(bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
+    final tp = _tp;
+    if (tp == null) return false;
+    if (!tp.aiReadAloudEnabled) return false;
+
+    final queue = _buildQueue(paragraphs: paragraphs, startParagraphIndex: 0);
+    if (queue.isEmpty) return false;
+    await _cancelCurrentOutput();
+    _queue = queue;
+    _queuePos = queue.length - 1;
+    if (keepPaused) {
+      await _persistCurrentQueuePosition();
+      _paused = true;
+      _playing = false;
+      _preparing = false;
+      notifyListeners();
+      return true;
+    }
+    final session = ++_session;
+    _paused = false;
+    _playing = true;
+    _preparing = true;
+    notifyListeners();
+    await _playCurrentChunk(session);
+    return true;
+  }
+
+  Future<bool> seekToChapterPosition({
+    required String bookId,
+    required int chapterIndex,
+    required List<ReaderParagraph> paragraphs,
+    required int paragraphIndex,
+    required int chunkIndexInParagraph,
+    required bool keepPaused,
+  }) async {
+    await _init();
+    _endedNaturally = false;
+    attachChapter(bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
+    final tp = _tp;
+    if (tp == null) return false;
+    if (!tp.aiReadAloudEnabled) return false;
+
+    final queue = _buildQueue(paragraphs: paragraphs, startParagraphIndex: 0);
+    if (queue.isEmpty) return false;
+    await _cancelCurrentOutput();
+    _queue = queue;
+    _queuePos = _findQueueStartPos(
+      queue: queue,
+      paragraphIndex: paragraphIndex,
+      chunkIndexInParagraph: chunkIndexInParagraph,
+    );
+    if (keepPaused) {
+      await _persistCurrentQueuePosition();
+      _paused = true;
+      _playing = false;
+      _preparing = false;
+      notifyListeners();
+      return true;
+    }
+    final session = ++_session;
+    _paused = false;
+    _playing = true;
+    _preparing = true;
+    notifyListeners();
+    await _playCurrentChunk(session);
+    return true;
+  }
+
+  Future<void> seekBack15Seconds({bool keepPaused = false}) async {
+    await stepToPreviousChunk(keepPaused: keepPaused);
+  }
+
+  Future<void> seekForward15Seconds({bool keepPaused = false}) async {
+    await stepToNextChunk(keepPaused: keepPaused);
+  }
+
+  Future<void> _persistCurrentQueuePosition() async {
+    if (_queue.isEmpty) return;
+    if (_queuePos < 0 || _queuePos >= _queue.length) return;
+    final entry = _queue[_queuePos];
+    final para = _paragraphs.cast<ReaderParagraph?>().firstWhere(
+          (p) => p?.index == entry.paragraphIndex,
+          orElse: () => null,
+        );
+    int highlightOffsetInParagraph = 0;
+    if (para != null) {
+      final h = entry.highlightText.trim();
+      if (h.isNotEmpty) {
+        final idx = para.text.indexOf(h);
+        if (idx >= 0) highlightOffsetInParagraph = idx;
+      }
+    }
+    final chapterTextOffset = para == null
+        ? 0
+        : (para.start + highlightOffsetInParagraph).clamp(0, para.end);
+    await _persistPosition(
+      ReadAloudPosition(
+        bookId: _bookId ?? '',
+        chapterIndex: _chapterIndex ?? 0,
+        paragraphIndex: entry.paragraphIndex,
+        chunkIndexInParagraph: entry.chunkIndexInParagraph,
+        highlightOffsetInParagraph: highlightOffsetInParagraph,
+        chapterTextOffset: chapterTextOffset,
+        highlightText: entry.highlightText,
+      ),
+    );
+  }
+
+  Future<void> _cancelCurrentOutput() async {
+    _endedNaturally = false;
+    _ignoreNextOnlineComplete = true;
+    Future<void>.delayed(const Duration(milliseconds: 160), () {
+      _ignoreNextOnlineComplete = false;
+    });
+    try {
+      if (kIsWeb) {
+        await _webSpeechTts.stop();
+      } else {
+        await _localTtsChannel.invokeMethod('stop');
+      }
+    } catch (_) {}
+    try {
+      await _player.stop();
+    } catch (_) {}
+    _session++;
+  }
+
+  Future<void> stop({bool keepResume = true, bool endedNaturally = false}) async {
     await _init();
     _session++;
+    _endedNaturally = endedNaturally;
     _paused = false;
     _playing = false;
     _preparing = false;
@@ -396,12 +617,29 @@ class ReadAloudProvider extends ChangeNotifier {
     if (tp == null) return;
 
     final entry = _queue[_queuePos];
+    final para = _paragraphs.cast<ReaderParagraph?>().firstWhere(
+          (p) => p?.index == entry.paragraphIndex,
+          orElse: () => null,
+        );
+    int highlightOffsetInParagraph = 0;
+    if (para != null) {
+      final h = entry.highlightText.trim();
+      if (h.isNotEmpty) {
+        final idx = para.text.indexOf(h);
+        if (idx >= 0) highlightOffsetInParagraph = idx;
+      }
+    }
+    final chapterTextOffset = para == null
+        ? 0
+        : (para.start + highlightOffsetInParagraph).clamp(0, para.end);
     await _persistPosition(
       ReadAloudPosition(
         bookId: _bookId ?? '',
         chapterIndex: _chapterIndex ?? 0,
         paragraphIndex: entry.paragraphIndex,
         chunkIndexInParagraph: entry.chunkIndexInParagraph,
+        highlightOffsetInParagraph: highlightOffsetInParagraph,
+        chapterTextOffset: chapterTextOffset,
         highlightText: entry.highlightText,
       ),
     );
@@ -506,11 +744,15 @@ class ReadAloudProvider extends ChangeNotifier {
     final tp = _tp;
     if (tp == null) return;
     if (tp.readAloudEngine != ReadAloudEngine.online) return;
+    if (_ignoreNextOnlineComplete) {
+      _ignoreNextOnlineComplete = false;
+      return;
+    }
 
     final session = _session;
     final next = _queuePos + 1;
     if (next >= _queue.length) {
-      unawaited(stop(keepResume: true));
+      unawaited(stop(keepResume: true, endedNaturally: true));
       return;
     }
     _queuePos = next;
@@ -526,7 +768,7 @@ class ReadAloudProvider extends ChangeNotifier {
     final session = _session;
     final next = _queuePos + 1;
     if (next >= _queue.length) {
-      unawaited(stop(keepResume: true));
+      unawaited(stop(keepResume: true, endedNaturally: true));
       return;
     }
     _queuePos = next;
@@ -535,7 +777,7 @@ class ReadAloudProvider extends ChangeNotifier {
 
   void _onLocalChunkError(String message) {
     if (!_playing) return;
-    unawaited(stop(keepResume: true));
+    unawaited(stop(keepResume: true, endedNaturally: false));
   }
 
   String _normalizeSpeechText(String text) {

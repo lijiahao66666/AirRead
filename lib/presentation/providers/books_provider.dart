@@ -3,6 +3,7 @@ import '../../data/models/book.dart';
 import '../../data/database/database_helper.dart';
 import '../../data/database/web_database_helper.dart';
 import '../../data/services/book_importer.dart';
+import 'translation_provider.dart';
 
 import 'package:file_picker/file_picker.dart';
 
@@ -132,6 +133,9 @@ class BooksProvider extends ChangeNotifier {
         } else {
           await _dbHelper.deleteBook(id);
         }
+        try {
+          await TranslationProvider.removeBookScopedPrefs(id);
+        } catch (_) {}
       }
 
       _books.removeWhere((b) => idsToDelete.contains(b.id));
@@ -246,6 +250,9 @@ class BooksProvider extends ChangeNotifier {
     } else {
       await _dbHelper.deleteBook(id);
     }
+    try {
+      await TranslationProvider.removeBookScopedPrefs(id);
+    } catch (_) {}
     _books.removeWhere((b) => b.id == id);
     notifyListeners();
   }

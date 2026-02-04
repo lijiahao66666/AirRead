@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'dart:math';
+import 'package:provider/provider.dart';
 import '../../data/models/book.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
+import '../providers/read_aloud_provider.dart';
 import 'local_file_image.dart'
     if (dart.library.js_interop) 'local_file_image_web.dart';
 
@@ -40,6 +43,9 @@ class _BookCardState extends State<BookCard> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
+    final rap = context.watch<ReadAloudProvider>();
+    final bool isCurrentReadBook = rap.bookId == widget.book.id &&
+        (rap.playing || rap.paused || rap.preparing);
     return GestureDetector(
       onTap: widget.onTap,
       child: Column(
@@ -63,6 +69,64 @@ class _BookCardState extends State<BookCard> {
                   fit: StackFit.expand,
                   children: [
                     _buildCoverImage(),
+                    if (isCurrentReadBook)
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(999),
+                            onTap: () {
+                              if (widget.isSelectionMode) return;
+                              if (rap.playing || rap.preparing) {
+                                unawaited(rap.pause());
+                              } else if (rap.paused) {
+                                unawaited(rap.resume());
+                              }
+                            },
+                            child: Container(
+                              constraints: const BoxConstraints(
+                                minWidth: 44,
+                                minHeight: 32,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: Colors.black
+                                    .withOpacityCompat(isDark ? 0.55 : 0.40),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: Colors.white.withOpacityCompat(0.18),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.volume_up_rounded,
+                                    color: Colors.white,
+                                    size: 14,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    rap.preparing
+                                        ? '准备中'
+                                        : (rap.playing ? '朗读中' : '已暂停'),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.0,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     // Selection Overlay (WeChat Style: Bottom-Right Circle)
                     if (widget.isSelectionMode)
                       Positioned(

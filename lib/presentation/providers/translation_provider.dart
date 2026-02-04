@@ -360,6 +360,9 @@ class TranslationProvider extends ChangeNotifier {
 
   TranslationMode _translationMode = TranslationMode.machine;
   ReadAloudEngine _readAloudEngine = ReadAloudEngine.local;
+  String? _boundBookId;
+  bool _aiTranslateEnabledGlobal = false;
+  bool _aiReadAloudEnabledGlobal = false;
 
   static const Set<String> _bigModelLangs = {
     'zh',
@@ -656,8 +659,19 @@ class TranslationProvider extends ChangeNotifier {
     final mode = prefs.getString(_kCfgMode);
     final trMode = prefs.getString(_kTranslationMode);
 
-    _aiTranslateEnabled = prefs.getBool(_kAiTranslateEnabled) ?? false;
-    _aiReadAloudEnabled = prefs.getBool(_kAiReadAloudEnabled) ?? false;
+    _aiTranslateEnabledGlobal = prefs.getBool(_kAiTranslateEnabled) ?? false;
+    _aiReadAloudEnabledGlobal = prefs.getBool(_kAiReadAloudEnabled) ?? false;
+    _aiTranslateEnabled = _aiTranslateEnabledGlobal;
+    _aiReadAloudEnabled = _aiReadAloudEnabledGlobal;
+    final bookId = _boundBookId;
+    if (bookId != null && bookId.trim().isNotEmpty) {
+      _aiTranslateEnabled =
+          prefs.getBool(_bookKey(_kAiTranslateEnabled, bookId)) ??
+              _aiTranslateEnabledGlobal;
+      _aiReadAloudEnabled =
+          prefs.getBool(_bookKey(_kAiReadAloudEnabled, bookId)) ??
+              _aiReadAloudEnabledGlobal;
+    }
     _readTranslationEnabled = prefs.getBool(_kReadTranslationEnabled) ?? false;
     _ttsVoiceType = prefs.getInt(_kTtsVoiceType) ?? _ttsVoiceType;
 
@@ -815,12 +829,45 @@ class TranslationProvider extends ChangeNotifier {
           : 'translationOnly',
     );
     await prefs.setString(_kTranslationMode, _translationMode.name);
-    await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
-    await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
+    final bookId = _boundBookId;
+    if (bookId != null && bookId.trim().isNotEmpty) {
+      await prefs.setBool(_bookKey(_kAiTranslateEnabled, bookId), _aiTranslateEnabled);
+      await prefs.setBool(_bookKey(_kAiReadAloudEnabled, bookId), _aiReadAloudEnabled);
+    } else {
+      await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
+      await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
+      _aiTranslateEnabledGlobal = _aiTranslateEnabled;
+      _aiReadAloudEnabledGlobal = _aiReadAloudEnabled;
+    }
     await prefs.setBool(_kReadTranslationEnabled, _readTranslationEnabled);
     await prefs.setInt(_kTtsVoiceType, _ttsVoiceType);
     await prefs.setDouble(_kTtsSpeedLevel, _ttsSpeed);
     await prefs.setString(_kReadAloudEngine, _readAloudEngine.name);
+  }
+
+  static String _bookKey(String baseKey, String bookId) {
+    return '$baseKey::$bookId';
+  }
+
+  Future<void> bindBook(String bookId) async {
+    final id = bookId.trim();
+    if (id.isEmpty) return;
+    if (_boundBookId == id) return;
+    _boundBookId = id;
+    final prefs = await SharedPreferences.getInstance();
+    _aiTranslateEnabled =
+        prefs.getBool(_bookKey(_kAiTranslateEnabled, id)) ?? _aiTranslateEnabledGlobal;
+    _aiReadAloudEnabled =
+        prefs.getBool(_bookKey(_kAiReadAloudEnabled, id)) ?? _aiReadAloudEnabledGlobal;
+    notifyListeners();
+  }
+
+  static Future<void> removeBookScopedPrefs(String bookId) async {
+    final id = bookId.trim();
+    if (id.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_bookKey(_kAiTranslateEnabled, id));
+    await prefs.remove(_bookKey(_kAiReadAloudEnabled, id));
   }
 
   bool _readUsingPersonalTencentKeys(SharedPreferences prefs) {

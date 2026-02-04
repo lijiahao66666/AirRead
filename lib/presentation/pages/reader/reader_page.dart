@@ -402,6 +402,13 @@ class _ReaderPageState extends State<ReaderPage>
   bool? _lastReadTranslationEnabled;
   int _readAloudTranslationRevision = -1;
   Offset? _readAloudFabOffset;
+  double _readAloudBackSpinTurns = 0.0;
+  double _readAloudForwardSpinTurns = 0.0;
+  bool _readAloudFollow = true;
+  int? _readAloudFollowChapter;
+  int? _readAloudFollowPage;
+  String? _readAloudAutoContinueHandledKey;
+  bool _readAloudNavInFlight = false;
 
   final AudioPlayer _readAloudPlayer = AudioPlayer();
   final Map<String, Uint8List> _readAloudAudioCache = {};
@@ -506,6 +513,7 @@ class _ReaderPageState extends State<ReaderPage>
       if (!mounted) return;
       _showTopError(msg);
     };
+    unawaited(transProvider.bindBook(widget.bookId));
 
     _pageController = PageController(initialPage: 1000);
     _pageViewCenterIndex = 1000;
@@ -1950,7 +1958,8 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   void _scheduleSyncToReadAloudPosition(ReadAloudPosition pos) {
-    final key = '${pos.bookId}|${pos.chapterIndex}|${pos.paragraphIndex}';
+    final key =
+        '${pos.bookId}|${pos.chapterIndex}|${pos.paragraphIndex}|${pos.chunkIndexInParagraph}';
     if (key == _lastReadAloudSyncKey) return;
     if (_readAloudSyncScheduled) return;
     _readAloudSyncScheduled = true;
@@ -1963,7 +1972,7 @@ class _ReaderPageState extends State<ReaderPage>
         final latest = rap.position;
         if (latest == null) return;
         final latestKey =
-            '${latest.bookId}|${latest.chapterIndex}|${latest.paragraphIndex}';
+            '${latest.bookId}|${latest.chapterIndex}|${latest.paragraphIndex}|${latest.chunkIndexInParagraph}';
         if (latestKey != key) return;
         if (latest.bookId != widget.bookId) return;
 
@@ -1972,38 +1981,241 @@ class _ReaderPageState extends State<ReaderPage>
         if (!mounted) return;
         final plainText = _getPlainTextForChapter(targetChapter);
         if (plainText.isEmpty) return;
-        final paragraphs = _getParagraphsForChapter(targetChapter, plainText);
-        if (latest.paragraphIndex < 0 ||
-            latest.paragraphIndex >= paragraphs.length) {
-          return;
+        final effectiveText =
+            _chapterEffectiveText[targetChapter] ?? plainText;
+        final ranges = _chapterPageRanges[targetChapter] ??
+            _chapterFallbackPageRanges[targetChapter];
+        if (ranges == null || ranges.isEmpty) return;
+        final int plainLen = plainText.length;
+        final int effectiveLen = effectiveText.length;
+        final int plainOffset =
+            latest.chapterTextOffset.clamp(0, plainLen);
+        final int effectiveOffset = plainLen <= 0
+            ? 0
+            : (plainOffset * effectiveLen / plainLen)
+                .round()
+                .clamp(0, effectiveLen);
+
+        int desiredPage = 0;
+        int low = 0;
+        int high = ranges.length - 1;
+        int best = 0;
+        while (low <= high) {
+          final mid = (low + high) >> 1;
+          final r = ranges[mid];
+          if (effectiveOffset < r.start) {
+            high = mid - 1;
+          } else if (effectiveOffset >= r.end) {
+            low = mid + 1;
+            best = mid;
+          } else {
+            best = mid;
+            break;
+          }
         }
-        final p = paragraphs[latest.paragraphIndex];
-        final progress = plainText.isNotEmpty
-            ? (p.start / plainText.length).clamp(0.0, 1.0)
-            : 0.0;
+        desiredPage = best.clamp(0, ranges.length - 1);
+
+        _readAloudFollowChapter ??= _currentChapterIndex;
+        _readAloudFollowPage ??= _currentPageInChapter;
 
         if (targetChapter != _currentChapterIndex) {
+          if (!_readAloudFollow) return;
           setState(() {
             _currentChapterIndex = targetChapter;
-            _currentPageInChapter = 0;
-            _pendingRestoreProgress = progress;
+            _currentPageInChapter = desiredPage;
             _pageViewCenterIndex = 1000;
           });
-          if (_pageController.hasClients) {
+          _readAloudFollowChapter = targetChapter;
+          _readAloudFollowPage = desiredPage;
+          if (_pageController.hasClients) _pageController.jumpToPage(1000);
+          return;
+        }
+
+        final bool isOnDesired =
+            _currentChapterIndex == targetChapter &&
+            _currentPageInChapter == desiredPage;
+        if (isOnDesired) {
+          _readAloudFollow = true;
+          _readAloudFollowChapter = targetChapter;
+          _readAloudFollowPage = desiredPage;
+          return;
+        }
+
+        final bool isOnFollowPage =
+            _readAloudFollowChapter == _currentChapterIndex &&
+            _readAloudFollowPage == _currentPageInChapter;
+        if (_readAloudFollow && isOnFollowPage) {
+          final beforePage = _currentPageInChapter;
+          setState(() {
+            _currentPageInChapter = desiredPage;
+            _pageViewCenterIndex = 1000;
+          });
+          _readAloudFollowChapter = targetChapter;
+          _readAloudFollowPage = desiredPage;
+          if (_pageController.hasClients && beforePage != desiredPage) {
             _pageController.jumpToPage(1000);
           }
           return;
         }
 
-        setState(() {
-          _relocateCurrentPageToProgress(progress);
-          _pageViewCenterIndex = 1000;
-        });
-        if (_pageController.hasClients) {
-          _pageController.jumpToPage(1000);
+        _readAloudFollow = false;
+      }());
+    });
+  }
+
+  void _scheduleUpdateReadAloudFollowFromCurrentView() {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(() async {
+        if (!mounted) return;
+        final rap = context.read<ReadAloudProvider>();
+        final pos = rap.position;
+        if (pos == null || pos.bookId != widget.bookId) {
+          _readAloudFollow = false;
+          return;
+        }
+        final targetChapter = pos.chapterIndex;
+        await _ensureChapterContentCached(targetChapter);
+        if (!mounted) return;
+        final plainText = _getPlainTextForChapter(targetChapter);
+        if (plainText.isEmpty) return;
+        final effectiveText = _chapterEffectiveText[targetChapter] ?? plainText;
+        final ranges = _chapterPageRanges[targetChapter] ??
+            _chapterFallbackPageRanges[targetChapter];
+        if (ranges == null || ranges.isEmpty) return;
+
+        final int plainLen = plainText.length;
+        final int effectiveLen = effectiveText.length;
+        final int plainOffset = pos.chapterTextOffset.clamp(0, plainLen);
+        final int effectiveOffset = plainLen <= 0
+            ? 0
+            : (plainOffset * effectiveLen / plainLen)
+                .round()
+                .clamp(0, effectiveLen);
+
+        int desiredPage = 0;
+        int low = 0;
+        int high = ranges.length - 1;
+        int best = 0;
+        while (low <= high) {
+          final mid = (low + high) >> 1;
+          final r = ranges[mid];
+          if (effectiveOffset < r.start) {
+            high = mid - 1;
+          } else if (effectiveOffset >= r.end) {
+            low = mid + 1;
+            best = mid;
+          } else {
+            best = mid;
+            break;
+          }
+        }
+        desiredPage = best.clamp(0, ranges.length - 1);
+
+        final isOnDesired = _currentChapterIndex == targetChapter &&
+            _currentPageInChapter == desiredPage;
+        _readAloudFollow = isOnDesired;
+        if (isOnDesired) {
+          _readAloudFollowChapter = targetChapter;
+          _readAloudFollowPage = desiredPage;
         }
       }());
     });
+  }
+
+  void _maybeAutoContinueToNextChapter(
+    ReadAloudProvider rap,
+    ReadAloudPosition pos,
+  ) {
+    if (!rap.endedNaturally) return;
+    final key =
+        '${pos.bookId}|${pos.chapterIndex}|${pos.paragraphIndex}|${pos.chunkIndexInParagraph}';
+    if (_readAloudAutoContinueHandledKey == key) return;
+    _readAloudAutoContinueHandledKey = key;
+
+    final nextChapter = pos.chapterIndex + 1;
+    if (nextChapter < 0 || nextChapter >= _chapters.length) return;
+
+    if (_readAloudFollow) {
+      final isOnFollowPage = _readAloudFollowChapter == _currentChapterIndex &&
+          _readAloudFollowPage == _currentPageInChapter;
+      if (isOnFollowPage) {
+        setState(() {
+          _currentChapterIndex = nextChapter;
+          _currentPageInChapter = 0;
+          _pageViewCenterIndex = 1000;
+        });
+        _readAloudFollowChapter = nextChapter;
+        _readAloudFollowPage = 0;
+        if (_pageController.hasClients) _pageController.jumpToPage(1000);
+      }
+    }
+
+    unawaited(() async {
+      final paras = await _paragraphsForChapter(nextChapter);
+      if (!mounted) return;
+      if (paras.isEmpty) return;
+      await rap.startOrResume(
+        bookId: widget.bookId,
+        chapterIndex: nextChapter,
+        paragraphs: paras,
+        startParagraphIndex: 0,
+      );
+    }());
+  }
+
+  Future<void> _handleReadAloudBackTap() async {
+    if (_readAloudNavInFlight) return;
+    _readAloudNavInFlight = true;
+    try {
+      final rap = context.read<ReadAloudProvider>();
+      if (rap.bookId != widget.bookId) return;
+      final keepPaused = rap.paused && !rap.playing && !rap.preparing;
+      final moved = await rap.stepToPreviousChunk(keepPaused: keepPaused);
+      if (moved) return;
+      final pos = rap.position;
+      if (pos == null || pos.bookId != widget.bookId) return;
+      final prevChapter = pos.chapterIndex - 1;
+      if (prevChapter < 0) return;
+      final paras = await _paragraphsForChapter(prevChapter);
+      if (!mounted) return;
+      if (paras.isEmpty) return;
+      await rap.seekToChapterEnd(
+        bookId: widget.bookId,
+        chapterIndex: prevChapter,
+        paragraphs: paras,
+        keepPaused: keepPaused,
+      );
+    } finally {
+      _readAloudNavInFlight = false;
+    }
+  }
+
+  Future<void> _handleReadAloudForwardTap() async {
+    if (_readAloudNavInFlight) return;
+    _readAloudNavInFlight = true;
+    try {
+      final rap = context.read<ReadAloudProvider>();
+      if (rap.bookId != widget.bookId) return;
+      final keepPaused = rap.paused && !rap.playing && !rap.preparing;
+      final moved = await rap.stepToNextChunk(keepPaused: keepPaused);
+      if (moved) return;
+      final pos = rap.position;
+      if (pos == null || pos.bookId != widget.bookId) return;
+      final nextChapter = pos.chapterIndex + 1;
+      if (nextChapter >= _chapters.length) return;
+      final paras = await _paragraphsForChapter(nextChapter);
+      if (!mounted) return;
+      if (paras.isEmpty) return;
+      await rap.seekToChapterStart(
+        bookId: widget.bookId,
+        chapterIndex: nextChapter,
+        paragraphs: paras,
+        keepPaused: keepPaused,
+      );
+    } finally {
+      _readAloudNavInFlight = false;
+    }
   }
 
   String? _paragraphTextForIndex(int paragraphIndex) {
@@ -2764,34 +2976,25 @@ class _ReaderPageState extends State<ReaderPage>
       return const SizedBox.shrink();
     }
     final readAloud = context.watch<ReadAloudProvider>();
-    final active = readAloud.playing || readAloud.preparing;
-    if (active) {
-      if (!_readAloudAnimController.isAnimating) {
-        _readAloudAnimController.repeat(reverse: true);
-      }
-    } else {
-      if (_readAloudAnimController.isAnimating) {
-        _readAloudAnimController.stop();
-        _readAloudAnimController.reset();
-      }
-    }
 
     final Color surface = _panelBgColor;
     final Color onSurface = _panelTextColor;
 
     final mq = MediaQuery.of(context);
     final size = mq.size;
-    const fabSize = 48.0;
     const margin = 12.0;
     final bottomInset = _contentBottomInset ?? mq.viewPadding.bottom;
     final topInset = mq.viewPadding.top;
 
-    final defaultX = size.width - 14 - fabSize;
-    final defaultY = size.height - bottomInset - 120 - fabSize;
+    const double capsuleW = 164;
+    const double capsuleH = 52;
+
+    final defaultX = size.width - 14 - capsuleW;
+    final defaultY = size.height - bottomInset - 120 - capsuleH;
     final current = _readAloudFabOffset ?? Offset(defaultX, defaultY);
 
-    final maxX = size.width - margin - fabSize;
-    final maxY = size.height - bottomInset - 80 - fabSize;
+    final maxX = size.width - margin - capsuleW;
+    final maxY = size.height - bottomInset - 80 - capsuleH;
     final clamped = Offset(
       current.dx.clamp(margin, maxX),
       current.dy.clamp(topInset + margin, maxY),
@@ -2833,89 +3036,167 @@ class _ReaderPageState extends State<ReaderPage>
               borderRadius: BorderRadius.circular(999),
               boxShadow: shadow,
             ),
-            child: Transform(
-              alignment: Alignment.center,
-              transform: Matrix4.identity()
-                ..setEntry(3, 2, 0.002)
-                ..rotateX(-0.12)
-                ..rotateY(0.10),
-              child: GlassPanel(
-                borderRadius: BorderRadius.circular(999),
-                surfaceColor: surface,
-                opacity: 0.92,
-                blurSigma: 14,
-                border: Border.all(
-                  color: onSurface.withOpacityCompat(0.08),
-                  width: AppTokens.stroke,
-                ),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(999),
-                  onTap: () {
-                    if (readAloud.playing || readAloud.preparing) {
-                      unawaited(readAloud.pause());
-                      return;
-                    }
-                    unawaited(() async {
-                      final tp = context.read<TranslationProvider>();
-                      final rap = context.read<ReadAloudProvider>();
-                      if (!tp.aiReadAloudEnabled) return;
-                      final resume = rap.position;
-                      int targetChapter = _currentChapterIndex;
-                      if (resume != null && resume.bookId == widget.bookId) {
-                        targetChapter = resume.chapterIndex;
-                      }
-                      final paras = await _paragraphsForChapter(targetChapter);
-                      if (!mounted) return;
-                      await rap.startOrResume(
-                        bookId: widget.bookId,
-                        chapterIndex: targetChapter,
-                        paragraphs: paras,
-                        startParagraphIndex: null,
-                      );
-                    }());
-                  },
-                  child: SizedBox(
-                    width: fabSize,
-                    height: fabSize,
-                    child: AnimatedBuilder(
-                      animation: _readAloudAnimController,
-                      builder: (context, child) {
-                        final active =
-                            readAloud.playing || readAloud.preparing;
-                        final scale = active
-                            ? 1.0 + (_readAloudAnimController.value * 0.2)
-                            : 1.0;
-                        return Transform.scale(scale: scale, child: child);
-                      },
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Icon(
-                            Icons.volume_up_rounded,
-                            color:
-                                (readAloud.playing || readAloud.preparing)
-                                    ? AppColors.techBlue
-                                    : onSurface.withOpacityCompat(0.5),
-                            size: 24,
-                          ),
-                          if (readAloud.preparing)
-                            SizedBox(
-                              width: 34,
-                              height: 34,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  AppColors.techBlue.withOpacityCompat(0.7),
-                                ),
-                              ),
-                            ),
-                        ],
+            child: GlassPanel(
+              borderRadius: BorderRadius.circular(999),
+              surfaceColor: surface,
+              opacity: 0.92,
+              blurSigma: 14,
+              border: Border.all(
+                color: onSurface.withOpacityCompat(0.08),
+                width: AppTokens.stroke,
+              ),
+              child: SizedBox(
+                width: capsuleW,
+                height: capsuleH,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _readAloudCapsuleButton(
+                        icon: Icons.replay_rounded,
+                        spinTurns: _readAloudBackSpinTurns,
+                        enabled: readAloud.bookId == widget.bookId &&
+                            (readAloud.playing ||
+                                readAloud.paused ||
+                                readAloud.preparing),
+                        onTap: () {
+                          if (readAloud.bookId != widget.bookId) return;
+                          setState(() => _readAloudBackSpinTurns -= 1.0);
+                          unawaited(_handleReadAloudBackTap());
+                        },
                       ),
-                    ),
+                      _readAloudCapsuleButton(
+                        icon: Icons.volume_up_rounded,
+                        highlight: readAloud.playing || readAloud.preparing,
+                        enabled: true,
+                        showProgress: readAloud.preparing,
+                        onTap: () {
+                          if (readAloud.bookId == widget.bookId &&
+                              (readAloud.playing || readAloud.preparing)) {
+                            unawaited(readAloud.pause());
+                            return;
+                          }
+                          if (readAloud.bookId == widget.bookId &&
+                              readAloud.paused) {
+                            unawaited(readAloud.resume());
+                            return;
+                          }
+                          unawaited(() async {
+                            final tp = context.read<TranslationProvider>();
+                            final rap = context.read<ReadAloudProvider>();
+                            if (!tp.aiReadAloudEnabled) return;
+                            final resume = rap.position;
+                            int targetChapter = _currentChapterIndex;
+                            if (resume != null && resume.bookId == widget.bookId) {
+                              targetChapter = resume.chapterIndex;
+                            }
+                            final paras = await _paragraphsForChapter(targetChapter);
+                            if (!mounted) return;
+                            await rap.startOrResume(
+                              bookId: widget.bookId,
+                              chapterIndex: targetChapter,
+                              paragraphs: paras,
+                              startParagraphIndex: null,
+                            );
+                          }());
+                        },
+                      ),
+                      _readAloudCapsuleButton(
+                        icon: Icons.replay_rounded,
+                        spinTurns: _readAloudForwardSpinTurns,
+                        mirrorX: true,
+                        enabled: readAloud.bookId == widget.bookId &&
+                            (readAloud.playing ||
+                                readAloud.paused ||
+                                readAloud.preparing),
+                        onTap: () {
+                          if (readAloud.bookId != widget.bookId) return;
+                          setState(() => _readAloudForwardSpinTurns += 1.0);
+                          unawaited(_handleReadAloudForwardTap());
+                        },
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _readAloudCapsuleButton({
+    required IconData icon,
+    required bool enabled,
+    required VoidCallback onTap,
+    double spinTurns = 0.0,
+    bool highlight = false,
+    bool showProgress = false,
+    bool mirrorX = false,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color fg = highlight
+        ? AppColors.techBlue
+        : cs.onSurface.withOpacityCompat(enabled ? 0.70 : 0.28);
+    final Color bg = cs.surface.withOpacityCompat(isDark ? 0.40 : 0.65);
+    Widget baseIcon = Icon(icon, color: fg, size: 22);
+    if (mirrorX) {
+      baseIcon = Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(-1, 1, 1),
+        child: baseIcon,
+      );
+    }
+    baseIcon = AnimatedRotation(
+      turns: spinTurns,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOut,
+      child: baseIcon,
+    );
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        splashColor: AppColors.techBlue.withOpacityCompat(0.14),
+        highlightColor: AppColors.techBlue.withOpacityCompat(0.08),
+        onTap: enabled
+            ? () {
+                HapticFeedback.selectionClick();
+                onTap();
+              }
+            : null,
+        child: Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: cs.onSurface.withOpacityCompat(isDark ? 0.10 : 0.08),
+              width: AppTokens.stroke,
+            ),
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              baseIcon,
+              if (showProgress)
+                SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      AppColors.techBlue.withOpacityCompat(0.65),
+                    ),
+                    backgroundColor: cs.onSurface.withOpacityCompat(0.08),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -4413,6 +4694,7 @@ class _ReaderPageState extends State<ReaderPage>
               }
             });
             _saveProgressDebounced();
+            _scheduleUpdateReadAloudFollowFromCurrentView();
 
             final translationProvider =
                 Provider.of<TranslationProvider>(context, listen: false);
@@ -5474,6 +5756,7 @@ class _ReaderPageState extends State<ReaderPage>
     final pos = readAloud.position;
     if (pos != null && pos.bookId == widget.bookId && tp.aiReadAloudEnabled) {
       _scheduleSyncToReadAloudPosition(pos);
+      _maybeAutoContinueToNextChapter(readAloud, pos);
     }
     final currentReadAloudEngine = tp.readAloudEngine;
     final lastReadAloudEngine = _lastReadAloudEngine;
