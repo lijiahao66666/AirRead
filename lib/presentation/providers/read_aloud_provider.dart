@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../ai/tencent_tts/tencent_tts_client.dart';
@@ -91,12 +93,13 @@ class ReadAloudProvider extends ChangeNotifier {
 
   final AudioPlayer _player = AudioPlayer();
   final WebSpeechTts _webSpeechTts = createWebSpeechTts();
+  String? _tempFilePath;
 
   TencentTtsClient? _tencentTtsClient;
   final Map<String, Uint8List> _onlineAudioCache = {};
   final Map<String, Future<Uint8List>> _onlineAudioInFlight = {};
   final int _onlinePrefetchDistance = 3;
-  bool _ignoreNextOnlineComplete = false;
+  bool _onlineTransitioning = false;
 
   bool _initialized = false;
   bool _playing = false;
@@ -499,10 +502,7 @@ class ReadAloudProvider extends ChangeNotifier {
 
   Future<void> _cancelCurrentOutput() async {
     _endedNaturally = false;
-    _ignoreNextOnlineComplete = true;
-    Future<void>.delayed(const Duration(milliseconds: 160), () {
-      _ignoreNextOnlineComplete = false;
-    });
+    _onlineTransitioning = true;
     try {
       if (kIsWeb) {
         await _webSpeechTts.stop();
@@ -513,6 +513,7 @@ class ReadAloudProvider extends ChangeNotifier {
     try {
       await _player.stop();
     } catch (_) {}
+    await _cleanupTempFile();
     _session++;
   }
 
@@ -540,7 +541,20 @@ class ReadAloudProvider extends ChangeNotifier {
     try {
       await _player.stop();
     } catch (_) {}
+    await _cleanupTempFile();
     notifyListeners();
+  }
+
+  Future<void> _cleanupTempFile() async {
+    final path = _tempFilePath;
+    if (path == null || path.isEmpty) return;
+    _tempFilePath = null;
+    try {
+      final f = File(path);
+      if (await f.exists()) {
+        await f.delete();
+      }
+    } catch (_) {}
   }
 
   Future<void> restartFromCurrentPosition() async {
@@ -657,8 +671,18 @@ class ReadAloudProvider extends ChangeNotifier {
         if (session != _session) return;
         _preparing = false;
         notifyListeners();
-        await _player.stop();
-        await _player.play(BytesSource(bytes));
+        await _cleanupTempFile();
+        if (kIsWeb) {
+          await _player.play(BytesSource(bytes));
+        } else {
+          final dir = await getTemporaryDirectory();
+          final file = File(
+              '${dir.path}/tts_${session}_${DateTime.now().microsecondsSinceEpoch}.mp3');
+          await file.writeAsBytes(bytes, flush: true);
+          _tempFilePath = file.path;
+          await _player.play(DeviceFileSource(file.path));
+        }
+        _onlineTransitioning = false;
         _prefetchOnlineAhead(
           session: session,
           startIndex: _queuePos + 1,
@@ -744,10 +768,7 @@ class ReadAloudProvider extends ChangeNotifier {
     final tp = _tp;
     if (tp == null) return;
     if (tp.readAloudEngine != ReadAloudEngine.online) return;
-    if (_ignoreNextOnlineComplete) {
-      _ignoreNextOnlineComplete = false;
-      return;
-    }
+    if (_onlineTransitioning) return;
 
     final session = _session;
     final next = _queuePos + 1;
