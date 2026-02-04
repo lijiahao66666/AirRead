@@ -2180,6 +2180,20 @@ class _ReaderPageState extends State<ReaderPage>
       final paras = await _paragraphsForChapter(prevChapter);
       if (!mounted) return;
       if (paras.isEmpty) return;
+      _readAloudFollow = true;
+      await _ensureChapterContentCached(prevChapter);
+      if (!mounted) return;
+      final ranges =
+          _chapterPageRanges[prevChapter] ?? _chapterFallbackPageRanges[prevChapter];
+      final desiredPage = (ranges == null || ranges.isEmpty) ? 0 : ranges.length - 1;
+      setState(() {
+        _currentChapterIndex = prevChapter;
+        _currentPageInChapter = desiredPage;
+        _pageViewCenterIndex = 1000;
+      });
+      _readAloudFollowChapter = prevChapter;
+      _readAloudFollowPage = desiredPage;
+      if (_pageController.hasClients) _pageController.jumpToPage(1000);
       await rap.seekToChapterEnd(
         bookId: widget.bookId,
         chapterIndex: prevChapter,
@@ -2207,6 +2221,15 @@ class _ReaderPageState extends State<ReaderPage>
       final paras = await _paragraphsForChapter(nextChapter);
       if (!mounted) return;
       if (paras.isEmpty) return;
+      _readAloudFollow = true;
+      setState(() {
+        _currentChapterIndex = nextChapter;
+        _currentPageInChapter = 0;
+        _pageViewCenterIndex = 1000;
+      });
+      _readAloudFollowChapter = nextChapter;
+      _readAloudFollowPage = 0;
+      if (_pageController.hasClients) _pageController.jumpToPage(1000);
       await rap.seekToChapterStart(
         bookId: widget.bookId,
         chapterIndex: nextChapter,

@@ -113,6 +113,7 @@ class ReadAloudProvider extends ChangeNotifier {
   String? _localSpeakingPollToken;
   bool _localSpeakingPollEverSpeaking = false;
   DateTime? _localSpeakingPollStartedAt;
+  int _localSpeakingPollErrorCount = 0;
 
   TencentTtsClient? _tencentTtsClient;
   final Map<String, Uint8List> _onlineAudioCache = {};
@@ -908,6 +909,7 @@ class ReadAloudProvider extends ChangeNotifier {
     _localSpeakingPollToken = null;
     _localSpeakingPollEverSpeaking = false;
     _localSpeakingPollStartedAt = null;
+    _localSpeakingPollErrorCount = 0;
   }
 
   void _startLocalSpeakingPoll({
@@ -925,9 +927,10 @@ class ReadAloudProvider extends ChangeNotifier {
     _localSpeakingPollToken = token;
     _localSpeakingPollEverSpeaking = false;
     _localSpeakingPollStartedAt = DateTime.now();
+    _localSpeakingPollErrorCount = 0;
 
     _localSpeakingPollTimer =
-        Timer.periodic(const Duration(milliseconds: 60), (_) async {
+        Timer.periodic(const Duration(milliseconds: 80), (_) async {
       if (!_playing) {
         _stopLocalSpeakingPoll();
         return;
@@ -960,6 +963,10 @@ class ReadAloudProvider extends ChangeNotifier {
         if (res is num) speaking = res != 0;
       } catch (_) {
         _localSpeakingPollInFlight = false;
+        _localSpeakingPollErrorCount++;
+        if (_localSpeakingPollErrorCount >= 6) {
+          _stopLocalSpeakingPoll();
+        }
         return;
       }
       _localSpeakingPollInFlight = false;
