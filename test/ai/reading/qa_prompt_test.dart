@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:airread/ai/reading/qa_service.dart';
-import 'package:airread/presentation/providers/ai_model_provider.dart';
 
 ReadingContextService _ctx(String chapterText) {
   return ReadingContextService(
@@ -26,7 +25,6 @@ void main() {
       contextService: ctx,
       question: '问：发生了什么？',
       qaType: QAType.general,
-      contentScope: QAContentScope.currentPage,
       history: '',
     );
     expect(p1.contains('你是阅读助手。请仅基于【当前阅读内容】与【历史问答】作答。'), true);
@@ -40,7 +38,6 @@ void main() {
       contextService: ctx,
       question: '问：这段在说什么？',
       qaType: QAType.general,
-      contentScope: QAContentScope.currentPage,
       history: '',
     );
     expect(p1.contains('/think'), true);

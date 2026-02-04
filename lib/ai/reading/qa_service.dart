@@ -4,7 +4,6 @@ import 'dart:ui'; // for TextRange
 import '../hunyuan/hunyuan_text_client.dart';
 import '../local_llm/llm_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
-import '../../presentation/providers/ai_model_provider.dart';
 
 class ReadingContextService {
   final Map<int, String> chapterContentCache;
@@ -19,13 +18,9 @@ class ReadingContextService {
     required this.chapterPageRanges,
   });
 
-  String getContentByScope(QAContentScope scope) {
+  String getCurrentChapterContent() {
     final chapterContent = chapterContentCache[currentChapterIndex] ?? '';
     if (chapterContent.isEmpty) return '';
-
-    // TODO: Implement more sophisticated scope logic
-    // For now, we return the whole chapter content or a truncated version
-    // based on some simple heuristics.
 
     // 简单清理 XML 标签等
     final cleaned = _cleanContent(chapterContent);
@@ -64,21 +59,20 @@ String buildOnlineQaPrompt({
   required ReadingContextService contextService,
   required String question,
   required QAType qaType,
-  required QAContentScope contentScope,
   String? history,
 }) {
   String prompt;
 
   switch (qaType) {
     case QAType.summary:
-      final content = contextService.getContentByScope(contentScope).trim();
+      final content = contextService.getCurrentChapterContent().trim();
       prompt = '请总结以下内容，用清晰的要点列出：\n\n'
           '${content.isEmpty ? '（当前阅读内容为空）' : content}\n\n'
           '要求：仅基于内容总结，不要编造。\n'
           '输出：先列提纲（不超过6条），再给出总结（260字以内）。';
       break;
     case QAType.keyPoints:
-      final content = contextService.getContentByScope(contentScope).trim();
+      final content = contextService.getCurrentChapterContent().trim();
       prompt = '请从以下内容中提取关键要点，控制在5条以内：\n\n'
           '${content.isEmpty ? '（当前阅读内容为空）' : content}\n\n'
           '要求：仅基于内容提取，不要编造；覆盖事件、人物变化、伏笔线索。\n'
@@ -87,7 +81,6 @@ String buildOnlineQaPrompt({
     case QAType.general:
       prompt = _buildGeneralQaPrompt(
         question,
-        contentScope,
         contextService,
         history: history,
       );
@@ -99,11 +92,10 @@ String buildOnlineQaPrompt({
 
 String _buildGeneralQaPrompt(
   String userQuestion,
-  QAContentScope scope,
   ReadingContextService contextService, {
   String? history,
 }) {
-  final content = contextService.getContentByScope(scope).trim();
+  final content = contextService.getCurrentChapterContent().trim();
   final historyText = (history ?? '').trim();
 
   final buffer = StringBuffer()
@@ -137,10 +129,9 @@ String buildLocalQaPrompt({
   required ReadingContextService contextService,
   required String question,
   required QAType qaType,
-  required QAContentScope contentScope,
   String? history,
 }) {
-  final content = contextService.getContentByScope(contentScope);
+  final content = contextService.getCurrentChapterContent();
 
   String userPrompt;
   switch (qaType) {
@@ -163,7 +154,6 @@ String buildLocalQaPrompt({
     case QAType.general:
       userPrompt = _buildGeneralQaPrompt(
         question,
-        contentScope,
         contextService,
         history: history,
       );
@@ -178,7 +168,6 @@ String buildLocalQaPrompt({
 class QAService {
   final ReadingContextService contextService;
   final TencentCredentials credentials;
-  final QAContentScope contentScope;
   static const int _localQaHardMaxNewTokens = 1536;
   static const int _localQaHardMaxInputTokens = 6144;
   static const int _localQaContextReserveTokens = 512;
@@ -186,7 +175,6 @@ class QAService {
   QAService({
     required this.contextService,
     required this.credentials,
-    this.contentScope = QAContentScope.slidingWindow,
   });
 
   Stream<QAStreamChunk> askQuestion({
@@ -220,7 +208,6 @@ class QAService {
       contextService: contextService,
       question: question,
       qaType: qaType,
-      contentScope: contentScope,
       history: history,
     );
 
@@ -260,7 +247,6 @@ class QAService {
       contextService: contextService,
       question: question,
       qaType: qaType,
-      contentScope: contentScope,
       history: history,
     );
 

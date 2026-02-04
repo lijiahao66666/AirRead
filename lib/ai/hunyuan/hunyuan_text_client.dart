@@ -52,6 +52,8 @@ class HunyuanTextClient {
         'Messages': [
           {'Role': 'user', 'Content': userText},
         ],
+        'EnableEnhancement': true,
+        'ForceSearchEnhancement': true,
       },
     );
 
@@ -91,6 +93,7 @@ class HunyuanTextClient {
               {'Role': 'user', 'Content': userText},
             ],
         'EnableEnhancement': true,
+        'ForceSearchEnhancement': true,
       },
     );
 

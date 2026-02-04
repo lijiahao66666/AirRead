@@ -2169,99 +2169,10 @@ class _TencentHunyuanSettingsPanelState
                 ),
               ),
               const SizedBox(height: 10),
-              _itemBox(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '问答内容范围',
-                      style: TextStyle(
-                        color: widget.textColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.normal,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        _scopeChip(
-                          label: '当前页',
-                          value: QAContentScope.currentPage,
-                          groupValue: aiModel.qaContentScope,
-                          onChanged: (scope) =>
-                              aiModel.setQAContentScope(scope),
-                        ),
-                        _scopeChip(
-                          label: '本章至当前',
-                          value: QAContentScope.currentChapterToPage,
-                          groupValue: aiModel.qaContentScope,
-                          onChanged: (scope) =>
-                              aiModel.setQAContentScope(scope),
-                        ),
-                        _scopeChip(
-                          label: '前后1页',
-                          value: QAContentScope.slidingWindow,
-                          groupValue: aiModel.qaContentScope,
-                          onChanged: (scope) =>
-                              aiModel.setQAContentScope(scope),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
             ],
           ),
         );
       },
-    );
-  }
-
-  Widget _scopeChip({
-    required String label,
-    required QAContentScope value,
-    required QAContentScope groupValue,
-    required ValueChanged<QAContentScope> onChanged,
-  }) {
-    final bool active = value == groupValue;
-    const double chipHeight = 32;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: () => onChanged(value),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: active
-              ? AppColors.techBlue.withOpacityCompat(0.12)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: active
-                ? AppColors.techBlue
-                : widget.textColor.withOpacityCompat(0.18),
-            width: AppTokens.stroke,
-          ),
-        ),
-        child: SizedBox(
-          height: chipHeight,
-          child: Center(
-            widthFactor: 1,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                color: active
-                    ? AppColors.techBlue
-                    : widget.textColor.withOpacityCompat(0.75),
-                fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                height: 1.1,
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 

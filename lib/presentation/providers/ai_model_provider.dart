@@ -12,12 +12,6 @@ enum AiModelSource {
   online,
 }
 
-enum QAContentScope {
-  currentPage,
-  currentChapterToPage,
-  slidingWindow,
-}
-
 enum ModelInstallStatus {
   notInstalled,
   installing,
@@ -27,12 +21,10 @@ enum ModelInstallStatus {
 
 class AiModelProvider extends ChangeNotifier {
   static const String _kModelSource = 'ai_model_source';
-  static const String _kQAContentScope = 'qa_content_scope';
   static const String _kPointsBalance = 'points_balance';
 
   LlmClient? _llmClient;
   AiModelSource _source = AiModelSource.none;
-  QAContentScope _qaContentScope = QAContentScope.slidingWindow;
   int _pointsBalance = 0;
 
   // 模型安装状态
@@ -52,7 +44,6 @@ class AiModelProvider extends ChangeNotifier {
     _load();
   }
 
-  QAContentScope get qaContentScope => _qaContentScope;
   bool get loaded => _llmClient != null && _llmClient!.isAvailable;
   AiModelSource get source => _source;
   bool get isModelEnabled => _source != AiModelSource.none;
@@ -70,14 +61,6 @@ class AiModelProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kModelSource, value.name);
-  }
-
-  Future<void> setQAContentScope(QAContentScope value) async {
-    if (_qaContentScope == value) return;
-    _qaContentScope = value;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kQAContentScope, value.name);
   }
 
   int get pointsBalance => _pointsBalance;
@@ -103,12 +86,6 @@ class AiModelProvider extends ChangeNotifier {
     _source = AiModelSource.values.firstWhere(
       (e) => e.name == raw,
       orElse: () => AiModelSource.none,
-    );
-
-    final scopeRaw = prefs.getString(_kQAContentScope);
-    _qaContentScope = QAContentScope.values.firstWhere(
-      (e) => e.name == scopeRaw,
-      orElse: () => QAContentScope.slidingWindow,
     );
 
     _pointsBalance = prefs.getInt(_kPointsBalance) ?? 0;
