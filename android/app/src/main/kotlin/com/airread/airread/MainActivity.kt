@@ -41,6 +41,75 @@ class MainActivity: FlutterActivity() {
 
     private var tts: TextToSpeech? = null
     private val ttsWaiters: MutableList<(Boolean, String?) -> Unit> = mutableListOf()
+    private val ttsFallbackHandler = Handler(Looper.getMainLooper())
+    @Volatile
+    private var ttsFallbackToken: String? = null
+    @Volatile
+    private var ttsFallbackSession: Int? = null
+    @Volatile
+    private var ttsFallbackStarted: Boolean = false
+    @Volatile
+    private var ttsFallbackStartAtMs: Long = 0L
+
+    private fun emitTtsEvent(type: String, session: Int?, token: String?, message: String? = null) {
+        val sink = ttsSink ?: return
+        runOnUiThread {
+            val payload = mutableMapOf<String, Any?>(
+                "type" to type,
+                "session" to session,
+                "token" to token,
+            )
+            if (message != null) payload["message"] = message
+            sink.success(payload)
+        }
+    }
+
+    private val ttsFallbackRunnable = object : Runnable {
+        override fun run() {
+            val token = ttsFallbackToken ?: return
+            val session = ttsFallbackSession ?: return
+            val engine = tts ?: return
+            if (engine.isSpeaking) {
+                if (!ttsFallbackStarted) {
+                    ttsFallbackStarted = true
+                    emitTtsEvent("start", session, token)
+                }
+                ttsFallbackHandler.postDelayed(this, 60)
+                return
+            }
+            if (!ttsFallbackStarted) {
+                val now = System.currentTimeMillis()
+                if (now - ttsFallbackStartAtMs > 3000) {
+                    emitTtsEvent("done", session, token)
+                    cancelTtsFallback(token)
+                    return
+                }
+                ttsFallbackHandler.postDelayed(this, 60)
+                return
+            }
+            emitTtsEvent("done", session, token)
+            cancelTtsFallback(token)
+        }
+    }
+
+    private fun scheduleTtsFallback(token: String, session: Int) {
+        cancelTtsFallback(null)
+        ttsFallbackToken = token
+        ttsFallbackSession = session
+        ttsFallbackStarted = false
+        ttsFallbackStartAtMs = System.currentTimeMillis()
+        ttsFallbackHandler.postDelayed(ttsFallbackRunnable, 60)
+    }
+
+    private fun cancelTtsFallback(token: String?) {
+        val cur = ttsFallbackToken
+        if (token != null && cur != null && token != cur) return
+        ttsFallbackHandler.removeCallbacks(ttsFallbackRunnable)
+        ttsFallbackToken = null
+        ttsFallbackSession = null
+        ttsFallbackStarted = false
+        ttsFallbackStartAtMs = 0L
+    }
 
     private fun ensureTts(onReady: (Boolean, String?) -> Unit) {
         val existing = tts
@@ -148,6 +217,7 @@ class MainActivity: FlutterActivity() {
                     activeToken = null
                     activeSession = null
                     val sink = ttsSink ?: return
+                    cancelTtsFallback(token)
                     runOnUiThread {
                         sink.success(mapOf("type" to "done", "session" to session, "token" to token))
                     }
@@ -161,6 +231,7 @@ class MainActivity: FlutterActivity() {
                     activeToken = null
                     activeSession = null
                     val sink = ttsSink ?: return
+                    cancelTtsFallback(token)
                     runOnUiThread {
                         sink.success(mapOf("type" to "error", "message" to "朗读失败", "session" to session, "token" to token))
                     }
@@ -173,6 +244,7 @@ class MainActivity: FlutterActivity() {
                     activeToken = null
                     activeSession = null
                     val sink = ttsSink ?: return
+                    cancelTtsFallback(token)
                     val msg = when (errorCode) {
                         TextToSpeech.ERROR_INVALID_REQUEST -> "无效请求"
                         TextToSpeech.ERROR_NETWORK -> "网络错误"
@@ -406,6 +478,7 @@ class MainActivity: FlutterActivity() {
                             params.putInt("session", session)
                             val utteranceId = "airread_tts_${token}"
                             engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+                            scheduleTtsFallback(token, session)
                             result.success(null)
                         } catch (e: Exception) {
                             result.error("NATIVE_ERR", "TTS speak failed", e.toString())
@@ -416,6 +489,7 @@ class MainActivity: FlutterActivity() {
                     try {
                         tts?.stop()
                     } catch (_: Exception) {}
+                    cancelTtsFallback(null)
                     result.success(null)
                 }
                 "isAvailable" -> {

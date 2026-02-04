@@ -107,7 +107,6 @@ class ReadAloudProvider extends ChangeNotifier {
   int? _lastLocalDoneSession;
   int? _lastLocalDoneQueuePos;
   DateTime? _lastLocalDoneAt;
-  final Map<String, ReadAloudPosition> _pendingLocalPositionByToken = {};
 
   TencentTtsClient? _tencentTtsClient;
   final Map<String, Uint8List> _onlineAudioCache = {};
@@ -196,13 +195,7 @@ class ReadAloudProvider extends ChangeNotifier {
               return;
             }
             if (session != null && session != _session) return;
-            if (type == 'start') {
-              if (tokenStr == null || tokenStr.isEmpty) return;
-              final p = _pendingLocalPositionByToken.remove(tokenStr);
-              if (p != null) {
-                unawaited(_persistPosition(p));
-              }
-            } else if (type == 'done') {
+            if (type == 'done') {
               if (tokenStr != null &&
                   tokenStr.isNotEmpty &&
                   tokenStr == _lastLocalDoneToken) {
@@ -354,7 +347,6 @@ class ReadAloudProvider extends ChangeNotifier {
     if (!_playing && !_preparing) return;
     final tp = _tp;
     if (tp == null) return;
-    _pendingLocalPositionByToken.clear();
     if (tp.readAloudEngine == ReadAloudEngine.online) {
       try {
         await _player.pause();
@@ -579,7 +571,6 @@ class ReadAloudProvider extends ChangeNotifier {
   Future<void> _cancelCurrentOutput() async {
     _endedNaturally = false;
     _onlineTransitioning = true;
-    _pendingLocalPositionByToken.clear();
     try {
       if (kIsWeb) {
         await _webSpeechTts.stop();
@@ -598,7 +589,6 @@ class ReadAloudProvider extends ChangeNotifier {
       {bool keepResume = true, bool endedNaturally = false}) async {
     await _init();
     _session++;
-    _pendingLocalPositionByToken.clear();
     _paused = false;
     _playing = false;
     _onlineAudioInFlight.clear();
@@ -808,9 +798,9 @@ class ReadAloudProvider extends ChangeNotifier {
       }
       if (lang.trim().isEmpty) lang = null;
 
+      await _persistPosition(position);
       _currentLocalToken =
           '${session}_${_queuePos}_${DateTime.now().microsecondsSinceEpoch}';
-      _pendingLocalPositionByToken[_currentLocalToken!] = position;
       final args = {
         'text': entry.speechText,
         'rate': tp.localTtsSpeed,
@@ -868,7 +858,6 @@ class ReadAloudProvider extends ChangeNotifier {
     final tp = _tp;
     if (tp == null) return;
     if (tp.readAloudEngine != ReadAloudEngine.local) return;
-    _pendingLocalPositionByToken.clear();
 
     final lastAt = _lastLocalDoneAt;
     if (_lastLocalDoneSession == _session &&
@@ -893,7 +882,6 @@ class ReadAloudProvider extends ChangeNotifier {
 
   void _onLocalChunkError(String message) {
     if (!_playing) return;
-    _pendingLocalPositionByToken.clear();
     unawaited(stop(keepResume: true, endedNaturally: false));
   }
 

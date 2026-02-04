@@ -56,6 +56,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
   private var utteranceTokens: [ObjectIdentifier: (Int, String)] = [:]
   private var activeUtteranceKey: ObjectIdentifier?
   private var pollTimer: Timer?
+  private var activeStartSent: Bool = false
 
   override init() {
     super.init()
@@ -92,7 +93,35 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
     let tk = token ?? ""
     fallbackSession = session
     fallbackToken = tk
-    utteranceTokens[ObjectIdentifier(utterance)] = (session, tk)
+    let key = ObjectIdentifier(utterance)
+    utteranceTokens[key] = (session, tk)
+    activeUtteranceKey = key
+    activeStartSent = false
+    pollTimer?.invalidate()
+    pollTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] t in
+      guard let self = self else { return }
+      if self.cancelled { t.invalidate(); return }
+      guard let activeKey = self.activeUtteranceKey else { t.invalidate(); return }
+      if self.synthesizer.isSpeaking {
+        if !self.activeStartSent {
+          self.activeStartSent = true
+          let payload = self.utteranceTokens[activeKey]
+          let session = payload?.0 ?? self.fallbackSession
+          let token = payload?.1 ?? self.fallbackToken
+          self.send(["type": "start", "session": session, "token": token])
+        }
+        return
+      }
+      if !self.activeStartSent { return }
+      let payload = self.utteranceTokens.removeValue(forKey: activeKey)
+      if payload == nil { return }
+      let session = payload?.0 ?? self.fallbackSession
+      let token = payload?.1 ?? self.fallbackToken
+      self.send(["type": "done", "session": session, "token": token])
+      self.activeUtteranceKey = nil
+      self.activeStartSent = false
+      t.invalidate()
+    }
     if let lang = lang {
       utterance.voice = AVSpeechSynthesisVoice(language: lang)
     }
@@ -105,6 +134,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
   func stop() {
     utteranceTokens.removeAll()
     activeUtteranceKey = nil
+    activeStartSent = false
     pollTimer?.invalidate()
     pollTimer = nil
     synthesizer.stopSpeaking(at: .immediate)
@@ -113,34 +143,24 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
   func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
     let key = ObjectIdentifier(utterance)
     activeUtteranceKey = key
+    if activeStartSent { return }
+    activeStartSent = true
     let payload = utteranceTokens[key]
     let session = payload?.0 ?? fallbackSession
     let token = payload?.1 ?? fallbackToken
     send(["type": "start", "session": session, "token": token])
-
-    pollTimer?.invalidate()
-    pollTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] t in
-      guard let self = self else { return }
-      if self.cancelled { t.invalidate(); return }
-      guard let activeKey = self.activeUtteranceKey else { return }
-      if self.synthesizer.isSpeaking { return }
-      let payload = self.utteranceTokens.removeValue(forKey: activeKey)
-      let session = payload?.0 ?? self.fallbackSession
-      let token = payload?.1 ?? self.fallbackToken
-      self.send(["type": "done", "session": session, "token": token])
-      self.activeUtteranceKey = nil
-      t.invalidate()
-    }
   }
 
   func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
     let key = ObjectIdentifier(utterance)
     let payload = utteranceTokens.removeValue(forKey: key)
+    if payload == nil { return }
     let session = payload?.0 ?? fallbackSession
     let token = payload?.1 ?? fallbackToken
     send(["type": "done", "session": session, "token": token])
     if activeUtteranceKey == key {
       activeUtteranceKey = nil
+      activeStartSent = false
       pollTimer?.invalidate()
       pollTimer = nil
     }
@@ -149,11 +169,13 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
   func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
     let key = ObjectIdentifier(utterance)
     let payload = utteranceTokens.removeValue(forKey: key)
+    if payload == nil { return }
     let session = payload?.0 ?? fallbackSession
     let token = payload?.1 ?? fallbackToken
     send(["type": "done", "session": session, "token": token])
     if activeUtteranceKey == key {
       activeUtteranceKey = nil
+      activeStartSent = false
       pollTimer?.invalidate()
       pollTimer = nil
     }
