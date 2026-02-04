@@ -3,6 +3,8 @@ package com.airread.airread
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -90,6 +92,28 @@ class MainActivity: FlutterActivity() {
 
         fun attachListener() {
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                private val handler = Handler(Looper.getMainLooper())
+                private var activeToken: String? = null
+                private var activeSession: Int? = null
+                private val pollRunnable = object : Runnable {
+                    override fun run() {
+                        val token = activeToken
+                        val session = activeSession
+                        if (token.isNullOrBlank() || session == null) return
+                        val engine = tts ?: return
+                        if (engine.isSpeaking) {
+                            handler.postDelayed(this, 60)
+                            return
+                        }
+                        val sink = ttsSink ?: return
+                        activeToken = null
+                        activeSession = null
+                        runOnUiThread {
+                            sink.success(mapOf("type" to "done", "session" to session, "token" to token))
+                        }
+                    }
+                }
+
                 private fun parseToken(id: String?): String? {
                     if (id == null) return null
                     val prefix = "airread_tts_"
@@ -103,11 +127,26 @@ class MainActivity: FlutterActivity() {
                     return parts.firstOrNull()?.toIntOrNull()
                 }
 
-                override fun onStart(utteranceId: String?) {}
+                override fun onStart(utteranceId: String?) {
+                    val token = parseToken(utteranceId)
+                    val session = parseSessionFromToken(token)
+                    if (token.isNullOrBlank() || session == null) return
+                    activeToken = token
+                    activeSession = session
+                    val sink = ttsSink ?: return
+                    runOnUiThread {
+                        sink.success(mapOf("type" to "start", "session" to session, "token" to token))
+                    }
+                    handler.removeCallbacks(pollRunnable)
+                    handler.postDelayed(pollRunnable, 60)
+                }
 
                 override fun onDone(utteranceId: String?) {
                     val token = parseToken(utteranceId)
                     val session = parseSessionFromToken(token)
+                    handler.removeCallbacks(pollRunnable)
+                    activeToken = null
+                    activeSession = null
                     val sink = ttsSink ?: return
                     runOnUiThread {
                         sink.success(mapOf("type" to "done", "session" to session, "token" to token))
@@ -118,6 +157,9 @@ class MainActivity: FlutterActivity() {
                 override fun onError(utteranceId: String?) {
                     val token = parseToken(utteranceId)
                     val session = parseSessionFromToken(token)
+                    handler.removeCallbacks(pollRunnable)
+                    activeToken = null
+                    activeSession = null
                     val sink = ttsSink ?: return
                     runOnUiThread {
                         sink.success(mapOf("type" to "error", "message" to "朗读失败", "session" to session, "token" to token))
@@ -127,6 +169,9 @@ class MainActivity: FlutterActivity() {
                 override fun onError(utteranceId: String?, errorCode: Int) {
                     val token = parseToken(utteranceId)
                     val session = parseSessionFromToken(token)
+                    handler.removeCallbacks(pollRunnable)
+                    activeToken = null
+                    activeSession = null
                     val sink = ttsSink ?: return
                     val msg = when (errorCode) {
                         TextToSpeech.ERROR_INVALID_REQUEST -> "无效请求"
@@ -360,7 +405,7 @@ class MainActivity: FlutterActivity() {
                             val params = Bundle()
                             params.putInt("session", session)
                             val utteranceId = "airread_tts_${token}"
-                            engine.speak(text, TextToSpeech.QUEUE_ADD, params, utteranceId)
+                            engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
                             result.success(null)
                         } catch (e: Exception) {
                             result.error("NATIVE_ERR", "TTS speak failed", e.toString())

@@ -82,7 +82,8 @@ class ReadAloudPosition {
 }
 
 class ReadAloudProvider extends ChangeNotifier {
-  static const MethodChannel _localTtsChannel = MethodChannel('airread/local_tts');
+  static const MethodChannel _localTtsChannel =
+      MethodChannel('airread/local_tts');
   static const EventChannel _localTtsEvents =
       EventChannel('airread/local_tts_events');
 
@@ -106,7 +107,7 @@ class ReadAloudProvider extends ChangeNotifier {
   int? _lastLocalDoneSession;
   int? _lastLocalDoneQueuePos;
   DateTime? _lastLocalDoneAt;
-  Timer? _localDoneWatchdog;
+  final Map<String, ReadAloudPosition> _pendingLocalPositionByToken = {};
 
   TencentTtsClient? _tencentTtsClient;
   final Map<String, Uint8List> _onlineAudioCache = {};
@@ -195,7 +196,13 @@ class ReadAloudProvider extends ChangeNotifier {
               return;
             }
             if (session != null && session != _session) return;
-            if (type == 'done') {
+            if (type == 'start') {
+              if (tokenStr == null || tokenStr.isEmpty) return;
+              final p = _pendingLocalPositionByToken.remove(tokenStr);
+              if (p != null) {
+                unawaited(_persistPosition(p));
+              }
+            } else if (type == 'done') {
               if (tokenStr != null &&
                   tokenStr.isNotEmpty &&
                   tokenStr == _lastLocalDoneToken) {
@@ -263,7 +270,8 @@ class ReadAloudProvider extends ChangeNotifier {
   Future<void> _persistPosition(ReadAloudPosition p) async {
     _position = p;
     try {
-      await _prefs?.setString('read_aloud_last_position', jsonEncode(p.toJson()));
+      await _prefs?.setString(
+          'read_aloud_last_position', jsonEncode(p.toJson()));
     } catch (_) {}
     notifyListeners();
   }
@@ -289,7 +297,8 @@ class ReadAloudProvider extends ChangeNotifier {
   }) async {
     await _init();
     _endedNaturally = false;
-    attachChapter(bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
+    attachChapter(
+        bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
 
     final tp = _tp;
     if (tp == null) return false;
@@ -311,7 +320,8 @@ class ReadAloudProvider extends ChangeNotifier {
                 savedPosition.chapterIndex == chapterIndex)
             ? savedPosition.paragraphIndex
             : 0);
-    startPara = startPara.clamp(0, paragraphs.isEmpty ? 0 : paragraphs.length - 1);
+    startPara =
+        startPara.clamp(0, paragraphs.isEmpty ? 0 : paragraphs.length - 1);
 
     final resumeChunkIndex = (startParagraphIndex == null &&
             savedPosition != null &&
@@ -344,7 +354,7 @@ class ReadAloudProvider extends ChangeNotifier {
     if (!_playing && !_preparing) return;
     final tp = _tp;
     if (tp == null) return;
-    _localDoneWatchdog?.cancel();
+    _pendingLocalPositionByToken.clear();
     if (tp.readAloudEngine == ReadAloudEngine.online) {
       try {
         await _player.pause();
@@ -456,7 +466,8 @@ class ReadAloudProvider extends ChangeNotifier {
   }) async {
     await _init();
     _endedNaturally = false;
-    attachChapter(bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
+    attachChapter(
+        bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
     final tp = _tp;
     if (tp == null) return false;
     if (!tp.aiReadAloudEnabled) return false;
@@ -493,7 +504,8 @@ class ReadAloudProvider extends ChangeNotifier {
   }) async {
     await _init();
     _endedNaturally = false;
-    attachChapter(bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
+    attachChapter(
+        bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
     final tp = _tp;
     if (tp == null) return false;
     if (!tp.aiReadAloudEnabled) return false;
@@ -567,7 +579,7 @@ class ReadAloudProvider extends ChangeNotifier {
   Future<void> _cancelCurrentOutput() async {
     _endedNaturally = false;
     _onlineTransitioning = true;
-    _localDoneWatchdog?.cancel();
+    _pendingLocalPositionByToken.clear();
     try {
       if (kIsWeb) {
         await _webSpeechTts.stop();
@@ -582,14 +594,13 @@ class ReadAloudProvider extends ChangeNotifier {
     _session++;
   }
 
-  Future<void> stop({bool keepResume = true, bool endedNaturally = false}) async {
+  Future<void> stop(
+      {bool keepResume = true, bool endedNaturally = false}) async {
     await _init();
     _session++;
-    _endedNaturally = endedNaturally;
-    _localDoneWatchdog?.cancel();
+    _pendingLocalPositionByToken.clear();
     _paused = false;
     _playing = false;
-    _preparing = false;
     _onlineAudioInFlight.clear();
     if (!keepResume) {
       _position = null;
@@ -682,7 +693,8 @@ class ReadAloudProvider extends ChangeNotifier {
         e.paragraphIndex == paragraphIndex &&
         e.chunkIndexInParagraph == chunkIndexInParagraph);
     if (idx >= 0) return idx;
-    final paraFirst = queue.indexWhere((e) => e.paragraphIndex == paragraphIndex);
+    final paraFirst =
+        queue.indexWhere((e) => e.paragraphIndex == paragraphIndex);
     if (paraFirst >= 0) return paraFirst;
     return 0;
   }
@@ -712,16 +724,14 @@ class ReadAloudProvider extends ChangeNotifier {
     final chapterTextOffset = para == null
         ? 0
         : (para.start + highlightOffsetInParagraph).clamp(0, para.end);
-    await _persistPosition(
-      ReadAloudPosition(
-        bookId: _bookId ?? '',
-        chapterIndex: _chapterIndex ?? 0,
-        paragraphIndex: entry.paragraphIndex,
-        chunkIndexInParagraph: entry.chunkIndexInParagraph,
-        highlightOffsetInParagraph: highlightOffsetInParagraph,
-        chapterTextOffset: chapterTextOffset,
-        highlightText: entry.highlightText,
-      ),
+    final position = ReadAloudPosition(
+      bookId: _bookId ?? '',
+      chapterIndex: _chapterIndex ?? 0,
+      paragraphIndex: entry.paragraphIndex,
+      chunkIndexInParagraph: entry.chunkIndexInParagraph,
+      highlightOffsetInParagraph: highlightOffsetInParagraph,
+      chapterTextOffset: chapterTextOffset,
+      highlightText: entry.highlightText,
     );
 
     _preparing = true;
@@ -729,6 +739,7 @@ class ReadAloudProvider extends ChangeNotifier {
 
     try {
       if (tp.readAloudEngine == ReadAloudEngine.online) {
+        await _persistPosition(position);
         final bytes = await _getOnlineTtsBytesDedup(
           text: entry.speechText,
           voiceType: tp.ttsVoiceType,
@@ -759,6 +770,7 @@ class ReadAloudProvider extends ChangeNotifier {
       }
 
       if (kIsWeb) {
+        await _persistPosition(position);
         if (!_webSpeechTts.supported) {
           throw UnsupportedError('当前浏览器不支持本地朗读');
         }
@@ -798,6 +810,7 @@ class ReadAloudProvider extends ChangeNotifier {
 
       _currentLocalToken =
           '${session}_${_queuePos}_${DateTime.now().microsecondsSinceEpoch}';
+      _pendingLocalPositionByToken[_currentLocalToken!] = position;
       final args = {
         'text': entry.speechText,
         'rate': tp.localTtsSpeed,
@@ -809,48 +822,11 @@ class ReadAloudProvider extends ChangeNotifier {
       if (session != _session) return;
       _preparing = false;
       notifyListeners();
-      _scheduleLocalDoneWatchdog(
-        session: session,
-        queuePos: _queuePos,
-        token: _currentLocalToken,
-        text: entry.speechText,
-        rate: tp.localTtsSpeed,
-      );
     } catch (e) {
       if (session != _session) return;
       await stop(keepResume: true);
       rethrow;
     }
-  }
-
-  void _scheduleLocalDoneWatchdog({
-    required int session,
-    required int queuePos,
-    required String? token,
-    required String text,
-    required double rate,
-  }) {
-    _localDoneWatchdog?.cancel();
-    if (token == null || token.isEmpty) return;
-    final tp = _tp;
-    if (tp == null) return;
-    if (tp.readAloudEngine != ReadAloudEngine.local) return;
-    if (!_playing) return;
-
-    final int units = _ttsUnitCount(text);
-    final double safeRate = rate <= 0 ? 1.0 : rate;
-    final double seconds = (units / (9.0 * safeRate)).clamp(6.0, 45.0);
-    _localDoneWatchdog = Timer(Duration(milliseconds: (seconds * 1000).round()),
-        () {
-      final tp2 = _tp;
-      if (tp2 == null) return;
-      if (tp2.readAloudEngine != ReadAloudEngine.local) return;
-      if (!_playing) return;
-      if (_session != session) return;
-      if (_queuePos != queuePos) return;
-      if (_currentLocalToken != token) return;
-      _onLocalChunkDone();
-    });
   }
 
   void _prefetchOnlineAhead({
@@ -865,7 +841,8 @@ class ReadAloudProvider extends ChangeNotifier {
         (startIndex + _onlinePrefetchDistance).clamp(0, _queue.length);
     for (int i = startIndex; i < end; i++) {
       final text = _queue[i].speechText;
-      unawaited(_getOnlineTtsBytesDedup(text: text, voiceType: voiceType, speed: speed));
+      unawaited(_getOnlineTtsBytesDedup(
+          text: text, voiceType: voiceType, speed: speed));
     }
   }
 
@@ -891,7 +868,7 @@ class ReadAloudProvider extends ChangeNotifier {
     final tp = _tp;
     if (tp == null) return;
     if (tp.readAloudEngine != ReadAloudEngine.local) return;
-    _localDoneWatchdog?.cancel();
+    _pendingLocalPositionByToken.clear();
 
     final lastAt = _lastLocalDoneAt;
     if (_lastLocalDoneSession == _session &&
@@ -916,7 +893,7 @@ class ReadAloudProvider extends ChangeNotifier {
 
   void _onLocalChunkError(String message) {
     if (!_playing) return;
-    _localDoneWatchdog?.cancel();
+    _pendingLocalPositionByToken.clear();
     unawaited(stop(keepResume: true, endedNaturally: false));
   }
 
