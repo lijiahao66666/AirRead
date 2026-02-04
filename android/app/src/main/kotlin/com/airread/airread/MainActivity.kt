@@ -90,36 +90,43 @@ class MainActivity: FlutterActivity() {
 
         fun attachListener() {
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                private fun parseSession(id: String?): Int? {
+                private fun parseToken(id: String?): String? {
                     if (id == null) return null
                     val prefix = "airread_tts_"
                     if (!id.startsWith(prefix)) return null
-                    val rest = id.substring(prefix.length)
-                    val parts = rest.split("_", limit = 2)
+                    return id.substring(prefix.length)
+                }
+
+                private fun parseSessionFromToken(token: String?): Int? {
+                    if (token.isNullOrBlank()) return null
+                    val parts = token.split("_", "-", limit = 3)
                     return parts.firstOrNull()?.toIntOrNull()
                 }
 
                 override fun onStart(utteranceId: String?) {}
 
                 override fun onDone(utteranceId: String?) {
-                    val session = parseSession(utteranceId)
+                    val token = parseToken(utteranceId)
+                    val session = parseSessionFromToken(token)
                     val sink = ttsSink ?: return
                     runOnUiThread {
-                        sink.success(mapOf("type" to "done", "session" to session))
+                        sink.success(mapOf("type" to "done", "session" to session, "token" to token))
                     }
                 }
 
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
-                    val session = parseSession(utteranceId)
+                    val token = parseToken(utteranceId)
+                    val session = parseSessionFromToken(token)
                     val sink = ttsSink ?: return
                     runOnUiThread {
-                        sink.success(mapOf("type" to "error", "message" to "朗读失败", "session" to session))
+                        sink.success(mapOf("type" to "error", "message" to "朗读失败", "session" to session, "token" to token))
                     }
                 }
 
                 override fun onError(utteranceId: String?, errorCode: Int) {
-                    val session = parseSession(utteranceId)
+                    val token = parseToken(utteranceId)
+                    val session = parseSessionFromToken(token)
                     val sink = ttsSink ?: return
                     val msg = when (errorCode) {
                         TextToSpeech.ERROR_INVALID_REQUEST -> "无效请求"
@@ -132,7 +139,7 @@ class MainActivity: FlutterActivity() {
                         else -> "朗读失败($errorCode)"
                     }
                     runOnUiThread {
-                        sink.success(mapOf("type" to "error", "message" to msg, "session" to session))
+                        sink.success(mapOf("type" to "error", "message" to msg, "session" to session, "token" to token))
                     }
                 }
             })
@@ -319,6 +326,12 @@ class MainActivity: FlutterActivity() {
                     val rate = call.argument<Number>("rate")?.toFloat() ?: 1.0f
                     val session = call.argument<Int>("session") ?: 0
                     val lang = call.argument<String>("lang")
+                    val tokenArg = call.argument<String>("token")
+                    val token = if (tokenArg.isNullOrBlank()) {
+                        "${session}_0_${System.currentTimeMillis()}"
+                    } else {
+                        tokenArg.replace(Regex("[^A-Za-z0-9_\\-]"), "_")
+                    }
                     if (text.isBlank()) {
                         result.success(null)
                         return@setMethodCallHandler
@@ -334,7 +347,6 @@ class MainActivity: FlutterActivity() {
                             return@ensureTts
                         }
                         try {
-                            engine.stop()
                             if (lang != null && lang.isNotEmpty()) {
                                 try {
                                     val loc = Locale.forLanguageTag(lang)
@@ -347,7 +359,7 @@ class MainActivity: FlutterActivity() {
                             engine.setSpeechRate(rate.coerceIn(0.1f, 3.0f))
                             val params = Bundle()
                             params.putInt("session", session)
-                            val utteranceId = "airread_tts_${session}_${System.currentTimeMillis()}"
+                            val utteranceId = "airread_tts_${token}"
                             engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
                             result.success(null)
                         } catch (e: Exception) {

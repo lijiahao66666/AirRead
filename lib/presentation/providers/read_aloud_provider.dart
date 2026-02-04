@@ -101,6 +101,7 @@ class ReadAloudProvider extends ChangeNotifier {
   final AudioPlayer _player = AudioPlayer();
   final WebSpeechTts _webSpeechTts = createWebSpeechTts();
   String? _tempFilePath;
+  String? _currentLocalToken;
 
   TencentTtsClient? _tencentTtsClient;
   final Map<String, Uint8List> _onlineAudioCache = {};
@@ -178,6 +179,12 @@ class ReadAloudProvider extends ChangeNotifier {
               String v => int.tryParse(v),
               _ => null,
             };
+            final token = event['token'];
+            if (token is String &&
+                _currentLocalToken != null &&
+                token != _currentLocalToken) {
+              return;
+            }
             if (session != null && session != _session) return;
             if (type == 'done') {
               _onLocalChunkDone();
@@ -770,11 +777,14 @@ class ReadAloudProvider extends ChangeNotifier {
       }
       if (lang.trim().isEmpty) lang = null;
 
+      _currentLocalToken =
+          '${session}_${_queuePos}_${DateTime.now().microsecondsSinceEpoch}';
       final args = {
         'text': entry.speechText,
         'rate': tp.localTtsSpeed,
         'session': session,
         'lang': lang,
+        'token': _currentLocalToken,
       };
       await _localTtsChannel.invokeMethod('speak', args);
       if (session != _session) return;

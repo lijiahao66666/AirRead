@@ -52,6 +52,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
   private var cancelled: Bool = false
   private let synthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer()
   private var currentSession: Int = 0
+  private var currentToken: String = ""
 
   override init() {
     super.init()
@@ -82,12 +83,13 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
     }
   }
 
-  func speak(text: String, rate: Double, session: Int, lang: String?) {
+  func speak(text: String, rate: Double, session: Int, lang: String?, token: String?) {
     if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
     if synthesizer.isSpeaking {
       synthesizer.stopSpeaking(at: .immediate)
     }
     currentSession = session
+    currentToken = token ?? ""
     let utterance = AVSpeechUtterance(string: text)
     if let lang = lang {
       utterance.voice = AVSpeechSynthesisVoice(language: lang)
@@ -103,11 +105,11 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
   }
 
   func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-    send(["type": "done", "session": currentSession])
+    send(["type": "done", "session": currentSession, "token": currentToken])
   }
 
   func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-    send(["type": "done", "session": currentSession])
+    send(["type": "done", "session": currentSession, "token": currentToken])
   }
 }
 
@@ -292,7 +294,8 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
         let rate = (args?["rate"] as? NSNumber)?.doubleValue ?? 1.0
         let session = (args?["session"] as? NSNumber)?.intValue ?? 0
         let lang = args?["lang"] as? String
-        ttsStreamHandler.speak(text: text, rate: rate, session: session, lang: lang)
+        let token = args?["token"] as? String
+        ttsStreamHandler.speak(text: text, rate: rate, session: session, lang: lang, token: token)
         result(nil)
       case "stop":
         ttsStreamHandler.stop()
