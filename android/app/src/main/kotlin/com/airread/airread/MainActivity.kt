@@ -492,6 +492,9 @@ class MainActivity: FlutterActivity() {
                     cancelTtsFallback(null)
                     result.success(null)
                 }
+                "isSpeaking" -> {
+                    result.success(tts?.isSpeaking == true)
+                }
                 "isAvailable" -> {
                     ensureTts { ok, _ ->
                         result.success(ok)

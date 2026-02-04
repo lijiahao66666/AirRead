@@ -140,6 +140,10 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
     synthesizer.stopSpeaking(at: .immediate)
   }
 
+  func isSpeaking() -> Bool {
+    return synthesizer.isSpeaking
+  }
+
   func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
     let key = ObjectIdentifier(utterance)
     activeUtteranceKey = key
@@ -369,6 +373,8 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
       case "stop":
         ttsStreamHandler.stop()
         result(nil)
+      case "isSpeaking":
+        result(ttsStreamHandler.isSpeaking())
       case "isAvailable":
         result(true)
       default:

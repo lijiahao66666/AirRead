@@ -107,6 +107,12 @@ class ReadAloudProvider extends ChangeNotifier {
   int? _lastLocalDoneSession;
   int? _lastLocalDoneQueuePos;
   DateTime? _lastLocalDoneAt;
+  Timer? _localSpeakingPollTimer;
+  bool _localSpeakingPollInFlight = false;
+  int _localSpeakingPollSession = 0;
+  String? _localSpeakingPollToken;
+  bool _localSpeakingPollEverSpeaking = false;
+  DateTime? _localSpeakingPollStartedAt;
 
   TencentTtsClient? _tencentTtsClient;
   final Map<String, Uint8List> _onlineAudioCache = {};
@@ -347,6 +353,7 @@ class ReadAloudProvider extends ChangeNotifier {
     if (!_playing && !_preparing) return;
     final tp = _tp;
     if (tp == null) return;
+    _stopLocalSpeakingPoll();
     if (tp.readAloudEngine == ReadAloudEngine.online) {
       try {
         await _player.pause();
@@ -571,6 +578,7 @@ class ReadAloudProvider extends ChangeNotifier {
   Future<void> _cancelCurrentOutput() async {
     _endedNaturally = false;
     _onlineTransitioning = true;
+    _stopLocalSpeakingPoll();
     try {
       if (kIsWeb) {
         await _webSpeechTts.stop();
@@ -589,6 +597,7 @@ class ReadAloudProvider extends ChangeNotifier {
       {bool keepResume = true, bool endedNaturally = false}) async {
     await _init();
     _session++;
+    _stopLocalSpeakingPoll();
     _paused = false;
     _playing = false;
     _onlineAudioInFlight.clear();
@@ -812,6 +821,10 @@ class ReadAloudProvider extends ChangeNotifier {
       if (session != _session) return;
       _preparing = false;
       notifyListeners();
+      _startLocalSpeakingPoll(
+        session: session,
+        token: _currentLocalToken,
+      );
     } catch (e) {
       if (session != _session) return;
       await stop(keepResume: true);
@@ -858,6 +871,7 @@ class ReadAloudProvider extends ChangeNotifier {
     final tp = _tp;
     if (tp == null) return;
     if (tp.readAloudEngine != ReadAloudEngine.local) return;
+    _stopLocalSpeakingPoll();
 
     final lastAt = _lastLocalDoneAt;
     if (_lastLocalDoneSession == _session &&
@@ -882,7 +896,91 @@ class ReadAloudProvider extends ChangeNotifier {
 
   void _onLocalChunkError(String message) {
     if (!_playing) return;
+    _stopLocalSpeakingPoll();
     unawaited(stop(keepResume: true, endedNaturally: false));
+  }
+
+  void _stopLocalSpeakingPoll() {
+    _localSpeakingPollTimer?.cancel();
+    _localSpeakingPollTimer = null;
+    _localSpeakingPollInFlight = false;
+    _localSpeakingPollSession = 0;
+    _localSpeakingPollToken = null;
+    _localSpeakingPollEverSpeaking = false;
+    _localSpeakingPollStartedAt = null;
+  }
+
+  void _startLocalSpeakingPoll({
+    required int session,
+    required String? token,
+  }) {
+    if (kIsWeb) return;
+    final tp = _tp;
+    if (tp == null) return;
+    if (tp.readAloudEngine != ReadAloudEngine.local) return;
+    if (!_playing) return;
+
+    _stopLocalSpeakingPoll();
+    _localSpeakingPollSession = session;
+    _localSpeakingPollToken = token;
+    _localSpeakingPollEverSpeaking = false;
+    _localSpeakingPollStartedAt = DateTime.now();
+
+    _localSpeakingPollTimer =
+        Timer.periodic(const Duration(milliseconds: 60), (_) async {
+      if (!_playing) {
+        _stopLocalSpeakingPoll();
+        return;
+      }
+      final tp2 = _tp;
+      if (tp2 == null || tp2.readAloudEngine != ReadAloudEngine.local) {
+        _stopLocalSpeakingPoll();
+        return;
+      }
+      if (_session != _localSpeakingPollSession) {
+        _stopLocalSpeakingPoll();
+        return;
+      }
+      final curToken = _currentLocalToken;
+      final pollToken = _localSpeakingPollToken;
+      if (pollToken != null &&
+          pollToken.isNotEmpty &&
+          curToken != null &&
+          curToken.isNotEmpty &&
+          pollToken != curToken) {
+        _stopLocalSpeakingPoll();
+        return;
+      }
+      if (_localSpeakingPollInFlight) return;
+      _localSpeakingPollInFlight = true;
+      bool speaking = false;
+      try {
+        final res = await _localTtsChannel.invokeMethod('isSpeaking');
+        if (res is bool) speaking = res;
+        if (res is num) speaking = res != 0;
+      } catch (_) {
+        _localSpeakingPollInFlight = false;
+        return;
+      }
+      _localSpeakingPollInFlight = false;
+      if (!_playing) return;
+
+      if (speaking) {
+        _localSpeakingPollEverSpeaking = true;
+        return;
+      }
+      final startedAt = _localSpeakingPollStartedAt;
+      if (_localSpeakingPollEverSpeaking) {
+        _stopLocalSpeakingPoll();
+        _onLocalChunkDone();
+        return;
+      }
+      if (startedAt != null &&
+          DateTime.now().difference(startedAt) > const Duration(seconds: 3)) {
+        _stopLocalSpeakingPoll();
+        _onLocalChunkDone();
+      }
+    });
   }
 
   String _normalizeSpeechText(String text) {
