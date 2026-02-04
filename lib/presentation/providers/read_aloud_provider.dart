@@ -150,8 +150,10 @@ class ReadAloudProvider extends ChangeNotifier {
   int? get chapterIndex => _chapterIndex;
   ReadAloudPosition? get position => _position;
 
-  String? get highlightText => _position?.highlightText;
-  int? get highlightParagraphIndex => _position?.paragraphIndex;
+  String? get highlightText =>
+      (_playing || _preparing) ? _position?.highlightText : null;
+  int? get highlightParagraphIndex =>
+      (_playing || _preparing) ? _position?.paragraphIndex : null;
 
   void updateTranslationProvider(TranslationProvider tp) {
     if (identical(_tp, tp)) return;
@@ -601,6 +603,8 @@ class ReadAloudProvider extends ChangeNotifier {
     _stopLocalSpeakingPoll();
     _paused = false;
     _playing = false;
+    _preparing = false;
+    _endedNaturally = endedNaturally;
     _onlineAudioInFlight.clear();
     if (!keepResume) {
       _position = null;
