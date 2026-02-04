@@ -596,8 +596,11 @@ class ReadAloudProvider extends ChangeNotifier {
     _session++;
   }
 
-  Future<void> stop(
-      {bool keepResume = true, bool endedNaturally = false}) async {
+  Future<void> stop({
+    bool keepResume = true,
+    bool endedNaturally = false,
+    bool stopEngine = true,
+  }) async {
     await _init();
     _session++;
     _stopLocalSpeakingPoll();
@@ -612,18 +615,20 @@ class ReadAloudProvider extends ChangeNotifier {
         await _prefs?.remove('read_aloud_last_position');
       } catch (_) {}
     }
-    try {
-      if (kIsWeb) {
-        await _webSpeechTts.stop();
-      } else {
-        await _localTtsChannel.invokeMethod('stop');
-      }
-    } catch (_) {}
-    try {
-      await _player.stop();
-    } catch (_) {}
-    await _cleanupTempFile();
     notifyListeners();
+    if (stopEngine) {
+      try {
+        if (kIsWeb) {
+          await _webSpeechTts.stop();
+        } else {
+          await _localTtsChannel.invokeMethod('stop');
+        }
+      } catch (_) {}
+      try {
+        await _player.stop();
+      } catch (_) {}
+    }
+    await _cleanupTempFile();
   }
 
   Future<void> _cleanupTempFile() async {
@@ -864,7 +869,8 @@ class ReadAloudProvider extends ChangeNotifier {
     final session = _session;
     final next = _queuePos + 1;
     if (next >= _queue.length) {
-      unawaited(stop(keepResume: true, endedNaturally: true));
+      unawaited(
+          stop(keepResume: true, endedNaturally: true, stopEngine: false));
       return;
     }
     _queuePos = next;
@@ -892,7 +898,8 @@ class ReadAloudProvider extends ChangeNotifier {
     final session = _session;
     final next = _queuePos + 1;
     if (next >= _queue.length) {
-      unawaited(stop(keepResume: true, endedNaturally: true));
+      unawaited(
+          stop(keepResume: true, endedNaturally: true, stopEngine: false));
       return;
     }
     _queuePos = next;
