@@ -3127,6 +3127,7 @@ class _QaPanelState extends State<_QaPanel> {
   Future<void> _send() async {
     final text = _inputCtl.text.trim();
     if (text.isEmpty || _messageState != _MessageState.idle) return;
+    FocusManager.instance.primaryFocus?.unfocus();
 
     if (text == '总结本章') {
       _inputCtl.clear();

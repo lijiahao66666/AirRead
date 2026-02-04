@@ -206,6 +206,28 @@ class QaStreamProvider extends ChangeNotifier {
       onDone: () {
         final cur = _stateByBookId[bookId];
         if (cur == null || cur.streamId != streamId) return;
+        if (cur.isLocalModel) {
+          final rawAll = _localRawByBookId[bookId] ?? '';
+          var think = _extractThink(rawAll);
+          var answer = _extractAnswer(rawAll);
+          if (answer.trim().isEmpty && think.trim().isNotEmpty) {
+            answer = think;
+            think = '';
+          }
+          _stateByBookId[bookId] = QaStreamState(
+            streamId: cur.streamId,
+            bookId: cur.bookId,
+            question: cur.question,
+            qaType: cur.qaType,
+            isLocalModel: cur.isLocalModel,
+            isStreaming: false,
+            answer: answer,
+            think: think,
+            error: '',
+          );
+          notifyListeners();
+          return;
+        }
         _stateByBookId[bookId] = QaStreamState(
           streamId: cur.streamId,
           bookId: cur.bookId,

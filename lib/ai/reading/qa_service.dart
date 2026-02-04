@@ -5,6 +5,7 @@ import '../hunyuan/hunyuan_text_client.dart';
 import '../local_llm/llm_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
 import '../../presentation/providers/ai_model_provider.dart';
+
 class ReadingContextService {
   final Map<int, String> chapterContentCache;
   final int currentChapterIndex;
@@ -25,12 +26,12 @@ class ReadingContextService {
     // TODO: Implement more sophisticated scope logic
     // For now, we return the whole chapter content or a truncated version
     // based on some simple heuristics.
-    
+
     // 简单清理 XML 标签等
     final cleaned = _cleanContent(chapterContent);
     return cleaned;
   }
-  
+
   String _cleanContent(String content) {
     // 简单移除 HTML/XML 标签
     return content.replaceAll(RegExp(r'<[^>]*>'), '').trim();
@@ -146,10 +147,10 @@ String buildLocalQaPrompt({
   // Native 代码 (LLMInferenceEngineWrapper.mm) 已经会检查并自动添加模板，
   // 为了避免不必要的混乱，我们在这里返回纯文本内容，让 Native 层统一处理。
   // 但如果我们需要控制 system prompt，最好还是在这里拼好，并确保 Native 识别。
-  
+
   // 之前的 Native 逻辑：
   // if (!hasTemplate) fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
-  
+
   // 我们的 generateQAPrompt 生成的是 "纯文本"（包含了 system 指令，但没有 chatml 标记）
   // 为了让 system 指令生效，我们需要在这里手动包裹 ChatML 格式，
   // 并且确保 Native 层能检测到我们已经包裹了。
@@ -181,17 +182,17 @@ String buildLocalQaPrompt({
       );
       break;
   }
-  
+
   // 手动构建 ChatML 格式，确保 system prompt 被正确分离
   // Qwen 的 system prompt 通常放在开头
   // <|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n...\n<|im_end|>\n<|im_start|>assistant\n
-  
+
   // 我们的 userPrompt 其实已经包含了 "你是阅读助手..." 这样的 system 指令。
   // 所以我们可以把它整个放在 user message 里，或者尝试拆分。
   // 简单起见，我们把它放在 user message 里，因为这是最稳妥的。
-  
+
   // 关键修正：确保换行符是 \n 而不是 \r\n，且不要有多余的空格干扰 Native 的检测
-  return '<|im_start|>system\nYou are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user.\n你可以在 <think>...</think> 中输出思考过程，但必须在 </think> 后继续输出最终答案，不要在 </think> 后直接结束。<|im_end|>\n<|im_start|>user\n$userPrompt<|im_end|>\n<|im_start|>assistant\n';
+  return '<|im_start|>system\nYou are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user.\n<|im_end|>\n<|im_start|>user\n$userPrompt<|im_end|>\n<|im_start|>assistant\n';
 }
 
 class QAService {

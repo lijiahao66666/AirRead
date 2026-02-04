@@ -409,6 +409,7 @@ class _ReaderPageState extends State<ReaderPage>
   int? _readAloudFollowPage;
   String? _readAloudAutoContinueHandledKey;
   bool _readAloudNavInFlight = false;
+  int _selectionAreaResetToken = 0;
 
   final AudioPlayer _readAloudPlayer = AudioPlayer();
   final Map<String, Uint8List> _readAloudAudioCache = {};
@@ -5071,6 +5072,8 @@ class _ReaderPageState extends State<ReaderPage>
         builder: (context) {
           String selectedText = '';
           return SelectionArea(
+            key: ValueKey(
+                'sel_${chapterIndex}_${range.start}_$_selectionAreaResetToken'),
             onSelectionChanged: (value) {
               selectedText = ((value as dynamic)?.plainText as String?)?.trim() ?? '';
             },
@@ -5118,6 +5121,11 @@ class _ReaderPageState extends State<ReaderPage>
                 onPressed: () {
                   ContextMenuController.removeAny();
                   selectableRegionState.hideToolbar();
+                  if (mounted) {
+                    setState(() {
+                      _selectionAreaResetToken++;
+                    });
+                  }
                   unawaited(() async {
                     await readAloud.stop(keepResume: true);
                     if (!mounted) return;
@@ -5132,6 +5140,11 @@ class _ReaderPageState extends State<ReaderPage>
                 onPressed: () {
                   ContextMenuController.removeAny();
                   selectableRegionState.hideToolbar();
+                  if (mounted) {
+                    setState(() {
+                      _selectionAreaResetToken++;
+                    });
+                  }
                   unawaited(_showSelectionTranslation(text));
                 },
                 type: ContextMenuButtonType.custom,
@@ -5142,6 +5155,11 @@ class _ReaderPageState extends State<ReaderPage>
                 onPressed: () {
                   ContextMenuController.removeAny();
                   selectableRegionState.hideToolbar();
+                  if (mounted) {
+                    setState(() {
+                      _selectionAreaResetToken++;
+                    });
+                  }
                   unawaited(_openAiHud(
                     initialRoute: AiHudRoute.qa,
                     initialQaText: text,
@@ -5165,7 +5183,16 @@ class _ReaderPageState extends State<ReaderPage>
           if (copyItem != null) {
             items.add(
               ContextMenuButtonItem(
-                onPressed: copyItem.onPressed,
+                onPressed: () {
+                  copyItem.onPressed?.call();
+                  ContextMenuController.removeAny();
+                  selectableRegionState.hideToolbar();
+                  if (mounted) {
+                    setState(() {
+                      _selectionAreaResetToken++;
+                    });
+                  }
+                },
                 type: copyItem.type,
                 label: '复制',
               ),
