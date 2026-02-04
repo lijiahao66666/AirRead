@@ -169,7 +169,7 @@ String buildLocalQaPrompt({
       );
       break;
   }
-  return 'You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user.\n$userPrompt';
+  return 'You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user.\n$userPrompt /think';
 
   // 关键修正：确保换行符是 \n 而不是 \r\n，且不要有多余的空格干扰 Native 的检测
   // return '<|im_start|>system\nYou are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user.\n<|im_end|>\n<|im_start|>user\n$userPrompt<|im_end|>\n<|im_start|>assistant\n';
