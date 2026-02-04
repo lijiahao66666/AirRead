@@ -360,7 +360,7 @@ class MainActivity: FlutterActivity() {
                             val params = Bundle()
                             params.putInt("session", session)
                             val utteranceId = "airread_tts_${token}"
-                            engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+                            engine.speak(text, TextToSpeech.QUEUE_ADD, params, utteranceId)
                             result.success(null)
                         } catch (e: Exception) {
                             result.error("NATIVE_ERR", "TTS speak failed", e.toString())

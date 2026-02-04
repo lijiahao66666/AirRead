@@ -106,6 +106,7 @@ class ReadAloudProvider extends ChangeNotifier {
   int? _lastLocalDoneSession;
   int? _lastLocalDoneQueuePos;
   DateTime? _lastLocalDoneAt;
+  Timer? _localDoneWatchdog;
 
   TencentTtsClient? _tencentTtsClient;
   final Map<String, Uint8List> _onlineAudioCache = {};
@@ -184,15 +185,24 @@ class ReadAloudProvider extends ChangeNotifier {
               _ => null,
             };
             final token = event['token'];
-            if (token is String &&
-                _currentLocalToken != null &&
-                token != _currentLocalToken) {
+            final tokenStr = token is String ? token : null;
+            final curToken = _currentLocalToken;
+            if (tokenStr != null &&
+                tokenStr.isNotEmpty &&
+                curToken != null &&
+                curToken.isNotEmpty &&
+                tokenStr != curToken) {
               return;
             }
             if (session != null && session != _session) return;
             if (type == 'done') {
-              if (token is String && token == _lastLocalDoneToken) return;
-              _lastLocalDoneToken = token is String ? token : null;
+              if (tokenStr != null &&
+                  tokenStr.isNotEmpty &&
+                  tokenStr == _lastLocalDoneToken) {
+                return;
+              }
+              _lastLocalDoneToken =
+                  (tokenStr != null && tokenStr.isNotEmpty) ? tokenStr : null;
               _onLocalChunkDone();
             } else if (type == 'error') {
               final msg = (event['message'] ?? '').toString();
@@ -334,6 +344,7 @@ class ReadAloudProvider extends ChangeNotifier {
     if (!_playing && !_preparing) return;
     final tp = _tp;
     if (tp == null) return;
+    _localDoneWatchdog?.cancel();
     if (tp.readAloudEngine == ReadAloudEngine.online) {
       try {
         await _player.pause();
@@ -556,6 +567,7 @@ class ReadAloudProvider extends ChangeNotifier {
   Future<void> _cancelCurrentOutput() async {
     _endedNaturally = false;
     _onlineTransitioning = true;
+    _localDoneWatchdog?.cancel();
     try {
       if (kIsWeb) {
         await _webSpeechTts.stop();
@@ -574,6 +586,7 @@ class ReadAloudProvider extends ChangeNotifier {
     await _init();
     _session++;
     _endedNaturally = endedNaturally;
+    _localDoneWatchdog?.cancel();
     _paused = false;
     _playing = false;
     _preparing = false;
@@ -796,11 +809,48 @@ class ReadAloudProvider extends ChangeNotifier {
       if (session != _session) return;
       _preparing = false;
       notifyListeners();
+      _scheduleLocalDoneWatchdog(
+        session: session,
+        queuePos: _queuePos,
+        token: _currentLocalToken,
+        text: entry.speechText,
+        rate: tp.localTtsSpeed,
+      );
     } catch (e) {
       if (session != _session) return;
       await stop(keepResume: true);
       rethrow;
     }
+  }
+
+  void _scheduleLocalDoneWatchdog({
+    required int session,
+    required int queuePos,
+    required String? token,
+    required String text,
+    required double rate,
+  }) {
+    _localDoneWatchdog?.cancel();
+    if (token == null || token.isEmpty) return;
+    final tp = _tp;
+    if (tp == null) return;
+    if (tp.readAloudEngine != ReadAloudEngine.local) return;
+    if (!_playing) return;
+
+    final int units = _ttsUnitCount(text);
+    final double safeRate = rate <= 0 ? 1.0 : rate;
+    final double seconds = (units / (9.0 * safeRate)).clamp(6.0, 45.0);
+    _localDoneWatchdog = Timer(Duration(milliseconds: (seconds * 1000).round()),
+        () {
+      final tp2 = _tp;
+      if (tp2 == null) return;
+      if (tp2.readAloudEngine != ReadAloudEngine.local) return;
+      if (!_playing) return;
+      if (_session != session) return;
+      if (_queuePos != queuePos) return;
+      if (_currentLocalToken != token) return;
+      _onLocalChunkDone();
+    });
   }
 
   void _prefetchOnlineAhead({
@@ -841,6 +891,7 @@ class ReadAloudProvider extends ChangeNotifier {
     final tp = _tp;
     if (tp == null) return;
     if (tp.readAloudEngine != ReadAloudEngine.local) return;
+    _localDoneWatchdog?.cancel();
 
     final lastAt = _lastLocalDoneAt;
     if (_lastLocalDoneSession == _session &&
@@ -865,6 +916,7 @@ class ReadAloudProvider extends ChangeNotifier {
 
   void _onLocalChunkError(String message) {
     if (!_playing) return;
+    _localDoneWatchdog?.cancel();
     unawaited(stop(keepResume: true, endedNaturally: false));
   }
 

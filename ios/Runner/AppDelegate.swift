@@ -51,8 +51,9 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
   private var eventSink: FlutterEventSink?
   private var cancelled: Bool = false
   private let synthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer()
-  private var currentSession: Int = 0
-  private var currentToken: String = ""
+  private var fallbackSession: Int = 0
+  private var fallbackToken: String = ""
+  private var utteranceTokens: [ObjectIdentifier: (Int, String)] = [:]
 
   override init() {
     super.init()
@@ -85,12 +86,11 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
 
   func speak(text: String, rate: Double, session: Int, lang: String?, token: String?) {
     if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
-    if synthesizer.isSpeaking {
-      synthesizer.stopSpeaking(at: .immediate)
-    }
-    currentSession = session
-    currentToken = token ?? ""
     let utterance = AVSpeechUtterance(string: text)
+    let tk = token ?? ""
+    fallbackSession = session
+    fallbackToken = tk
+    utteranceTokens[ObjectIdentifier(utterance)] = (session, tk)
     if let lang = lang {
       utterance.voice = AVSpeechSynthesisVoice(language: lang)
     }
@@ -101,15 +101,24 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
   }
 
   func stop() {
+    utteranceTokens.removeAll()
     synthesizer.stopSpeaking(at: .immediate)
   }
 
   func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-    send(["type": "done", "session": currentSession, "token": currentToken])
+    let key = ObjectIdentifier(utterance)
+    let payload = utteranceTokens.removeValue(forKey: key)
+    let session = payload?.0 ?? fallbackSession
+    let token = payload?.1 ?? fallbackToken
+    send(["type": "done", "session": session, "token": token])
   }
 
   func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-    send(["type": "done", "session": currentSession, "token": currentToken])
+    let key = ObjectIdentifier(utterance)
+    let payload = utteranceTokens.removeValue(forKey: key)
+    let session = payload?.0 ?? fallbackSession
+    let token = payload?.1 ?? fallbackToken
+    send(["type": "done", "session": session, "token": token])
   }
 }
 
