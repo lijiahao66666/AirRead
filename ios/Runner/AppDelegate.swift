@@ -72,17 +72,22 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
 
   private func send(_ event: Any) {
     if cancelled { return }
-    if let sink = eventSink {
+    guard let sink = eventSink else { return }
+    if Thread.isMainThread {
       sink(event)
+    } else {
+      DispatchQueue.main.async {
+        sink(event)
+      }
     }
   }
 
   func speak(text: String, rate: Double, session: Int, lang: String?) {
     if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
-    currentSession = session
     if synthesizer.isSpeaking {
       synthesizer.stopSpeaking(at: .immediate)
     }
+    currentSession = session
     let utterance = AVSpeechUtterance(string: text)
     if let lang = lang {
       utterance.voice = AVSpeechSynthesisVoice(language: lang)

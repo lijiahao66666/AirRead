@@ -84,6 +84,7 @@ class ReadAloudProvider extends ChangeNotifier {
   TencentTtsClient? _tencentTtsClient;
   final Map<String, Uint8List> _onlineAudioCache = {};
   final Map<String, Future<Uint8List>> _onlineAudioInFlight = {};
+  final int _onlinePrefetchDistance = 3;
 
   bool _initialized = false;
   bool _playing = false;
@@ -420,6 +421,12 @@ class ReadAloudProvider extends ChangeNotifier {
         notifyListeners();
         await _player.stop();
         await _player.play(BytesSource(bytes));
+        _prefetchOnlineAhead(
+          session: session,
+          startIndex: _queuePos + 1,
+          voiceType: tp.ttsVoiceType,
+          speed: tp.ttsSpeed,
+        );
         return;
       }
 
@@ -475,6 +482,22 @@ class ReadAloudProvider extends ChangeNotifier {
       if (session != _session) return;
       await stop(keepResume: true);
       rethrow;
+    }
+  }
+
+  void _prefetchOnlineAhead({
+    required int session,
+    required int startIndex,
+    required int voiceType,
+    required double speed,
+  }) {
+    if (session != _session) return;
+    if (_queue.isEmpty) return;
+    final int end =
+        (startIndex + _onlinePrefetchDistance).clamp(0, _queue.length);
+    for (int i = startIndex; i < end; i++) {
+      final text = _queue[i].speechText;
+      unawaited(_getOnlineTtsBytesDedup(text: text, voiceType: voiceType, speed: speed));
     }
   }
 
