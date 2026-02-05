@@ -15,7 +15,15 @@
 #include <cctype>
 
 #define LOG_TAG "MNNBridgeReal"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+
+// 在 Release 模式下禁用 LOGI，保留 LOGE
+// Android NDK 的 CMake 构建通常会在 Release 模式定义 NDEBUG
+#if defined(NDEBUG)
+    #define LOGI(...) ((void)0)
+#else
+    #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#endif
+
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 #include <MNN/llm/llm.hpp>
@@ -140,7 +148,7 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
                                                   jdouble repetitionPenalty,
                                                   jint enableThinking) {
     const char *promptStr = env->GetStringUTFChars(prompt, nullptr);
-    LOGI("nativeChat called with prompt: %s", promptStr);
+    // LOGI("nativeChat called with prompt: %s", promptStr); // Avoid logging full prompt
     
     std::string response;
     std::ostringstream oss;
@@ -303,7 +311,7 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz
                                                         jint enableThinking,
                                                         jobject callback) {
     const char *promptStr = env->GetStringUTFChars(prompt, nullptr);
-    LOGI("nativeChatStream called with prompt: %s", promptStr);
+    // LOGI("nativeChatStream called with prompt: %s", promptStr); // Avoid logging full prompt
     std::string userContent = promptStr;
     
     // 创建回调包装器

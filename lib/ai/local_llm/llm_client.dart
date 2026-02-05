@@ -84,6 +84,7 @@ class LlmClientMnn implements LlmClient {
       final dir = Directory(modelPath);
       debugPrint('[LlmClientMnn] Checking model directory: ${dir.path}');
       if (await dir.exists()) {
+        /*
         final files = await dir.list().toList();
         debugPrint('[LlmClientMnn] Model directory contents (${files.length} files):');
         for (final file in files) {
@@ -94,6 +95,7 @@ class LlmClientMnn implements LlmClient {
             debugPrint('  - ${file.path.split('/').last} (Dir)');
           }
         }
+        */
         
         // Check specific required files
         final requiredFiles = ['config.json', 'llm.mnn', 'tokenizer.txt'];
