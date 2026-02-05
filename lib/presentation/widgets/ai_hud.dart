@@ -1957,10 +1957,11 @@ class _TencentHunyuanSettingsPanelState
   Widget _chip({
     required String label,
     required bool active,
-    required VoidCallback onTap,
+    VoidCallback? onTap,
     required Color textColor,
   }) {
     const double chipHeight = 32;
+    final bool disabled = onTap == null;
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: onTap,
@@ -1974,7 +1975,7 @@ class _TencentHunyuanSettingsPanelState
           border: Border.all(
             color: active
                 ? AppColors.techBlue
-                : textColor.withOpacityCompat(0.18),
+                : textColor.withOpacityCompat(disabled ? 0.08 : 0.18),
             width: AppTokens.stroke,
           ),
         ),
@@ -1986,10 +1987,9 @@ class _TencentHunyuanSettingsPanelState
               label,
               style: TextStyle(
                 fontSize: 13,
-                color:
-                    active
-                        ? AppColors.techBlue
-                        : textColor.withOpacityCompat(0.75),
+                color: active
+                    ? AppColors.techBlue
+                    : textColor.withOpacityCompat(disabled ? 0.3 : 0.75),
                 fontWeight: active ? FontWeight.w600 : FontWeight.w500,
                 height: 1.1,
               ),
@@ -2111,12 +2111,15 @@ class _TencentHunyuanSettingsPanelState
                         _chip(
                           label: '本地',
                           active: aiModel.source == AiModelSource.local,
-                          onTap: () async {
-                            final next = aiModel.source == AiModelSource.local
-                                ? AiModelSource.none
-                                : AiModelSource.local;
-                            await aiModel.setSource(next);
-                          },
+                          onTap: kIsWeb
+                              ? null
+                              : () async {
+                                  final next =
+                                      aiModel.source == AiModelSource.local
+                                          ? AiModelSource.none
+                                          : AiModelSource.local;
+                                  await aiModel.setSource(next);
+                                },
                           textColor: widget.textColor,
                         ),
                         _chip(
