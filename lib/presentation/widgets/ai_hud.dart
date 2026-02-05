@@ -2179,7 +2179,6 @@ class _TencentHunyuanSettingsPanelState
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
             ],
           ),
         );

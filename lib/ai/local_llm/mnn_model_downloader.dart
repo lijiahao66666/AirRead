@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'mnn_model_spec.dart';
@@ -38,15 +39,24 @@ class MnnModelDownloader {
   String _currentFile = '';
   http.Client? _httpClient;
   bool _cancelled = false;
+  bool _sessionPrepared = false;
+  final Map<String, int> _receivedBytesByFile = {};
+  final Map<String, int> _expectedBytesByFile = {};
 
   ModelDownloadStatus get status => _status;
   double get progress => _progress;
   String get currentFile => _currentFile;
 
-  static const int _defaultMaxAttemptsPerFile = 0;
+  static const int _defaultMaxAttemptsPerFile = 6;
   static const Duration _defaultInitialBackoff = Duration(milliseconds: 800);
   static const Duration _defaultMaxBackoff = Duration(seconds: 30);
   static const Duration _defaultRequestTimeout = Duration(minutes: 20);
+  static const Duration _defaultSmallFileTimeout = Duration(seconds: 45);
+  static const Duration _defaultStreamInactivityTimeoutSmall =
+      Duration(seconds: 20);
+  static const Duration _defaultStreamInactivityTimeoutLarge =
+      Duration(seconds: 45);
+  String _lastError = '';
 
   /// 获取模型目录路径
   Future<String> getModelDir() async {
@@ -139,7 +149,10 @@ class MnnModelDownloader {
     _status = ModelDownloadStatus.downloading;
     _statusController.add(_status);
     _cancelled = false;
-    _httpClient = http.Client();
+    _httpClient = IOClient(_createHttpClient());
+    _sessionPrepared = false;
+    _receivedBytesByFile.clear();
+    _expectedBytesByFile.clear();
 
     try {
       final modelDir = await getModelDir();
@@ -150,6 +163,9 @@ class MnnModelDownloader {
         await dir.create(recursive: true);
       }
 
+      await _prepareModelScopeSession();
+      await _initializeProgressBaseline(modelDir);
+
       // 逐个下载文件
       for (final fileName in spec.filesToDownload) {
         if (_cancelled) break;
@@ -158,20 +174,18 @@ class MnnModelDownloader {
         _currentFileController.add(_currentFile);
         
         final filePath = p.join(modelDir, fileName);
-        
-        // 如果文件已存在且大小匹配（这里很难预知大小，所以简单覆盖或者跳过）
-        // 为确保完整性，我们选择覆盖下载
+        if (!_supportsResume(fileName)) {
+          _receivedBytesByFile[fileName] = 0;
+          _expectedBytesByFile[fileName] = 0;
+          _updateOverallProgress();
+        }
         
         final success = await _downloadSingleFileWithRetry(
           fileName, 
           filePath, 
           (bytes) {
-             // 临时方案：如果正在下载 weight，进度有效；其他文件瞬间完成
-             if (fileName == spec.progressFileName && estimatedTotalSize > 0) {
-               _progress = bytes / estimatedTotalSize;
-               if (_progress > 1.0) _progress = 1.0;
-               _progressController.add(_progress);
-             }
+             _receivedBytesByFile[fileName] = bytes;
+             _updateOverallProgress();
           }
         );
         
@@ -204,6 +218,119 @@ class MnnModelDownloader {
     }
   }
 
+  Future<void> _initializeProgressBaseline(String modelDir) async {
+    for (final fileName in spec.filesToDownload) {
+      final filePath = p.join(modelDir, fileName);
+      if (_supportsResume(fileName)) {
+        _receivedBytesByFile[fileName] = await _safeFileLength(filePath);
+      } else {
+        _receivedBytesByFile[fileName] = 0;
+      }
+      _expectedBytesByFile[fileName] = 0;
+    }
+    _updateOverallProgress();
+  }
+
+  void _updateOverallProgress() {
+    final files = spec.filesToDownload;
+    if (files.isEmpty) return;
+
+    final weightFile = spec.progressFileName;
+    final hasWeightFile = files.contains(weightFile);
+    final double weightPortion;
+    final double nonWeightEach;
+    if (files.length == 1) {
+      weightPortion = 1.0;
+      nonWeightEach = 0.0;
+    } else if (hasWeightFile) {
+      weightPortion = 0.9;
+      nonWeightEach = 0.1 / (files.length - 1);
+    } else {
+      weightPortion = 0.0;
+      nonWeightEach = 1.0 / files.length;
+    }
+
+    double acc = 0.0;
+    for (final fileName in files) {
+      final received = _receivedBytesByFile[fileName] ?? 0;
+      final expectedRaw = _expectedBytesByFile[fileName] ?? 0;
+      final expected = expectedRaw > 0
+          ? expectedRaw
+          : (spec.minExpectedBytesByFile[fileName] ?? 1);
+      final frac = (received / expected).clamp(0.0, 1.0);
+      final w =
+          (hasWeightFile && fileName == weightFile) ? weightPortion : nonWeightEach;
+      acc += w * frac;
+    }
+
+    final next = acc.clamp(0.0, 1.0);
+    if (next == _progress) return;
+    _progress = next;
+    _progressController.add(_progress);
+  }
+
+  HttpClient _createHttpClient() {
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 30);
+    return client;
+  }
+
+  Future<void> _prepareModelScopeSession() async {
+    if (_sessionPrepared) return;
+    final client = _httpClient;
+    if (client == null) return;
+
+    final baseUri = Uri.parse(spec.baseUrl);
+    final warmupUri = Uri(
+      scheme: baseUri.scheme,
+      host: baseUri.host,
+      path: '/',
+    );
+
+    try {
+      final request = http.Request('GET', warmupUri);
+      _applyDefaultHeaders(request, baseUri: baseUri);
+      final response = await client.send(request).timeout(
+        const Duration(seconds: 20),
+      );
+      await response.stream.drain<void>();
+      debugPrint(
+        '[MnnModelDownloader] Session warmup status=${response.statusCode}',
+      );
+    } catch (e) {
+      debugPrint('[MnnModelDownloader] Session warmup failed: $e');
+    } finally {
+      _sessionPrepared = true;
+    }
+  }
+
+  void _applyDefaultHeaders(
+    http.BaseRequest request, {
+    required Uri baseUri,
+  }) {
+    request.headers['User-Agent'] =
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+    request.headers['Accept'] =
+        'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+    request.headers['Accept-Language'] = 'zh-CN,zh;q=0.9,en;q=0.8';
+    request.headers['Connection'] = 'keep-alive';
+    final referer = _modelScopeReferer(baseUri);
+    if (referer != null) request.headers['Referer'] = referer;
+  }
+
+  String? _modelScopeReferer(Uri baseUri) {
+    final seg = baseUri.pathSegments.where((e) => e.isNotEmpty).toList();
+    final modelsIndex = seg.indexOf('models');
+    if (modelsIndex < 0 || seg.length <= modelsIndex + 2) return null;
+    final org = seg[modelsIndex + 1];
+    final repo = seg[modelsIndex + 2];
+    return Uri(
+      scheme: baseUri.scheme,
+      host: baseUri.host,
+      path: '/models/$org/$repo/summary',
+    ).toString();
+  }
+
   Future<bool> _downloadSingleFileWithRetry(
     String fileName,
     String savePath,
@@ -214,7 +341,8 @@ class MnnModelDownloader {
     while (!_cancelled) {
       attempt++;
 
-      final existingBytes = await _safeFileLength(savePath);
+      final existingBytes =
+          _supportsResume(fileName) ? await _safeFileLength(savePath) : 0;
       final res = await _downloadSingleFileOnce(
         fileName: fileName,
         savePath: savePath,
@@ -226,7 +354,14 @@ class MnnModelDownloader {
       if (res == _DownloadResult.cancelled) return false;
       if (res == _DownloadResult.fatal) return false;
 
+      debugPrint(
+        '[MnnModelDownloader] Retryable failure for $fileName (attempt=$attempt) error=$_lastError',
+      );
+
       if (_defaultMaxAttemptsPerFile > 0 && attempt >= _defaultMaxAttemptsPerFile) {
+        debugPrint(
+          '[MnnModelDownloader] Giving up on $fileName after $attempt attempts. lastError=$_lastError',
+        );
         return false;
       }
 
@@ -270,29 +405,58 @@ class MnnModelDownloader {
     required int existingBytes,
     required Function(int receivedTotal) onProgress,
   }) async {
+    _lastError = '';
     final client = _httpClient;
-    if (client == null) return _DownloadResult.retryable;
+    if (client == null) {
+      _lastError = 'http client is null';
+      return _DownloadResult.retryable;
+    }
 
-    final url = '${spec.baseUrl}$fileName';
-    debugPrint('[MnnModelDownloader] Downloading $fileName from $url');
+    http.StreamedResponse? response;
+    Object? lastException;
+    for (final url in _candidateUrlsForFile(fileName)) {
+      debugPrint('[MnnModelDownloader] Downloading $fileName from $url');
+      try {
+        final request = http.Request('GET', Uri.parse(url));
+        _applyDefaultHeaders(request, baseUri: Uri.parse(spec.baseUrl));
+        request.headers['Accept'] = 'application/octet-stream,*/*;q=0.8';
+        if (existingBytes > 0 && _supportsResume(fileName)) {
+          request.headers['Range'] = 'bytes=$existingBytes-';
+        }
 
-    http.StreamedResponse response;
-    try {
-      final request = http.Request('GET', Uri.parse(url));
-      request.headers['User-Agent'] = 'AirRead/1.0';
-      if (existingBytes > 0) {
-        request.headers['Range'] = 'bytes=$existingBytes-';
+        response = await client.send(request).timeout(
+          _requestTimeoutForFile(fileName),
+          onTimeout: () {
+            throw TimeoutException('Download timeout for $fileName');
+          },
+        );
+      } catch (e) {
+        if (_cancelled) return _DownloadResult.cancelled;
+        lastException = e;
+        _lastError = e.toString();
+        if (_isRetryableException(e)) return _DownloadResult.retryable;
+        return _DownloadResult.fatal;
       }
 
-      response = await client.send(request).timeout(
-        _defaultRequestTimeout,
-        onTimeout: () {
-          throw TimeoutException('Download timeout for $fileName');
-        },
-      );
-    } catch (e) {
       if (_cancelled) return _DownloadResult.cancelled;
-      if (_isRetryableException(e)) return _DownloadResult.retryable;
+
+      if (response.statusCode == 200 || response.statusCode == 206) {
+        break;
+      }
+
+      debugPrint(
+        '[MnnModelDownloader] Failed to download $fileName: ${response.statusCode}',
+      );
+      _lastError = 'http ${response.statusCode}';
+
+      if (_isRetryableStatusCode(response.statusCode)) return _DownloadResult.retryable;
+
+      final shouldTryNext = response.statusCode == 404 || response.statusCode == 403;
+      if (!shouldTryNext) return _DownloadResult.fatal;
+    }
+
+    if (response == null) {
+      _lastError = lastException?.toString() ?? 'no response';
       return _DownloadResult.fatal;
     }
 
@@ -300,6 +464,7 @@ class MnnModelDownloader {
 
     if (response.statusCode != 200 && response.statusCode != 206) {
       debugPrint('[MnnModelDownloader] Failed to download $fileName: ${response.statusCode}');
+      _lastError = 'http ${response.statusCode}';
       if (_isRetryableStatusCode(response.statusCode)) return _DownloadResult.retryable;
       return _DownloadResult.fatal;
     }
@@ -320,11 +485,18 @@ class MnnModelDownloader {
     }
 
     final totalBytes = _totalBytesFromResponse(response);
+    final expected = totalBytes ??
+        response.contentLength ??
+        spec.minExpectedBytesByFile[fileName] ??
+        1;
+    _expectedBytesByFile[fileName] = expected;
+    _updateOverallProgress();
     final sink = file.openWrite(mode: append ? FileMode.append : FileMode.write);
     int receivedBytes = 0;
 
     try {
-      await for (final chunk in response.stream) {
+      await for (final chunk
+          in response.stream.timeout(_streamInactivityTimeoutForFile(fileName))) {
         if (_cancelled) {
           await sink.close();
           return _DownloadResult.cancelled;
@@ -339,6 +511,7 @@ class MnnModelDownloader {
         await sink.close();
       } catch (_) {}
       if (_cancelled) return _DownloadResult.cancelled;
+      _lastError = e.toString();
       if (_isRetryableException(e)) return _DownloadResult.retryable;
       return _DownloadResult.retryable;
     }
@@ -346,6 +519,7 @@ class MnnModelDownloader {
     final finalSize = await _safeFileLength(savePath);
     if (totalBytes != null && totalBytes > 0 && finalSize != totalBytes) {
       debugPrint('[MnnModelDownloader] Incomplete file for $fileName: size=$finalSize total=$totalBytes');
+      _lastError = 'incomplete file size=$finalSize total=$totalBytes';
       return _DownloadResult.retryable;
     }
 
@@ -355,17 +529,59 @@ class MnnModelDownloader {
       try {
         await file.delete();
       } catch (_) {}
+      _lastError = 'downloaded content looks like html/pointer';
       return _DownloadResult.fatal;
     }
 
     final minBytes = _minExpectedBytes(fileName);
     if (minBytes != null && finalSize < minBytes) {
       debugPrint('[MnnModelDownloader] File too small for $fileName: size=$finalSize minExpected=$minBytes');
+      _lastError = 'file too small size=$finalSize minExpected=$minBytes';
       return _DownloadResult.retryable;
     }
 
     debugPrint('[MnnModelDownloader] $fileName downloaded successfully');
     return _DownloadResult.success;
+  }
+
+  Duration _requestTimeoutForFile(String fileName) {
+    final isLarge = fileName == spec.progressFileName || fileName.endsWith('.weight');
+    return isLarge ? _defaultRequestTimeout : _defaultSmallFileTimeout;
+  }
+
+  bool _supportsResume(String fileName) {
+    return fileName == spec.progressFileName || fileName.endsWith('.weight');
+  }
+
+  Duration _streamInactivityTimeoutForFile(String fileName) {
+    final isLarge = fileName == spec.progressFileName || fileName.endsWith('.weight');
+    return isLarge
+        ? _defaultStreamInactivityTimeoutLarge
+        : _defaultStreamInactivityTimeoutSmall;
+  }
+
+  List<String> _candidateUrlsForFile(String fileName) {
+    final baseUri = Uri.parse(spec.baseUrl);
+    final base = baseUri.resolve(fileName).toString();
+    final candidates = <String>[base];
+
+    void addIf(String url) {
+      if (!candidates.contains(url)) candidates.add(url);
+    }
+
+    for (final url in List<String>.from(candidates)) {
+      if (url.contains('/resolve/master/')) {
+        addIf(url.replaceFirst('/resolve/master/', '/resolve/main/'));
+      }
+      if (url.contains('://modelscope.cn/')) {
+        addIf(url.replaceFirst('://modelscope.cn/', '://www.modelscope.cn/'));
+      }
+      if (url.contains('://www.modelscope.cn/')) {
+        addIf(url.replaceFirst('://www.modelscope.cn/', '://modelscope.cn/'));
+      }
+    }
+
+    return candidates;
   }
 
   static bool _isRetryableStatusCode(int code) {
