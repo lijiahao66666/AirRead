@@ -107,9 +107,15 @@ class AiModelProvider extends ChangeNotifier {
     );
 
     final localModelRaw = prefs.getString(_kLocalModelId);
-    _localModelId = localModelRaw != null && localModelRaw.trim().isNotEmpty
+    final candidate = localModelRaw != null && localModelRaw.trim().isNotEmpty
         ? localModelRaw.trim()
         : ModelManager.qwen3_0_6b;
+    final supported =
+        ModelManager.localModels.any((spec) => spec.id == candidate);
+    _localModelId = supported ? candidate : ModelManager.qwen3_0_6b;
+    if (!supported) {
+      await prefs.setString(_kLocalModelId, _localModelId);
+    }
 
     _pointsBalance = prefs.getInt(_kPointsBalance) ?? 0;
 

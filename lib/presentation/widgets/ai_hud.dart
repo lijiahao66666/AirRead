@@ -2183,15 +2183,6 @@ class _TencentHunyuanSettingsPanelState
                                 .setLocalModelId(ModelManager.qwen3_0_6b)),
                             textColor: widget.textColor,
                           ),
-                          _chip(
-                            label: ModelManager.displayNameFor(
-                                ModelManager.hunyuan1_8b),
-                            active: aiModel.localModelId ==
-                                ModelManager.hunyuan1_8b,
-                            onTap: () => unawaited(aiModel
-                                .setLocalModelId(ModelManager.hunyuan1_8b)),
-                            textColor: widget.textColor,
-                          ),
                         ],
                       ),
                       const SizedBox(height: 10),

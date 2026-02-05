@@ -5,7 +5,6 @@ import 'mnn_model_spec.dart';
 /// 负责检查、下载和管理 MNN 模型
 class ModelManager {
   static const String qwen3_0_6b = 'qwen3-0.6b-mnn';
-  static const String hunyuan1_8b = 'hunyuan-1.8b-mnn';
 
   static const MnnModelSpec qwen3Spec = MnnModelSpec(
     id: qwen3_0_6b,
@@ -35,39 +34,7 @@ class ModelManager {
     },
   );
 
-  static const MnnModelSpec hunyuan1_8bSpec = MnnModelSpec(
-    id: hunyuan1_8b,
-    displayName: 'Hunyuan-1.8B',
-    sizeLabel: '1.0G',
-    estimatedTotalSizeBytes: 960 * 1024 * 1024,
-    baseUrl: 'https://modelscope.cn/models/lijiahaojj/HY1.8B-MNN/resolve/master/',
-    filesToDownload: [
-      'config.json',
-      'llm_config.json',
-      'llm.mnn',
-      'llm.mnn.json',
-      'llm.mnn.weight',
-      'tokenizer.txt',
-      'configuration.json',
-      'export_args.json',
-    ],
-    criticalFiles: [
-      'llm.mnn',
-      'llm.mnn.weight',
-      'tokenizer.txt',
-      'config.json',
-    ],
-    minExpectedBytesByFile: {
-      'llm.mnn.weight': 600 * 1024 * 1024,
-      'llm.mnn': 200 * 1024,
-      'tokenizer.txt': 256 * 1024,
-      'config.json': 200,
-      'llm_config.json': 200,
-      'llm.mnn.json': 200,
-    },
-  );
-
-  static const List<MnnModelSpec> localModels = [qwen3Spec, hunyuan1_8bSpec];
+  static const List<MnnModelSpec> localModels = [qwen3Spec];
 
   static MnnModelSpec specFor(String modelId) {
     return localModels.firstWhere((e) => e.id == modelId, orElse: () => qwen3Spec);
