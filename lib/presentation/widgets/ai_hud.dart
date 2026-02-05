@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -2713,6 +2714,8 @@ class _QaPanelState extends State<_QaPanel> {
   String? _lastErrorMessage;
   Timer? _qaToastTimer;
   String _qaToastText = '';
+  int? _actionTargetIndex;
+  Timer? _actionHideTimer;
 
   String get _historyKey => 'qa_history_${widget.bookId}';
 
@@ -2869,6 +2872,7 @@ class _QaPanelState extends State<_QaPanel> {
   void dispose() {
     _persistTimer?.cancel();
     _qaToastTimer?.cancel();
+    _actionHideTimer?.cancel();
     _inputCtl.dispose();
     _scrollCtl.dispose();
     if (_qaStreamListener != null) {
@@ -3099,6 +3103,7 @@ class _QaPanelState extends State<_QaPanel> {
     _qaStream ??= qaStream;
 
     setState(() {
+      _actionTargetIndex = null;
       _activeReplyIndex = null;
       _activeStreamReplyIndex = null;
       _messageState = _MessageState.thinking;
@@ -3191,6 +3196,55 @@ class _QaPanelState extends State<_QaPanel> {
     await Clipboard.setData(ClipboardData(text: t));
     if (!mounted) return;
     _showQaToast('已复制');
+    _hideBubbleActions();
+  }
+
+  void _revealBubbleActions(int index) {
+    if (index < 0 || index >= _messages.length) return;
+    final m = _messages[index];
+    if (m.role == _QaRole.divider) return;
+    if (_isWelcomeMessage(m)) return;
+    if (m.role == _QaRole.assistant && _messageState != _MessageState.idle) {
+      return;
+    }
+    _actionHideTimer?.cancel();
+    if (_actionTargetIndex != index) {
+      setState(() {
+        _actionTargetIndex = index;
+      });
+    }
+    if (index == _messages.length - 1) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (!_scrollCtl.hasClients) return;
+        _scrollCtl.animateTo(
+          _scrollCtl.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        );
+      });
+    }
+    _actionHideTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() {
+        _actionTargetIndex = null;
+      });
+    });
+  }
+
+  void _hideBubbleActions() {
+    _actionHideTimer?.cancel();
+    if (_actionTargetIndex == null) return;
+    setState(() {
+      _actionTargetIndex = null;
+    });
+  }
+
+  QAType _inferQaType(String question) {
+    final q = question.trim();
+    if (q == '总结当前章节' || q == '总结本章') return QAType.summary;
+    if (q == '提取本章要点' || q == '提取要点') return QAType.keyPoints;
+    return QAType.general;
   }
 
   String _buildHistoryTextBeforeLastUser({int maxTurns = 6}) {
@@ -3213,8 +3267,12 @@ class _QaPanelState extends State<_QaPanel> {
     final recent = items.sublist(start);
     final buffer = StringBuffer();
     for (final m in recent) {
+      final text = m.text.trim();
+      if (text.isEmpty) continue;
+      if (text.startsWith('错误:') || text.startsWith('错误：')) continue;
       final prefix = m.role == _QaRole.user ? '用户' : '助手';
-      buffer.writeln('$prefix: ${m.text.trim()}');
+      final clipped = text.length > 500 ? '${text.substring(0, 500)}…' : text;
+      buffer.writeln('$prefix: $clipped');
     }
     return buffer.toString().trim();
   }
@@ -3226,21 +3284,24 @@ class _QaPanelState extends State<_QaPanel> {
     if (lastUserIndex < 0) return;
     final question = _messages[lastUserIndex].text.trim();
     if (question.isEmpty) return;
+    final qaType = _inferQaType(question);
+    _hideBubbleActions();
 
-    final lastAssistantIndex =
-        _messages.lastIndexWhere((m) => m.role == _QaRole.assistant);
-    if (lastAssistantIndex < 0 || lastAssistantIndex != lastUserIndex + 1) return;
+    if (lastUserIndex + 1 >= _messages.length) return;
+    if (_messages[lastUserIndex + 1].role != _QaRole.assistant) return;
 
     setState(() {
-      _messages[lastAssistantIndex] = const _QaMsg(_QaRole.assistant, '');
+      _messages.removeAt(lastUserIndex + 1);
+      _activeReplyIndex = null;
+      _activeStreamReplyIndex = null;
       _messageState = _MessageState.thinking;
-      _activeReplyIndex = lastAssistantIndex;
     });
     _schedulePersist();
     _scrollToBottom();
 
-    final historyText = _buildHistoryTextBeforeLastUser();
-    _performQa(question, QAType.general, historyText);
+    final historyText =
+        qaType == QAType.general ? _buildHistoryTextBeforeLastUser() : '';
+    _performQa(question, qaType, historyText);
   }
 
   @override
@@ -3342,6 +3403,7 @@ class _QaPanelState extends State<_QaPanel> {
                   }
 
                   final bool isUser = m.role == _QaRole.user;
+                  final bool isSelected = _actionTargetIndex == i;
                   final Color bubbleBg = isUser
                       ? AppColors.techBlue.withOpacityCompat(0.18)
                       : widget.textColor.withOpacityCompat(0.06);
@@ -3352,55 +3414,130 @@ class _QaPanelState extends State<_QaPanel> {
                       i == _messages.length - 1 &&
                       i > 0 &&
                       _messages[i - 1].role == _QaRole.user;
-                  return Align(
-                    key: ValueKey('qa_msg_${i}_${m.text.hashCode}'),
-                    alignment: align,
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(vertical: 6),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                      constraints: const BoxConstraints(maxWidth: 340),
-                      decoration: BoxDecoration(
-                        color: bubbleBg,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: widget.textColor.withOpacityCompat(0.08),
-                          width: AppTokens.stroke,
+                  final bool showActions = isSelected &&
+                      !_isWelcomeMessage(m) &&
+                      m.role != _QaRole.divider &&
+                      (isUser ||
+                          (_messageState == _MessageState.idle &&
+                              (m.text.trim().isNotEmpty ||
+                                  m.reasoning.trim().isNotEmpty)));
+
+                  Widget squareIconButton({
+                    required IconData icon,
+                    required VoidCallback? onTap,
+                    double size = 24,
+                    double iconSize = 16,
+                  }) {
+                    final enabled = onTap != null;
+                    return Material(
+                      color: Colors.transparent,
+                      child: InkResponse(
+                        onTap: onTap,
+                        radius: 18,
+                        child: SizedBox(
+                          width: size,
+                          height: size,
+                          child: Center(
+                            child: Icon(
+                              icon,
+                              size: iconSize,
+                              color: widget.textColor.withOpacityCompat(
+                                  enabled ? 0.55 : 0.25),
+                            ),
+                          ),
                         ),
                       ),
-                      child: isUser
-                          ? Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  m.text,
-                                  style: TextStyle(
-                                    color: widget.textColor,
-                                    height: 1.35,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                SizedBox(
-                                  height: 24,
-                                  child: IconButton(
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(
-                                        minWidth: 24, minHeight: 24),
-                                    splashRadius: 18,
-                                    iconSize: 18,
-                                    color:
-                                        widget.textColor.withOpacityCompat(0.55),
-                                    onPressed: () =>
-                                        _copyToClipboardInQaPanel(m.text),
-                                    icon: const Icon(Icons.copy_rounded),
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
+                    );
+                  }
+                  return LayoutBuilder(
+                    builder: (context, constraints) {
+                      final double listWidth = constraints.maxWidth;
+                      final double maxBubbleWidth = math.min(340.0, listWidth);
+                      final bool canBeFullWidth = listWidth <= 340.5;
+                      final TextStyle bubbleTextStyle = TextStyle(
+                        color: widget.textColor,
+                        height: 1.35,
+                        fontSize: 15,
+                      );
+                      final String measureText = isUser
+                          ? m.text
+                          : (m.text.isEmpty &&
+                                  _activeReplyIndex == i &&
+                                  m.reasoning.trim().isEmpty
+                              ? '...'
+                              : (m.text.isNotEmpty ? m.text : m.reasoning));
+                      bool wantsFullWidth() {
+                        final tp = TextPainter(
+                          text: TextSpan(text: measureText, style: bubbleTextStyle),
+                          textDirection: TextDirection.ltr,
+                          maxLines: 1,
+                        )..layout(maxWidth: maxBubbleWidth);
+                        if (measureText.contains('\n')) return true;
+                        if (tp.didExceedMaxLines) return true;
+                        return tp.width >= maxBubbleWidth - 6;
+                      }
+
+                      final bool placeActionsBelow =
+                          showActions && canBeFullWidth && wantsFullWidth();
+                      final double buttonGroupWidth = canRefresh ? 52 : 24;
+                      final double gap = 6;
+                      final double bubbleWidthForSide = math.max(
+                        120,
+                        math.min(
+                          maxBubbleWidth,
+                          listWidth -
+                              (showActions && !placeActionsBelow
+                                  ? (buttonGroupWidth + gap)
+                                  : 0),
+                        ),
+                      );
+
+                      final VoidCallback? copyTap =
+                          m.text.trim().isEmpty ? null : () => _copyToClipboardInQaPanel(m.text);
+                      final actionButtons = Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        children: [
+                          squareIconButton(
+                            icon: Icons.content_copy_rounded,
+                            onTap: copyTap,
+                          ),
+                          if (canRefresh) ...[
+                            const SizedBox(width: 4),
+                            squareIconButton(
+                              icon: Icons.refresh_rounded,
+                              iconSize: 18,
+                              onTap: _regenerateLastAnswer,
+                            ),
+                          ],
+                        ],
+                      );
+
+                      final bubble = GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _revealBubbleActions(i),
+                        child: Container(
+                          margin: EdgeInsets.only(
+                            top: 6,
+                            bottom: placeActionsBelow ? 2 : 6,
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          constraints:
+                              BoxConstraints(maxWidth: bubbleWidthForSide),
+                          decoration: BoxDecoration(
+                            color: bubbleBg,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: widget.textColor.withOpacityCompat(0.08),
+                              width: AppTokens.stroke,
+                            ),
+                          ),
+                          child: isUser
+                              ? Text(m.text, style: bubbleTextStyle)
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                                   if (m.reasoning.trim().isNotEmpty) ...[
                                     InkWell(
                                       onTap: () {
@@ -3476,54 +3613,49 @@ class _QaPanelState extends State<_QaPanel> {
                                             m.reasoning.trim().isEmpty
                                         ? '...'
                                         : m.text,
-                                    style: TextStyle(
-                                      color: widget.textColor,
-                                      height: 1.35,
-                                      fontSize: 15,
-                                    ),
+                                    style: bubbleTextStyle,
                                   ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    SizedBox(
-                                      height: 24,
-                                      child: IconButton(
-                                        padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(
-                                            minWidth: 24, minHeight: 24),
-                                        splashRadius: 18,
-                                        iconSize: 18,
-                                        color: widget.textColor
-                                            .withOpacityCompat(0.55),
-                                        onPressed: () =>
-                                            _copyToClipboardInQaPanel(m.text),
-                                        icon: const Icon(Icons.copy_rounded),
-                                      ),
-                                    ),
-                                    if (canRefresh) ...[
-                                      const SizedBox(width: 10),
-                                      SizedBox(
-                                        height: 24,
-                                        child: IconButton(
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(
-                                              minWidth: 24, minHeight: 24),
-                                          splashRadius: 18,
-                                          iconSize: 20,
-                                          color: widget.textColor
-                                              .withOpacityCompat(0.55),
-                                          onPressed: _regenerateLastAnswer,
-                                          icon: const Icon(Icons.refresh_rounded),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
                                 ],
                               ),
-                    ),
+                        ),
                       );
+
+                      Widget child;
+                      if (!showActions) {
+                        child = bubble;
+                      } else if (placeActionsBelow) {
+                        child = Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            bubble,
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: actionButtons,
+                            ),
+                          ],
+                        );
+                      } else {
+                        final side = Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: actionButtons,
+                        );
+                        child = Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: isUser
+                              ? [side, const SizedBox(width: 6), bubble]
+                              : [bubble, const SizedBox(width: 6), side],
+                        );
+                      }
+
+                      return Align(
+                        key: ValueKey('qa_msg_${i}_${m.text.hashCode}'),
+                        alignment: align,
+                        child: child,
+                      );
+                    },
+                  );
                     },
                   ),
                 ),
