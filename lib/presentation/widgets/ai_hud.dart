@@ -154,8 +154,8 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           final bool isQa = _route == AiHudRoute.qa;
 
           // QA keeps the existing fixed tier: ~72% of screen height with clamp.
-          final qaMinHeight = availableH < 420.0 ? availableH : 420.0;
-          final qaHeight = (availableH * 0.72).clamp(qaMinHeight, availableH);
+          final qaMinHeight = availableH;
+          final qaHeight = availableH;
 
           // Non-QA adapts to content, but should not grow beyond this cap.
           final nonQaMinHeight = availableH < 320.0 ? availableH : 320.0;
@@ -196,7 +196,8 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
             surfaceColor: widget.bgColor,
             opacity: AppTokens.glassOpacityDense,
             child: SafeArea(
-              top: false,
+              top: isQa,
+              bottom: true,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
                 child: Column(
@@ -253,14 +254,17 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
       AiHudRoute.tencentSettings => 'AI设置',
     };
 
+    final bool isQa = _route == AiHudRoute.qa;
     return Row(
       children: [
         if (_route != AiHudRoute.main)
           IconButton(
-            icon: Icon(Icons.arrow_back,
-                color: widget.textColor.withOpacityCompat(0.8)),
-            onPressed: _pop,
-            tooltip: '返回',
+            icon: Icon(
+              isQa ? Icons.keyboard_arrow_down_rounded : Icons.arrow_back,
+              color: widget.textColor.withOpacityCompat(0.8),
+            ),
+            onPressed: isQa ? () => Navigator.of(context).pop() : _pop,
+            tooltip: isQa ? '关闭' : '返回',
           )
         else
           const Icon(Icons.auto_awesome, color: AppColors.techBlue),
@@ -3825,7 +3829,14 @@ class _QaPanelState extends State<_QaPanel> {
     return Padding(
       padding:
           EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: panelContent,
+      child: GestureDetector(
+        onTap: () {
+          FocusScope.of(context).unfocus();
+          _hideBubbleActions();
+        },
+        behavior: HitTestBehavior.translucent,
+        child: panelContent,
+      ),
     );
   }
 }
