@@ -12,6 +12,7 @@
 #include <atomic>
 #include <vector>
 #include <utility>
+#include <cctype>
 #include <TargetConditionals.h>
 #import "LLMInferenceEngineWrapper.h"
 
@@ -20,6 +21,34 @@
 using namespace MNN::Transformer;
 
 using ChatMessage = std::pair<std::string, std::string>;
+
+#if __cplusplus
+namespace {
+static std::string arTrimAscii(const std::string& s) {
+    if (s.empty()) return s;
+    const char* ws = " \n\r\t";
+    const auto start = s.find_first_not_of(ws);
+    if (start == std::string::npos) return "";
+    const auto end = s.find_last_not_of(ws);
+    return s.substr(start, end - start + 1);
+}
+
+static bool arLooksMeaningfulUtf8(const std::string& s) {
+    const std::string t = arTrimAscii(s);
+    if (t.empty()) return false;
+    if (t.rfind("Error:", 0) == 0) return false;
+    if (t.rfind("[错误]", 0) == 0) return false;
+    if (t.rfind("错误:", 0) == 0) return false;
+    if (t.rfind("错误：", 0) == 0) return false;
+    for (size_t i = 0; i < t.size(); i++) {
+        const unsigned char c = (unsigned char)t[i];
+        if (std::isalnum(c)) return true;
+        if (c >= 0xE4 && c <= 0xE9) return true;
+    }
+    return false;
+}
+} // namespace
+#endif
 
 #if DEBUG
 #define ARLog(...) NSLog(__VA_ARGS__)
@@ -383,7 +412,7 @@ private:
                 chat.emplace_back(ChatMessage("user", userInput));
                 blockSelf->_llm->response(chat, &os, nullptr, (int)maxNewTokensForRun);
                 
-                if (accumulatedOutput.size() <= 4) {
+                if (!arLooksMeaningfulUtf8(accumulatedOutput)) {
                     std::string fullPrompt = userInput;
                     bool hasTemplate =
                         (fullPrompt.find("<|im_start|>") != std::string::npos) ||

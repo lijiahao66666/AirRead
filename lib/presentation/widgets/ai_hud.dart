@@ -3167,6 +3167,88 @@ class _QaPanelState extends State<_QaPanel> {
     });
   }
 
+  void _showTopInfo(String message) {
+    final t = message.trim();
+    if (t.isEmpty) return;
+    if (widget.onShowTopMessage != null) {
+      widget.onShowTopMessage!(t, isError: false);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
+  }
+
+  Future<void> _copyToClipboard(String text) async {
+    final t = text.trim();
+    if (t.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: t));
+    if (!mounted) return;
+    _showTopInfo('已复制');
+  }
+
+  void _showCopyActions(_QaMsg msg) {
+    final answer = msg.text.trim();
+    final reasoning = msg.reasoning.trim();
+    if (reasoning.isEmpty) {
+      _copyToClipboard(answer);
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        final dividerColor = widget.isDark
+            ? Colors.white.withOpacityCompat(0.06)
+            : Colors.black.withOpacityCompat(0.04);
+        return SafeArea(
+          child: Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).bottomSheetTheme.backgroundColor ??
+                  Theme.of(context).cardColor,
+              border: Border(
+                top: BorderSide(
+                  color: dividerColor,
+                  width: AppTokens.stroke,
+                ),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  title: const Text('复制回答'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _copyToClipboard(answer);
+                  },
+                ),
+                ListTile(
+                  title: const Text('复制思考'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _copyToClipboard(reasoning);
+                  },
+                ),
+                ListTile(
+                  title: const Text('复制全部'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    final all = StringBuffer()
+                      ..writeln(answer)
+                      ..writeln()
+                      ..writeln('深度思考：')
+                      ..writeln(reasoning);
+                    _copyToClipboard(all.toString());
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final Color cardBg =
@@ -3272,114 +3354,119 @@ class _QaPanelState extends State<_QaPanel> {
                   return Align(
                     key: ValueKey('qa_msg_${i}_${m.text.hashCode}'),
                     alignment: align,
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(vertical: 6),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                      constraints: const BoxConstraints(maxWidth: 340),
-                      decoration: BoxDecoration(
-                        color: bubbleBg,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: widget.textColor.withOpacityCompat(0.08),
-                          width: AppTokens.stroke,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onLongPress: () => _showCopyActions(m),
+                      onSecondaryTap: () => _showCopyActions(m),
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        constraints: const BoxConstraints(maxWidth: 340),
+                        decoration: BoxDecoration(
+                          color: bubbleBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: widget.textColor.withOpacityCompat(0.08),
+                            width: AppTokens.stroke,
+                          ),
                         ),
-                      ),
-                      child: isUser
-                          ? Text(
-                              m.text,
-                              style: TextStyle(
-                                color: widget.textColor,
-                                height: 1.35,
-                                fontSize: 15,
-                              ),
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (m.reasoning.trim().isNotEmpty) ...[
-                                  InkWell(
-                                    onTap: () {
-                                      setState(() {
-                                        final cur = _messages[i];
-                                        _messages[i] = _QaMsg(
-                                          cur.role,
-                                          cur.text,
-                                          reasoning: cur.reasoning,
-                                          reasoningCollapsed:
-                                              !cur.reasoningCollapsed,
-                                        );
-                                      });
-                                      _schedulePersist();
-                                    },
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          '深度思考',
-                                          style: TextStyle(
-                                            color: widget.textColor
-                                                .withOpacityCompat(0.72),
-                                            fontSize: 15,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Icon(
-                                          m.reasoningCollapsed
-                                              ? Icons.expand_more
-                                              : Icons.expand_less,
-                                          size: 18,
-                                          color: widget.textColor
-                                              .withOpacityCompat(0.55),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (!m.reasoningCollapsed) ...[
-                                    const SizedBox(height: 8),
-                                    Container(
-                                      width: double.infinity,
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 10, vertical: 10),
-                                      decoration: BoxDecoration(
-                                        color: widget.textColor.withOpacityCompat(
-                                            widget.isDark ? 0.06 : 0.035),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: ConstrainedBox(
-                                        constraints: const BoxConstraints(
-                                            maxHeight: 140),
-                                        child: SingleChildScrollView(
-                                          reverse: true,
-                                          child: Text(
-                                            m.reasoning.trim(),
+                        child: isUser
+                            ? Text(
+                                m.text,
+                                style: TextStyle(
+                                  color: widget.textColor,
+                                  height: 1.35,
+                                  fontSize: 15,
+                                ),
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (m.reasoning.trim().isNotEmpty) ...[
+                                    InkWell(
+                                      onTap: () {
+                                        setState(() {
+                                          final cur = _messages[i];
+                                          _messages[i] = _QaMsg(
+                                            cur.role,
+                                            cur.text,
+                                            reasoning: cur.reasoning,
+                                            reasoningCollapsed:
+                                                !cur.reasoningCollapsed,
+                                          );
+                                        });
+                                        _schedulePersist();
+                                      },
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            '深度思考',
                                             style: TextStyle(
                                               color: widget.textColor
-                                                  .withOpacityCompat(0.78),
-                                              height: 1.35,
-                                              fontSize: 13,
+                                                  .withOpacityCompat(0.72),
+                                              fontSize: 15,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Icon(
+                                            m.reasoningCollapsed
+                                                ? Icons.expand_more
+                                                : Icons.expand_less,
+                                            size: 18,
+                                            color: widget.textColor
+                                                .withOpacityCompat(0.55),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (!m.reasoningCollapsed) ...[
+                                      const SizedBox(height: 8),
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: widget.textColor.withOpacityCompat(
+                                              widget.isDark ? 0.06 : 0.035),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: ConstrainedBox(
+                                          constraints: const BoxConstraints(
+                                              maxHeight: 140),
+                                          child: SingleChildScrollView(
+                                            reverse: true,
+                                            child: Text(
+                                              m.reasoning.trim(),
+                                              style: TextStyle(
+                                                color: widget.textColor
+                                                    .withOpacityCompat(0.78),
+                                                height: 1.35,
+                                                fontSize: 13,
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 10),
+                                      const SizedBox(height: 10),
+                                    ],
                                   ],
-                                ],
-                                Text(
-                                  m.text.isEmpty &&
-                                          _activeReplyIndex == i &&
-                                          m.reasoning.trim().isEmpty
-                                      ? '...'
-                                      : m.text,
-                                  style: TextStyle(
-                                    color: widget.textColor,
-                                    height: 1.35,
-                                    fontSize: 15,
+                                  Text(
+                                    m.text.isEmpty &&
+                                            _activeReplyIndex == i &&
+                                            m.reasoning.trim().isEmpty
+                                        ? '...'
+                                        : m.text,
+                                    style: TextStyle(
+                                      color: widget.textColor,
+                                      height: 1.35,
+                                      fontSize: 15,
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
+                                ],
+                              ),
+                      ),
                     ),
                   );
                 },
