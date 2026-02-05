@@ -119,16 +119,7 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
     
     std::string response;
     std::ostringstream oss;
-    
-    // 构建提示词模板 (ChatML 格式，适用于 MiniCPM4)
-    std::string fullPrompt = promptStr;
-    if (fullPrompt.find("<|im_start|>") == std::string::npos && 
-        fullPrompt.find("<user>") == std::string::npos &&
-        fullPrompt.find("<chat_user>") == std::string::npos) {
-        
-        // 注意：tokenizer 通常会自动添加 BOS (<s>)，所以这里不重复添加
-        fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
-    }
+    std::string userContent = promptStr;
     
     {
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -160,17 +151,32 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
             
             g_llm->set_config(configStr);
             
-            // 使用 response + stringstream 以确保正确解码多字节字符
-            std::vector<int> input_ids = g_llm->tokenizer_encode(fullPrompt);
-            
-            if (input_ids.empty()) {
-                LOGE("Input IDs are empty!");
-                response = "[错误] Tokenization 失败";
-            } else {
-                std::stringstream ss;
-                // 使用 MNN 内置的 response 方法，它能正确处理流式输出 and 多字节字符
-                g_llm->response(input_ids, &ss, nullptr, maxNewTokens);
-                response = ss.str();
+            std::stringstream ss;
+            MNN::Transformer::ChatMessages chat;
+            chat.emplace_back(MNN::Transformer::ChatMessage(
+                "system",
+                "You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user."));
+            chat.emplace_back(MNN::Transformer::ChatMessage("user", userContent));
+            g_llm->response(chat, &ss, nullptr, maxNewTokens);
+            response = ss.str();
+
+            if (response.size() <= 2) {
+                std::string fullPrompt = userContent;
+                bool hasTemplate =
+                    (fullPrompt.find("<|im_start|>") != std::string::npos) ||
+                    (fullPrompt.find("<user>") != std::string::npos) ||
+                    (fullPrompt.find("<chat_user>") != std::string::npos);
+                if (!hasTemplate) {
+                    fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
+                }
+                std::vector<int> input_ids = g_llm->tokenizer_encode(fullPrompt);
+                if (!input_ids.empty()) {
+                    std::stringstream ss2;
+                    g_llm->reset();
+                    g_llm->set_config(configStr);
+                    g_llm->response(input_ids, &ss2, nullptr, maxNewTokens);
+                    response = ss2.str();
+                }
             }
             
             if (response.empty()) {
@@ -273,16 +279,7 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz
                                                         jobject callback) {
     const char *promptStr = env->GetStringUTFChars(prompt, nullptr);
     LOGI("nativeChatStream called with prompt: %s", promptStr);
-    
-    // 构建提示词模板 (ChatML 格式)
-    std::string fullPrompt = promptStr;
-    if (fullPrompt.find("<|im_start|>") == std::string::npos && 
-        fullPrompt.find("<user>") == std::string::npos &&
-        fullPrompt.find("<chat_user>") == std::string::npos) {
-        
-        // 注意：tokenizer 通常会自动添加 BOS (<s>)，所以这里不重复添加
-        fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
-    }
+    std::string userContent = promptStr;
     
     // 创建回调包装器
     StreamCallback streamCb(env, callback);
@@ -325,7 +322,12 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz
             std::ostream customOs(&customBuf);
             
             try {
-                g_llm->response(fullPrompt, &customOs, nullptr, maxNewTokens);
+                MNN::Transformer::ChatMessages chat;
+                chat.emplace_back(MNN::Transformer::ChatMessage(
+                    "system",
+                    "You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user."));
+                chat.emplace_back(MNN::Transformer::ChatMessage("user", userContent));
+                g_llm->response(chat, &customOs, nullptr, maxNewTokens);
             } catch (const std::runtime_error& e) {
                 if (std::string(e.what()) == "Generation cancelled by user") {
                     LOGI("Generation cancelled by user (caught in response wrapper)");

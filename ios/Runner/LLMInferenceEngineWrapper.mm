@@ -374,71 +374,33 @@ private:
                 // 将输入转换为 std::string
                 std::string userInput = [input UTF8String];
                 
-                // Apply ChatML prompt template if needed (Matching Android implementation)
-                // 检查 Dart 层是否已经应用了模板
-                std::string fullPrompt = userInput;
-                
-                // 更精确的检查，防止重复添加模板
-                // Dart 层的 buildLocalQaPrompt 已经生成了完整的 ChatML 格式：
-                // <|im_start|>system...<|im_end|>\n<|im_start|>user...<|im_end|>\n<|im_start|>assistant\n
-                
-                bool hasTemplate =
-                    (fullPrompt.find("<|im_start|>") != std::string::npos) ||
-                    (fullPrompt.find("<user>") != std::string::npos) ||
-                    (fullPrompt.find("<chat_user>") != std::string::npos);
-                
-                if (!hasTemplate) {
-                    // 如果没有模板标记，说明是纯文本输入，应用默认模板
-                    // Note: tokenizer usually adds BOS (<s>) automatically
-                    fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
-                }
-                
-                // Debug information for prompt
-                ARLog(@"[LLM] Input prompt (first 100 chars):\n%.100s...", fullPrompt.c_str());
-                
                 // Start inference
                 ARLog(@"[LLM] Starting inference...");
+                std::vector<ChatMessage> chat;
+                chat.emplace_back(ChatMessage(
+                    "system",
+                    "You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user."));
+                chat.emplace_back(ChatMessage("user", userInput));
+                blockSelf->_llm->response(chat, &os, nullptr, (int)maxNewTokensForRun);
                 
-                std::vector<int> inputIds = blockSelf->_llm->tokenizer_encode(fullPrompt);
-                if (inputIds.empty()) {
-                    if (handler) {
-                        dispatch_async(dispatch_get_main_queue(), ^{
-                            handler(@"Error: Tokenization failed (empty input ids)");
-                            handler(@"<eop>");
-                        });
-                    }
-                    blockSelf->_isProcessing = false;
-                    return;
-                }
-
-                blockSelf->_llm->response(inputIds, &os, nullptr, (int)maxNewTokensForRun);
-
                 if (accumulatedOutput.size() <= 4) {
-                    std::string plain = userInput;
-                    bool looksChatML = plain.find("<|im_start|>") != std::string::npos;
-                    if (looksChatML) {
-                        std::string extractedUser = plain;
-                        {
-                            std::string marker = "<|im_start|>user\n";
-                            auto u0 = plain.find(marker);
-                            if (u0 != std::string::npos) {
-                                u0 += marker.size();
-                                auto u1 = plain.find("<|im_end|>", u0);
-                                if (u1 != std::string::npos && u1 >= u0) {
-                                    extractedUser = plain.substr(u0, u1 - u0);
-                                } else {
-                                    extractedUser = plain.substr(u0);
-                                }
-                            }
-                        }
-
-                        std::vector<ChatMessage> chat;
-                        chat.emplace_back(ChatMessage("system", "You are a helpful assistant."));
-                        chat.emplace_back(ChatMessage("user", extractedUser));
-
+                    std::string fullPrompt = userInput;
+                    bool hasTemplate =
+                        (fullPrompt.find("<|im_start|>") != std::string::npos) ||
+                        (fullPrompt.find("<user>") != std::string::npos) ||
+                        (fullPrompt.find("<chat_user>") != std::string::npos);
+                    
+                    if (!hasTemplate) {
+                        fullPrompt = "<|im_start|>user\n" + fullPrompt + "<|im_end|>\n<|im_start|>assistant\n";
+                    }
+                    
+                    ARLog(@"[LLM] Fallback prompt (first 100 chars):\n%.100s...", fullPrompt.c_str());
+                    
+                    std::vector<int> inputIds = blockSelf->_llm->tokenizer_encode(fullPrompt);
+                    if (!inputIds.empty()) {
                         accumulatedOutput.clear();
                         blockSelf->_llm->reset();
-                        blockSelf->_llm->response(chat, &os, nullptr, (int)maxNewTokens);
+                        blockSelf->_llm->response(inputIds, &os, nullptr, (int)maxNewTokensForRun);
                     }
                 }
                 

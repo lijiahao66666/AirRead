@@ -2809,8 +2809,12 @@ class _QaPanelState extends State<_QaPanel> {
     final recent = items.sublist(start);
     final buffer = StringBuffer();
     for (final m in recent) {
+      final text = m.text.trim();
+      if (text.isEmpty) continue;
+      if (text.startsWith('错误:') || text.startsWith('错误：')) continue;
       final prefix = m.role == _QaRole.user ? '用户' : '助手';
-      buffer.writeln('$prefix: ${m.text.trim()}');
+      final clipped = text.length > 500 ? '${text.substring(0, 500)}…' : text;
+      buffer.writeln('$prefix: $clipped');
     }
     return buffer.toString().trim();
   }
