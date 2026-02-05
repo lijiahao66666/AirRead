@@ -2711,6 +2711,8 @@ class _QaPanelState extends State<_QaPanel> {
   int? _activeStreamId;
   int? _activeStreamReplyIndex;
   String? _lastErrorMessage;
+  Timer? _qaToastTimer;
+  String _qaToastText = '';
 
   String get _historyKey => 'qa_history_${widget.bookId}';
 
@@ -2866,6 +2868,7 @@ class _QaPanelState extends State<_QaPanel> {
   @override
   void dispose() {
     _persistTimer?.cancel();
+    _qaToastTimer?.cancel();
     _inputCtl.dispose();
     _scrollCtl.dispose();
     if (_qaStreamListener != null) {
@@ -3167,86 +3170,77 @@ class _QaPanelState extends State<_QaPanel> {
     });
   }
 
-  void _showTopInfo(String message) {
+  void _showQaToast(String message) {
     final t = message.trim();
     if (t.isEmpty) return;
-    if (widget.onShowTopMessage != null) {
-      widget.onShowTopMessage!(t, isError: false);
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
+    _qaToastTimer?.cancel();
+    setState(() {
+      _qaToastText = t;
+    });
+    _qaToastTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      setState(() {
+        _qaToastText = '';
+      });
+    });
   }
 
-  Future<void> _copyToClipboard(String text) async {
+  Future<void> _copyToClipboardInQaPanel(String text) async {
     final t = text.trim();
     if (t.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: t));
     if (!mounted) return;
-    _showTopInfo('已复制');
+    _showQaToast('已复制');
   }
 
-  void _showCopyActions(_QaMsg msg) {
-    final answer = msg.text.trim();
-    final reasoning = msg.reasoning.trim();
-    if (reasoning.isEmpty) {
-      _copyToClipboard(answer);
-      return;
-    }
+  String _buildHistoryTextBeforeLastUser({int maxTurns = 6}) {
+    final int lastDividerIndex =
+        _messages.lastIndexWhere((m) => m.role == _QaRole.divider);
+    final lastUserIndex =
+        _messages.lastIndexWhere((m) => m.role == _QaRole.user);
+    if (lastUserIndex < 0) return '';
 
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        final dividerColor = widget.isDark
-            ? Colors.white.withOpacityCompat(0.06)
-            : Colors.black.withOpacityCompat(0.04);
-        return SafeArea(
-          child: Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).bottomSheetTheme.backgroundColor ??
-                  Theme.of(context).cardColor,
-              border: Border(
-                top: BorderSide(
-                  color: dividerColor,
-                  width: AppTokens.stroke,
-                ),
-              ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  title: const Text('复制回答'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _copyToClipboard(answer);
-                  },
-                ),
-                ListTile(
-                  title: const Text('复制思考'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _copyToClipboard(reasoning);
-                  },
-                ),
-                ListTile(
-                  title: const Text('复制全部'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    final all = StringBuffer()
-                      ..writeln(answer)
-                      ..writeln()
-                      ..writeln('深度思考：')
-                      ..writeln(reasoning);
-                    _copyToClipboard(all.toString());
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+    final items = _messages
+        .asMap()
+        .entries
+        .where((e) => e.key > lastDividerIndex && e.key < lastUserIndex)
+        .map((e) => e.value)
+        .where((m) => m.text.trim().isNotEmpty && !_isWelcomeMessage(m))
+        .toList();
+    if (items.isEmpty) return '';
+
+    final start = (items.length - maxTurns).clamp(0, items.length);
+    final recent = items.sublist(start);
+    final buffer = StringBuffer();
+    for (final m in recent) {
+      final prefix = m.role == _QaRole.user ? '用户' : '助手';
+      buffer.writeln('$prefix: ${m.text.trim()}');
+    }
+    return buffer.toString().trim();
+  }
+
+  void _regenerateLastAnswer() {
+    if (_messageState != _MessageState.idle) return;
+    final lastUserIndex =
+        _messages.lastIndexWhere((m) => m.role == _QaRole.user);
+    if (lastUserIndex < 0) return;
+    final question = _messages[lastUserIndex].text.trim();
+    if (question.isEmpty) return;
+
+    final lastAssistantIndex =
+        _messages.lastIndexWhere((m) => m.role == _QaRole.assistant);
+    if (lastAssistantIndex < 0 || lastAssistantIndex != lastUserIndex + 1) return;
+
+    setState(() {
+      _messages[lastAssistantIndex] = const _QaMsg(_QaRole.assistant, '');
+      _messageState = _MessageState.thinking;
+      _activeReplyIndex = lastAssistantIndex;
+    });
+    _schedulePersist();
+    _scrollToBottom();
+
+    final historyText = _buildHistoryTextBeforeLastUser();
+    _performQa(question, QAType.general, historyText);
   }
 
   @override
@@ -3308,16 +3302,18 @@ class _QaPanelState extends State<_QaPanel> {
               width: AppTokens.stroke),
         ),
         padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            Expanded(
-              child: ListView.builder(
-                key: const PageStorageKey('ai_hud_qa_list'),
-                controller: _scrollCtl,
-                itemCount: _messages.length,
-                itemBuilder: (context, i) {
-                  final m = _messages[i];
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ListView.builder(
+                    key: const PageStorageKey('ai_hud_qa_list'),
+                    controller: _scrollCtl,
+                    itemCount: _messages.length,
+                    itemBuilder: (context, i) {
+                      final m = _messages[i];
 
                   if (m.role == _QaRole.divider) {
                     return Padding(
@@ -3351,38 +3347,60 @@ class _QaPanelState extends State<_QaPanel> {
                       : widget.textColor.withOpacityCompat(0.06);
                   final Alignment align =
                       isUser ? Alignment.centerRight : Alignment.centerLeft;
+                  final bool canRefresh = !isUser &&
+                      _messageState == _MessageState.idle &&
+                      i == _messages.length - 1 &&
+                      i > 0 &&
+                      _messages[i - 1].role == _QaRole.user;
                   return Align(
                     key: ValueKey('qa_msg_${i}_${m.text.hashCode}'),
                     alignment: align,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onLongPress: () => _showCopyActions(m),
-                      onSecondaryTap: () => _showCopyActions(m),
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 6),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                        constraints: const BoxConstraints(maxWidth: 340),
-                        decoration: BoxDecoration(
-                          color: bubbleBg,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: widget.textColor.withOpacityCompat(0.08),
-                            width: AppTokens.stroke,
-                          ),
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      constraints: const BoxConstraints(maxWidth: 340),
+                      decoration: BoxDecoration(
+                        color: bubbleBg,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: widget.textColor.withOpacityCompat(0.08),
+                          width: AppTokens.stroke,
                         ),
-                        child: isUser
-                            ? Text(
-                                m.text,
-                                style: TextStyle(
-                                  color: widget.textColor,
-                                  height: 1.35,
-                                  fontSize: 15,
+                      ),
+                      child: isUser
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  m.text,
+                                  style: TextStyle(
+                                    color: widget.textColor,
+                                    height: 1.35,
+                                    fontSize: 15,
+                                  ),
                                 ),
-                              )
-                            : Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
+                                const SizedBox(height: 6),
+                                SizedBox(
+                                  height: 24,
+                                  child: IconButton(
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                        minWidth: 24, minHeight: 24),
+                                    splashRadius: 18,
+                                    iconSize: 18,
+                                    color:
+                                        widget.textColor.withOpacityCompat(0.55),
+                                    onPressed: () =>
+                                        _copyToClipboardInQaPanel(m.text),
+                                    icon: const Icon(Icons.copy_rounded),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                   if (m.reasoning.trim().isNotEmpty) ...[
                                     InkWell(
                                       onTap: () {
@@ -3464,14 +3482,51 @@ class _QaPanelState extends State<_QaPanel> {
                                       fontSize: 15,
                                     ),
                                   ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    SizedBox(
+                                      height: 24,
+                                      child: IconButton(
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(
+                                            minWidth: 24, minHeight: 24),
+                                        splashRadius: 18,
+                                        iconSize: 18,
+                                        color: widget.textColor
+                                            .withOpacityCompat(0.55),
+                                        onPressed: () =>
+                                            _copyToClipboardInQaPanel(m.text),
+                                        icon: const Icon(Icons.copy_rounded),
+                                      ),
+                                    ),
+                                    if (canRefresh) ...[
+                                      const SizedBox(width: 10),
+                                      SizedBox(
+                                        height: 24,
+                                        child: IconButton(
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(
+                                              minWidth: 24, minHeight: 24),
+                                          splashRadius: 18,
+                                          iconSize: 20,
+                                          color: widget.textColor
+                                              .withOpacityCompat(0.55),
+                                          onPressed: _regenerateLastAnswer,
+                                          icon: const Icon(Icons.refresh_rounded),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
                                 ],
                               ),
-                      ),
                     ),
-                  );
-                },
-              ),
-            ),
+                      );
+                    },
+                  ),
+                ),
             if (_messageState == _MessageState.thinking &&
                 (_activeReplyIndex == null ||
                     (_activeReplyIndex! >= 0 &&
@@ -3595,6 +3650,38 @@ class _QaPanelState extends State<_QaPanel> {
                 ),
               ],
             ),
+          ],
+            ),
+            if (_qaToastText.trim().isNotEmpty)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 74,
+                child: IgnorePointer(
+                  child: Center(
+                    child: AnimatedOpacity(
+                      opacity: _qaToastText.trim().isNotEmpty ? 1 : 0,
+                      duration: const Duration(milliseconds: 160),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacityCompat(0.72),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          _qaToastText,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            height: 1.1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
