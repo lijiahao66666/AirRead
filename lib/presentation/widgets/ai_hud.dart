@@ -2170,22 +2170,6 @@ class _TencentHunyuanSettingsPanelState
                     // 本地模型提示（与本地按钮左对齐）
                     if (aiModel.source == AiModelSource.local) ...[
                       const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 10,
-                        children: [
-                          _chip(
-                            label: ModelManager.displayNameFor(
-                                ModelManager.qwen3_0_6b),
-                            active:
-                                aiModel.localModelId == ModelManager.qwen3_0_6b,
-                            onTap: () => unawaited(aiModel
-                                .setLocalModelId(ModelManager.qwen3_0_6b)),
-                            textColor: widget.textColor,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
                       _localModelStatusRow(
                         aiModel,
                         title: aiModel.localModelName,
