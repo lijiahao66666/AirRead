@@ -154,8 +154,9 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           final bool isQa = _route == AiHudRoute.qa;
 
           // QA keeps the existing fixed tier: ~72% of screen height with clamp.
-          final qaMinHeight = availableH;
-          final qaHeight = availableH;
+          final qaMinHeight =
+              availableH - media.padding.top - kToolbarHeight * 0.4;
+          final qaHeight = qaMinHeight;
 
           // Non-QA adapts to content, but should not grow beyond this cap.
           final nonQaMinHeight = availableH < 320.0 ? availableH : 320.0;
@@ -196,7 +197,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
             surfaceColor: widget.bgColor,
             opacity: AppTokens.glassOpacityDense,
             child: SafeArea(
-              top: isQa,
+              top: false,
               bottom: true,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
@@ -262,6 +263,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
             icon: Icon(
               isQa ? Icons.keyboard_arrow_down_rounded : Icons.arrow_back,
               color: widget.textColor.withOpacityCompat(0.8),
+              size: isQa ? 32 : 24,
             ),
             onPressed: isQa ? () => Navigator.of(context).pop() : _pop,
             tooltip: isQa ? '关闭' : '返回',
@@ -460,8 +462,9 @@ class _TencentHunyuanSettingsPanelState
 
   @override
   Widget build(BuildContext context) {
-    final Color cardBg =
-        widget.isDark ? Colors.white.withOpacityCompat(0.07) : AppColors.mistWhite;
+    final Color cardBg = widget.isDark
+        ? Colors.white.withOpacityCompat(0.07)
+        : AppColors.mistWhite;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 6),
@@ -1767,8 +1770,8 @@ class _TencentHunyuanSettingsPanelState
         color: cardBg,
         borderRadius: BorderRadius.circular(AppTokens.radiusMd),
         border: Border.all(
-                color: widget.textColor.withOpacityCompat(0.08),
-                width: AppTokens.stroke),
+            color: widget.textColor.withOpacityCompat(0.08),
+            width: AppTokens.stroke),
       ),
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -2173,17 +2176,21 @@ class _TencentHunyuanSettingsPanelState
                         runSpacing: 10,
                         children: [
                           _chip(
-                            label: ModelManager.displayNameFor(ModelManager.qwen3_0_6b),
-                            active: aiModel.localModelId == ModelManager.qwen3_0_6b,
-                            onTap: () =>
-                                unawaited(aiModel.setLocalModelId(ModelManager.qwen3_0_6b)),
+                            label: ModelManager.displayNameFor(
+                                ModelManager.qwen3_0_6b),
+                            active:
+                                aiModel.localModelId == ModelManager.qwen3_0_6b,
+                            onTap: () => unawaited(aiModel
+                                .setLocalModelId(ModelManager.qwen3_0_6b)),
                             textColor: widget.textColor,
                           ),
                           _chip(
-                            label: ModelManager.displayNameFor(ModelManager.hunyuan1_8b),
-                            active: aiModel.localModelId == ModelManager.hunyuan1_8b,
-                            onTap: () =>
-                                unawaited(aiModel.setLocalModelId(ModelManager.hunyuan1_8b)),
+                            label: ModelManager.displayNameFor(
+                                ModelManager.hunyuan1_8b),
+                            active: aiModel.localModelId ==
+                                ModelManager.hunyuan1_8b,
+                            onTap: () => unawaited(aiModel
+                                .setLocalModelId(ModelManager.hunyuan1_8b)),
                             textColor: widget.textColor,
                           ),
                         ],
@@ -2561,7 +2568,8 @@ class _MainPanel extends StatelessWidget {
           color: cardBg,
           borderRadius: BorderRadius.circular(AppTokens.radiusMd),
           border: Border.all(
-              color: textColor.withOpacityCompat(0.08), width: AppTokens.stroke),
+              color: textColor.withOpacityCompat(0.08),
+              width: AppTokens.stroke),
         ),
         padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
         child: Row(
@@ -2577,10 +2585,9 @@ class _MainPanel extends StatelessWidget {
               ),
               child: Icon(
                 Icons.question_answer,
-                color:
-                    enabled
-                        ? AppColors.techBlue
-                        : textColor.withOpacityCompat(0.7),
+                color: enabled
+                    ? AppColors.techBlue
+                    : textColor.withOpacityCompat(0.7),
                 size: 20,
               ),
             ),
@@ -3313,8 +3320,9 @@ class _QaPanelState extends State<_QaPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final Color cardBg =
-        widget.isDark ? Colors.white.withOpacityCompat(0.07) : AppColors.mistWhite;
+    final Color cardBg = widget.isDark
+        ? Colors.white.withOpacityCompat(0.07)
+        : AppColors.mistWhite;
 
     Widget actionChip({
       required String label,
@@ -3383,413 +3391,440 @@ class _QaPanelState extends State<_QaPanel> {
                     itemBuilder: (context, i) {
                       final m = _messages[i];
 
-                  if (m.role == _QaRole.divider) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Row(
-                        children: [
-                          Expanded(
-                              child: Divider(
-                                  color: widget.textColor.withOpacityCompat(0.1))),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: Text(
-                              m.text,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: widget.textColor.withOpacityCompat(0.4),
+                      if (m.role == _QaRole.divider) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                  child: Divider(
+                                      color: widget.textColor
+                                          .withOpacityCompat(0.1))),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text(
+                                  m.text,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color:
+                                        widget.textColor.withOpacityCompat(0.4),
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                  child: Divider(
+                                      color: widget.textColor
+                                          .withOpacityCompat(0.1))),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final bool isUser = m.role == _QaRole.user;
+                      final bool isSelected = _actionTargetIndex == i;
+                      final Color bubbleBg = isUser
+                          ? AppColors.techBlue.withOpacityCompat(0.18)
+                          : widget.textColor.withOpacityCompat(0.06);
+                      final Alignment align =
+                          isUser ? Alignment.centerRight : Alignment.centerLeft;
+                      final bool canRefresh = !isUser &&
+                          _messageState == _MessageState.idle &&
+                          i == _messages.length - 1 &&
+                          i > 0 &&
+                          _messages[i - 1].role == _QaRole.user;
+                      final bool showActions = isSelected &&
+                          !_isWelcomeMessage(m) &&
+                          m.role != _QaRole.divider &&
+                          (isUser ||
+                              (_messageState == _MessageState.idle &&
+                                  (m.text.trim().isNotEmpty ||
+                                      m.reasoning.trim().isNotEmpty)));
+
+                      Widget squareIconButton({
+                        required IconData icon,
+                        required VoidCallback? onTap,
+                        double size = 24,
+                        double iconSize = 16,
+                      }) {
+                        final enabled = onTap != null;
+                        return Material(
+                          color: Colors.transparent,
+                          child: InkResponse(
+                            onTap: onTap,
+                            radius: 18,
+                            child: SizedBox(
+                              width: size,
+                              height: size,
+                              child: Center(
+                                child: Icon(
+                                  icon,
+                                  size: iconSize,
+                                  color: widget.textColor
+                                      .withOpacityCompat(enabled ? 0.55 : 0.25),
+                                ),
                               ),
                             ),
                           ),
-                          Expanded(
-                              child: Divider(
-                                  color: widget.textColor.withOpacityCompat(0.1))),
-                        ],
-                      ),
-                    );
-                  }
-
-                  final bool isUser = m.role == _QaRole.user;
-                  final bool isSelected = _actionTargetIndex == i;
-                  final Color bubbleBg = isUser
-                      ? AppColors.techBlue.withOpacityCompat(0.18)
-                      : widget.textColor.withOpacityCompat(0.06);
-                  final Alignment align =
-                      isUser ? Alignment.centerRight : Alignment.centerLeft;
-                  final bool canRefresh = !isUser &&
-                      _messageState == _MessageState.idle &&
-                      i == _messages.length - 1 &&
-                      i > 0 &&
-                      _messages[i - 1].role == _QaRole.user;
-                  final bool showActions = isSelected &&
-                      !_isWelcomeMessage(m) &&
-                      m.role != _QaRole.divider &&
-                      (isUser ||
-                          (_messageState == _MessageState.idle &&
-                              (m.text.trim().isNotEmpty ||
-                                  m.reasoning.trim().isNotEmpty)));
-
-                  Widget squareIconButton({
-                    required IconData icon,
-                    required VoidCallback? onTap,
-                    double size = 24,
-                    double iconSize = 16,
-                  }) {
-                    final enabled = onTap != null;
-                    return Material(
-                      color: Colors.transparent,
-                      child: InkResponse(
-                        onTap: onTap,
-                        radius: 18,
-                        child: SizedBox(
-                          width: size,
-                          height: size,
-                          child: Center(
-                            child: Icon(
-                              icon,
-                              size: iconSize,
-                              color: widget.textColor.withOpacityCompat(
-                                  enabled ? 0.55 : 0.25),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-                  return LayoutBuilder(
-                    builder: (context, constraints) {
-                      final double listWidth = constraints.maxWidth;
-                      final double maxBubbleWidth = math.min(340.0, listWidth);
-                      final bool canBeFullWidth = listWidth <= 340.5;
-                      final TextStyle bubbleTextStyle = TextStyle(
-                        color: widget.textColor,
-                        height: 1.35,
-                        fontSize: 15,
-                      );
-                      final String measureText = isUser
-                          ? m.text
-                          : (m.text.isEmpty &&
-                                  _activeReplyIndex == i &&
-                                  m.reasoning.trim().isEmpty
-                              ? '...'
-                              : (m.text.isNotEmpty ? m.text : m.reasoning));
-                      bool wantsFullWidth() {
-                        final tp = TextPainter(
-                          text: TextSpan(text: measureText, style: bubbleTextStyle),
-                          textDirection: TextDirection.ltr,
-                          maxLines: 1,
-                        )..layout(maxWidth: maxBubbleWidth);
-                        if (measureText.contains('\n')) return true;
-                        if (tp.didExceedMaxLines) return true;
-                        return tp.width >= maxBubbleWidth - 6;
+                        );
                       }
 
-                      final bool placeActionsBelow =
-                          showActions && canBeFullWidth && wantsFullWidth();
-                      final double buttonGroupWidth = canRefresh ? 52 : 24;
-                      final double gap = 6;
-                      final double bubbleWidthForSide = math.max(
-                        120,
-                        math.min(
-                          maxBubbleWidth,
-                          listWidth -
-                              (showActions && !placeActionsBelow
-                                  ? (buttonGroupWidth + gap)
-                                  : 0),
-                        ),
-                      );
+                      return LayoutBuilder(
+                        builder: (context, constraints) {
+                          final double listWidth = constraints.maxWidth;
+                          final double maxBubbleWidth =
+                              math.min(340.0, listWidth);
+                          final bool canBeFullWidth = listWidth <= 340.5;
+                          final TextStyle bubbleTextStyle = TextStyle(
+                            color: widget.textColor,
+                            height: 1.35,
+                            fontSize: 15,
+                          );
+                          final String measureText = isUser
+                              ? m.text
+                              : (m.text.isEmpty &&
+                                      _activeReplyIndex == i &&
+                                      m.reasoning.trim().isEmpty
+                                  ? '...'
+                                  : (m.text.isNotEmpty ? m.text : m.reasoning));
+                          bool wantsFullWidth() {
+                            final tp = TextPainter(
+                              text: TextSpan(
+                                  text: measureText, style: bubbleTextStyle),
+                              textDirection: TextDirection.ltr,
+                              maxLines: 1,
+                            )..layout(maxWidth: maxBubbleWidth);
+                            if (measureText.contains('\n')) return true;
+                            if (tp.didExceedMaxLines) return true;
+                            return tp.width >= maxBubbleWidth - 6;
+                          }
 
-                      final VoidCallback? copyTap =
-                          m.text.trim().isEmpty ? null : () => _copyToClipboardInQaPanel(m.text);
-                      final actionButtons = Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.start,
-                        children: [
-                          squareIconButton(
-                            icon: Icons.content_copy_rounded,
-                            onTap: copyTap,
-                          ),
-                          if (canRefresh) ...[
-                            const SizedBox(width: 4),
-                            squareIconButton(
-                              icon: Icons.refresh_rounded,
-                              iconSize: 18,
-                              onTap: _regenerateLastAnswer,
+                          final bool placeActionsBelow =
+                              showActions && canBeFullWidth && wantsFullWidth();
+                          final double buttonGroupWidth = canRefresh ? 52 : 24;
+                          final double gap = 6;
+                          final double bubbleWidthForSide = math.max(
+                            120,
+                            math.min(
+                              maxBubbleWidth,
+                              listWidth -
+                                  (showActions && !placeActionsBelow
+                                      ? (buttonGroupWidth + gap)
+                                      : 0),
                             ),
-                          ],
-                        ],
-                      );
+                          );
 
-                      final bubble = GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => _revealBubbleActions(i),
-                        child: Container(
-                          margin: EdgeInsets.only(
-                            top: 6,
-                            bottom: placeActionsBelow ? 2 : 6,
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
-                          constraints:
-                              BoxConstraints(maxWidth: bubbleWidthForSide),
-                          decoration: BoxDecoration(
-                            color: bubbleBg,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: widget.textColor.withOpacityCompat(0.08),
-                              width: AppTokens.stroke,
-                            ),
-                          ),
-                          child: isUser
-                              ? Text(m.text, style: bubbleTextStyle)
-                              : Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                  if (m.reasoning.trim().isNotEmpty) ...[
-                                    InkWell(
-                                      onTap: () {
-                                        setState(() {
-                                          final cur = _messages[i];
-                                          _messages[i] = _QaMsg(
-                                            cur.role,
-                                            cur.text,
-                                            reasoning: cur.reasoning,
-                                            reasoningCollapsed:
-                                                !cur.reasoningCollapsed,
-                                          );
-                                        });
-                                        _schedulePersist();
-                                      },
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(
-                                            '深度思考',
-                                            style: TextStyle(
-                                              color: widget.textColor
-                                                  .withOpacityCompat(0.72),
-                                              fontSize: 15,
+                          final VoidCallback? copyTap = m.text.trim().isEmpty
+                              ? null
+                              : () => _copyToClipboardInQaPanel(m.text);
+                          final actionButtons = Row(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.start,
+                            children: [
+                              squareIconButton(
+                                icon: Icons.content_copy_rounded,
+                                onTap: copyTap,
+                              ),
+                              if (canRefresh) ...[
+                                const SizedBox(width: 4),
+                                squareIconButton(
+                                  icon: Icons.refresh_rounded,
+                                  iconSize: 18,
+                                  onTap: _regenerateLastAnswer,
+                                ),
+                              ],
+                            ],
+                          );
+
+                          final bubble = GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => _revealBubbleActions(i),
+                            child: Container(
+                              margin: EdgeInsets.only(
+                                top: 6,
+                                bottom: placeActionsBelow ? 2 : 6,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              constraints:
+                                  BoxConstraints(maxWidth: bubbleWidthForSide),
+                              decoration: BoxDecoration(
+                                color: bubbleBg,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color:
+                                      widget.textColor.withOpacityCompat(0.08),
+                                  width: AppTokens.stroke,
+                                ),
+                              ),
+                              child: isUser
+                                  ? Text(m.text, style: bubbleTextStyle)
+                                  : Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        if (m.reasoning.trim().isNotEmpty) ...[
+                                          InkWell(
+                                            onTap: () {
+                                              setState(() {
+                                                final cur = _messages[i];
+                                                _messages[i] = _QaMsg(
+                                                  cur.role,
+                                                  cur.text,
+                                                  reasoning: cur.reasoning,
+                                                  reasoningCollapsed:
+                                                      !cur.reasoningCollapsed,
+                                                );
+                                              });
+                                              _schedulePersist();
+                                            },
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  '深度思考',
+                                                  style: TextStyle(
+                                                    color: widget.textColor
+                                                        .withOpacityCompat(
+                                                            0.72),
+                                                    fontSize: 15,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Icon(
+                                                  m.reasoningCollapsed
+                                                      ? Icons.expand_more
+                                                      : Icons.expand_less,
+                                                  size: 18,
+                                                  color: widget.textColor
+                                                      .withOpacityCompat(0.55),
+                                                ),
+                                              ],
                                             ),
                                           ),
-                                          const SizedBox(width: 6),
-                                          Icon(
-                                            m.reasoningCollapsed
-                                                ? Icons.expand_more
-                                                : Icons.expand_less,
-                                            size: 18,
-                                            color: widget.textColor
-                                                .withOpacityCompat(0.55),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    if (!m.reasoningCollapsed) ...[
-                                      const SizedBox(height: 8),
-                                      Container(
-                                        width: double.infinity,
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 10),
-                                        decoration: BoxDecoration(
-                                          color: widget.textColor.withOpacityCompat(
-                                              widget.isDark ? 0.06 : 0.035),
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: ConstrainedBox(
-                                          constraints: const BoxConstraints(
-                                              maxHeight: 140),
-                                          child: SingleChildScrollView(
-                                            reverse: true,
-                                            child: Text(
-                                              m.reasoning.trim(),
-                                              style: TextStyle(
+                                          if (!m.reasoningCollapsed) ...[
+                                            const SizedBox(height: 8),
+                                            Container(
+                                              width: double.infinity,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 10),
+                                              decoration: BoxDecoration(
                                                 color: widget.textColor
-                                                    .withOpacityCompat(0.78),
-                                                height: 1.35,
-                                                fontSize: 13,
+                                                    .withOpacityCompat(
+                                                        widget.isDark
+                                                            ? 0.06
+                                                            : 0.035),
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                              child: ConstrainedBox(
+                                                constraints:
+                                                    const BoxConstraints(
+                                                        maxHeight: 140),
+                                                child: SingleChildScrollView(
+                                                  reverse: true,
+                                                  child: Text(
+                                                    m.reasoning.trim(),
+                                                    style: TextStyle(
+                                                      color: widget.textColor
+                                                          .withOpacityCompat(
+                                                              0.78),
+                                                      height: 1.35,
+                                                      fontSize: 13,
+                                                    ),
+                                                  ),
+                                                ),
                                               ),
                                             ),
-                                          ),
+                                            const SizedBox(height: 10),
+                                          ],
+                                        ],
+                                        Text(
+                                          m.text.isEmpty &&
+                                                  _activeReplyIndex == i &&
+                                                  m.reasoning.trim().isEmpty
+                                              ? '...'
+                                              : m.text,
+                                          style: bubbleTextStyle,
                                         ),
-                                      ),
-                                      const SizedBox(height: 10),
-                                    ],
-                                  ],
-                                  Text(
-                                    m.text.isEmpty &&
-                                            _activeReplyIndex == i &&
-                                            m.reasoning.trim().isEmpty
-                                        ? '...'
-                                        : m.text,
-                                    style: bubbleTextStyle,
-                                  ),
-                                ],
-                              ),
-                        ),
-                      );
+                                      ],
+                                    ),
+                            ),
+                          );
 
-                      Widget child;
-                      if (!showActions) {
-                        child = bubble;
-                      } else if (placeActionsBelow) {
-                        child = Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            bubble,
-                            Padding(
+                          Widget child;
+                          if (!showActions) {
+                            child = bubble;
+                          } else if (placeActionsBelow) {
+                            child = Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                bubble,
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: actionButtons,
+                                ),
+                              ],
+                            );
+                          } else {
+                            final side = Padding(
                               padding: const EdgeInsets.only(bottom: 6),
                               child: actionButtons,
-                            ),
-                          ],
-                        );
-                      } else {
-                        final side = Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: actionButtons,
-                        );
-                        child = Row(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: isUser
-                              ? [side, const SizedBox(width: 6), bubble]
-                              : [bubble, const SizedBox(width: 6), side],
-                        );
-                      }
+                            );
+                            child = Row(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: isUser
+                                  ? [side, const SizedBox(width: 6), bubble]
+                                  : [bubble, const SizedBox(width: 6), side],
+                            );
+                          }
 
-                      return Align(
-                        key: ValueKey('qa_msg_${i}_${m.text.hashCode}'),
-                        alignment: align,
-                        child: child,
+                          return Align(
+                            key: ValueKey('qa_msg_${i}_${m.text.hashCode}'),
+                            alignment: align,
+                            child: child,
+                          );
+                        },
                       );
                     },
-                  );
-                    },
                   ),
                 ),
-            if (_messageState == _MessageState.thinking &&
-                (_activeReplyIndex == null ||
-                    (_activeReplyIndex! >= 0 &&
-                        _activeReplyIndex! < _messages.length &&
-                        _messages[_activeReplyIndex!].text.trim().isEmpty &&
-                        _messages[_activeReplyIndex!]
-                            .reasoning
-                            .trim()
-                            .isEmpty)))
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8.0),
-                  child: Text('思考中...',
-                      style: TextStyle(
-                          color: widget.textColor.withOpacityCompat(0.6),
-                          fontSize: 15)),
+                if (_messageState == _MessageState.thinking &&
+                    (_activeReplyIndex == null ||
+                        (_activeReplyIndex! >= 0 &&
+                            _activeReplyIndex! < _messages.length &&
+                            _messages[_activeReplyIndex!].text.trim().isEmpty &&
+                            _messages[_activeReplyIndex!]
+                                .reasoning
+                                .trim()
+                                .isEmpty)))
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Text('思考中...',
+                          style: TextStyle(
+                              color: widget.textColor.withOpacityCompat(0.6),
+                              fontSize: 15)),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    actionChip(
+                      label: '新话题',
+                      onTap: _messageState != _MessageState.idle
+                          ? null
+                          : _startNewTopic,
+                    ),
+                    actionChip(
+                      label: '总结本章',
+                      onTap: _messageState != _MessageState.idle
+                          ? null
+                          : () => _sendQuickAction(QAType.summary),
+                    ),
+                    actionChip(
+                      label: '提取要点',
+                      onTap: _messageState != _MessageState.idle
+                          ? null
+                          : () => _sendQuickAction(QAType.keyPoints),
+                    ),
+                  ],
                 ),
-              ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                actionChip(
-                  label: '新话题',
-                  onTap: _messageState != _MessageState.idle
-                      ? null
-                      : _startNewTopic,
-                ),
-                actionChip(
-                  label: '总结本章',
-                  onTap: _messageState != _MessageState.idle
-                      ? null
-                      : () => _sendQuickAction(QAType.summary),
-                ),
-                actionChip(
-                  label: '提取要点',
-                  onTap: _messageState != _MessageState.idle
-                      ? null
-                      : () => _sendQuickAction(QAType.keyPoints),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: Focus(
-                    onKeyEvent: (node, event) {
-                      if (event is KeyDownEvent &&
-                          event.logicalKey == LogicalKeyboardKey.enter &&
-                          !ServicesBinding.instance.keyboard.logicalKeysPressed
-                              .contains(LogicalKeyboardKey.shiftLeft) &&
-                          !ServicesBinding.instance.keyboard.logicalKeysPressed
-                              .contains(LogicalKeyboardKey.shiftRight)) {
-                        if (_messageState == _MessageState.idle) {
-                          _send();
-                        }
-                        return KeyEventResult.handled;
-                      }
-                      return KeyEventResult.ignored;
-                    },
-                    child: TextField(
-                      controller: _inputCtl,
-                      minLines: 1,
-                      maxLines: 4,
-                      textInputAction: TextInputAction.send,
-                      style: const TextStyle(fontSize: 14),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        filled: true,
-                        fillColor: Colors.white,
-                        hintText: '输入你的问题…',
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 12),
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Focus(
+                        onKeyEvent: (node, event) {
+                          if (event is KeyDownEvent &&
+                              event.logicalKey == LogicalKeyboardKey.enter &&
+                              !ServicesBinding
+                                  .instance.keyboard.logicalKeysPressed
+                                  .contains(LogicalKeyboardKey.shiftLeft) &&
+                              !ServicesBinding
+                                  .instance.keyboard.logicalKeysPressed
+                                  .contains(LogicalKeyboardKey.shiftRight)) {
+                            if (_messageState == _MessageState.idle) {
+                              _send();
+                            }
+                            return KeyEventResult.handled;
+                          }
+                          return KeyEventResult.ignored;
+                        },
+                        child: TextField(
+                          controller: _inputCtl,
+                          minLines: 1,
+                          maxLines: 4,
+                          textInputAction: TextInputAction.send,
+                          style: const TextStyle(fontSize: 14),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            filled: true,
+                            fillColor: Colors.white,
+                            hintText: '输入你的问题…',
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 12),
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          contextMenuBuilder: (context, editableTextState) {
+                            final List<ContextMenuButtonItem> buttonItems =
+                                editableTextState.contextMenuButtonItems;
+                            // 仅保留基础编辑功能 (复制/粘贴/剪切/全选)，确保双端一致且清爽
+                            buttonItems.removeWhere(
+                                (ContextMenuButtonItem buttonItem) {
+                              return buttonItem.type !=
+                                      ContextMenuButtonType.cut &&
+                                  buttonItem.type !=
+                                      ContextMenuButtonType.copy &&
+                                  buttonItem.type !=
+                                      ContextMenuButtonType.paste &&
+                                  buttonItem.type !=
+                                      ContextMenuButtonType.selectAll;
+                            });
+                            return AdaptiveTextSelectionToolbar.buttonItems(
+                              anchors: editableTextState.contextMenuAnchors,
+                              buttonItems: buttonItems,
+                            );
+                          },
+                          onSubmitted: (_) {
+                            if (_messageState == _MessageState.idle) {
+                              _send();
+                            }
+                          },
+                        ),
                       ),
-                      contextMenuBuilder: (context, editableTextState) {
-                        final List<ContextMenuButtonItem> buttonItems =
-                            editableTextState.contextMenuButtonItems;
-                        // 仅保留基础编辑功能 (复制/粘贴/剪切/全选)，确保双端一致且清爽
-                        buttonItems.removeWhere((ContextMenuButtonItem buttonItem) {
-                          return buttonItem.type != ContextMenuButtonType.cut &&
-                              buttonItem.type != ContextMenuButtonType.copy &&
-                              buttonItem.type != ContextMenuButtonType.paste &&
-                              buttonItem.type != ContextMenuButtonType.selectAll;
-                        });
-                        return AdaptiveTextSelectionToolbar.buttonItems(
-                          anchors: editableTextState.contextMenuAnchors,
-                          buttonItems: buttonItems,
-                        );
-                      },
-                      onSubmitted: (_) {
-                        if (_messageState == _MessageState.idle) {
-                          _send();
-                        }
-                      },
                     ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: _messageState == _MessageState.idle ? _send : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.techBlue,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                    const SizedBox(width: 10),
+                    ElevatedButton(
+                      onPressed:
+                          _messageState == _MessageState.idle ? _send : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.techBlue,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        disabledBackgroundColor:
+                            AppColors.techBlue.withOpacityCompat(0.45),
+                        disabledForegroundColor:
+                            Colors.white.withOpacityCompat(0.75),
+                      ),
+                      child: const Text('发送'),
                     ),
-                    disabledBackgroundColor:
-                        AppColors.techBlue.withOpacityCompat(0.45),
-                    disabledForegroundColor:
-                        Colors.white.withOpacityCompat(0.75),
-                  ),
-                  child: const Text('发送'),
+                  ],
                 ),
               ],
-            ),
-          ],
             ),
             if (_qaToastText.trim().isNotEmpty)
               Positioned(
