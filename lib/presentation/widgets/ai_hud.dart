@@ -18,6 +18,7 @@ import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/tencentcloud/tencent_api_client.dart';
 import '../../ai/tencentcloud/tencent_credentials.dart';
 import '../../ai/translation/translation_types.dart';
+import '../../ai/local_llm/model_manager.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../providers/ai_model_provider.dart';
@@ -2159,10 +2160,31 @@ class _TencentHunyuanSettingsPanelState
                     // 本地模型提示（与本地按钮左对齐）
                     if (aiModel.source == AiModelSource.local) ...[
                       const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 10,
+                        children: [
+                          _chip(
+                            label: ModelManager.displayNameFor(ModelManager.qwen3_0_6b),
+                            active: aiModel.localModelId == ModelManager.qwen3_0_6b,
+                            onTap: () =>
+                                unawaited(aiModel.setLocalModelId(ModelManager.qwen3_0_6b)),
+                            textColor: widget.textColor,
+                          ),
+                          _chip(
+                            label: ModelManager.displayNameFor(ModelManager.hunyuan1_8b),
+                            active: aiModel.localModelId == ModelManager.hunyuan1_8b,
+                            onTap: () =>
+                                unawaited(aiModel.setLocalModelId(ModelManager.hunyuan1_8b)),
+                            textColor: widget.textColor,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
                       _localModelStatusRow(
                         aiModel,
-                        title: 'Qwen3-0.6B',
-                        sizeText: '450M',
+                        title: aiModel.localModelName,
+                        sizeText: aiModel.localModelSizeLabel,
                       ),
                     ],
                   ],

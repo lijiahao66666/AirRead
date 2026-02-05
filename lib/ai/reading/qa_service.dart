@@ -168,6 +168,7 @@ String buildLocalQaPrompt({
 class QAService {
   final ReadingContextService contextService;
   final TencentCredentials credentials;
+  final String localModelId;
   static const int _localQaHardMaxNewTokens = 1536;
   static const int _localQaHardMaxInputTokens = 6144;
   static const int _localQaContextReserveTokens = 512;
@@ -175,6 +176,7 @@ class QAService {
   QAService({
     required this.contextService,
     required this.credentials,
+    this.localModelId = 'qwen3-0.6b-mnn',
   });
 
   Stream<QAStreamChunk> askQuestion({
@@ -233,7 +235,7 @@ class QAService {
   }) async* {
     // 使用适合平台的本地 LLM 客户端
     final client = createLocalLlmClient();
-    final initialized = await client.initialize(model: 'qwen3-0.6b-mnn');
+    final initialized = await client.initialize(model: localModelId);
 
     if (!initialized) {
       yield QAStreamChunk(

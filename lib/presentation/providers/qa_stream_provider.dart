@@ -126,6 +126,7 @@ class QaStreamProvider extends ChangeNotifier {
     final qaService = QAService(
       contextService: contextService,
       credentials: getEmbeddedPublicHunyuanCredentials(),
+      localModelId: aiModel.localModelId,
     );
 
     final stream = qaService.askQuestion(

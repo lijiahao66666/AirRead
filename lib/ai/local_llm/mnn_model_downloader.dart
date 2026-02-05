@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'mnn_model_spec.dart';
 
 /// MNN 模型下载状态
 enum ModelDownloadStatus {
@@ -15,32 +16,13 @@ enum ModelDownloadStatus {
 }
 
 /// MNN 模型下载器
-/// 从 ModelScope 下载 Qwen3-0.6B MNN 模型（直接下载文件）
+/// 从 ModelScope 下载 MNN 模型（直接下载文件）
 class MnnModelDownloader {
-  static const String _modelDir = 'models/qwen3-0.6b-mnn';
-  
-  // ModelScope 基础URL
-  static const String _baseUrl = 'https://modelscope.cn/models/MNN/Qwen3-0.6B-MNN/resolve/master/';
+  final MnnModelSpec spec;
 
-  // 预估总大小约455MB
-  static const int estimatedTotalSize = 455 * 1024 * 1024;
+  MnnModelDownloader({required this.spec});
 
-  // 需要下载的文件列表
-  static final List<String> _filesToDownload = [
-    'config.json',
-    'llm_config.json',
-    'llm.mnn',
-    'llm.mnn.weight',
-    'tokenizer.txt',
-  ];
-
-  // 必需的关键文件（用于检查是否已安装）
-  static final List<String> _criticalFiles = [
-    'llm.mnn',
-    'llm.mnn.weight',
-    'tokenizer.txt',
-    'config.json',
-  ];
+  int get estimatedTotalSize => spec.estimatedTotalSizeBytes;
 
   // 下载状态流
   final _statusController = StreamController<ModelDownloadStatus>.broadcast();
@@ -67,13 +49,13 @@ class MnnModelDownloader {
   static const Duration _defaultRequestTimeout = Duration(minutes: 20);
 
   /// 获取模型目录路径
-  static Future<String> getModelDir() async {
+  Future<String> getModelDir() async {
     final appDir = await getApplicationDocumentsDirectory();
-    return p.join(appDir.path, _modelDir);
+    return p.join(appDir.path, spec.modelDirRelative);
   }
 
   /// 检查模型是否已下载
-  static Future<bool> isModelDownloaded() async {
+  Future<bool> isModelDownloaded() async {
     try {
       final modelDir = await getModelDir();
       final dir = Directory(modelDir);
@@ -83,7 +65,7 @@ class MnnModelDownloader {
       }
 
       // 检查所有必需文件是否存在
-      for (final fileName in _criticalFiles) {
+      for (final fileName in spec.criticalFiles) {
         final filePath = p.join(modelDir, fileName);
         final f = File(filePath);
         if (!await f.exists()) {
@@ -128,12 +110,12 @@ class MnnModelDownloader {
   }
 
   /// 获取已下载的文件大小
-  static Future<int> getDownloadedSize() async {
+  Future<int> getDownloadedSize() async {
     try {
       final modelDir = await getModelDir();
       int totalSize = 0;
 
-      for (final fileName in _filesToDownload) {
+      for (final fileName in spec.filesToDownload) {
         final filePath = p.join(modelDir, fileName);
         final file = File(filePath);
         if (await file.exists()) {
@@ -169,7 +151,7 @@ class MnnModelDownloader {
       }
 
       // 逐个下载文件
-      for (final fileName in _filesToDownload) {
+      for (final fileName in spec.filesToDownload) {
         if (_cancelled) break;
         
         _currentFile = fileName;
@@ -185,8 +167,8 @@ class MnnModelDownloader {
           filePath, 
           (bytes) {
              // 临时方案：如果正在下载 weight，进度有效；其他文件瞬间完成
-             if (fileName == 'llm.mnn.weight') {
-               _progress = bytes / (450 * 1024 * 1024); // 约450MB
+             if (fileName == spec.progressFileName && estimatedTotalSize > 0) {
+               _progress = bytes / estimatedTotalSize;
                if (_progress > 1.0) _progress = 1.0;
                _progressController.add(_progress);
              }
@@ -291,7 +273,7 @@ class MnnModelDownloader {
     final client = _httpClient;
     if (client == null) return _DownloadResult.retryable;
 
-    final url = '$_baseUrl$fileName';
+    final url = '${spec.baseUrl}$fileName';
     debugPrint('[MnnModelDownloader] Downloading $fileName from $url');
 
     http.StreamedResponse response;
@@ -435,20 +417,8 @@ class MnnModelDownloader {
     }
   }
 
-  static int? _minExpectedBytes(String fileName) {
-    switch (fileName) {
-      case 'llm.mnn.weight':
-        return 100 * 1024 * 1024;
-      case 'llm.mnn':
-        return 200 * 1024;
-      case 'tokenizer.txt':
-        return 4 * 1024;
-      case 'config.json':
-      case 'llm_config.json':
-        return 200;
-      default:
-        return null;
-    }
+  int? _minExpectedBytes(String fileName) {
+    return spec.minExpectedBytesByFile[fileName];
   }
 
   /// 取消下载
@@ -458,7 +428,7 @@ class MnnModelDownloader {
   }
 
   /// 删除已下载的模型
-  static Future<bool> deleteModel() async {
+  Future<bool> deleteModel() async {
     try {
       final modelDir = await getModelDir();
       final dir = Directory(modelDir);
@@ -476,7 +446,7 @@ class MnnModelDownloader {
   }
 
   /// 获取模型路径
-  static Future<String?> getModelPath() async {
+  Future<String?> getModelPath() async {
     if (await isModelDownloaded()) {
       return getModelDir();
     }

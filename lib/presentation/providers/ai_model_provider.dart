@@ -21,10 +21,12 @@ enum ModelInstallStatus {
 
 class AiModelProvider extends ChangeNotifier {
   static const String _kModelSource = 'ai_model_source';
+  static const String _kLocalModelId = 'ai_local_model_id';
   static const String _kPointsBalance = 'points_balance';
 
   LlmClient? _llmClient;
   AiModelSource _source = AiModelSource.none;
+  String _localModelId = ModelManager.qwen3_0_6b;
   int _pointsBalance = 0;
 
   // 模型安装状态
@@ -47,6 +49,9 @@ class AiModelProvider extends ChangeNotifier {
   bool get loaded => _llmClient != null && _llmClient!.isAvailable;
   AiModelSource get source => _source;
   bool get isModelEnabled => _source != AiModelSource.none;
+  String get localModelId => _localModelId;
+  String get localModelName => ModelManager.displayNameFor(_localModelId);
+  String get localModelSizeLabel => ModelManager.sizeLabelFor(_localModelId);
 
   // 模型安装相关 getter
   ModelInstallStatus get modelInstallStatus => _modelInstallStatus;
@@ -61,6 +66,19 @@ class AiModelProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kModelSource, value.name);
+  }
+
+  Future<void> setLocalModelId(String modelId) async {
+    if (_localModelId == modelId) return;
+    _localModelId = modelId;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kLocalModelId, modelId);
+    await _checkModelInstallation();
+    if (_modelInstallStatus == ModelInstallStatus.installed) {
+      await _initializeLlmClient();
+    }
+    notifyListeners();
   }
 
   int get pointsBalance => _pointsBalance;
@@ -88,6 +106,11 @@ class AiModelProvider extends ChangeNotifier {
       orElse: () => AiModelSource.none,
     );
 
+    final localModelRaw = prefs.getString(_kLocalModelId);
+    _localModelId = localModelRaw != null && localModelRaw.trim().isNotEmpty
+        ? localModelRaw.trim()
+        : ModelManager.qwen3_0_6b;
+
     _pointsBalance = prefs.getInt(_kPointsBalance) ?? 0;
 
     // 检查模型是否已安装
@@ -103,7 +126,7 @@ class AiModelProvider extends ChangeNotifier {
 
   /// 检查模型安装状态
   Future<void> _checkModelInstallation() async {
-    final isInstalled = await ModelManager.isModelInstalled();
+    final isInstalled = await ModelManager.isModelInstalled(_localModelId);
     if (isInstalled) {
       _modelInstallStatus = ModelInstallStatus.installed;
     } else {
@@ -118,7 +141,7 @@ class AiModelProvider extends ChangeNotifier {
 
     try {
       final success = await _llmClient!.initialize(
-        model: 'qwen3-0.6b-mnn',
+        model: _localModelId,
       ).timeout(
         const Duration(seconds: 60),  // 增加到60秒，Qwen3-0.6B需要更长时间
         onTimeout: () {
@@ -154,7 +177,7 @@ class AiModelProvider extends ChangeNotifier {
     await _cancelSubscriptions();
 
     // 创建新的下载器
-    _downloader = ModelManager.installModel();
+    _downloader = ModelManager.installModel(_localModelId);
 
     // 监听下载状态
     _statusSubscription = _downloader!.statusStream.listen((status) {
@@ -216,7 +239,7 @@ class AiModelProvider extends ChangeNotifier {
     _downloader?.dispose();
     _downloader = null;
 
-    await ModelManager.deleteModel();
+    await ModelManager.deleteModel(_localModelId);
     _llmClient?.dispose();
     _llmClient = null;
     _modelInstallStatus = ModelInstallStatus.notInstalled;

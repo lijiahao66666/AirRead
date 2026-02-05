@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'mnn_client.dart';
 import 'model_manager.dart';
 
@@ -59,17 +60,16 @@ class LlmClientMnn implements LlmClient {
     }
 
     // 获取模型路径
-    // 如果传入的 model 是相对路径（如 'qwen3-0.6b-mnn'），则获取完整路径
-    // 如果传入的 model 已经是完整路径，则直接使用
+    // - model 为空：使用默认模型
+    // - model 是绝对路径：直接使用
+    // - 否则认为是模型 id：从 ModelManager 获取对应模型目录
     String? modelPath;
     if (model == null) {
       modelPath = await _getDefaultModelPath();
-    } else if (model.startsWith('/')) {
-      // 已经是完整路径
+    } else if (p.isAbsolute(model)) {
       modelPath = model;
     } else {
-      // 是相对路径，获取完整路径
-      modelPath = await ModelManager.getModelPath();
+      modelPath = await ModelManager.getModelPath(model);
     }
 
     if (modelPath == null) {
@@ -115,7 +115,7 @@ class LlmClientMnn implements LlmClient {
 
     final result = await _client.initialize(modelPath: modelPath);
     if (result) {
-      _currentModel = model ?? 'qwen3-0.6b-mnn';
+      _currentModel = model ?? ModelManager.qwen3_0_6b;
       debugPrint('[LlmClientMnn] Initialization successful');
     } else {
       debugPrint('[LlmClientMnn] Initialization failed');
@@ -124,8 +124,7 @@ class LlmClientMnn implements LlmClient {
   }
 
   Future<String?> _getDefaultModelPath() async {
-    // 默认模型路径：应用文档目录下的 models/qwen3-0.6b-mnn
-    final modelPath = await ModelManager.getModelPath();
+    final modelPath = await ModelManager.getModelPath(ModelManager.qwen3_0_6b);
     return modelPath;
   }
 
