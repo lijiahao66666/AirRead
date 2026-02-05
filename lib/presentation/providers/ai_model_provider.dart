@@ -37,7 +37,6 @@ class AiModelProvider extends ChangeNotifier {
   StreamSubscription? _statusSubscription;
   StreamSubscription? _progressSubscription;
   StreamSubscription? _fileSubscription;
-  String? _warmedModelId;
 
   AiModelProvider() {
     TencentApiClient.onPointsBalanceChanged = (v) {
@@ -77,10 +76,7 @@ class AiModelProvider extends ChangeNotifier {
     await prefs.setString(_kLocalModelId, modelId);
     await _checkModelInstallation();
     if (_modelInstallStatus == ModelInstallStatus.installed) {
-      final ok = await _initializeLlmClient();
-      if (ok) {
-        unawaited(_warmupLocalLlm());
-      }
+      await _initializeLlmClient();
     }
     notifyListeners();
   }
@@ -128,10 +124,7 @@ class AiModelProvider extends ChangeNotifier {
 
     // 如果模型已安装，初始化 LLM 客户端
     if (_modelInstallStatus == ModelInstallStatus.installed) {
-      final ok = await _initializeLlmClient();
-      if (ok) {
-        unawaited(_warmupLocalLlm());
-      }
+      await _initializeLlmClient();
     }
 
     notifyListeners();
@@ -148,7 +141,7 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   /// 初始化 LLM 客户端
-  Future<bool> _initializeLlmClient() async {
+  Future<void> _initializeLlmClient() async {
     // 使用适合平台的本地 LLM 客户端
     _llmClient = createLocalLlmClient();
 
@@ -168,43 +161,11 @@ class AiModelProvider extends ChangeNotifier {
       } else {
         debugPrint('[AiModelProvider] LLM initialization failed');
       }
-      return success;
     } catch (e) {
       debugPrint('[AiModelProvider] Failed to initialize LLM: $e');
-      return false;
     }
 
     notifyListeners();
-  }
-
-  Future<void> _warmupLocalLlm() async {
-    final client = _llmClient;
-    if (client == null) return;
-    if (!client.isAvailable) return;
-
-    final modelId = _localModelId;
-    if (_warmedModelId == modelId) return;
-
-    try {
-      _warmedModelId = modelId;
-      await client
-          .generate(
-            prompt: '你好',
-            maxTokens: 16,
-            temperature: 0.0,
-            topP: 1.0,
-            topK: 1,
-            minP: 0.0,
-            repetitionPenalty: 1.0,
-          )
-          .timeout(const Duration(seconds: 30));
-      debugPrint('[AiModelProvider] LLM warmup done for model=$modelId');
-    } catch (e) {
-      if (_warmedModelId == modelId) {
-        _warmedModelId = null;
-      }
-      debugPrint('[AiModelProvider] LLM warmup failed for model=$modelId: $e');
-    }
   }
 
   /// 开始下载模型
@@ -229,12 +190,7 @@ class AiModelProvider extends ChangeNotifier {
       switch (status) {
         case ModelDownloadStatus.completed:
           _modelInstallStatus = ModelInstallStatus.installed;
-          unawaited(() async {
-            final ok = await _initializeLlmClient();
-            if (ok) {
-              await _warmupLocalLlm();
-            }
-          }());
+          _initializeLlmClient();
           break;
         case ModelDownloadStatus.failed:
           _modelInstallStatus = ModelInstallStatus.failed;
