@@ -1700,7 +1700,14 @@ class _ReaderPageState extends State<ReaderPage>
         );
       },
     ).then((_) {
-      if (mounted) _hideControls();
+      if (mounted) {
+        // Force hide controls when returning from AI HUD
+        setState(() {
+          _showControls = false;
+        });
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        _controlsController.reverse();
+      }
     });
   }
 
