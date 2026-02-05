@@ -72,6 +72,9 @@ class WebSpeechTtsWeb extends WebSpeechTts {
     );
 
     try {
+      try {
+        synth.callMethod('resume'.toJS);
+      } catch (_) {}
       synth.callMethodVarArgs('speak'.toJS, [u]);
     } catch (e) {
       onError(session, e.toString());

@@ -14,7 +14,7 @@ AirRead 是一个基于 Flutter 的 AI 辅助电子书阅读器，覆盖 Android
 - 书架与导入：文件导入、书架管理、阅读进度与本地存储
 - 翻译：沉浸式翻译（机器翻译 / 大模型翻译），支持队列与缓存，适配阅读场景
 - 伴读问答：基于“当前阅读上下文”的问答与章节能力（如总结、提取要点）
-- 朗读：在线 TTS（腾讯云）与 Web SpeechSynthesis（Web），并提供朗读调度/预取能力
+- 朗读：支持在线朗读（腾讯云 TTS）、iOS/Android 设备自带朗读（系统 TTS）与 Web 本地朗读（浏览器 SpeechSynthesis），并提供朗读调度/预取能力
 - 本地大模型（实验）：iOS/Android 端集成 MNN LLM，模型下载后可离线推理
 - 凭据与安全：支持直连（个人密钥）与代理（Serverless/自建服务）两种调用方式
 
@@ -23,7 +23,7 @@ AirRead 是一个基于 Flutter 的 AI 辅助电子书阅读器，覆盖 Android
 - 提示：目前仅对 Android 与 iOS 的部分机型做了测试；其它平台尚未充分测试，某些功能可能存在差异，敬请谅解。
 - Android：仓库配置仅打包 `arm64-v8a`（不支持 x86 模拟器）
 - iOS：本地大模型仅支持 arm64 设备/模拟器；Intel 模拟器不支持本地模型
-- Web：朗读依赖浏览器 SpeechSynthesis，受浏览器能力影响
+- Web：本地朗读依赖浏览器 SpeechSynthesis，受浏览器策略/音色可用性影响（部分浏览器需要用户交互触发才会出声）
 
 ---
 
@@ -162,24 +162,6 @@ AirRead 支持通过代理服务访问腾讯云相关能力（混元大模型、
 - 若代理侧需要鉴权/积分体系，可在运行/打包时配置 `AIRREAD_TENCENT_SCF_TOKEN`，App 会通过请求头传递。
 
 说明：当前仓库仅包含 App 侧对代理的调用实现，不包含可直接部署的代理后端示例代码；你可以使用腾讯云 SCF、API 网关或任意自建服务实现兼容接口。
-
----
-
-## ❓ 常见问题 (FAQ)
-
-**Q: 本地 AI 模型有多大？需要下载吗？**
-A: 本地 AI 功能 (MNN) 首次使用时会自动从 ModelScope 下载模型文件。目前使用的是 `Qwen3-0.6B` (或更新版本)，总大小约为 **450MB**。下载过程支持断点续传。
-
-**Q: Android 模拟器无法运行，提示找不到 libMNN.so？**
-A: 请使用 **真机** 调试。由于 MNN 库针对性能优化，我们目前仅配置了 `arm64-v8a` 架构的支持 (见 `android/app/build.gradle`)，这可以显著减小包体积。大多数 x86 模拟器无法运行。
-
-**Q: iOS 编译报错 `Sandbox: rsync.samba(...) deny(1) file-write-create`？**
-A: 这是 Xcode 14+ 的常见权限问题。请在 Xcode 中 Build Settings -> Build Options -> User Script Sandboxing 设置为 `No`。
-
-**Q: 如何导入书籍？**
-A: 
-*   **Android**: 点击书架右上角 `+` 号，选择文件导入。支持多选。
-*   **iOS**: 可以通过 "文件" App 分享到 AirRead，或者在 AirRead 内点击 `+` 号浏览 iCloud/本地文件。
 
 ---
 
