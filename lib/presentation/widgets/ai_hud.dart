@@ -154,7 +154,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           final bool isQa = _route == AiHudRoute.qa;
 
           // QA keeps the existing fixed tier: ~72% of screen height with clamp.
-          final qaMinHeight = availableH * 0.8;
+          final qaMinHeight = availableH * 0.9;
           final qaHeight = qaMinHeight;
 
           // Non-QA adapts to content, but should not grow beyond this cap.
