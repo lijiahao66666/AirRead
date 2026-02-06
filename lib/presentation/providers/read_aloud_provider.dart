@@ -96,6 +96,8 @@ class ReadAloudProvider extends ChangeNotifier {
   TranslationDisplayMode? _lastDisplayMode;
   String? _lastSourceLang;
   String? _lastTargetLang;
+  int? _lastCacheRevision;
+  bool _queueDirty = false;
   SharedPreferences? _prefs;
   StreamSubscription<dynamic>? _localTtsSub;
   StreamSubscription<void>? _playerCompleteSub;
@@ -173,6 +175,7 @@ class ReadAloudProvider extends ChangeNotifier {
     _lastDisplayMode = tp.config.displayMode;
     _lastSourceLang = tp.config.sourceLang;
     _lastTargetLang = tp.config.targetLang;
+    _lastCacheRevision = tp.cacheRevision;
     tp.addListener(_onTtsConfigChanged);
   }
 
@@ -236,6 +239,7 @@ class ReadAloudProvider extends ChangeNotifier {
     final displayModeChanged = _lastDisplayMode != tp.config.displayMode;
     final fromChanged = _lastSourceLang != tp.config.sourceLang;
     final toChanged = _lastTargetLang != tp.config.targetLang;
+    final cacheChanged = _lastCacheRevision != tp.cacheRevision;
 
     final changed = engineChanged ||
         voiceChanged ||
@@ -245,7 +249,7 @@ class ReadAloudProvider extends ChangeNotifier {
         displayModeChanged ||
         fromChanged ||
         toChanged;
-    if (!changed) return;
+    if (!changed && !cacheChanged) return;
 
     _lastEngine = tp.readAloudEngine;
     _lastVoiceType = tp.ttsVoiceType;
@@ -255,8 +259,38 @@ class ReadAloudProvider extends ChangeNotifier {
     _lastDisplayMode = tp.config.displayMode;
     _lastSourceLang = tp.config.sourceLang;
     _lastTargetLang = tp.config.targetLang;
+    _lastCacheRevision = tp.cacheRevision;
 
     if (!_playing && !_preparing && !_paused) return;
+
+    if (cacheChanged && !changed) {
+      if (!tp.applyToReader) return;
+      if (tp.config.displayMode != TranslationDisplayMode.translationOnly &&
+          tp.config.displayMode != TranslationDisplayMode.bilingual) {
+        return;
+      }
+      _queueDirty = true;
+      if (_paused && !_playing && !_preparing) {
+        if (_queue.isEmpty || _queuePos < 0 || _queuePos >= _queue.length) {
+          return;
+        }
+        if (_bookId == null || _chapterIndex == null || _paragraphs.isEmpty) {
+          return;
+        }
+        _queueDirty = false;
+        final entry = _queue[_queuePos];
+        unawaited(seekToChapterPosition(
+          bookId: _bookId!,
+          chapterIndex: _chapterIndex!,
+          paragraphs: _paragraphs,
+          paragraphIndex: entry.paragraphIndex,
+          chunkIndexInParagraph: entry.chunkIndexInParagraph,
+          keepPaused: true,
+        ));
+      }
+      return;
+    }
+
     if (_paused && !_playing && !_preparing) {
       final pos = _position;
       if (pos == null) return;
@@ -310,6 +344,40 @@ class ReadAloudProvider extends ChangeNotifier {
 
   bool get isActiveForBook =>
       _bookId != null && _chapterIndex != null && _queue.isNotEmpty;
+
+  Future<bool> prepare({
+    required String bookId,
+    required int chapterIndex,
+    required List<ReaderParagraph> paragraphs,
+    int? startParagraphIndex,
+  }) async {
+    await _init();
+    _endedNaturally = false;
+    attachChapter(
+        bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
+    final tp = _tp;
+    if (tp == null) return false;
+    if (!tp.aiReadAloudEnabled) return false;
+    if (paragraphs.isEmpty) return false;
+
+    final startPara = (startParagraphIndex ?? 0)
+        .clamp(0, paragraphs.isEmpty ? 0 : paragraphs.length - 1);
+    final queue = _buildQueue(paragraphs: paragraphs, startParagraphIndex: 0);
+    if (queue.isEmpty) return false;
+
+    _queue = queue;
+    _queuePos = _findQueueStartPos(
+      queue: queue,
+      paragraphIndex: startPara,
+      chunkIndexInParagraph: 0,
+    );
+    _paused = true;
+    _playing = false;
+    _preparing = false;
+    await _persistCurrentQueuePosition();
+    notifyListeners();
+    return true;
+  }
 
   Future<bool> startOrResume({
     required String bookId,
@@ -736,6 +804,25 @@ class ReadAloudProvider extends ChangeNotifier {
     }
     final tp = _tp;
     if (tp == null) return;
+
+    if (_queueDirty) {
+      final old = _queue[_queuePos];
+      final rebuilt =
+          _buildQueue(paragraphs: _paragraphs, startParagraphIndex: 0);
+      if (rebuilt.isEmpty) {
+        _queueDirty = false;
+        await stop(keepResume: true);
+        return;
+      }
+      _queue = rebuilt;
+      _queuePos = _findQueueStartPos(
+        queue: rebuilt,
+        paragraphIndex: old.paragraphIndex,
+        chunkIndexInParagraph: old.chunkIndexInParagraph,
+      );
+      _queueDirty = false;
+      if (session != _session) return;
+    }
 
     final entry = _queue[_queuePos];
     final para = _paragraphs.cast<ReaderParagraph?>().firstWhere(

@@ -69,7 +69,8 @@ class _EpubReaderChapter implements _ReaderChapter {
   final String? _titleOverride;
   final bool hasSubChapters;
   final int? parentIndex;
-  _EpubReaderChapter(this.ref, {String? titleOverride, this.hasSubChapters = false, this.parentIndex})
+  _EpubReaderChapter(this.ref,
+      {String? titleOverride, this.hasSubChapters = false, this.parentIndex})
       : _titleOverride = titleOverride;
 
   @override
@@ -245,18 +246,18 @@ class _TextReaderChapter implements _ReaderChapter {
           prevLineInPara = t;
           flushPara();
         } else {
-        if (paraBuffer.isNotEmpty) {
-          final glue =
-              (prevLineInPara != null && _isCjk(prevLineInPara!) && _isCjk(t))
-                  ? ''
-                  : ' ';
-          paraBuffer.write(glue);
-        }
-        paraBuffer.write(t);
-        prevLineInPara = t;
-        if (wrapByPunctuation && endsSentence(t)) {
-          flushPara();
-        }
+          if (paraBuffer.isNotEmpty) {
+            final glue =
+                (prevLineInPara != null && _isCjk(prevLineInPara!) && _isCjk(t))
+                    ? ''
+                    : ' ';
+            paraBuffer.write(glue);
+          }
+          paraBuffer.write(t);
+          prevLineInPara = t;
+          if (wrapByPunctuation && endsSentence(t)) {
+            flushPara();
+          }
         }
       }
 
@@ -582,9 +583,9 @@ class _ReaderPageState extends State<ReaderPage>
   void didChangePlatformBrightness() {
     if (!mounted) return;
     if (!_followSystemTheme) return;
-    final isSystemDark = WidgetsBinding
-            .instance.platformDispatcher.platformBrightness ==
-        Brightness.dark;
+    final isSystemDark =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark;
     setState(() {
       if (isSystemDark) {
         _bgColor = const Color(0xFF121212);
@@ -617,8 +618,12 @@ class _ReaderPageState extends State<ReaderPage>
 
   // Keywords to identify cover/toc chapters that should be skipped
   static final Set<String> _skipChapterKeywords = {
-    'cover', '封面',
-    'toc', 'table of contents', '目录', '目次',
+    'cover',
+    '封面',
+    'toc',
+    'table of contents',
+    '目录',
+    '目次',
   };
 
   bool _shouldSkipChapter(String? title, String? href) {
@@ -666,10 +671,10 @@ class _ReaderPageState extends State<ReaderPage>
         // Add prefix based on depth for hierarchical display
         final prefix = depth > 0 ? ('  ' * depth) : '';
         final displayTitle = rawTitle.isEmpty ? null : '$prefix$rawTitle';
-        
+
         final currentIdx = chapters.length;
-        chapters.add(_EpubReaderChapter(c, 
-            titleOverride: displayTitle, 
+        chapters.add(_EpubReaderChapter(c,
+            titleOverride: displayTitle,
             hasSubChapters: hasSubs,
             parentIndex: parentIdx));
 
@@ -691,7 +696,7 @@ class _ReaderPageState extends State<ReaderPage>
       // Check system brightness for default theme
       final brightness = MediaQuery.platformBrightnessOf(context);
       final isSystemDark = brightness == Brightness.dark;
-      
+
       setState(() {
         _fontSize = _prefs?.getDouble('fontSize') ?? 18.0;
         _lineHeight = _prefs?.getDouble('lineHeight') ?? 1.4;
@@ -1093,9 +1098,23 @@ class _ReaderPageState extends State<ReaderPage>
 
     // Keywords that indicate front matter / TOC sections
     final frontMatterKeywords = [
-      '封面', '书名', '作者', '版权', '出版', '简介', '目录',
-      'contents', 'cover', 'title', 'author', 'copyright',
-      'introduction', 'preface', '前言', '序言', '说明',
+      '封面',
+      '书名',
+      '作者',
+      '版权',
+      '出版',
+      '简介',
+      '目录',
+      'contents',
+      'cover',
+      'title',
+      'author',
+      'copyright',
+      'introduction',
+      'preface',
+      '前言',
+      '序言',
+      '说明',
     ];
 
     int i = bomOffset;
@@ -1127,7 +1146,9 @@ class _ReaderPageState extends State<ReaderPage>
         final t = text.substring(lineStart, lineEnd).trim();
         if (t.isNotEmpty) {
           // Check if this is the book title
-          if (!foundTitle && trimmedBookTitle.isNotEmpty && t == trimmedBookTitle) {
+          if (!foundTitle &&
+              trimmedBookTitle.isNotEmpty &&
+              t == trimmedBookTitle) {
             foundTitle = true;
             i = next;
             scanned++;
@@ -1958,11 +1979,11 @@ class _ReaderPageState extends State<ReaderPage>
     final paras = await _paragraphsForChapter(chapterIndex);
     if (!mounted) return;
     await rap.startOrResume(
-          bookId: widget.bookId,
-          chapterIndex: chapterIndex,
-          paragraphs: paras,
-          startParagraphIndex: startParagraphIndex,
-        );
+      bookId: widget.bookId,
+      chapterIndex: chapterIndex,
+      paragraphs: paras,
+      startParagraphIndex: startParagraphIndex,
+    );
   }
 
   void _scheduleSyncToReadAloudPosition(ReadAloudPosition pos) {
@@ -1989,20 +2010,18 @@ class _ReaderPageState extends State<ReaderPage>
         if (!mounted) return;
         final plainText = _getPlainTextForChapter(targetChapter);
         if (plainText.isEmpty) return;
-        final effectiveText =
-            _chapterEffectiveText[targetChapter] ?? plainText;
+        final effectiveText = _chapterEffectiveText[targetChapter] ?? plainText;
         final ranges = _chapterPageRanges[targetChapter] ??
             _chapterFallbackPageRanges[targetChapter];
         if (ranges == null || ranges.isEmpty) return;
-        final int plainLen = plainText.length;
-        final int effectiveLen = effectiveText.length;
-        final int plainOffset =
-            latest.chapterTextOffset.clamp(0, plainLen);
-        final int effectiveOffset = plainLen <= 0
-            ? 0
-            : (plainOffset * effectiveLen / plainLen)
-                .round()
-                .clamp(0, effectiveLen);
+        final tp = context.read<TranslationProvider>();
+        final int effectiveOffset = _effectiveOffsetForReadAloudPosition(
+          chapterIndex: targetChapter,
+          tp: tp,
+          pos: latest,
+          plainText: plainText,
+          effectiveText: effectiveText,
+        );
 
         int desiredPage = 0;
         int low = 0;
@@ -2039,8 +2058,7 @@ class _ReaderPageState extends State<ReaderPage>
           return;
         }
 
-        final bool isOnDesired =
-            _currentChapterIndex == targetChapter &&
+        final bool isOnDesired = _currentChapterIndex == targetChapter &&
             _currentPageInChapter == desiredPage;
         if (isOnDesired) {
           _readAloudFollow = true;
@@ -2051,7 +2069,7 @@ class _ReaderPageState extends State<ReaderPage>
 
         final bool isOnFollowPage =
             _readAloudFollowChapter == _currentChapterIndex &&
-            _readAloudFollowPage == _currentPageInChapter;
+                _readAloudFollowPage == _currentPageInChapter;
         if (_readAloudFollow && isOnFollowPage) {
           final beforePage = _currentPageInChapter;
           setState(() {
@@ -2071,11 +2089,91 @@ class _ReaderPageState extends State<ReaderPage>
     });
   }
 
+  int _effectiveOffsetForReadAloudPosition({
+    required int chapterIndex,
+    required TranslationProvider tp,
+    required ReadAloudPosition pos,
+    required String plainText,
+    required String effectiveText,
+  }) {
+    if (!tp.applyToReader) {
+      return pos.chapterTextOffset.clamp(0, plainText.length);
+    }
+    if (plainText.isEmpty || effectiveText.isEmpty) return 0;
+
+    final paragraphs = _getParagraphsForChapter(chapterIndex, plainText);
+    if (paragraphs.isEmpty) return 0;
+
+    final bool isBilingual =
+        tp.config.displayMode == TranslationDisplayMode.bilingual;
+    final bool isTransOnly =
+        tp.config.displayMode == TranslationDisplayMode.translationOnly;
+
+    int cursor = 0;
+    for (int i = 0; i < paragraphs.length; i++) {
+      final p = paragraphs[i];
+      final trans = tp.getCachedTranslation(p.text);
+      final pending = tp.isTranslationPending(p.text);
+      final failed = tp.isTranslationFailed(p.text);
+
+      String render;
+      if (trans != null && trans.isNotEmpty) {
+        if (isTransOnly) {
+          render = trans;
+        } else {
+          render = '${p.text}\n$trans';
+        }
+      } else if (pending) {
+        if (isTransOnly || isBilingual) {
+          render = '${p.text}\n翻译中...';
+        } else {
+          render = p.text;
+        }
+      } else if (failed) {
+        if (isTransOnly || isBilingual) {
+          render = '${p.text}\n翻译失败';
+        } else {
+          render = p.text;
+        }
+      } else {
+        render = p.text;
+      }
+
+      final paraStart = cursor;
+      if (p.index == pos.paragraphIndex) {
+        int inside = 0;
+        final h = pos.highlightText.trim();
+        if (h.isNotEmpty) {
+          final idx = render.indexOf(h);
+          if (idx >= 0) {
+            inside = idx;
+          } else if (!isTransOnly) {
+            inside = pos.highlightOffsetInParagraph.clamp(0, p.text.length);
+          }
+        } else if (!isTransOnly) {
+          inside = pos.highlightOffsetInParagraph.clamp(0, p.text.length);
+        }
+
+        final out = (paraStart + inside).clamp(0, paraStart + render.length);
+        return out.clamp(0, effectiveText.length);
+      }
+
+      cursor = paraStart + render.length;
+      if (i < paragraphs.length - 1) {
+        cursor += 2;
+      }
+      if (cursor >= effectiveText.length) break;
+    }
+    return pos.chapterTextOffset
+        .clamp(0, plainText.isEmpty ? 0 : plainText.length);
+  }
+
   void _scheduleUpdateReadAloudFollowFromCurrentView() {
     if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(() async {
         if (!mounted) return;
+        final tp = context.read<TranslationProvider>();
         final rap = context.read<ReadAloudProvider>();
         final pos = rap.position;
         if (pos == null || pos.bookId != widget.bookId) {
@@ -2092,14 +2190,13 @@ class _ReaderPageState extends State<ReaderPage>
             _chapterFallbackPageRanges[targetChapter];
         if (ranges == null || ranges.isEmpty) return;
 
-        final int plainLen = plainText.length;
-        final int effectiveLen = effectiveText.length;
-        final int plainOffset = pos.chapterTextOffset.clamp(0, plainLen);
-        final int effectiveOffset = plainLen <= 0
-            ? 0
-            : (plainOffset * effectiveLen / plainLen)
-                .round()
-                .clamp(0, effectiveLen);
+        final int effectiveOffset = _effectiveOffsetForReadAloudPosition(
+          chapterIndex: targetChapter,
+          tp: tp,
+          pos: pos,
+          plainText: plainText,
+          effectiveText: effectiveText,
+        );
 
         int desiredPage = 0;
         int low = 0;
@@ -2160,9 +2257,17 @@ class _ReaderPageState extends State<ReaderPage>
     }
 
     unawaited(() async {
+      final tp = context.read<TranslationProvider>();
       final paras = await _paragraphsForChapter(nextChapter);
       if (!mounted) return;
       if (paras.isEmpty) return;
+      await _prefetchChapterTranslations(
+        tp: tp,
+        chapterIndex: nextChapter,
+        paragraphs: paras,
+        purpose: 'read_aloud_enter',
+        waitForCache: true,
+      );
       await rap.startOrResume(
         bookId: widget.bookId,
         chapterIndex: nextChapter,
@@ -2172,28 +2277,151 @@ class _ReaderPageState extends State<ReaderPage>
     }());
   }
 
+  final Map<String, String> _chapterPrefetchKeys = {};
+
+  int _nextChapterPrefetchCount(TranslationProvider tp) {
+    if (tp.translationMode == TranslationMode.bigModel) return 3;
+    return 8;
+  }
+
+  void _scheduleChapterTranslationPrefetch({
+    required TranslationProvider tp,
+    required int chapterIndex,
+    required String purpose,
+  }) {
+    if (!tp.applyToReader) return;
+    if (tp.config.displayMode != TranslationDisplayMode.bilingual &&
+        tp.config.displayMode != TranslationDisplayMode.translationOnly) {
+      return;
+    }
+    if (chapterIndex < 0 || chapterIndex >= _chapters.length) return;
+    unawaited(() async {
+      final paras = await _paragraphsForChapter(chapterIndex);
+      if (!mounted) return;
+      if (paras.isEmpty) return;
+      await _prefetchChapterTranslations(
+        tp: tp,
+        chapterIndex: chapterIndex,
+        paragraphs: paras,
+        purpose: purpose,
+        waitForCache: false,
+      );
+    }());
+  }
+
+  Future<void> _prefetchChapterTranslations({
+    required TranslationProvider tp,
+    required int chapterIndex,
+    required List<ReaderParagraph> paragraphs,
+    required String purpose,
+    bool waitForCache = false,
+  }) async {
+    if (!tp.applyToReader) return;
+    if (tp.config.displayMode != TranslationDisplayMode.bilingual &&
+        tp.config.displayMode != TranslationDisplayMode.translationOnly) {
+      return;
+    }
+    if (paragraphs.isEmpty) return;
+
+    final key =
+        '$purpose|${widget.bookId}|$chapterIndex|${tp.config.displayMode.name}|${tp.translationMode.name}|${tp.config.sourceLang}|${tp.config.targetLang}';
+    final alreadyPrefetched = _chapterPrefetchKeys[purpose] == key;
+    if (!alreadyPrefetched) _chapterPrefetchKeys[purpose] = key;
+
+    final maxCount = _nextChapterPrefetchCount(tp);
+    final takeCount =
+        paragraphs.length < maxCount ? paragraphs.length : maxCount;
+    final texts = <String>[];
+    for (int i = 0; i < takeCount; i++) {
+      final t = paragraphs[i].text.trim();
+      if (t.isNotEmpty) texts.add(t);
+    }
+    if (texts.isEmpty) return;
+
+    if (!alreadyPrefetched) {
+      tp.prefetchParagraphs(texts);
+    }
+
+    if (!waitForCache) return;
+
+    // Best-effort: wait a short time so ReadAloud queue can include translations
+    // when entering a new chapter.
+    final deadline = DateTime.now().add(const Duration(milliseconds: 1200));
+    while (DateTime.now().isBefore(deadline)) {
+      bool anyReady = false;
+      for (final t in texts.take(3)) {
+        final cached = tp.getCachedTranslation(t);
+        if (cached != null && cached.trim().isNotEmpty) {
+          anyReady = true;
+          break;
+        }
+      }
+      if (anyReady) return;
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    }
+  }
+
   Future<void> _handleReadAloudBackTap() async {
     if (_readAloudNavInFlight) return;
     _readAloudNavInFlight = true;
     try {
       final rap = context.read<ReadAloudProvider>();
+      if (rap.bookId != widget.bookId || !rap.isActiveForBook) {
+        final tp = context.read<TranslationProvider>();
+        final chapterIndex = _currentChapterIndex;
+        final paras = await _paragraphsForChapter(chapterIndex);
+        if (!mounted) return;
+        if (paras.isNotEmpty) {
+          int startPara = 0;
+          final visibleMap =
+              _paragraphsByIndexForPageOffsetForTranslation(0, tp);
+          if (visibleMap.isNotEmpty) {
+            final sortedKeys = visibleMap.keys.toList()..sort();
+            startPara = sortedKeys.first;
+          }
+          await rap.prepare(
+            bookId: widget.bookId,
+            chapterIndex: chapterIndex,
+            paragraphs: paras,
+            startParagraphIndex: startPara,
+          );
+        }
+      }
       if (rap.bookId != widget.bookId) return;
       final keepPaused = rap.paused && !rap.playing && !rap.preparing;
       final moved = await rap.stepToPreviousChunk(keepPaused: keepPaused);
-      if (moved) return;
+      if (moved) {
+        final pos = rap.position;
+        if (pos != null && pos.bookId == widget.bookId) {
+          _readAloudFollow = true;
+          _readAloudFollowChapter = _currentChapterIndex;
+          _readAloudFollowPage = _currentPageInChapter;
+          _scheduleSyncToReadAloudPosition(pos);
+        }
+        return;
+      }
       final pos = rap.position;
       if (pos == null || pos.bookId != widget.bookId) return;
       final prevChapter = pos.chapterIndex - 1;
       if (prevChapter < 0) return;
+      final tp = context.read<TranslationProvider>();
       final paras = await _paragraphsForChapter(prevChapter);
       if (!mounted) return;
       if (paras.isEmpty) return;
       _readAloudFollow = true;
+      await _prefetchChapterTranslations(
+        tp: tp,
+        chapterIndex: prevChapter,
+        paragraphs: paras,
+        purpose: 'read_aloud_enter',
+        waitForCache: true,
+      );
       await _ensureChapterContentCached(prevChapter);
       if (!mounted) return;
-      final ranges =
-          _chapterPageRanges[prevChapter] ?? _chapterFallbackPageRanges[prevChapter];
-      final desiredPage = (ranges == null || ranges.isEmpty) ? 0 : ranges.length - 1;
+      final ranges = _chapterPageRanges[prevChapter] ??
+          _chapterFallbackPageRanges[prevChapter];
+      final desiredPage =
+          (ranges == null || ranges.isEmpty) ? 0 : ranges.length - 1;
       setState(() {
         _currentChapterIndex = prevChapter;
         _currentPageInChapter = desiredPage;
@@ -2218,18 +2446,56 @@ class _ReaderPageState extends State<ReaderPage>
     _readAloudNavInFlight = true;
     try {
       final rap = context.read<ReadAloudProvider>();
+      if (rap.bookId != widget.bookId || !rap.isActiveForBook) {
+        final tp = context.read<TranslationProvider>();
+        final chapterIndex = _currentChapterIndex;
+        final paras = await _paragraphsForChapter(chapterIndex);
+        if (!mounted) return;
+        if (paras.isNotEmpty) {
+          int startPara = 0;
+          final visibleMap =
+              _paragraphsByIndexForPageOffsetForTranslation(0, tp);
+          if (visibleMap.isNotEmpty) {
+            final sortedKeys = visibleMap.keys.toList()..sort();
+            startPara = sortedKeys.first;
+          }
+          await rap.prepare(
+            bookId: widget.bookId,
+            chapterIndex: chapterIndex,
+            paragraphs: paras,
+            startParagraphIndex: startPara,
+          );
+        }
+      }
       if (rap.bookId != widget.bookId) return;
       final keepPaused = rap.paused && !rap.playing && !rap.preparing;
       final moved = await rap.stepToNextChunk(keepPaused: keepPaused);
-      if (moved) return;
+      if (moved) {
+        final pos = rap.position;
+        if (pos != null && pos.bookId == widget.bookId) {
+          _readAloudFollow = true;
+          _readAloudFollowChapter = _currentChapterIndex;
+          _readAloudFollowPage = _currentPageInChapter;
+          _scheduleSyncToReadAloudPosition(pos);
+        }
+        return;
+      }
       final pos = rap.position;
       if (pos == null || pos.bookId != widget.bookId) return;
       final nextChapter = pos.chapterIndex + 1;
       if (nextChapter >= _chapters.length) return;
+      final tp = context.read<TranslationProvider>();
       final paras = await _paragraphsForChapter(nextChapter);
       if (!mounted) return;
       if (paras.isEmpty) return;
       _readAloudFollow = true;
+      await _prefetchChapterTranslations(
+        tp: tp,
+        chapterIndex: nextChapter,
+        paragraphs: paras,
+        purpose: 'read_aloud_enter',
+        waitForCache: true,
+      );
       setState(() {
         _currentChapterIndex = nextChapter;
         _currentPageInChapter = 0;
@@ -2627,8 +2893,8 @@ class _ReaderPageState extends State<ReaderPage>
         await _readAloudPlayer.play(BytesSource(bytes));
       } else {
         final dir = await getTemporaryDirectory();
-        final file =
-            File('${dir.path}/tts_${session}_${DateTime.now().microsecondsSinceEpoch}.mp3');
+        final file = File(
+            '${dir.path}/tts_${session}_${DateTime.now().microsecondsSinceEpoch}.mp3');
         await file.writeAsBytes(bytes, flush: true);
         _readAloudTempFilePath = file.path;
         await _readAloudPlayer.play(DeviceFileSource(file.path));
@@ -2975,10 +3241,9 @@ class _ReaderPageState extends State<ReaderPage>
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentMaterialBanner();
 
-    final bgColor =
-        isError
-            ? Colors.red.withOpacityCompat(0.95)
-            : Colors.green.withOpacityCompat(0.95);
+    final bgColor = isError
+        ? Colors.red.withOpacityCompat(0.95)
+        : Colors.green.withOpacityCompat(0.95);
 
     messenger.showMaterialBanner(
       MaterialBanner(
@@ -3003,10 +3268,19 @@ class _ReaderPageState extends State<ReaderPage>
 
   Widget _buildReadAloudFloatingButton() {
     if (_isLoading || _error != null) return const SizedBox.shrink();
-    if (!context.watch<TranslationProvider>().aiReadAloudEnabled) {
+    final tp = context.watch<TranslationProvider>();
+    if (!tp.aiReadAloudEnabled) {
       return const SizedBox.shrink();
     }
     final readAloud = context.watch<ReadAloudProvider>();
+    final bool hasChapters = _chapters.isNotEmpty;
+    final bool atBookStart = hasChapters &&
+        (_currentChapterIndex <= 0 && _currentPageInChapter <= 0);
+    final bool atBookEnd = hasChapters &&
+        (_currentChapterIndex >= _chapters.length - 1 &&
+            _currentPageInChapter >=
+                (_pageCountForChapter(_chapters.length - 1) - 1)
+                    .clamp(0, 999999));
 
     final Color surface = _panelBgColor;
     final Color onSurface = _panelTextColor;
@@ -3087,12 +3361,8 @@ class _ReaderPageState extends State<ReaderPage>
                       _readAloudCapsuleButton(
                         icon: Icons.replay_rounded,
                         spinTurns: _readAloudBackSpinTurns,
-                        enabled: readAloud.bookId == widget.bookId &&
-                            (readAloud.playing ||
-                                readAloud.paused ||
-                                readAloud.preparing),
+                        enabled: tp.aiReadAloudEnabled && !atBookStart,
                         onTap: () {
-                          if (readAloud.bookId != widget.bookId) return;
                           setState(() => _readAloudBackSpinTurns -= 1.0);
                           unawaited(_handleReadAloudBackTap());
                         },
@@ -3151,12 +3421,8 @@ class _ReaderPageState extends State<ReaderPage>
                         icon: Icons.replay_rounded,
                         spinTurns: _readAloudForwardSpinTurns,
                         mirrorX: true,
-                        enabled: readAloud.bookId == widget.bookId &&
-                            (readAloud.playing ||
-                                readAloud.paused ||
-                                readAloud.preparing),
+                        enabled: tp.aiReadAloudEnabled && !atBookEnd,
                         onTap: () {
-                          if (readAloud.bookId != widget.bookId) return;
                           setState(() => _readAloudForwardSpinTurns += 1.0);
                           unawaited(_handleReadAloudForwardTap());
                         },
@@ -3758,12 +4024,14 @@ class _ReaderPageState extends State<ReaderPage>
     }
 
     final double dx = (contentWidth - 1).clamp(0, contentWidth);
-    final double dy = (lines[lastVisibleLine].baseline + (lines[lastVisibleLine].descent * 0.5))
+    final double dy = (lines[lastVisibleLine].baseline +
+            (lines[lastVisibleLine].descent * 0.5))
         .clamp(0, dyLimit);
     final pos = textPainter.getPositionForOffset(Offset(dx, dy));
     int localEnd = pos.offset.clamp(1, localLen);
 
-    final boundary = textPainter.getLineBoundary(TextPosition(offset: localEnd));
+    final boundary =
+        textPainter.getLineBoundary(TextPosition(offset: localEnd));
     localEnd = boundary.end.clamp(1, localLen);
 
     int end = (start + localEnd).clamp(minEnd, len);
@@ -4029,7 +4297,8 @@ class _ReaderPageState extends State<ReaderPage>
           _chapterPlainPageRanges[chapterIndex] ?? const []);
       int start = ranges.isEmpty ? 0 : ranges.last.end;
       final int len = plainText.length;
-      while (start < len && _isSkippableWhitespaceCu(plainText.codeUnitAt(start))) {
+      while (start < len &&
+          _isSkippableWhitespaceCu(plainText.codeUnitAt(start))) {
         start++;
       }
       final textPainter = TextPainter(
@@ -4350,9 +4619,10 @@ class _ReaderPageState extends State<ReaderPage>
                           controller: scrollController,
                           itemExtent: itemExtent,
                           cacheExtent: itemExtent * 20,
-                          itemCount: (_currentBookFormat == 'txt' && _txtTocParsing)
-                              ? 1
-                              : visibleChapters.length,
+                          itemCount:
+                              (_currentBookFormat == 'txt' && _txtTocParsing)
+                                  ? 1
+                                  : visibleChapters.length,
                           itemBuilder: (context, listIndex) {
                             if (_currentBookFormat == 'txt' && _txtTocParsing) {
                               return ListTile(
@@ -4365,9 +4635,11 @@ class _ReaderPageState extends State<ReaderPage>
                             final item = visibleChapters[listIndex];
                             final index = item['index'] as int;
                             final chapter = item['chapter'] as _ReaderChapter;
-                            final isExpanded = _expandedChapterIndices.contains(index);
-                            final isEpubWithSubs = chapter is _EpubReaderChapter &&
-                                chapter.hasSubChapters;
+                            final isExpanded =
+                                _expandedChapterIndices.contains(index);
+                            final isEpubWithSubs =
+                                chapter is _EpubReaderChapter &&
+                                    chapter.hasSubChapters;
 
                             return ListTile(
                               dense: true,
@@ -4388,8 +4660,10 @@ class _ReaderPageState extends State<ReaderPage>
                                   ? GestureDetector(
                                       onTap: () {
                                         setModalState(() {
-                                          if (_expandedChapterIndices.contains(index)) {
-                                            _expandedChapterIndices.remove(index);
+                                          if (_expandedChapterIndices
+                                              .contains(index)) {
+                                            _expandedChapterIndices
+                                                .remove(index);
                                           } else {
                                             _expandedChapterIndices.add(index);
                                           }
@@ -4399,8 +4673,8 @@ class _ReaderPageState extends State<ReaderPage>
                                         isExpanded
                                             ? Icons.expand_less
                                             : Icons.expand_more,
-                                        color:
-                                            _panelTextColor.withOpacityCompat(0.6),
+                                        color: _panelTextColor
+                                            .withOpacityCompat(0.6),
                                         size: 20,
                                       ),
                                     )
@@ -4409,7 +4683,8 @@ class _ReaderPageState extends State<ReaderPage>
                                 if (isEpubWithSubs) {
                                   // Toggle expand/collapse for parent chapters
                                   setModalState(() {
-                                    if (_expandedChapterIndices.contains(index)) {
+                                    if (_expandedChapterIndices
+                                        .contains(index)) {
                                       _expandedChapterIndices.remove(index);
                                     } else {
                                       _expandedChapterIndices.add(index);
@@ -4429,7 +4704,8 @@ class _ReaderPageState extends State<ReaderPage>
                                       Provider.of<TranslationProvider>(context,
                                           listen: false);
                                   if (translationProvider.applyToReader) {
-                                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
                                       if (!mounted) return;
                                       _translateCurrentPageIfNeeded(
                                           translationProvider);
@@ -4491,8 +4767,8 @@ class _ReaderPageState extends State<ReaderPage>
                         Expanded(
                           child: Text(
                             '跟随系统深色模式',
-                            style: TextStyle(
-                                fontSize: 14, color: _panelTextColor),
+                            style:
+                                TextStyle(fontSize: 14, color: _panelTextColor),
                           ),
                         ),
                         Switch(
@@ -4867,7 +5143,8 @@ class _ReaderPageState extends State<ReaderPage>
         final double rawContentWidth = (maxWidth - 48);
         final double safeMaxWidth = maxWidth <= 1 ? 1 : maxWidth;
         final double safeContentWidth = rawContentWidth.isFinite
-            ? rawContentWidth.clamp(safeMaxWidth < 40 ? 1.0 : 40.0, safeMaxWidth)
+            ? rawContentWidth.clamp(
+                safeMaxWidth < 40 ? 1.0 : 40.0, safeMaxWidth)
             : (safeMaxWidth < 40 ? 1.0 : 40.0);
 
         final textScaler = MediaQuery.of(context).textScaler;
@@ -4878,23 +5155,19 @@ class _ReaderPageState extends State<ReaderPage>
             applyHeightToFirstAscent: false,
             applyHeightToLastDescent: false,
           ),
-          strutStyle:
-              StrutStyle.fromTextStyle(effectiveTextStyle, forceStrutHeight: true),
+          strutStyle: StrutStyle.fromTextStyle(effectiveTextStyle,
+              forceStrutHeight: true),
           text: TextSpan(text: '国Ay', style: effectiveTextStyle),
         )..layout(minWidth: 0, maxWidth: safeContentWidth);
         final double minLineHeight = probe.height;
-        final double topExtra =
-            snap((minLineHeight * 0.18).clamp(4.0, 10.0));
+        final double topExtra = snap((minLineHeight * 0.18).clamp(4.0, 10.0));
         final double bottomExtra =
             snap((minLineHeight * 0.28).clamp(10.0, 18.0));
         final double topMargin = snap(padding.top + topExtra);
         final double bottomMargin = snap(safeBottom + bottomExtra);
 
         double viewportHeight = snapDown(
-          constraints.maxHeight -
-              topMargin -
-              bottomMargin -
-              (1 / dpr),
+          constraints.maxHeight - topMargin - bottomMargin - (1 / dpr),
         );
         if (viewportHeight <= 0) {
           viewportHeight = minLineHeight > 0 ? minLineHeight : 500;
@@ -5096,146 +5369,147 @@ class _ReaderPageState extends State<ReaderPage>
             key: ValueKey(
                 'sel_${chapterIndex}_${range.start}_$_selectionAreaResetToken'),
             onSelectionChanged: (value) {
-              selectedText = ((value as dynamic)?.plainText as String?)?.trim() ?? '';
+              selectedText =
+                  ((value as dynamic)?.plainText as String?)?.trim() ?? '';
             },
             contextMenuBuilder: (context, selectableRegionState) {
               final text = selectedText.trim();
-          final tp = context.read<TranslationProvider>();
-          final readAloud = context.read<ReadAloudProvider>();
-          final aiModel = context.read<AiModelProvider>();
-          final personalUsable = tp.usingPersonalTencentKeys &&
-              getEmbeddedPublicHunyuanCredentials().isUsable;
-          final canReadCurrent = tp.aiReadAloudEnabled && text.isNotEmpty;
-          final canTranslate = text.isNotEmpty &&
-              (tp.translationMode == TranslationMode.machine ||
-                  (tp.translationMode == TranslationMode.bigModel &&
-                      (aiModel.pointsBalance > 0 || personalUsable)));
-          final canExplain = text.isNotEmpty &&
-              ((aiModel.source == AiModelSource.local && aiModel.loaded) ||
-                  (aiModel.source == AiModelSource.online &&
-                      (aiModel.pointsBalance > 0 || personalUsable)));
+              final tp = context.read<TranslationProvider>();
+              final readAloud = context.read<ReadAloudProvider>();
+              final aiModel = context.read<AiModelProvider>();
+              final personalUsable = tp.usingPersonalTencentKeys &&
+                  getEmbeddedPublicHunyuanCredentials().isUsable;
+              final canReadCurrent = tp.aiReadAloudEnabled && text.isNotEmpty;
+              final canTranslate = text.isNotEmpty &&
+                  (tp.translationMode == TranslationMode.machine ||
+                      (tp.translationMode == TranslationMode.bigModel &&
+                          (aiModel.pointsBalance > 0 || personalUsable)));
+              final canExplain = text.isNotEmpty &&
+                  ((aiModel.source == AiModelSource.local && aiModel.loaded) ||
+                      (aiModel.source == AiModelSource.online &&
+                          (aiModel.pointsBalance > 0 || personalUsable)));
 
-          final isDarkBg = _bgColor.computeLuminance() < 0.5;
-          final toolbarBg = isDarkBg
-              ? Colors.white.withOpacityCompat(0.94)
-              : AppColors.deepSpace.withOpacityCompat(0.92);
-          final toolbarFg = isDarkBg ? AppColors.deepSpace : Colors.white;
-          final disabledFg = toolbarFg.withOpacityCompat(0.38);
-          final baseTheme = Theme.of(context);
-          final themed = baseTheme.copyWith(
-            colorScheme: baseTheme.colorScheme.copyWith(
-              surface: toolbarBg,
-              onSurface: toolbarFg,
-            ),
-            textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(
-                foregroundColor: toolbarFg,
-                disabledForegroundColor: disabledFg,
-                textStyle: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-          );
+              final isDarkBg = _bgColor.computeLuminance() < 0.5;
+              final toolbarBg = isDarkBg
+                  ? Colors.white.withOpacityCompat(0.94)
+                  : AppColors.deepSpace.withOpacityCompat(0.92);
+              final toolbarFg = isDarkBg ? AppColors.deepSpace : Colors.white;
+              final disabledFg = toolbarFg.withOpacityCompat(0.38);
+              final baseTheme = Theme.of(context);
+              final themed = baseTheme.copyWith(
+                colorScheme: baseTheme.colorScheme.copyWith(
+                  surface: toolbarBg,
+                  onSurface: toolbarFg,
+                ),
+                textButtonTheme: TextButtonThemeData(
+                  style: TextButton.styleFrom(
+                    foregroundColor: toolbarFg,
+                    disabledForegroundColor: disabledFg,
+                    textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              );
 
-          final items = <ContextMenuButtonItem>[
-            if (canReadCurrent)
-              ContextMenuButtonItem(
-                onPressed: () {
-                  ContextMenuController.removeAny();
-                  selectableRegionState.hideToolbar();
-                  if (mounted) {
-                    setState(() {
-                      _selectionAreaResetToken++;
-                    });
-                  }
-                  unawaited(() async {
-                    await readAloud.stop(keepResume: true);
-                    if (!mounted) return;
-                    await _startReadAloudFromSelection(text);
-                  }());
-                },
-                type: ContextMenuButtonType.custom,
-                label: '读当前',
-              ),
-            if (canTranslate)
-              ContextMenuButtonItem(
-                onPressed: () {
-                  ContextMenuController.removeAny();
-                  selectableRegionState.hideToolbar();
-                  if (mounted) {
-                    setState(() {
-                      _selectionAreaResetToken++;
-                    });
-                  }
-                  unawaited(_showSelectionTranslation(text));
-                },
-                type: ContextMenuButtonType.custom,
-                label: '翻译',
-              ),
-            if (canExplain)
-              ContextMenuButtonItem(
-                onPressed: () {
-                  ContextMenuController.removeAny();
-                  selectableRegionState.hideToolbar();
-                  if (mounted) {
-                    setState(() {
-                      _selectionAreaResetToken++;
-                    });
-                  }
-                  unawaited(_openAiHud(
-                    initialRoute: AiHudRoute.qa,
-                    initialQaText: text,
-                    autoSendInitialQa: true,
-                  ));
-                },
-                type: ContextMenuButtonType.custom,
-                label: '解释',
-              ),
-          ];
-          final ContextMenuButtonItem? copyItem =
-              selectableRegionState.contextMenuButtonItems
+              final items = <ContextMenuButtonItem>[
+                if (canReadCurrent)
+                  ContextMenuButtonItem(
+                    onPressed: () {
+                      ContextMenuController.removeAny();
+                      selectableRegionState.hideToolbar();
+                      if (mounted) {
+                        setState(() {
+                          _selectionAreaResetToken++;
+                        });
+                      }
+                      unawaited(() async {
+                        await readAloud.stop(keepResume: true);
+                        if (!mounted) return;
+                        await _startReadAloudFromSelection(text);
+                      }());
+                    },
+                    type: ContextMenuButtonType.custom,
+                    label: '读当前',
+                  ),
+                if (canTranslate)
+                  ContextMenuButtonItem(
+                    onPressed: () {
+                      ContextMenuController.removeAny();
+                      selectableRegionState.hideToolbar();
+                      if (mounted) {
+                        setState(() {
+                          _selectionAreaResetToken++;
+                        });
+                      }
+                      unawaited(_showSelectionTranslation(text));
+                    },
+                    type: ContextMenuButtonType.custom,
+                    label: '翻译',
+                  ),
+                if (canExplain)
+                  ContextMenuButtonItem(
+                    onPressed: () {
+                      ContextMenuController.removeAny();
+                      selectableRegionState.hideToolbar();
+                      if (mounted) {
+                        setState(() {
+                          _selectionAreaResetToken++;
+                        });
+                      }
+                      unawaited(_openAiHud(
+                        initialRoute: AiHudRoute.qa,
+                        initialQaText: text,
+                        autoSendInitialQa: true,
+                      ));
+                    },
+                    type: ContextMenuButtonType.custom,
+                    label: '解释',
+                  ),
+              ];
+              final ContextMenuButtonItem? copyItem = selectableRegionState
+                  .contextMenuButtonItems
                   .where((e) => e.type == ContextMenuButtonType.copy)
                   .cast<ContextMenuButtonItem?>()
                   .firstWhere((e) => e != null, orElse: () => null);
-          final ContextMenuButtonItem? selectAllItem =
-              selectableRegionState.contextMenuButtonItems
+              final ContextMenuButtonItem? selectAllItem = selectableRegionState
+                  .contextMenuButtonItems
                   .where((e) => e.type == ContextMenuButtonType.selectAll)
                   .cast<ContextMenuButtonItem?>()
                   .firstWhere((e) => e != null, orElse: () => null);
-          if (copyItem != null) {
-            items.add(
-              ContextMenuButtonItem(
-                onPressed: () {
-                  copyItem.onPressed?.call();
-                  ContextMenuController.removeAny();
-                  selectableRegionState.hideToolbar();
-                  if (mounted) {
-                    setState(() {
-                      _selectionAreaResetToken++;
-                    });
-                  }
-                },
-                type: copyItem.type,
-                label: '复制',
-              ),
-            );
-          }
-          if (selectAllItem != null) {
-            items.add(
-              ContextMenuButtonItem(
-                onPressed: selectAllItem.onPressed,
-                type: selectAllItem.type,
-                label: '全选',
-              ),
-            );
-          }
+              if (copyItem != null) {
+                items.add(
+                  ContextMenuButtonItem(
+                    onPressed: () {
+                      copyItem.onPressed?.call();
+                      ContextMenuController.removeAny();
+                      selectableRegionState.hideToolbar();
+                      if (mounted) {
+                        setState(() {
+                          _selectionAreaResetToken++;
+                        });
+                      }
+                    },
+                    type: copyItem.type,
+                    label: '复制',
+                  ),
+                );
+              }
+              if (selectAllItem != null) {
+                items.add(
+                  ContextMenuButtonItem(
+                    onPressed: selectAllItem.onPressed,
+                    type: selectAllItem.type,
+                    label: '全选',
+                  ),
+                );
+              }
 
-          return Theme(
-            data: themed,
-            child: AdaptiveTextSelectionToolbar.buttonItems(
-              anchors: selectableRegionState.contextMenuAnchors,
-              buttonItems: items,
-            ),
-          );
+              return Theme(
+                data: themed,
+                child: AdaptiveTextSelectionToolbar.buttonItems(
+                  anchors: selectableRegionState.contextMenuAnchors,
+                  buttonItems: items,
+                ),
+              );
             },
             child: Text.rich(
               bodySpan,
@@ -5825,9 +6099,19 @@ class _ReaderPageState extends State<ReaderPage>
     final tp = context.watch<TranslationProvider>();
     final readAloud = context.watch<ReadAloudProvider>();
     final pos = readAloud.position;
+    _scheduleChapterTranslationPrefetch(
+      tp: tp,
+      chapterIndex: _currentChapterIndex + 1,
+      purpose: 'reader_next',
+    );
     if (pos != null && pos.bookId == widget.bookId && tp.aiReadAloudEnabled) {
       _scheduleSyncToReadAloudPosition(pos);
       _maybeAutoContinueToNextChapter(readAloud, pos);
+      _scheduleChapterTranslationPrefetch(
+        tp: tp,
+        chapterIndex: pos.chapterIndex + 1,
+        purpose: 'read_aloud_next',
+      );
     }
     _scheduleRelocateAfterTranslationChange(tp);
     _scheduleCurrentPageTranslateResume(tp);
@@ -5968,8 +6252,9 @@ class _ReaderPageState extends State<ReaderPage>
                                     shape: BoxShape.circle,
                                     boxShadow: [
                                       BoxShadow(
-                                        color: AppColors.techBlue.withOpacityCompat(
-                                            0.4 * _pulseController.value),
+                                        color: AppColors.techBlue
+                                            .withOpacityCompat(
+                                                0.4 * _pulseController.value),
                                         blurRadius:
                                             10 + (10 * _pulseController.value),
                                         spreadRadius:
