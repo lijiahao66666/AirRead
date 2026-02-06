@@ -3274,13 +3274,40 @@ class _ReaderPageState extends State<ReaderPage>
     }
     final readAloud = context.watch<ReadAloudProvider>();
     final bool hasChapters = _chapters.isNotEmpty;
-    final bool atBookStart = hasChapters &&
-        (_currentChapterIndex <= 0 && _currentPageInChapter <= 0);
-    final bool atBookEnd = hasChapters &&
-        (_currentChapterIndex >= _chapters.length - 1 &&
-            _currentPageInChapter >=
-                (_pageCountForChapter(_chapters.length - 1) - 1)
-                    .clamp(0, 999999));
+    final visibleParas = _paragraphsByIndexForPageOffsetForTranslation(0, tp);
+    int? firstVisibleParaIndex;
+    int? lastVisibleParaIndex;
+    if (visibleParas.isNotEmpty) {
+      final keys = visibleParas.keys.toList()..sort();
+      firstVisibleParaIndex = keys.first;
+      lastVisibleParaIndex = keys.last;
+    }
+    int? lastParaIndexInChapter;
+    final currentPlainText = _getPlainTextForChapter(_currentChapterIndex);
+    if (currentPlainText.isNotEmpty) {
+      final paras =
+          _getParagraphsForChapter(_currentChapterIndex, currentPlainText);
+      if (paras.isNotEmpty) {
+        lastParaIndexInChapter = paras.length - 1;
+      }
+    }
+
+    final rapActiveThisBook =
+        readAloud.bookId == widget.bookId && readAloud.isActiveForBook;
+    final rapPos = rapActiveThisBook ? readAloud.position : null;
+    final bool atBookStart = rapPos != null
+        ? (rapPos.chapterIndex <= 0 && readAloud.atQueueStart)
+        : (hasChapters &&
+            _currentChapterIndex <= 0 &&
+            (firstVisibleParaIndex ?? 1) <= 0);
+    final bool atBookEnd = rapPos != null
+        ? (hasChapters &&
+            rapPos.chapterIndex >= _chapters.length - 1 &&
+            readAloud.atQueueEnd)
+        : (hasChapters &&
+            _currentChapterIndex >= _chapters.length - 1 &&
+            lastParaIndexInChapter != null &&
+            (lastVisibleParaIndex ?? -1) >= lastParaIndexInChapter);
 
     final Color surface = _panelBgColor;
     final Color onSurface = _panelTextColor;

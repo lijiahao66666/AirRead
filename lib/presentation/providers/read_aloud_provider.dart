@@ -345,6 +345,11 @@ class ReadAloudProvider extends ChangeNotifier {
   bool get isActiveForBook =>
       _bookId != null && _chapterIndex != null && _queue.isNotEmpty;
 
+  bool get atQueueStart => _queue.isEmpty || _queuePos <= 0;
+
+  bool get atQueueEnd =>
+      _queue.isEmpty || _queuePos >= (_queue.length - 1).clamp(0, 999999);
+
   Future<bool> prepare({
     required String bookId,
     required int chapterIndex,
