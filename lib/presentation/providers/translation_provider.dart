@@ -91,7 +91,8 @@ class AzureTranslationEngine implements TranslationEngine {
     } else {
       final token = await _getEdgeToken();
       headers['Authorization'] = 'Bearer $token';
-      headers['User-Agent'] = 'Mozilla/5.0';
+      headers['User-Agent'] =
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0';
     }
 
     final body = jsonEncode([
@@ -172,7 +173,8 @@ class AzureTranslationEngine implements TranslationEngine {
     }
     final uri = Uri.parse('https://edge.microsoft.com/translate/auth');
     final resp = await _client.get(uri, headers: const {
-      'User-Agent': 'Mozilla/5.0',
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0',
     }).timeout(const Duration(seconds: 10));
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       debugPrint('AzureTranslator token error status=${resp.statusCode}');
@@ -274,7 +276,8 @@ class FallbackTranslationEngine implements TranslationEngine {
           targetLang: targetLang,
           contextSources: contextSources,
         );
-      } catch (_) {
+      } catch (e) {
+        debugPrint('Primary engine failed: $e');
         if (fallbackAvailable != null && !fallbackAvailable!()) {
           rethrow;
         }
@@ -285,12 +288,18 @@ class FallbackTranslationEngine implements TranslationEngine {
       throw StateError('No translation backend available');
     }
 
-    return fallback.translate(
-      text: text,
-      sourceLang: sourceLang,
-      targetLang: targetLang,
-      contextSources: contextSources,
-    );
+    debugPrint('Falling back to secondary engine');
+    try {
+      return await fallback.translate(
+        text: text,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+        contextSources: contextSources,
+      );
+    } catch (e) {
+      debugPrint('Fallback engine failed: $e');
+      rethrow;
+    }
   }
 
   @override
@@ -307,7 +316,8 @@ class FallbackTranslationEngine implements TranslationEngine {
           sourceLang: sourceLang,
           targetLang: targetLang,
         );
-      } catch (_) {
+      } catch (e) {
+        debugPrint('Primary engine batch failed: $e');
         if (fallbackAvailable != null && !fallbackAvailable!()) {
           rethrow;
         }
@@ -318,11 +328,17 @@ class FallbackTranslationEngine implements TranslationEngine {
       throw StateError('No translation backend available');
     }
 
-    return fallback.translateBatch(
-      texts: texts,
-      sourceLang: sourceLang,
-      targetLang: targetLang,
-    );
+    debugPrint('Falling back to secondary engine batch');
+    try {
+      return await fallback.translateBatch(
+        texts: texts,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+      );
+    } catch (e) {
+      debugPrint('Fallback engine batch failed: $e');
+      rethrow;
+    }
   }
 }
 
