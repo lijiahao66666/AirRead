@@ -19,7 +19,6 @@ import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/tencentcloud/tencent_api_client.dart';
 import '../../ai/tencentcloud/tencent_credentials.dart';
 import '../../ai/translation/translation_types.dart';
-import '../../ai/local_llm/model_manager.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../providers/ai_model_provider.dart';
@@ -1866,41 +1865,6 @@ class _TencentHunyuanSettingsPanelState
                     _redeemRow(aiModel, cardBg: cardBg),
                   ],
                 ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          _itemBox(
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '朗读内容',
-                  style: TextStyle(
-                    color: widget.textColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.normal,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 10,
-                  children: [
-                    _chip(
-                      label: '不读译文',
-                      active: !provider.readTranslationEnabled,
-                      onTap: () => provider.setReadTranslationEnabled(false),
-                      textColor: widget.textColor,
-                    ),
-                    _chip(
-                      label: '读译文',
-                      active: provider.readTranslationEnabled,
-                      onTap: () => provider.setReadTranslationEnabled(true),
-                      textColor: widget.textColor,
-                    ),
-                  ],
-                ),
               ],
             ),
           ),

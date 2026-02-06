@@ -3119,16 +3119,30 @@ class _ReaderPageState extends State<ReaderPage>
                             if (!tp.aiReadAloudEnabled) return;
                             final resume = rap.position;
                             int targetChapter = _currentChapterIndex;
-                            if (resume != null && resume.bookId == widget.bookId) {
+                            int? startPara;
+
+                            if (resume != null &&
+                                resume.bookId == widget.bookId) {
                               targetChapter = resume.chapterIndex;
+                            } else {
+                              final visibleMap =
+                                  _paragraphsByIndexForPageOffsetForTranslation(
+                                      0, tp);
+                              if (visibleMap.isNotEmpty) {
+                                final sortedKeys = visibleMap.keys.toList()
+                                  ..sort();
+                                startPara = sortedKeys.first;
+                              }
                             }
-                            final paras = await _paragraphsForChapter(targetChapter);
+
+                            final paras =
+                                await _paragraphsForChapter(targetChapter);
                             if (!mounted) return;
                             await rap.startOrResume(
                               bookId: widget.bookId,
                               chapterIndex: targetChapter,
                               paragraphs: paras,
-                              startParagraphIndex: null,
+                              startParagraphIndex: startPara,
                             );
                           }());
                         },

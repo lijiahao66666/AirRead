@@ -92,7 +92,8 @@ class ReadAloudProvider extends ChangeNotifier {
   int? _lastVoiceType;
   double? _lastTtsSpeed;
   double? _lastLocalTtsSpeed;
-  bool? _lastReadTranslationEnabled;
+  bool? _lastApplyToReader;
+  TranslationDisplayMode? _lastDisplayMode;
   String? _lastSourceLang;
   String? _lastTargetLang;
   SharedPreferences? _prefs;
@@ -151,9 +152,9 @@ class ReadAloudProvider extends ChangeNotifier {
   ReadAloudPosition? get position => _position;
 
   String? get highlightText =>
-      (_playing || _preparing) ? _position?.highlightText : null;
+      (_playing || _preparing || _paused) ? _position?.highlightText : null;
   int? get highlightParagraphIndex =>
-      (_playing || _preparing) ? _position?.paragraphIndex : null;
+      (_playing || _preparing || _paused) ? _position?.paragraphIndex : null;
 
   void updateTranslationProvider(TranslationProvider tp) {
     if (identical(_tp, tp)) return;
@@ -168,7 +169,8 @@ class ReadAloudProvider extends ChangeNotifier {
     _lastVoiceType = tp.ttsVoiceType;
     _lastTtsSpeed = tp.ttsSpeed;
     _lastLocalTtsSpeed = tp.localTtsSpeed;
-    _lastReadTranslationEnabled = tp.readTranslationEnabled;
+    _lastApplyToReader = tp.applyToReader;
+    _lastDisplayMode = tp.config.displayMode;
     _lastSourceLang = tp.config.sourceLang;
     _lastTargetLang = tp.config.targetLang;
     tp.addListener(_onTtsConfigChanged);
@@ -230,8 +232,8 @@ class ReadAloudProvider extends ChangeNotifier {
     final voiceChanged = _lastVoiceType != tp.ttsVoiceType;
     final speedChanged = _lastTtsSpeed != tp.ttsSpeed;
     final localSpeedChanged = _lastLocalTtsSpeed != tp.localTtsSpeed;
-    final readTrChanged =
-        _lastReadTranslationEnabled != tp.readTranslationEnabled;
+    final applyToReaderChanged = _lastApplyToReader != tp.applyToReader;
+    final displayModeChanged = _lastDisplayMode != tp.config.displayMode;
     final fromChanged = _lastSourceLang != tp.config.sourceLang;
     final toChanged = _lastTargetLang != tp.config.targetLang;
 
@@ -239,7 +241,8 @@ class ReadAloudProvider extends ChangeNotifier {
         voiceChanged ||
         speedChanged ||
         localSpeedChanged ||
-        readTrChanged ||
+        applyToReaderChanged ||
+        displayModeChanged ||
         fromChanged ||
         toChanged;
     if (!changed) return;
@@ -248,11 +251,28 @@ class ReadAloudProvider extends ChangeNotifier {
     _lastVoiceType = tp.ttsVoiceType;
     _lastTtsSpeed = tp.ttsSpeed;
     _lastLocalTtsSpeed = tp.localTtsSpeed;
-    _lastReadTranslationEnabled = tp.readTranslationEnabled;
+    _lastApplyToReader = tp.applyToReader;
+    _lastDisplayMode = tp.config.displayMode;
     _lastSourceLang = tp.config.sourceLang;
     _lastTargetLang = tp.config.targetLang;
 
-    if (!_playing && !_preparing) return;
+    if (!_playing && !_preparing && !_paused) return;
+    if (_paused && !_playing && !_preparing) {
+      final pos = _position;
+      if (pos == null) return;
+      if (_bookId == null || _chapterIndex == null || _paragraphs.isEmpty) {
+        return;
+      }
+      unawaited(seekToChapterPosition(
+        bookId: pos.bookId,
+        chapterIndex: pos.chapterIndex,
+        paragraphs: _paragraphs,
+        paragraphIndex: pos.paragraphIndex,
+        chunkIndexInParagraph: pos.chunkIndexInParagraph,
+        keepPaused: true,
+      ));
+      return;
+    }
     unawaited(restartFromCurrentPosition());
   }
 
@@ -784,7 +804,8 @@ class ReadAloudProvider extends ChangeNotifier {
           throw UnsupportedError('当前浏览器不支持本地朗读');
         }
         String? lang;
-        if (tp.readTranslationEnabled) {
+        if (tp.applyToReader &&
+            tp.config.displayMode == TranslationDisplayMode.translationOnly) {
           lang = tp.config.targetLang;
         } else {
           lang = tp.config.sourceLang;
@@ -810,7 +831,8 @@ class ReadAloudProvider extends ChangeNotifier {
       }
 
       String? lang;
-      if (tp.readTranslationEnabled) {
+      if (tp.applyToReader &&
+          tp.config.displayMode == TranslationDisplayMode.translationOnly) {
         lang = tp.config.targetLang;
       } else {
         lang = tp.config.sourceLang;
@@ -1019,18 +1041,22 @@ class ReadAloudProvider extends ChangeNotifier {
     required String paragraphText,
   }) {
     final original = paragraphText.trim();
-    if (!provider.readTranslationEnabled) return original;
+    if (!provider.applyToReader) return original;
 
     final trans = provider.getCachedTranslation(paragraphText);
-    if (trans == null || trans.trim().isEmpty) return original;
-    final normalizedTrans = trans.trim();
-    if (normalizedTrans.isEmpty) return original;
+    final normalizedTrans = (trans ?? '').trim();
+    final hasTrans = normalizedTrans.isNotEmpty;
 
-    final transOnly = provider.applyToReader &&
-        provider.config.displayMode == TranslationDisplayMode.translationOnly;
-    if (transOnly) return normalizedTrans;
-    if (original.isEmpty) return normalizedTrans;
-    return '$original\n$normalizedTrans';
+    final mode = provider.config.displayMode;
+    if (mode == TranslationDisplayMode.translationOnly) {
+      return hasTrans ? normalizedTrans : original;
+    }
+    if (mode == TranslationDisplayMode.bilingual) {
+      if (!hasTrans) return original;
+      if (original.isEmpty) return normalizedTrans;
+      return '$original\n$normalizedTrans';
+    }
+    return original;
   }
 
   bool _isSkippableWhitespaceCu(int cu) {
