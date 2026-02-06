@@ -64,3 +64,5 @@ config.json
 key.properties
 *.keystore
 *.jks
+gen_codex.py
+codex.txt
