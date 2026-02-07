@@ -1,13 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:epubx/epubx.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../providers/books_provider.dart';
 import '../../widgets/ai_hud.dart';
-import 'book_bytes_loader.dart';
 
 class ReaderPage extends StatefulWidget {
   final String bookId;
@@ -45,7 +46,7 @@ class _ReaderPageState extends State<ReaderPage> {
     });
 
     try {
-      final bytes = await loadBookBytes(book.fileBytes, book.filePath);
+      final bytes = await _loadBookBytes(book.fileBytes, book.filePath);
       final format = book.format.toLowerCase();
       final text = await _decodeBook(bytes, format);
       if (!mounted) return;
@@ -60,6 +61,17 @@ class _ReaderPageState extends State<ReaderPage> {
         _error = e.toString();
       });
     }
+  }
+
+  Future<List<int>> _loadBookBytes(
+      Uint8List? embeddedBytes, String path) async {
+    if (embeddedBytes != null && embeddedBytes.isNotEmpty) {
+      return embeddedBytes;
+    }
+    if (kIsWeb) {
+      throw StateError('Web 模式缺少书籍内容');
+    }
+    return File(path).readAsBytes();
   }
 
   Future<String> _decodeBook(List<int> bytes, String format) async {
@@ -167,7 +179,8 @@ class _ReaderPageState extends State<ReaderPage> {
       appBar: AppBar(
         backgroundColor: bg,
         elevation: 0,
-        title: Text(_title.isEmpty ? '阅读' : _title, overflow: TextOverflow.ellipsis),
+        title: Text(_title.isEmpty ? '阅读' : _title,
+            overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
             tooltip: 'AI伴读',
@@ -190,7 +203,8 @@ class _ReaderPageState extends State<ReaderPage> {
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
       child: SelectionArea(
         onSelectionChanged: (value) {
-          selectedText = ((value as dynamic)?.plainText as String?)?.trim() ?? '';
+          selectedText =
+              ((value as dynamic)?.plainText as String?)?.trim() ?? '';
         },
         contextMenuBuilder: (context, selectableRegionState) {
           final text = selectedText.trim();
@@ -214,7 +228,8 @@ class _ReaderPageState extends State<ReaderPage> {
                 onPressed: () {
                   final err = _validateSelectionForIllustration(text);
                   if (err != null) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(SnackBar(content: Text(err)));
                     return;
                   }
                   ContextMenuController.removeAny();
