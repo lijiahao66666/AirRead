@@ -14,6 +14,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../widgets/ai_hud.dart';
 import '../../widgets/glass_panel.dart';
+import '../../widgets/illustration_panel.dart';
 import '../../providers/books_provider.dart';
 import '../../providers/ai_model_provider.dart';
 import '../../providers/read_aloud_provider.dart';
@@ -2087,6 +2088,92 @@ class _ReaderPageState extends State<ReaderPage>
         _readAloudFollow = false;
       }());
     });
+  }
+
+  String? _validateSelectionForIllustration(String text) {
+    final clean = text.trim();
+    if (clean.isEmpty) return '未选中文本';
+    if (clean.length < 12) return '选中内容太短，无法描述画面';
+    if (clean.length > 300) return '选中内容过长，建议精简到 300 字以内';
+    final hasContent = RegExp(r'[\u4e00-\u9fa5a-zA-Z0-9]').hasMatch(clean);
+    if (!hasContent) return '选中内容无效';
+    return null;
+  }
+
+  Future<void> _openIllustrationFromSelection({
+    required int chapterIndex,
+    required String selectionText,
+  }) async {
+    final chapter = _chapters[chapterIndex];
+    final chapterTitle = (chapter.title ?? '正文').trim();
+    final chapterId = '$chapterIndex';
+    final plain = _getPlainTextForChapter(chapterIndex);
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        final media = MediaQuery.of(context);
+        final panelText = _panelTextColor;
+        final panelBg = _panelBgColor;
+        return GlassPanel.sheet(
+          surfaceColor: panelBg,
+          opacity: AppTokens.glassOpacityDense,
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height:
+                  (media.size.height * 0.78).clamp(360.0, media.size.height),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.image_outlined,
+                            color: AppColors.techBlue),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '配图',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: panelText,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.close,
+                              color: panelText.withOpacityCompat(0.7)),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: IllustrationPanel(
+                        isDark: panelBg.computeLuminance() < 0.5,
+                        bgColor: panelBg,
+                        textColor: panelText,
+                        bookId: widget.bookId,
+                        chapterId: chapterId,
+                        chapterTitle: chapterTitle,
+                        chapterContent: plain,
+                        initialSelectionText: selectionText,
+                        autoGenerateFromSelection: true,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   int _effectiveOffsetForReadAloudPosition({
@@ -5415,6 +5502,8 @@ class _ReaderPageState extends State<ReaderPage>
                   ((aiModel.source == AiModelSource.local && aiModel.loaded) ||
                       (aiModel.source == AiModelSource.online &&
                           (aiModel.pointsBalance > 0 || personalUsable)));
+              final canIllustrate = text.isNotEmpty &&
+                  (aiModel.pointsBalance > 0 || personalUsable);
 
               final isDarkBg = _bgColor.computeLuminance() < 0.5;
               final toolbarBg = isDarkBg
@@ -5490,6 +5579,36 @@ class _ReaderPageState extends State<ReaderPage>
                     },
                     type: ContextMenuButtonType.custom,
                     label: '解释',
+                  ),
+                if (canIllustrate)
+                  ContextMenuButtonItem(
+                    onPressed: () {
+                      final err = _validateSelectionForIllustration(text);
+                      if (err != null) {
+                        ContextMenuController.removeAny();
+                        selectableRegionState.hideToolbar();
+                        if (mounted) {
+                          setState(() {
+                            _selectionAreaResetToken++;
+                          });
+                        }
+                        _showTopError(err);
+                        return;
+                      }
+                      ContextMenuController.removeAny();
+                      selectableRegionState.hideToolbar();
+                      if (mounted) {
+                        setState(() {
+                          _selectionAreaResetToken++;
+                        });
+                      }
+                      unawaited(_openIllustrationFromSelection(
+                        chapterIndex: chapterIndex,
+                        selectionText: text,
+                      ));
+                    },
+                    type: ContextMenuButtonType.custom,
+                    label: '配图',
                   ),
               ];
               final ContextMenuButtonItem? copyItem = selectableRegionState

@@ -1,10 +1,11 @@
-import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
-import '../../presentation/providers/illustration_provider.dart';
+import '../providers/illustration_provider.dart';
 import '../../ai/illustration/scene_card.dart';
+import 'scene_image.dart';
 
 class IllustrationPanel extends StatefulWidget {
   final bool isDark;
@@ -14,6 +15,8 @@ class IllustrationPanel extends StatefulWidget {
   final String chapterId;
   final String chapterTitle;
   final String chapterContent;
+  final String? initialSelectionText;
+  final bool autoGenerateFromSelection;
 
   const IllustrationPanel({
     super.key,
@@ -24,6 +27,8 @@ class IllustrationPanel extends StatefulWidget {
     required this.chapterId,
     required this.chapterTitle,
     required this.chapterContent,
+    this.initialSelectionText,
+    this.autoGenerateFromSelection = false,
   });
 
   @override
@@ -38,23 +43,29 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<IllustrationProvider>();
-      final scenes = provider.getScenes(widget.chapterId);
-      if (scenes.isEmpty) {
-        _analyzeScenes();
+      final selection = widget.initialSelectionText?.trim() ?? '';
+      if (widget.autoGenerateFromSelection && selection.isNotEmpty) {
+        unawaited(provider.generateFromSelection(
+          chapterId: widget.chapterId,
+          selectionText: selection,
+        ));
+        return;
       }
+      final scenes = provider.getScenes(widget.chapterId);
+      if (scenes.isEmpty) _analyzeScenes();
     });
   }
 
   Future<void> _analyzeScenes() async {
     if (_analyzing) return;
     setState(() => _analyzing = true);
-    
+
     try {
       await context.read<IllustrationProvider>().analyzeChapter(
-        chapterId: widget.chapterId,
-        chapterTitle: widget.chapterTitle,
-        content: widget.chapterContent,
-      );
+            chapterId: widget.chapterId,
+            chapterTitle: widget.chapterTitle,
+            content: widget.chapterContent,
+          );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -78,7 +89,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     return Consumer<IllustrationProvider>(
       builder: (context, provider, child) {
         final scenes = provider.getScenes(widget.chapterId);
-        
+
         // 保持与 QA 面板一致的外层容器
         return Container(
           decoration: BoxDecoration(
@@ -139,9 +150,9 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                   ],
                 ),
               ),
-              
+
               const Divider(height: 1),
-              
+
               // 场景列表
               Expanded(
                 child: scenes.isEmpty && _analyzing
@@ -154,13 +165,15 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                                 Icon(
                                   Icons.image_search_rounded,
                                   size: 48,
-                                  color: widget.textColor.withOpacityCompat(0.2),
+                                  color:
+                                      widget.textColor.withOpacityCompat(0.2),
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
                                   '暂无场景灵感',
                                   style: TextStyle(
-                                    color: widget.textColor.withOpacityCompat(0.4),
+                                    color:
+                                        widget.textColor.withOpacityCompat(0.4),
                                   ),
                                 ),
                                 const SizedBox(height: 16),
@@ -176,15 +189,18 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                             ),
                           )
                         : ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 16),
                             itemCount: scenes.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 16),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 16),
                             itemBuilder: (context, index) {
                               return _SceneCardWidget(
                                 card: scenes[index],
                                 isDark: widget.isDark,
                                 textColor: widget.textColor,
-                                onGenerate: () => provider.generateImage(widget.chapterId, scenes[index]),
+                                onGenerate: () => provider.generateImage(
+                                    widget.chapterId, scenes[index]),
                               );
                             },
                           ),
@@ -213,10 +229,8 @@ class _SceneCardWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 卡片背景稍微深一点，与面板背景区分
-    final bg = isDark
-        ? Colors.white.withOpacityCompat(0.05)
-        : Colors.white;
-    
+    final bg = isDark ? Colors.white.withOpacityCompat(0.05) : Colors.white;
+
     return Container(
       decoration: BoxDecoration(
         color: bg,
@@ -225,13 +239,15 @@ class _SceneCardWidget extends StatelessWidget {
           color: textColor.withOpacityCompat(0.06),
           width: AppTokens.stroke,
         ),
-        boxShadow: isDark ? [] : [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        boxShadow: isDark
+            ? []
+            : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -242,7 +258,7 @@ class _SceneCardWidget extends StatelessWidget {
             aspectRatio: 16 / 9,
             child: _buildMediaArea(context),
           ),
-          
+
           // 文本信息区
           Padding(
             padding: const EdgeInsets.all(14),
@@ -272,8 +288,10 @@ class _SceneCardWidget extends StatelessWidget {
                           style: TextButton.styleFrom(
                             visualDensity: VisualDensity.compact,
                             foregroundColor: AppColors.techBlue,
-                            backgroundColor: AppColors.techBlue.withOpacityCompat(0.1),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            backgroundColor:
+                                AppColors.techBlue.withOpacityCompat(0.1),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
                             minimumSize: Size.zero,
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
@@ -299,7 +317,9 @@ class _SceneCardWidget extends StatelessWidget {
                   children: [
                     _Tag(text: card.mood, color: textColor),
                     if (card.visualAnchors.isNotEmpty)
-                      _Tag(text: card.visualAnchors.split('、').first, color: textColor),
+                      _Tag(
+                          text: card.visualAnchors.split('、').first,
+                          color: textColor),
                   ],
                 ),
               ],
@@ -336,7 +356,7 @@ class _SceneCardWidget extends StatelessWidget {
             ],
           ),
         );
-        
+
       case SceneCardStatus.generating:
         return Container(
           color: textColor.withOpacityCompat(0.03),
@@ -364,22 +384,21 @@ class _SceneCardWidget extends StatelessWidget {
             ),
           ),
         );
-        
+
       case SceneCardStatus.completed:
         if (card.localImagePath != null) {
           return GestureDetector(
             onTap: () {
               // TODO: 查看大图
             },
-            child: Image.file(
-              File(card.localImagePath!),
+            child: buildSceneImage(
+              card.localImagePath!,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image)),
             ),
           );
         }
         return const Center(child: Text('图片文件丢失'));
-        
+
       case SceneCardStatus.failed:
         return Container(
           color: Colors.red.withOpacityCompat(0.05),
