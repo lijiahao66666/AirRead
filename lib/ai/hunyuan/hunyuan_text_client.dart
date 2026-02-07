@@ -35,7 +35,7 @@ class HunyuanTextClient {
   @Deprecated('Use chatStream for better UX')
   Future<String> chatOnce({
     required String userText,
-    String model = 'hunyuan-2.0-instruct-20251111',
+    String model = 'hunyuan-a13b',
   }) async {
     final resp = await _api.postJson(
       host: _host,
@@ -72,7 +72,7 @@ class HunyuanTextClient {
 
   Stream<ChatStreamChunk> chatStream({
     required String userText,
-    String model = 'hunyuan-2.0-instruct-20251111',
+    String model = 'hunyuan-a13b',
     List<Map<String, String>>? messages,
   }) async* {
     final stream = _api.postStream(
