@@ -510,6 +510,7 @@ class _ReaderPageState extends State<ReaderPage>
   Offset? _tapDownPos;
   int? _tapDownMs;
   bool _tapMoved = false;
+  int _suppressReaderTapUntilMs = 0;
   AiModelProvider? _aiModel;
   VoidCallback? _aiModelListener;
   bool _lastIllustrationEnabled = false;
@@ -1664,6 +1665,13 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   void _onReaderPointerUp({required Offset pos, required double width}) {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs <= _suppressReaderTapUntilMs) {
+      _tapDownMs = null;
+      _tapDownPos = null;
+      _tapMoved = false;
+      return;
+    }
     final downMs = _tapDownMs;
     _tapDownMs = null;
     _tapDownPos = null;
@@ -1699,6 +1707,13 @@ class _ReaderPageState extends State<ReaderPage>
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOut,
     );
+  }
+
+  void _suppressReaderTap() {
+    _tapDownMs = null;
+    _tapDownPos = null;
+    _tapMoved = false;
+    _suppressReaderTapUntilMs = DateTime.now().millisecondsSinceEpoch + 800;
   }
 
   Future<void> _openAiHud({
@@ -5623,22 +5638,19 @@ class _ReaderPageState extends State<ReaderPage>
                 paraEndOffset[paraIndex] = effectiveText.length;
               }
             }
-            final Map<int, String> sceneIdByOffset = {};
+            final List<({int offset, String sceneId})> rawHints = [];
             for (final s in scenes) {
               final endIdx = s.endParagraphIndex;
               if (endIdx == null) continue;
               final absoluteEnd = paraEndOffset[endIdx];
               if (absoluteEnd == null) continue;
-              if (absoluteEnd <= range.start || absoluteEnd >= end) continue;
+              if (absoluteEnd <= range.start || absoluteEnd > end) continue;
               final rel =
                   (absoluteEnd - range.start).clamp(0, end - range.start);
-              sceneIdByOffset.putIfAbsent(rel, () => s.id);
+              rawHints.add((offset: rel, sceneId: s.id));
             }
-            final sorted = sceneIdByOffset.entries.toList()
-              ..sort((a, b) => a.key.compareTo(b.key));
-            for (final e in sorted) {
-              hintOffsets.add((offset: e.key, sceneId: e.value));
-            }
+            rawHints.sort((a, b) => a.offset.compareTo(b.offset));
+            hintOffsets.addAll(rawHints);
           }
           TextSpan effectiveBodySpan = bodySpan;
           final showChapterEndButton = isLastPage && scenes.isNotEmpty;
@@ -5665,6 +5677,7 @@ class _ReaderPageState extends State<ReaderPage>
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     child: InkWell(
+                      onTapDown: (_) => _suppressReaderTap(),
                       onTap: () => unawaited(
                         _openIllustrationPanelForChapter(
                           chapterIndex: chapterIndex,
@@ -5728,6 +5741,7 @@ class _ReaderPageState extends State<ReaderPage>
                   child: Padding(
                     padding: const EdgeInsets.only(top: 12, bottom: 6),
                     child: InkWell(
+                      onTapDown: (_) => _suppressReaderTap(),
                       onTap: () => unawaited(
                         _openIllustrationPanelForChapter(
                           chapterIndex: chapterIndex,
