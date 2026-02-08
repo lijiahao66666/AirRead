@@ -589,8 +589,7 @@ class TranslationProvider extends ChangeNotifier {
     final entitled = (_aiModel?.pointsBalance ?? 0) > 0;
     final personalUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
     bool changed = false;
-    bool translateStoppedByPoints = false;
-    bool readAloudStoppedByPoints = false;
+    String? toastMessage;
 
     if (_aiReadAloudEnabled &&
         _readAloudEngine == ReadAloudEngine.local &&
@@ -603,41 +602,52 @@ class TranslationProvider extends ChangeNotifier {
         _readAloudEngine == ReadAloudEngine.online &&
         !_usingPersonalTencentKeys &&
         !entitled) {
-      _aiReadAloudEnabled = false;
-      changed = true;
-      readAloudStoppedByPoints = true;
+      if (_localReadAloudAvailable) {
+        _readAloudEngine = ReadAloudEngine.local;
+        changed = true;
+        toastMessage ??= '积分不足，已切换到本地朗读';
+      } else {
+        _aiReadAloudEnabled = false;
+        changed = true;
+        toastMessage ??= '积分不足，已停止朗读';
+      }
     }
 
     if (_aiReadAloudEnabled &&
         _readAloudEngine == ReadAloudEngine.online &&
         _usingPersonalTencentKeys &&
         !personalUsable) {
-      _aiReadAloudEnabled = false;
-      changed = true;
+      if (_localReadAloudAvailable) {
+        _readAloudEngine = ReadAloudEngine.local;
+        changed = true;
+        toastMessage ??= '个人密钥不可用，已切换到本地朗读';
+      } else {
+        _aiReadAloudEnabled = false;
+        changed = true;
+        toastMessage ??= '个人密钥不可用，已停止朗读';
+      }
     }
 
     if (_aiTranslateEnabled &&
         _translationMode == TranslationMode.bigModel &&
         !_usingPersonalTencentKeys &&
         !entitled) {
-      _aiTranslateEnabled = false;
+      _translationMode = TranslationMode.machine;
+      _config = _sanitizeConfig(_config, _translationMode);
+      _rebuildService();
       changed = true;
-      translateStoppedByPoints = true;
+      toastMessage ??= '积分不足，已切换为机翻';
     }
 
     if (_aiTranslateEnabled && _usingPersonalTencentKeys && !personalUsable) {
       _aiTranslateEnabled = false;
       changed = true;
+      toastMessage ??= '个人密钥不可用，已停止翻译';
     }
 
     if (changed) {
       _savePrefs().then((_) {});
-      if (translateStoppedByPoints) {
-        onError?.call('在线翻译积分已用尽，已停止翻译与预取');
-      }
-      if (readAloudStoppedByPoints) {
-        onError?.call('在线朗读积分已用尽，已停止朗读与预取');
-      }
+      if (toastMessage != null) onError?.call(toastMessage!);
     }
   }
 
@@ -1007,6 +1017,12 @@ class TranslationProvider extends ChangeNotifier {
 
   Future<void> setAiTranslateEnabled(bool value) async {
     if (value) {
+      if (_translationMode == TranslationMode.bigModel &&
+          !_usingPersonalTencentKeys &&
+          pointsBalance <= 0) {
+        await setTranslationMode(TranslationMode.machine);
+        onError?.call('积分不足，已切换为机翻');
+      }
       _validateEngineConfig();
     }
     _aiTranslateEnabled = value;
@@ -1024,13 +1040,23 @@ class TranslationProvider extends ChangeNotifier {
         if (_readAloudEngine == ReadAloudEngine.online &&
             _usingPersonalTencentKeys &&
             !getEmbeddedPublicHunyuanCredentials().isUsable) {
-          throw TranslationConfigException('已开启使用个人密钥，但未正确设置个人密钥');
+          if (_localReadAloudAvailable) {
+            _readAloudEngine = ReadAloudEngine.local;
+            onError?.call('个人密钥不可用，已切换到本地朗读');
+          } else {
+            throw TranslationConfigException('已开启使用个人密钥，但未正确设置个人密钥');
+          }
         }
         if (_readAloudEngine == ReadAloudEngine.online &&
             !_usingPersonalTencentKeys) {
           final points = _aiModel?.pointsBalance ?? 0;
           if (points <= 0) {
-            throw TranslationConfigException('朗读需要购买积分后使用');
+            if (_localReadAloudAvailable) {
+              _readAloudEngine = ReadAloudEngine.local;
+              onError?.call('积分不足，已切换到本地朗读');
+            } else {
+              throw TranslationConfigException('朗读需要购买积分后使用');
+            }
           }
         }
       } catch (e) {
@@ -1068,16 +1094,13 @@ class TranslationProvider extends ChangeNotifier {
       rethrow;
     }
 
-    if (!_onlineTranslateEntitled()) {
-      onError?.call('在线翻译积分已用尽，已停止翻译与预取');
-      return null;
-    }
-
     final normalized = _service.normalizeParagraphText(paragraphText);
-    if (!_onlineTranslateEnoughForText(normalized)) {
-      final need = _estimateOnlineTranslateCost(normalized);
-      onError?.call('积分不足（需>$need），已停止翻译与预取');
-      return null;
+    if (_translationMode == TranslationMode.bigModel &&
+        !_usingPersonalTencentKeys &&
+        pointsBalance <= _estimateOnlineTranslateCost(normalized)) {
+      await setTranslationMode(TranslationMode.machine);
+      onError?.call('积分不足，已切换为机翻');
+      return translateParagraphWithState(normalized);
     }
     final cacheKey =
         _service.buildCacheKey(config: _config, paragraphText: normalized);
@@ -1236,18 +1259,14 @@ class TranslationProvider extends ChangeNotifier {
         rethrow;
       }
 
-      if (!_onlineTranslateEntitled()) {
-        onError?.call('在线翻译积分已用尽，已停止翻译与预取');
-        return;
-      }
-
       bool pendingChanged = false;
 
       for (final entry in paragraphsByIndex.entries) {
-        if (!_onlineTranslateEntitled()) break;
-        if (!_onlineTranslateEnoughForText(entry.value)) {
-          final need = _estimateOnlineTranslateCost(entry.value);
-          onError?.call('积分不足（需>$need），已停止翻译与预取');
+        if (_translationMode == TranslationMode.bigModel &&
+            !_usingPersonalTencentKeys &&
+            pointsBalance <= _estimateOnlineTranslateCost(entry.value)) {
+          unawaited(setTranslationMode(TranslationMode.machine));
+          onError?.call('积分不足，已切换为机翻');
           break;
         }
         final cacheKey =
@@ -1304,10 +1323,14 @@ class TranslationProvider extends ChangeNotifier {
   Future<void> prefetchParagraphs(List<String> nextParagraphs) async {
     if (nextParagraphs.isEmpty) return;
     if (!_canPrefetch()) return;
-    if (!_onlineTranslateEntitled()) return;
     for (final p in nextParagraphs) {
-      if (!_onlineTranslateEntitled()) break;
-      if (!_onlineTranslateEnoughForText(p)) break;
+      if (_translationMode == TranslationMode.bigModel &&
+          !_usingPersonalTencentKeys &&
+          pointsBalance <= _estimateOnlineTranslateCost(p)) {
+        unawaited(setTranslationMode(TranslationMode.machine));
+        onError?.call('积分不足，已切换为机翻');
+        break;
+      }
       final normalized = _service.normalizeParagraphText(p);
       final cacheKey =
           _service.buildCacheKey(config: _config, paragraphText: normalized);

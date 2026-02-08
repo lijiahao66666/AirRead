@@ -2421,24 +2421,25 @@ class _MainPanel extends StatelessWidget {
     final personalKeysMissing = usingPersonalKeys && !personalKeysUsable;
     final currentChapterText = chapterTextCache[currentChapterIndex] ?? '';
     final requiredPoints = _requiredPointsForFullChapter(currentChapterText);
+    final bool chapterHasText = currentChapterText.trim().isNotEmpty;
 
     final bool qaReady = switch (source) {
       AiModelSource.none => false,
       AiModelSource.online =>
         onlineEntitled || (usingPersonalKeys && personalKeysUsable),
-      // 本地模型：只要模型文件已安装就认为是就绪的（不需要等待LLM初始化）
-      AiModelSource.local => aiModel.isModelInstalled,
+      AiModelSource.local => aiModel.loaded,
     };
 
     final String localQaSubtitle = switch (source) {
-      AiModelSource.local when !qaReady => '本地模型未就绪，下载完成后可用',
+      AiModelSource.local when !aiModel.isModelInstalled => '本地模型未下载，下载后可用',
+      AiModelSource.local when !aiModel.loaded => '本地模型未就绪，初始化后可用',
       _ => '',
     };
 
     final bool qaBlockedByChapterPoints = source == AiModelSource.online &&
         !usingPersonalKeys &&
         aiModel.pointsBalance <= requiredPoints &&
-        currentChapterText.trim().isNotEmpty;
+        chapterHasText;
 
     final bool translationBlockedByKeys = personalKeysMissing;
     final bool translationBlockedByEntitlement =
@@ -2455,7 +2456,7 @@ class _MainPanel extends StatelessWidget {
     if (translationBlockedByKeys) {
       translateSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
     } else if (translationBlockedByEntitlement) {
-      translateSubtitle = '积分不足，已停止翻译与预取';
+      translateSubtitle = '积分不足，将使用机翻';
     } else if (!translateValue) {
       translateSubtitle = '打开后将实时对内容进行翻译';
     } else {
@@ -2480,22 +2481,25 @@ class _MainPanel extends StatelessWidget {
         : (onlineReadAloudKeysMissing
             ? '已开启使用个人密钥，但未正确设置个人密钥'
             : (onlineReadAloudBlocked
-                ? '积分不足，已停止朗读与预取'
+                ? '积分不足，将使用本地朗读'
                 : (readAloudEnabled ? '已开启，点击页面小喇叭朗读或暂停' : '开启后，可朗读当前页')));
     final bool readAloudValue =
         localReadAloudBlocked ? false : readAloudEnabled;
 
     final bool illustrationBlockedByKeys = personalKeysMissing;
     final bool illustrationBlockedByModel = source == AiModelSource.none;
+    final bool illustrationBlockedByLocalNotReady =
+        source == AiModelSource.local && !aiModel.loaded;
     final bool illustrationBlockedByEntitlement =
         source == AiModelSource.online && !onlineEntitled && !usingPersonalKeys;
     final bool illustrationBlockedByChapterPoints =
         source == AiModelSource.online &&
             !usingPersonalKeys &&
             aiModel.pointsBalance <= requiredPoints &&
-            currentChapterText.trim().isNotEmpty;
+            chapterHasText;
     final bool illustrationBlocked = illustrationBlockedByKeys ||
         illustrationBlockedByModel ||
+        illustrationBlockedByLocalNotReady ||
         illustrationBlockedByEntitlement ||
         illustrationBlockedByChapterPoints;
     final bool illustrationValue =
@@ -2507,6 +2511,8 @@ class _MainPanel extends StatelessWidget {
     String illustrationSubtitle;
     if (illustrationBlockedByModel) {
       illustrationSubtitle = '需要先在设置中选择文本/生图大模型';
+    } else if (illustrationBlockedByLocalNotReady) {
+      illustrationSubtitle = '本地模型未就绪，初始化后可用';
     } else if (illustrationBlockedByKeys) {
       illustrationSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
     } else if (illustrationBlockedByEntitlement) {
@@ -2517,6 +2523,44 @@ class _MainPanel extends StatelessWidget {
       illustrationSubtitle = '打开后会对当前章节进行生图场景分析（会消耗积分）';
     } else {
       illustrationSubtitle = '已开启，进入章节后自动分析场景';
+    }
+
+    final bool onlineModelNotUsableForChapter =
+        source == AiModelSource.online &&
+            ((personalKeysMissing) ||
+                (!usingPersonalKeys &&
+                    (!onlineEntitled ||
+                        (chapterHasText &&
+                            aiModel.pointsBalance <= requiredPoints))));
+    if (onlineModelNotUsableForChapter) {
+      if (aiModel.isModelInstalled) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          unawaited(aiModel.setSource(AiModelSource.local));
+          onShowTopMessage?.call(
+            personalKeysMissing ? '个人密钥不可用，已切换到本地模型' : '积分不足，已切换到本地模型',
+            isError: false,
+          );
+        });
+      } else {
+        if (aiModel.illustrationEnabled) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            unawaited(aiModel.setIllustrationEnabled(false));
+          });
+        }
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          onShowTopMessage?.call(
+            personalKeysMissing
+                ? '个人密钥不可用，本地模型未就绪，已关闭插图'
+                : '积分不足，本地模型未就绪，已关闭插图',
+            isError: false,
+          );
+        });
+      }
+    }
+    if (source == AiModelSource.none && aiModel.illustrationEnabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(aiModel.setIllustrationEnabled(false));
+      });
     }
 
     return SingleChildScrollView(
@@ -3280,15 +3324,27 @@ class _QaPanelState extends State<_QaPanel> {
     final aiModel = context.read<AiModelProvider>();
     if (aiModel.source != AiModelSource.online) return true;
     final tp = context.read<TranslationProvider>();
-    if (tp.usingPersonalTencentKeys &&
-        getEmbeddedPublicHunyuanCredentials().isUsable) {
-      return true;
+    final personalUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
+    if (tp.usingPersonalTencentKeys && personalUsable) return true;
+    if (tp.usingPersonalTencentKeys && !personalUsable) {
+      if (aiModel.isModelInstalled) {
+        unawaited(aiModel.setSource(AiModelSource.local));
+        _showTopError('个人密钥不可用，已切换到本地问答');
+      } else {
+        _showTopError('个人密钥不可用，问答不可用');
+      }
+      return false;
     }
     final text = widget.chapterTextCache[widget.currentChapterIndex] ?? '';
     final required = _requiredPointsForFullChapter(text);
     if (text.trim().isEmpty) return true;
     if (aiModel.pointsBalance > required) return true;
-    _showTopError('本章字数较多，积分不足（需>$required），无法使用问答/总结/要点');
+    if (aiModel.isModelInstalled) {
+      unawaited(aiModel.setSource(AiModelSource.local));
+      _showTopError('积分不足，已切换到本地问答');
+    } else {
+      _showTopError('积分不足，问答不可用');
+    }
     return false;
   }
 

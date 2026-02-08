@@ -3329,31 +3329,20 @@ class _ReaderPageState extends State<ReaderPage>
     _lastErrorTime = DateTime.now();
 
     final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentMaterialBanner();
+    messenger.hideCurrentSnackBar();
 
-    final bgColor = isError
-        ? Colors.red.withOpacityCompat(0.95)
-        : Colors.green.withOpacityCompat(0.95);
-
-    messenger.showMaterialBanner(
-      MaterialBanner(
+    final bgColor = (_bgColor.computeLuminance() < 0.5)
+        ? Colors.black.withOpacityCompat(0.82)
+        : Colors.black.withOpacityCompat(0.72);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
         backgroundColor: bgColor,
-        content: Text(
-          message,
-          style: const TextStyle(color: Colors.white),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => messenger.hideCurrentMaterialBanner(),
-            child: const Text('关闭', style: TextStyle(color: Colors.white)),
-          ),
-        ],
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       ),
     );
-    Future.delayed(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      messenger.hideCurrentMaterialBanner();
-    });
   }
 
   Widget _buildReadAloudFloatingButton() {
@@ -6153,14 +6142,6 @@ class _ReaderPageState extends State<ReaderPage>
   void _startTranslationQueueIfNeeded(TranslationProvider tp, int session) {
     if (_translationQueueRunning) return;
     if (_translationQueue.isEmpty) return;
-    if (tp.translationMode == TranslationMode.bigModel &&
-        !tp.usingPersonalTencentKeys &&
-        tp.pointsBalance <= 0) {
-      _translationQueue.clear();
-      tp.onError?.call('在线翻译积分已用尽，已停止翻译与预取');
-      _syncTranslationQueueStatus(tp);
-      return;
-    }
     _translationQueueRunning = true;
     unawaited(_runTranslationQueue(tp, session));
     if (mounted) setState(() {});
@@ -6169,24 +6150,8 @@ class _ReaderPageState extends State<ReaderPage>
 
   Future<void> _runTranslationQueue(TranslationProvider tp, int session) async {
     while (mounted && session == _translationQueueSession) {
-      if (tp.translationMode == TranslationMode.bigModel &&
-          !tp.usingPersonalTencentKeys &&
-          tp.pointsBalance <= 0) {
-        _translationQueue.clear();
-        tp.onError?.call('在线翻译积分已用尽，已停止翻译与预取');
-        break;
-      }
       if (_translationQueue.isEmpty) break;
       final item = _translationQueue.removeFirst();
-      if (tp.translationMode == TranslationMode.bigModel &&
-          !tp.usingPersonalTencentKeys) {
-        final need = item.text.trim().length;
-        if (need > 0 && tp.pointsBalance <= need) {
-          _translationQueue.clear();
-          tp.onError?.call('积分不足（需>$need），已停止翻译与预取');
-          break;
-        }
-      }
       _translationQueueStates[item.key] = _TranslationQueueState.translating;
       _translationQueueInFlight = true;
       if (mounted) setState(() {});
