@@ -7,8 +7,8 @@ enum SceneCardStatus {
 
 class SceneCard {
   final String id;
-  final int? anchorParagraphIndex;
-  final String? anchorQuote;
+  final int? startParagraphIndex;
+  final int? endParagraphIndex;
   final String title;
   final String location;
   final String time;
@@ -29,8 +29,8 @@ class SceneCard {
 
   SceneCard({
     required this.id,
-    this.anchorParagraphIndex,
-    this.anchorQuote,
+    this.startParagraphIndex,
+    this.endParagraphIndex,
     required this.title,
     required this.location,
     required this.time,
@@ -52,8 +52,8 @@ class SceneCard {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'anchorParagraphIndex': anchorParagraphIndex,
-      'anchorQuote': anchorQuote,
+      'startParagraphIndex': startParagraphIndex,
+      'endParagraphIndex': endParagraphIndex,
       'title': title,
       'location': location,
       'time': time,
@@ -73,10 +73,12 @@ class SceneCard {
   }
 
   factory SceneCard.fromJson(Map<String, dynamic> json) {
+    final int? start = json['startParagraphIndex'];
+    final int? end = json['endParagraphIndex'];
     return SceneCard(
       id: json['id'] ?? '',
-      anchorParagraphIndex: json['anchorParagraphIndex'],
-      anchorQuote: json['anchorQuote'],
+      startParagraphIndex: start,
+      endParagraphIndex: end,
       title: json['title'] ?? '',
       location: json['location'] ?? '',
       time: json['time'] ?? '',

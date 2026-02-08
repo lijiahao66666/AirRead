@@ -20,6 +20,7 @@ class IllustrationPanel extends StatefulWidget {
   final String chapterContent;
   final String? initialSelectionText;
   final bool autoGenerateFromSelection;
+  final String? onlySceneId;
 
   const IllustrationPanel({
     super.key,
@@ -32,6 +33,7 @@ class IllustrationPanel extends StatefulWidget {
     required this.chapterContent,
     this.initialSelectionText,
     this.autoGenerateFromSelection = false,
+    this.onlySceneId,
   });
 
   @override
@@ -41,6 +43,8 @@ class IllustrationPanel extends StatefulWidget {
 class _IllustrationPanelState extends State<IllustrationPanel> {
   String _styleKey = '国风';
   String _ratioKey = '1:1';
+  static const int _imageCostPoints = 20000;
+  final Set<String> _pendingGenerateCardIds = {};
 
   static const Map<String, String> _stylePrompts = {
     '国风': '古代玄幻插画，国风插画，细腻画风，柔和光影，无文字无水印',
@@ -58,6 +62,17 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     '16:9': '1280:768',
   };
 
+  double _ratioKeyToAspect(String k) {
+    return switch (k) {
+      '1:1' => 1.0,
+      '3:4' => 3 / 4,
+      '4:3' => 4 / 3,
+      '9:16' => 9 / 16,
+      '16:9' => 16 / 9,
+      _ => 1.0,
+    };
+  }
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +88,41 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     });
   }
 
+  Future<void> _generateWithPoints({
+    required IllustrationProvider provider,
+    required AiModelProvider aiModel,
+    required bool usingPersonal,
+    required SceneCard card,
+    required String stylePrefix,
+    required String resolution,
+  }) async {
+    if (card.status == SceneCardStatus.generating) return;
+    if (_pendingGenerateCardIds.contains(card.id)) return;
+    _pendingGenerateCardIds.add(card.id);
+    bool deducted = false;
+    if (!usingPersonal) {
+      if (aiModel.pointsBalance < _imageCostPoints) {
+        _pendingGenerateCardIds.remove(card.id);
+        return;
+      }
+      await aiModel.addPoints(-_imageCostPoints);
+      deducted = true;
+    }
+    try {
+      await provider.generateImage(
+        widget.chapterId,
+        card,
+        stylePrefix: stylePrefix,
+        resolution: resolution,
+      );
+      if (deducted && card.status == SceneCardStatus.failed) {
+        await aiModel.addPoints(_imageCostPoints);
+      }
+    } finally {
+      _pendingGenerateCardIds.remove(card.id);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final Color cardBg = widget.isDark
@@ -83,11 +133,16 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       builder: (context, provider, child) {
         final aiModel = context.watch<AiModelProvider>();
         final usingPersonal = usingPersonalTencentKeys();
-        final canGenerateImage = usingPersonal || aiModel.pointsBalance > 20000;
+        final canGenerateImage =
+            usingPersonal || aiModel.pointsBalance >= _imageCostPoints;
         final selectedStyle = _stylePrompts[_styleKey] ?? _stylePrompts['国风']!;
         final selectedResolution =
             _ratioToResolution[_ratioKey] ?? _ratioToResolution['1:1']!;
+        final selectedAspectRatio = _ratioKeyToAspect(_ratioKey);
         final scenes = provider.getScenes(widget.chapterId);
+        final visibleScenes = widget.onlySceneId == null
+            ? scenes
+            : scenes.where((e) => e.id == widget.onlySceneId).toList();
 
         return Container(
           decoration: BoxDecoration(
@@ -100,56 +155,6 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
           ),
           child: Column(
             children: [
-              // 顶部操作栏
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '章节插画',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: widget.textColor,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            widget.chapterTitle,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: widget.textColor.withOpacityCompat(0.6),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (!usingPersonal)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                '剩余积分：${aiModel.pointsBalance}（生图2万/张）',
-                                style: TextStyle(
-                                  color: widget.isDark
-                                      ? const Color(0xFFE6A23C)
-                                      : const Color(0xFFF57C00),
-                                  fontSize: 12,
-                                  height: 1.35,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const Divider(height: 1),
-
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: Column(
@@ -227,9 +232,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                   ],
                 ),
               ),
-
               Expanded(
-                child: scenes.isEmpty
+                child: visibleScenes.isEmpty
                     ? Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -241,14 +245,16 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              '本章暂无场景',
+                              '暂无插图',
                               style: TextStyle(
                                 color: widget.textColor.withOpacityCompat(0.4),
                               ),
                             ),
                             const SizedBox(height: 16),
                             Text(
-                              '请在AI伴读中开启插图开关并进入章节后自动分析场景。',
+                              widget.onlySceneId == null
+                                  ? '请在AI伴读中开启插图开关并进入章节后自动分析场景。'
+                                  : '未找到该插图。',
                               style: TextStyle(
                                 color: widget.textColor.withOpacityCompat(0.6),
                                 fontSize: 12,
@@ -262,19 +268,24 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                     : ListView.separated(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 16),
-                        itemCount: scenes.length,
+                        itemCount: visibleScenes.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 16),
                         itemBuilder: (context, index) {
                           return _SceneCardWidget(
-                            card: scenes[index],
+                            card: visibleScenes[index],
                             isDark: widget.isDark,
                             textColor: widget.textColor,
                             canGenerate: canGenerateImage,
-                            onGenerate: () => provider.generateImage(
-                              widget.chapterId,
-                              scenes[index],
-                              stylePrefix: selectedStyle,
-                              resolution: selectedResolution,
+                            imageAspectRatio: selectedAspectRatio,
+                            onGenerate: () => unawaited(
+                              _generateWithPoints(
+                                provider: provider,
+                                aiModel: aiModel,
+                                usingPersonal: usingPersonal,
+                                card: visibleScenes[index],
+                                stylePrefix: selectedStyle,
+                                resolution: selectedResolution,
+                              ),
                             ),
                           );
                         },
@@ -352,6 +363,7 @@ class _SceneCardWidget extends StatelessWidget {
   final bool isDark;
   final Color textColor;
   final VoidCallback onGenerate;
+  final double imageAspectRatio;
   final bool canGenerate;
 
   const _SceneCardWidget({
@@ -359,6 +371,7 @@ class _SceneCardWidget extends StatelessWidget {
     required this.isDark,
     required this.textColor,
     required this.onGenerate,
+    required this.imageAspectRatio,
     required this.canGenerate,
   });
 
@@ -391,7 +404,7 @@ class _SceneCardWidget extends StatelessWidget {
         children: [
           // 状态/图片区
           AspectRatio(
-            aspectRatio: 16 / 9,
+            aspectRatio: imageAspectRatio,
             child: _buildMediaArea(context),
           ),
 
@@ -414,13 +427,15 @@ class _SceneCardWidget extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (card.status == SceneCardStatus.draft)
+                    if (card.status != SceneCardStatus.generating)
                       Padding(
                         padding: const EdgeInsets.only(left: 8),
                         child: TextButton.icon(
                           onPressed: canGenerate ? onGenerate : null,
                           icon: const Icon(Icons.brush_rounded, size: 16),
-                          label: const Text('生成'),
+                          label: Text(card.status == SceneCardStatus.draft
+                              ? '生成'
+                              : '重新生成'),
                           style: TextButton.styleFrom(
                             visualDensity: VisualDensity.compact,
                             foregroundColor: AppColors.techBlue,
@@ -524,10 +539,11 @@ class _SceneCardWidget extends StatelessWidget {
       case SceneCardStatus.completed:
         if (card.localImagePath != null) {
           return GestureDetector(
-            onTap: () {},
+            onTap: () =>
+                _openImagePreview(context: context, path: card.localImagePath!),
             child: buildSceneImage(
               card.localImagePath!,
-              fit: BoxFit.cover,
+              fit: BoxFit.contain,
             ),
           );
         }
@@ -559,13 +575,54 @@ class _SceneCardWidget extends StatelessWidget {
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: canGenerate ? onGenerate : null,
-                  child: const Text('重试'),
+                  child: const Text('重新生成'),
                 ),
               ],
             ),
           ),
         );
     }
+  }
+
+  Future<void> _openImagePreview({
+    required BuildContext context,
+    required String path,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withOpacityCompat(0.92),
+      builder: (context) {
+        return Dialog.fullscreen(
+          backgroundColor: Colors.black,
+          child: SafeArea(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: InteractiveViewer(
+                    minScale: 1,
+                    maxScale: 4,
+                    child: Center(
+                      child: buildSceneImage(
+                        path,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 

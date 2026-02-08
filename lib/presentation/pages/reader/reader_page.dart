@@ -2156,6 +2156,7 @@ class _ReaderPageState extends State<ReaderPage>
     required int chapterIndex,
     required String selectionText,
   }) async {
+    _hideControls();
     final chapter = _chapters[chapterIndex];
     final chapterTitle = (chapter.title ?? '正文').trim();
     final chapterId = '${widget.bookId}::$chapterIndex';
@@ -2169,6 +2170,8 @@ class _ReaderPageState extends State<ReaderPage>
         final media = MediaQuery.of(context);
         final panelText = _panelTextColor;
         final panelBg = _panelBgColor;
+        final aiModel = context.watch<AiModelProvider>();
+        final usingPersonal = usingPersonalTencentKeys();
         return GlassPanel.sheet(
           surfaceColor: panelBg,
           opacity: AppTokens.glassOpacityDense,
@@ -2186,17 +2189,31 @@ class _ReaderPageState extends State<ReaderPage>
                         const Icon(Icons.image_outlined,
                             color: AppColors.techBlue),
                         const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '配图',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: panelText,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+                        Text(
+                          '插图',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: panelText,
                           ),
                         ),
+                        if (!usingPersonal)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 10),
+                            child: Text(
+                              '剩余积分：${aiModel.pointsBalance}（生图2万/张）',
+                              style: TextStyle(
+                                color: panelBg.computeLuminance() < 0.5
+                                    ? const Color(0xFFE6A23C)
+                                    : const Color(0xFFF57C00),
+                                fontSize: 12,
+                                height: 1.0,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        const Spacer(),
                         IconButton(
                           icon: Icon(Icons.close,
                               color: panelText.withOpacityCompat(0.7)),
@@ -4649,6 +4666,8 @@ class _ReaderPageState extends State<ReaderPage>
     }
 
     _illustrationAutoAnalyzeRequested.add(chapterIndex);
+    print(
+        '[ReaderPage] auto analyze illustrations: bookId=${widget.bookId} chapterIndex=$chapterIndex');
     try {
       await context.read<IllustrationProvider>().analyzeChapter(
             chapterId: '${widget.bookId}::$chapterIndex',
@@ -5542,6 +5561,8 @@ class _ReaderPageState extends State<ReaderPage>
                       bodySpan: span,
                       bodyStyle: effectiveTextStyle,
                       isCurrentPage: isCurrentPage,
+                      highlightText: highlightText,
+                      isLastPage: safeIndex == displayRanges.length - 1,
                     ),
                   ),
                 ),
@@ -5561,12 +5582,199 @@ class _ReaderPageState extends State<ReaderPage>
     required TextSpan bodySpan,
     required TextStyle bodyStyle,
     required bool isCurrentPage,
+    required String? highlightText,
+    required bool isLastPage,
   }) {
     return SizedBox(
       width: double.infinity,
       child: Builder(
         builder: (context) {
           String selectedText = '';
+          final chapterId = '${widget.bookId}::$chapterIndex';
+          final scenes =
+              context.watch<IllustrationProvider>().getScenes(chapterId);
+          final List<({int offset, String sceneId})> hintOffsets = [];
+          if (scenes.isNotEmpty) {
+            final Map<int, int> paraEndOffset = {};
+            final matches =
+                RegExp(r'\n{2,}').allMatches(effectiveText).toList();
+            int startPos = 0;
+            int paraIndex = 0;
+            for (final m in matches) {
+              final endPos = m.start;
+              final raw = effectiveText.substring(startPos, endPos);
+              final cleaned = raw
+                  .replaceAll(RegExp(r'^\n+'), '')
+                  .replaceAll(RegExp(r'\n+$'), '')
+                  .replaceAll(RegExp(r'^[ \t\u3000]+'), '');
+              if (cleaned.trim().isNotEmpty) {
+                paraEndOffset[paraIndex] = endPos;
+                paraIndex++;
+              }
+              startPos = m.end;
+            }
+            if (startPos < effectiveText.length) {
+              final raw = effectiveText.substring(startPos);
+              final cleaned = raw
+                  .replaceAll(RegExp(r'^\n+'), '')
+                  .replaceAll(RegExp(r'\n+$'), '')
+                  .replaceAll(RegExp(r'^[ \t\u3000]+'), '');
+              if (cleaned.trim().isNotEmpty) {
+                paraEndOffset[paraIndex] = effectiveText.length;
+              }
+            }
+            final Map<int, String> sceneIdByOffset = {};
+            for (final s in scenes) {
+              final endIdx = s.endParagraphIndex;
+              if (endIdx == null) continue;
+              final absoluteEnd = paraEndOffset[endIdx];
+              if (absoluteEnd == null) continue;
+              if (absoluteEnd <= range.start || absoluteEnd >= end) continue;
+              final rel =
+                  (absoluteEnd - range.start).clamp(0, end - range.start);
+              sceneIdByOffset.putIfAbsent(rel, () => s.id);
+            }
+            final sorted = sceneIdByOffset.entries.toList()
+              ..sort((a, b) => a.key.compareTo(b.key));
+            for (final e in sorted) {
+              hintOffsets.add((offset: e.key, sceneId: e.value));
+            }
+          }
+          TextSpan effectiveBodySpan = bodySpan;
+          final showChapterEndButton = isLastPage && scenes.isNotEmpty;
+          if (hintOffsets.isNotEmpty || showChapterEndButton) {
+            final pageText = effectiveText.substring(
+                range.start.clamp(0, effectiveText.length), end);
+            final children = <InlineSpan>[];
+            int cursor = 0;
+            for (final h in hintOffsets) {
+              if (h.offset < cursor || h.offset > pageText.length) continue;
+              final seg = pageText.substring(cursor, h.offset);
+              if (seg.isNotEmpty) {
+                children.add(
+                  _buildReaderSpan(
+                    text: seg,
+                    bodyStyle: bodyStyle,
+                    highlightText: highlightText,
+                  ),
+                );
+              }
+              children.add(
+                WidgetSpan(
+                  alignment: PlaceholderAlignment.middle,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: InkWell(
+                      onTap: () => unawaited(
+                        _openIllustrationPanelForChapter(
+                          chapterIndex: chapterIndex,
+                          onlySceneId: h.sceneId,
+                        ),
+                      ),
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.techBlue.withOpacityCompat(0.12),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: AppColors.techBlue.withOpacityCompat(0.28),
+                            width: AppTokens.stroke,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.image_outlined,
+                              size: 14,
+                              color: AppColors.techBlue,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '查看插图',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.techBlue,
+                                height: 1.0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+              cursor = h.offset;
+            }
+            final tail = pageText.substring(cursor);
+            if (tail.isNotEmpty) {
+              children.add(
+                _buildReaderSpan(
+                  text: tail,
+                  bodyStyle: bodyStyle,
+                  highlightText: highlightText,
+                ),
+              );
+            }
+
+            if (showChapterEndButton) {
+              children.add(
+                WidgetSpan(
+                  alignment: PlaceholderAlignment.middle,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 12, bottom: 6),
+                    child: InkWell(
+                      onTap: () => unawaited(
+                        _openIllustrationPanelForChapter(
+                          chapterIndex: chapterIndex,
+                          onlySceneId: null,
+                        ),
+                      ),
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.techBlue.withOpacityCompat(0.12),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: AppColors.techBlue.withOpacityCompat(0.28),
+                            width: AppTokens.stroke,
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.collections_outlined,
+                              size: 14,
+                              color: AppColors.techBlue,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              '查看本章插图',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.techBlue,
+                                height: 1.0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            effectiveBodySpan = TextSpan(style: bodyStyle, children: children);
+          }
           return SelectionArea(
             key: ValueKey(
                 'sel_${chapterIndex}_${range.start}_$_selectionAreaResetToken'),
@@ -5590,8 +5798,6 @@ class _ReaderPageState extends State<ReaderPage>
                   ((aiModel.source == AiModelSource.local && aiModel.loaded) ||
                       (aiModel.source == AiModelSource.online &&
                           (aiModel.pointsBalance > 0 || personalUsable)));
-              final canIllustrate = text.isNotEmpty &&
-                  (aiModel.pointsBalance > 0 || personalUsable);
 
               final isDarkBg = _bgColor.computeLuminance() < 0.5;
               final toolbarBg = isDarkBg
@@ -5668,36 +5874,6 @@ class _ReaderPageState extends State<ReaderPage>
                     type: ContextMenuButtonType.custom,
                     label: '解释',
                   ),
-                if (canIllustrate)
-                  ContextMenuButtonItem(
-                    onPressed: () {
-                      final err = _validateSelectionForIllustration(text);
-                      if (err != null) {
-                        ContextMenuController.removeAny();
-                        selectableRegionState.hideToolbar();
-                        if (mounted) {
-                          setState(() {
-                            _selectionAreaResetToken++;
-                          });
-                        }
-                        _showTopError(err);
-                        return;
-                      }
-                      ContextMenuController.removeAny();
-                      selectableRegionState.hideToolbar();
-                      if (mounted) {
-                        setState(() {
-                          _selectionAreaResetToken++;
-                        });
-                      }
-                      unawaited(_openIllustrationFromSelection(
-                        chapterIndex: chapterIndex,
-                        selectionText: text,
-                      ));
-                    },
-                    type: ContextMenuButtonType.custom,
-                    label: '配图',
-                  ),
               ];
               final ContextMenuButtonItem? copyItem = selectableRegionState
                   .contextMenuButtonItems
@@ -5746,7 +5922,7 @@ class _ReaderPageState extends State<ReaderPage>
               );
             },
             child: Text.rich(
-              bodySpan,
+              effectiveBodySpan,
               style: bodyStyle,
               strutStyle:
                   StrutStyle.fromTextStyle(bodyStyle, forceStrutHeight: true),
@@ -5758,6 +5934,100 @@ class _ReaderPageState extends State<ReaderPage>
           );
         },
       ),
+    );
+  }
+
+  Future<void> _openIllustrationPanelForChapter({
+    required int chapterIndex,
+    required String? onlySceneId,
+  }) async {
+    _hideControls();
+    final chapter = _chapters[chapterIndex];
+    final chapterTitle = (chapter.title ?? '正文').trim();
+    final chapterId = '${widget.bookId}::$chapterIndex';
+    final plain = _getPlainTextForChapter(chapterIndex);
+    final panelTitle = onlySceneId == null ? '本章插图' : '插图';
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        final media = MediaQuery.of(context);
+        final panelText = _panelTextColor;
+        final panelBg = _panelBgColor;
+        final aiModel = context.watch<AiModelProvider>();
+        final usingPersonal = usingPersonalTencentKeys();
+        return GlassPanel.sheet(
+          surfaceColor: panelBg,
+          opacity: AppTokens.glassOpacityDense,
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height:
+                  (media.size.height * 0.78).clamp(360.0, media.size.height),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.image_outlined,
+                            color: AppColors.techBlue),
+                        const SizedBox(width: 8),
+                        Text(
+                          panelTitle,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: panelText,
+                          ),
+                        ),
+                        if (!usingPersonal)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 10),
+                            child: Text(
+                              '剩余积分：${aiModel.pointsBalance}（生图2万/张）',
+                              style: TextStyle(
+                                color: panelBg.computeLuminance() < 0.5
+                                    ? const Color(0xFFE6A23C)
+                                    : const Color(0xFFF57C00),
+                                fontSize: 12,
+                                height: 1.0,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        const Spacer(),
+                        IconButton(
+                          icon: Icon(Icons.close,
+                              color: panelText.withOpacityCompat(0.7)),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: IllustrationPanel(
+                        isDark: panelBg.computeLuminance() < 0.5,
+                        bgColor: panelBg,
+                        textColor: panelText,
+                        bookId: widget.bookId,
+                        chapterId: chapterId,
+                        chapterTitle: chapterTitle,
+                        chapterContent: plain,
+                        autoGenerateFromSelection: false,
+                        onlySceneId: onlySceneId,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

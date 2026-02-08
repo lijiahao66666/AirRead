@@ -254,6 +254,29 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
     };
 
     final bool isQa = _route == AiHudRoute.qa;
+    if (isQa) {
+      return Row(
+        children: [
+          const Icon(Icons.question_answer_outlined, color: AppColors.techBlue),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: widget.textColor,
+            ),
+          ),
+          const Spacer(),
+          IconButton(
+            icon: Icon(Icons.close,
+                color: widget.textColor.withOpacityCompat(0.7)),
+            onPressed: () => Navigator.of(context).pop(),
+            tooltip: '关闭',
+          ),
+        ],
+      );
+    }
     return Row(
       children: [
         if (_route != AiHudRoute.main)
