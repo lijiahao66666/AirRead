@@ -41,6 +41,15 @@ class QaStreamProvider extends ChangeNotifier {
 
   QaStreamState? stateFor(String bookId) => _stateByBookId[bookId];
 
+  Future<void> _consumeDebugPoints(AiModelProvider aiModel, int cost) async {
+    if (!kDebugMode) return;
+    if (cost <= 0) return;
+    final override = aiModel.debugPointsOverride;
+    if (override == null) return;
+    final next = override - cost;
+    await aiModel.setDebugPointsOverride(next);
+  }
+
   Future<int> start({
     required String bookId,
     required String question,
@@ -100,10 +109,15 @@ class QaStreamProvider extends ChangeNotifier {
         isStreaming: false,
         answer: '',
         think: '',
-        error: '在线大模型需要购买积分后使用',
+        error: '问答需要购买积分后使用',
       );
       notifyListeners();
       return streamId;
+    }
+
+    if (aiModel.source == AiModelSource.online && !usingPersonalTencentKeys()) {
+      final cost = question.trim().length;
+      unawaited(_consumeDebugPoints(aiModel, cost));
     }
 
     if (isLocalModel) {

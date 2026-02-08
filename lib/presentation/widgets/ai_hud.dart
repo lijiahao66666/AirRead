@@ -1013,7 +1013,165 @@ class _TencentHunyuanSettingsPanelState
             ),
           ),
         ),
+        if (kDebugMode)
+          TextButton(
+            onPressed: () => _showDebugPointsDialog(aiModel, cardBg: cardBg),
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 0),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: AppColors.techBlue,
+            ),
+            child: Text(
+              aiModel.debugPointsOverride == null
+                  ? '调试积分'
+                  : '调试：${aiModel.debugPointsOverride}',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
       ],
+    );
+  }
+
+  Future<void> _showDebugPointsDialog(
+    AiModelProvider aiModel, {
+    required Color cardBg,
+  }) async {
+    if (!kDebugMode) return;
+    final controller = TextEditingController(
+      text: (aiModel.debugPointsOverride ?? aiModel.pointsBalance).toString(),
+    );
+    final dialogBg = widget.isDark ? const Color(0xFF262626) : Colors.white;
+    final fieldBg =
+        widget.isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF2F2F2);
+    String dialogHint = '';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            Future<void> setValue(int? v) async {
+              await aiModel.setDebugPointsOverride(v);
+              if (!mounted) return;
+              Navigator.of(dialogContext).pop();
+              widget.onShowTopMessage?.call(
+                v == null ? '调试积分已关闭' : '调试积分已设置为$v',
+                isError: false,
+              );
+            }
+
+            return AlertDialog(
+              backgroundColor: dialogBg,
+              title: Text(
+                '调试积分',
+                style: TextStyle(color: widget.textColor),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: fieldBg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    child: TextField(
+                      controller: controller,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      style: TextStyle(color: widget.textColor),
+                      decoration: InputDecoration(
+                        hintText: '例如：1000 / 0',
+                        hintStyle: TextStyle(
+                          color: widget.textColor.withOpacityCompat(0.5),
+                        ),
+                        border: InputBorder.none,
+                      ),
+                    ),
+                  ),
+                  if (dialogHint.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      dialogHint,
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      _smallChipButton(
+                        label: '0',
+                        onTap: () => setValue(0),
+                        bg: cardBg,
+                      ),
+                      _smallChipButton(
+                        label: '1000',
+                        onTap: () => setValue(1000),
+                        bg: cardBg,
+                      ),
+                      _smallChipButton(
+                        label: '清除',
+                        onTap: () => setValue(null),
+                        bg: cardBg,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: Text('取消', style: TextStyle(color: widget.textColor)),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final raw = controller.text.trim();
+                    final v = int.tryParse(raw);
+                    if (v == null) {
+                      setDialogState(() => dialogHint = '请输入数字');
+                      return;
+                    }
+                    await setValue(v);
+                  },
+                  child: Text('应用', style: TextStyle(color: widget.textColor)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _smallChipButton({
+    required String label,
+    required VoidCallback onTap,
+    required Color bg,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        decoration: BoxDecoration(
+          color: bg.withOpacityCompat(0.5),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: widget.textColor.withOpacityCompat(0.9),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
     );
   }
 
@@ -2405,11 +2563,6 @@ class _MainPanel extends StatelessWidget {
     required this.currentChapterIndex,
   });
 
-  int _requiredPointsForFullChapter(String text) {
-    final n = text.trim().length;
-    return (n * 1.5).ceil();
-  }
-
   @override
   Widget build(BuildContext context) {
     final aiModel = context.watch<AiModelProvider>();
@@ -2419,9 +2572,6 @@ class _MainPanel extends StatelessWidget {
     final usingPersonalKeys = translationProvider.usingPersonalTencentKeys;
     final personalKeysUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
     final personalKeysMissing = usingPersonalKeys && !personalKeysUsable;
-    final currentChapterText = chapterTextCache[currentChapterIndex] ?? '';
-    final requiredPoints = _requiredPointsForFullChapter(currentChapterText);
-    final bool chapterHasText = currentChapterText.trim().isNotEmpty;
 
     final bool qaReady = switch (source) {
       AiModelSource.none => false,
@@ -2435,11 +2585,6 @@ class _MainPanel extends StatelessWidget {
       AiModelSource.local when !aiModel.loaded => '本地模型未就绪，初始化后可用',
       _ => '',
     };
-
-    final bool qaBlockedByChapterPoints = source == AiModelSource.online &&
-        !usingPersonalKeys &&
-        aiModel.pointsBalance <= requiredPoints &&
-        chapterHasText;
 
     final bool translationBlockedByKeys = personalKeysMissing;
     final bool translationBlockedByEntitlement =
@@ -2456,7 +2601,7 @@ class _MainPanel extends StatelessWidget {
     if (translationBlockedByKeys) {
       translateSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
     } else if (translationBlockedByEntitlement) {
-      translateSubtitle = '积分不足，将使用机翻';
+      translateSubtitle = '大模型翻译需要购买积分后使用';
     } else if (!translateValue) {
       translateSubtitle = '打开后将实时对内容进行翻译';
     } else {
@@ -2481,7 +2626,7 @@ class _MainPanel extends StatelessWidget {
         : (onlineReadAloudKeysMissing
             ? '已开启使用个人密钥，但未正确设置个人密钥'
             : (onlineReadAloudBlocked
-                ? '积分不足，将使用本地朗读'
+                ? '在线朗读需要购买积分后使用'
                 : (readAloudEnabled ? '已开启，点击页面小喇叭朗读或暂停' : '开启后，可朗读当前页')));
     final bool readAloudValue =
         localReadAloudBlocked ? false : readAloudEnabled;
@@ -2492,16 +2637,10 @@ class _MainPanel extends StatelessWidget {
         source == AiModelSource.local && !aiModel.loaded;
     final bool illustrationBlockedByEntitlement =
         source == AiModelSource.online && !onlineEntitled && !usingPersonalKeys;
-    final bool illustrationBlockedByChapterPoints =
-        source == AiModelSource.online &&
-            !usingPersonalKeys &&
-            aiModel.pointsBalance <= requiredPoints &&
-            chapterHasText;
     final bool illustrationBlocked = illustrationBlockedByKeys ||
         illustrationBlockedByModel ||
         illustrationBlockedByLocalNotReady ||
-        illustrationBlockedByEntitlement ||
-        illustrationBlockedByChapterPoints;
+        illustrationBlockedByEntitlement;
     final bool illustrationValue =
         illustrationBlocked ? false : aiModel.illustrationEnabled;
     final ValueChanged<bool>? illustrationOnChanged = illustrationBlocked
@@ -2510,52 +2649,17 @@ class _MainPanel extends StatelessWidget {
 
     String illustrationSubtitle;
     if (illustrationBlockedByModel) {
-      illustrationSubtitle = '需要先在设置中选择文本/生图大模型';
+      illustrationSubtitle = '需要先在设置中选择大模型';
     } else if (illustrationBlockedByLocalNotReady) {
       illustrationSubtitle = '本地模型未就绪，初始化后可用';
     } else if (illustrationBlockedByKeys) {
       illustrationSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
     } else if (illustrationBlockedByEntitlement) {
       illustrationSubtitle = '在线大模型需要购买积分后使用';
-    } else if (illustrationBlockedByChapterPoints) {
-      illustrationSubtitle = '本章字数较多，积分不足（需>$requiredPoints），无法进行场景分析';
     } else if (!illustrationValue) {
-      illustrationSubtitle = '打开后会对当前章节进行生图场景分析（会消耗积分）';
+      illustrationSubtitle = '打开后进入章节自动分析插图（消耗积分）';
     } else {
-      illustrationSubtitle = '已开启，进入章节后自动分析场景';
-    }
-
-    final bool onlineModelNotUsableForChapter =
-        source == AiModelSource.online &&
-            ((personalKeysMissing) ||
-                (!usingPersonalKeys &&
-                    (!onlineEntitled ||
-                        (chapterHasText &&
-                            aiModel.pointsBalance <= requiredPoints))));
-    if (onlineModelNotUsableForChapter) {
-      if (aiModel.isModelInstalled) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          unawaited(aiModel.setSource(AiModelSource.local));
-          onShowTopMessage?.call(
-            personalKeysMissing ? '个人密钥不可用，已切换到本地模型' : '积分不足，已切换到本地模型',
-            isError: false,
-          );
-        });
-      } else {
-        if (aiModel.illustrationEnabled) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            unawaited(aiModel.setIllustrationEnabled(false));
-          });
-        }
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          onShowTopMessage?.call(
-            personalKeysMissing
-                ? '个人密钥不可用，本地模型未就绪，已关闭插图'
-                : '积分不足，本地模型未就绪，已关闭插图',
-            isError: false,
-          );
-        });
-      }
+      illustrationSubtitle = '已开启，分析章节插图中…留意阅读页插图提示';
     }
     if (source == AiModelSource.none && aiModel.illustrationEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2597,9 +2701,9 @@ class _MainPanel extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           _qaEntry(
-            enabled: qaReady && !qaBlockedByChapterPoints,
+            enabled: qaReady,
             subtitle: source == AiModelSource.none
-                ? '需要选择问答大模型后使用'
+                ? '需要先在设置中选择大模型'
                 : (source == AiModelSource.local && !qaReady)
                     ? localQaSubtitle
                     : (source == AiModelSource.online && personalKeysMissing)
@@ -2608,9 +2712,7 @@ class _MainPanel extends StatelessWidget {
                                 !onlineEntitled &&
                                 !usingPersonalKeys)
                             ? '在线大模型需要购买积分后使用'
-                            : qaBlockedByChapterPoints
-                                ? '本章字数较多，积分不足（需>$requiredPoints），无法使用'
-                                : '支持问答/总结/提取要点',
+                            : '支持问答/总结/提取要点',
             onTap: onOpenQa,
           ),
         ],
@@ -2887,6 +2989,7 @@ class _QaPanelState extends State<_QaPanel> {
   String? _lastErrorMessage;
   Timer? _qaToastTimer;
   String _qaToastText = '';
+  bool _qaBlockedByEntitlement = false;
   int? _actionTargetIndex;
   Timer? _actionHideTimer;
 
@@ -3178,7 +3281,7 @@ class _QaPanelState extends State<_QaPanel> {
     }
 
     if (s.hasError) {
-      _showTopError(s.error);
+      _showQaToast(s.error);
       _updateMessage(idx, _QaMsg(_QaRole.assistant, '错误: ${s.error}'));
       _messageState = _MessageState.idle;
       _activeReplyIndex = null;
@@ -3315,11 +3418,6 @@ class _QaPanelState extends State<_QaPanel> {
     _onQaStreamUpdated();
   }
 
-  int _requiredPointsForFullChapter(String text) {
-    final n = text.trim().length;
-    return (n * 1.5).ceil();
-  }
-
   bool _checkChapterPointsEnoughForQa() {
     final aiModel = context.read<AiModelProvider>();
     if (aiModel.source != AiModelSource.online) return true;
@@ -3327,24 +3425,11 @@ class _QaPanelState extends State<_QaPanel> {
     final personalUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
     if (tp.usingPersonalTencentKeys && personalUsable) return true;
     if (tp.usingPersonalTencentKeys && !personalUsable) {
-      if (aiModel.isModelInstalled) {
-        unawaited(aiModel.setSource(AiModelSource.local));
-        _showTopError('个人密钥不可用，已切换到本地问答');
-      } else {
-        _showTopError('个人密钥不可用，问答不可用');
-      }
+      _showQaToast('已开启使用个人密钥，但未正确设置个人密钥');
       return false;
     }
-    final text = widget.chapterTextCache[widget.currentChapterIndex] ?? '';
-    final required = _requiredPointsForFullChapter(text);
-    if (text.trim().isEmpty) return true;
-    if (aiModel.pointsBalance > required) return true;
-    if (aiModel.isModelInstalled) {
-      unawaited(aiModel.setSource(AiModelSource.local));
-      _showTopError('积分不足，已切换到本地问答');
-    } else {
-      _showTopError('积分不足，问答不可用');
-    }
+    if (aiModel.pointsBalance > 0) return true;
+    _showQaToast('积分不足，暂停问答');
     return false;
   }
 
@@ -3399,7 +3484,7 @@ class _QaPanelState extends State<_QaPanel> {
     setState(() {
       _qaToastText = t;
     });
-    _qaToastTimer = Timer(const Duration(milliseconds: 1200), () {
+    _qaToastTimer = Timer(const Duration(milliseconds: 2400), () {
       if (!mounted) return;
       setState(() {
         _qaToastText = '';
@@ -3526,6 +3611,26 @@ class _QaPanelState extends State<_QaPanel> {
     final Color cardBg = widget.isDark
         ? Colors.white.withOpacityCompat(0.07)
         : AppColors.mistWhite;
+    final aiModel = context.watch<AiModelProvider>();
+    final tp = context.watch<TranslationProvider>();
+    final personalUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
+    final bool qaBlockedByPersonalKeys =
+        aiModel.source == AiModelSource.online &&
+            tp.usingPersonalTencentKeys &&
+            !personalUsable;
+    final bool qaBlockedByPoints = aiModel.source == AiModelSource.online &&
+        !tp.usingPersonalTencentKeys &&
+        aiModel.pointsBalance <= 0;
+    final bool qaBlocked = qaBlockedByPersonalKeys || qaBlockedByPoints;
+    if (qaBlocked && !_qaBlockedByEntitlement) {
+      _qaBlockedByEntitlement = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showQaToast(qaBlockedByPersonalKeys ? '个人密钥不可用' : '积分不足，暂停问答');
+      });
+    } else if (!qaBlocked && _qaBlockedByEntitlement) {
+      _qaBlockedByEntitlement = false;
+    }
 
     Widget actionChip({
       required String label,
@@ -3922,19 +4027,19 @@ class _QaPanelState extends State<_QaPanel> {
                   children: [
                     actionChip(
                       label: '新话题',
-                      onTap: _messageState != _MessageState.idle
+                      onTap: qaBlocked || _messageState != _MessageState.idle
                           ? null
                           : _startNewTopic,
                     ),
                     actionChip(
                       label: '总结本章',
-                      onTap: _messageState != _MessageState.idle
+                      onTap: qaBlocked || _messageState != _MessageState.idle
                           ? null
                           : () => _sendQuickAction(QAType.summary),
                     ),
                     actionChip(
                       label: '提取要点',
-                      onTap: _messageState != _MessageState.idle
+                      onTap: qaBlocked || _messageState != _MessageState.idle
                           ? null
                           : () => _sendQuickAction(QAType.keyPoints),
                     ),
@@ -3954,7 +4059,8 @@ class _QaPanelState extends State<_QaPanel> {
                               !ServicesBinding
                                   .instance.keyboard.logicalKeysPressed
                                   .contains(LogicalKeyboardKey.shiftRight)) {
-                            if (_messageState == _MessageState.idle) {
+                            if (!qaBlocked &&
+                                _messageState == _MessageState.idle) {
                               _send();
                             }
                             return KeyEventResult.handled;
@@ -3963,6 +4069,7 @@ class _QaPanelState extends State<_QaPanel> {
                         },
                         child: TextField(
                           controller: _inputCtl,
+                          enabled: !qaBlocked,
                           minLines: 1,
                           maxLines: 4,
                           textInputAction: TextInputAction.send,
@@ -3998,7 +4105,8 @@ class _QaPanelState extends State<_QaPanel> {
                             );
                           },
                           onSubmitted: (_) {
-                            if (_messageState == _MessageState.idle) {
+                            if (!qaBlocked &&
+                                _messageState == _MessageState.idle) {
                               _send();
                             }
                           },
@@ -4008,7 +4116,9 @@ class _QaPanelState extends State<_QaPanel> {
                     const SizedBox(width: 10),
                     ElevatedButton(
                       onPressed:
-                          _messageState == _MessageState.idle ? _send : null,
+                          (!qaBlocked && _messageState == _MessageState.idle)
+                              ? _send
+                              : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.techBlue,
                         foregroundColor: Colors.white,

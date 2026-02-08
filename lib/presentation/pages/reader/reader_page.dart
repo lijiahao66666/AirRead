@@ -368,6 +368,9 @@ class _ReaderPageState extends State<ReaderPage>
   bool _isLoading = true;
   String? _error;
   DateTime? _lastErrorTime;
+
+  Timer? _centerToastTimer;
+  String _centerToastText = '';
   String? _lastErrorMessage;
   String? _currentBookFormat;
   Book? _currentBook;
@@ -507,6 +510,12 @@ class _ReaderPageState extends State<ReaderPage>
   Offset? _tapDownPos;
   int? _tapDownMs;
   bool _tapMoved = false;
+  AiModelProvider? _aiModel;
+  VoidCallback? _aiModelListener;
+  bool _lastIllustrationEnabled = false;
+  int _lastAiPointsBalance = 0;
+  bool _lastAiLoaded = false;
+  AiModelSource _lastAiSource = AiModelSource.none;
 
   @override
   void initState() {
@@ -520,6 +529,40 @@ class _ReaderPageState extends State<ReaderPage>
       _showTopError(msg);
     };
     unawaited(transProvider.bindBook(widget.bookId));
+
+    final aiModel = context.read<AiModelProvider>();
+    _aiModel = aiModel;
+    _lastIllustrationEnabled = aiModel.illustrationEnabled;
+    _lastAiPointsBalance = aiModel.pointsBalance;
+    _lastAiLoaded = aiModel.loaded;
+    _lastAiSource = aiModel.source;
+    _aiModelListener = () {
+      if (!mounted) return;
+      final m = _aiModel;
+      if (m == null) return;
+      final nowIllustrationEnabled = m.illustrationEnabled;
+      final nowPoints = m.pointsBalance;
+      final nowLoaded = m.loaded;
+      final nowSource = m.source;
+
+      final shouldRetryAnalyze = nowIllustrationEnabled &&
+          (!_lastIllustrationEnabled ||
+              (nowPoints > 0 && _lastAiPointsBalance <= 0) ||
+              (nowLoaded && !_lastAiLoaded) ||
+              (nowSource != _lastAiSource));
+
+      _lastIllustrationEnabled = nowIllustrationEnabled;
+      _lastAiPointsBalance = nowPoints;
+      _lastAiLoaded = nowLoaded;
+      _lastAiSource = nowSource;
+
+      if (!shouldRetryAnalyze) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_maybeAnalyzeIllustrationsForChapter(_currentChapterIndex));
+      });
+    };
+    aiModel.addListener(_aiModelListener!);
 
     _pageController = PageController(initialPage: 1000);
     _pageViewCenterIndex = 1000;
@@ -777,6 +820,12 @@ class _ReaderPageState extends State<ReaderPage>
   void dispose() {
     try {
       context.read<TranslationProvider>().onError = null;
+    } catch (_) {}
+    try {
+      _centerToastTimer?.cancel();
+      if (_aiModelListener != null) {
+        _aiModel?.removeListener(_aiModelListener!);
+      }
     } catch (_) {}
     _saveSettings();
     _saveProgress();
@@ -3327,22 +3376,16 @@ class _ReaderPageState extends State<ReaderPage>
     }
     _lastErrorMessage = message;
     _lastErrorTime = DateTime.now();
-
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-
-    final bgColor = (_bgColor.computeLuminance() < 0.5)
-        ? Colors.black.withOpacityCompat(0.82)
-        : Colors.black.withOpacityCompat(0.72);
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: bgColor,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      ),
-    );
+    _centerToastTimer?.cancel();
+    setState(() {
+      _centerToastText = message;
+    });
+    _centerToastTimer = Timer(const Duration(milliseconds: 2400), () {
+      if (!mounted) return;
+      setState(() {
+        _centerToastText = '';
+      });
+    });
   }
 
   Widget _buildReadAloudFloatingButton() {
@@ -4571,14 +4614,10 @@ class _ReaderPageState extends State<ReaderPage>
     });
   }
 
-  int _requiredPointsForChapterText(String text) {
-    final n = text.trim().length;
-    return (n * 1.5).ceil();
-  }
-
   Future<void> _maybeAnalyzeIllustrationsForChapter(int chapterIndex) async {
     if (!mounted) return;
     if (chapterIndex < 0 || chapterIndex >= _chapters.length) return;
+    if (_illustrationAutoAnalyzeRequested.contains(chapterIndex)) return;
     final aiModel = context.read<AiModelProvider>();
     if (!aiModel.illustrationEnabled) return;
     if (aiModel.source == AiModelSource.none) return;
@@ -4588,12 +4627,7 @@ class _ReaderPageState extends State<ReaderPage>
         getEmbeddedPublicHunyuanCredentials().isUsable;
 
     if (aiModel.source == AiModelSource.online && !usingPersonal) {
-      final plain = _getPlainTextForChapter(chapterIndex);
-      if (plain.trim().isEmpty) return;
-      final required = _requiredPointsForChapterText(plain);
-      if (aiModel.pointsBalance <= required) {
-        return;
-      }
+      if (aiModel.pointsBalance <= 0) return;
     }
 
     Future<String> Function(String prompt)? generateText;
@@ -4609,16 +4643,25 @@ class _ReaderPageState extends State<ReaderPage>
     final chapter = _chapters[chapterIndex];
     final chapterTitle = (chapter.title ?? '正文').trim();
     final chapterContent = _getPlainTextForChapter(chapterIndex);
-    if (chapterContent.trim().isEmpty) return;
+    if (chapterContent.trim().isEmpty) {
+      unawaited(_ensureChapterContentCached(chapterIndex));
+      return;
+    }
 
-    await context.read<IllustrationProvider>().analyzeChapter(
-          chapterId: '$chapterIndex',
-          chapterTitle: chapterTitle.isEmpty ? '正文' : chapterTitle,
-          content: chapterContent,
-          maxScenes: aiModel.maxIllustrationsPerChapter,
-          pointsBalance: aiModel.pointsBalance,
-          generateText: generateText,
-        );
+    _illustrationAutoAnalyzeRequested.add(chapterIndex);
+    try {
+      await context.read<IllustrationProvider>().analyzeChapter(
+            chapterId: '$chapterIndex',
+            chapterTitle: chapterTitle.isEmpty ? '正文' : chapterTitle,
+            content: chapterContent,
+            maxScenes: aiModel.maxIllustrationsPerChapter,
+            pointsBalance: aiModel.pointsBalance,
+            generateText: generateText,
+          );
+    } catch (_) {
+      _illustrationAutoAnalyzeRequested.remove(chapterIndex);
+      rethrow;
+    }
   }
 
   Future<void> _ensureChapterContentCached(int chapterIndex) async {
@@ -6258,7 +6301,7 @@ class _ReaderPageState extends State<ReaderPage>
   void _translateCurrentPageIfNeeded(TranslationProvider tp) {
     if (!tp.applyToReader) return;
     final anchorKey =
-        '$_currentChapterIndex|$_currentPageInChapter|${tp.config.displayMode.name}|${tp.translationMode.name}|${tp.config.sourceLang}|${tp.config.targetLang}';
+        '$_currentChapterIndex|$_currentPageInChapter|${tp.config.displayMode.name}|${tp.config.sourceLang}|${tp.config.targetLang}';
     if (anchorKey == _translationQueueAnchorKey) {
       if (_translationQueueRunning || _translationInsertRunning) return;
       if (_translationQueue.isNotEmpty) {
@@ -6290,12 +6333,23 @@ class _ReaderPageState extends State<ReaderPage>
     final aiModel = context.watch<AiModelProvider>();
     final readAloud = context.watch<ReadAloudProvider>();
     final pos = readAloud.position;
+    final canUseOnlineWithPersonalKeys = tp.usingPersonalTencentKeys &&
+        getEmbeddedPublicHunyuanCredentials().isUsable;
+    if (aiModel.illustrationEnabled &&
+        aiModel.source == AiModelSource.online &&
+        !canUseOnlineWithPersonalKeys &&
+        aiModel.pointsBalance <= 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showTopError('积分不足，暂停插图生成', isError: false);
+        unawaited(aiModel.setIllustrationEnabled(false));
+      });
+    }
     if (!aiModel.illustrationEnabled) {
       _illustrationAutoAnalyzeRequested.clear();
       _illustrationPrefetchRequested.clear();
     } else if (_chapters.isNotEmpty &&
         !_illustrationAutoAnalyzeRequested.contains(_currentChapterIndex)) {
-      _illustrationAutoAnalyzeRequested.add(_currentChapterIndex);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         unawaited(_maybeAnalyzeIllustrationsForChapter(_currentChapterIndex));
@@ -6304,9 +6358,8 @@ class _ReaderPageState extends State<ReaderPage>
     final canIllustrationPrefetchNext = switch (aiModel.source) {
       AiModelSource.none => false,
       AiModelSource.local => true,
-      AiModelSource.online => (tp.usingPersonalTencentKeys &&
-              getEmbeddedPublicHunyuanCredentials().isUsable) ||
-          aiModel.pointsBalance > 0,
+      AiModelSource.online =>
+        canUseOnlineWithPersonalKeys || aiModel.pointsBalance > 0,
     };
     final nextIllChapterIndex = _currentChapterIndex + 1;
     if (aiModel.illustrationEnabled &&
@@ -6411,6 +6464,33 @@ class _ReaderPageState extends State<ReaderPage>
                           style: const TextStyle(color: Colors.red)))
                 else
                   readerContent,
+                if (_centerToastText.trim().isNotEmpty)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Center(
+                        child: AnimatedOpacity(
+                          opacity: _centerToastText.trim().isNotEmpty ? 1 : 0,
+                          duration: const Duration(milliseconds: 160),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacityCompat(0.72),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              _centerToastText,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                height: 1.1,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 if (_showControls)
                   Positioned.fill(
                     child: GestureDetector(

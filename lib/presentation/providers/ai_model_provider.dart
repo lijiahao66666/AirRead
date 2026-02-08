@@ -23,6 +23,7 @@ class AiModelProvider extends ChangeNotifier {
   static const String _kModelSource = 'ai_model_source';
   static const String _kLocalModelId = 'ai_local_model_id';
   static const String _kPointsBalance = 'points_balance';
+  static const String _kDebugPointsOverride = 'debug_points_override';
   static const String _kMaxIllustrationsPerChapter =
       'ai_max_illustrations_per_chapter';
   static const String _kIllustrationEnabled = 'ai_illustration_enabled';
@@ -31,6 +32,7 @@ class AiModelProvider extends ChangeNotifier {
   AiModelSource _source = AiModelSource.none;
   String _localModelId = ModelManager.qwen3_0_6b;
   int _pointsBalance = 0;
+  int? _debugPointsOverride;
   int _maxIllustrationsPerChapter = 3;
   bool _illustrationEnabled = false;
 
@@ -88,7 +90,9 @@ class AiModelProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  int get pointsBalance => _pointsBalance;
+  int get pointsBalance =>
+      kDebugMode ? (_debugPointsOverride ?? _pointsBalance) : _pointsBalance;
+  int? get debugPointsOverride => kDebugMode ? _debugPointsOverride : null;
   int get maxIllustrationsPerChapter => _maxIllustrationsPerChapter;
   bool get illustrationEnabled => _illustrationEnabled;
 
@@ -118,6 +122,20 @@ class AiModelProvider extends ChangeNotifier {
     await prefs.setInt(_kPointsBalance, v);
   }
 
+  Future<void> setDebugPointsOverride(int? value) async {
+    if (!kDebugMode) return;
+    final v = value == null ? null : (value < 0 ? 0 : value);
+    if (_debugPointsOverride == v) return;
+    _debugPointsOverride = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    if (v == null) {
+      await prefs.remove(_kDebugPointsOverride);
+    } else {
+      await prefs.setInt(_kDebugPointsOverride, v);
+    }
+  }
+
   Future<void> addPoints(int delta) async {
     if (delta == 0) return;
     final next = _pointsBalance + delta;
@@ -144,6 +162,14 @@ class AiModelProvider extends ChangeNotifier {
     }
 
     _pointsBalance = prefs.getInt(_kPointsBalance) ?? 0;
+    if (kDebugMode) {
+      if (prefs.containsKey(_kDebugPointsOverride)) {
+        _debugPointsOverride = prefs.getInt(_kDebugPointsOverride);
+      } else {
+        _debugPointsOverride = 1000;
+        await prefs.setInt(_kDebugPointsOverride, 1000);
+      }
+    }
     _maxIllustrationsPerChapter =
         (prefs.getInt(_kMaxIllustrationsPerChapter) ?? 3).clamp(3, 5);
     _illustrationEnabled = prefs.getBool(_kIllustrationEnabled) ?? false;

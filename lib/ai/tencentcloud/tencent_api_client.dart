@@ -85,6 +85,8 @@ class TencentApiClient {
       String.fromEnvironment('AIRREAD_TENCENT_SCF_URL', defaultValue: '');
   static const String _envScfToken =
       String.fromEnvironment('AIRREAD_TENCENT_SCF_TOKEN', defaultValue: '');
+  static const String _envDebugNoJwt =
+      String.fromEnvironment('AIRREAD_DEBUG_NO_JWT', defaultValue: '');
 
   static String? _pointsToken;
   static ValueChanged<int>? onPointsBalanceChanged;
@@ -288,6 +290,10 @@ class TencentApiClient {
 
           if (token.isNotEmpty) {
             headers['X-Airread-Token'] = token;
+          }
+          final debugNoJwt = _envDebugNoJwt.trim() == '1';
+          if (kDebugMode && debugNoJwt) {
+            headers['X-Airread-Debug-NoJWT'] = '1';
           }
           final scfPayload = jsonEncode(<String, dynamic>{
             'host': host,
@@ -572,6 +578,10 @@ class TencentApiClient {
 
         if (token.isNotEmpty) {
           request.headers['X-Airread-Token'] = token;
+        }
+        final debugNoJwt = _envDebugNoJwt.trim() == '1';
+        if (kDebugMode && debugNoJwt) {
+          request.headers['X-Airread-Debug-NoJWT'] = '1';
         }
         request.body = jsonEncode(<String, dynamic>{
           'host': host,

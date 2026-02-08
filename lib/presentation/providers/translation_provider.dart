@@ -364,9 +364,12 @@ class TranslationProvider extends ChangeNotifier {
       TranslationCache(ttl: const Duration(days: 30));
 
   late TranslationService _service;
+  late TranslationService _machineService;
   AiModelProvider? _aiModel;
   VoidCallback? _aiModelListener;
   void Function(String)? onError;
+  String _machineEngineId = '';
+  String _bigModelEngineId = '';
 
   TranslationConfig _config = const TranslationConfig(
     sourceLang: '',
@@ -561,6 +564,21 @@ class TranslationProvider extends ChangeNotifier {
     return normalized.isEmpty ? 0 : normalized.length;
   }
 
+  Future<void> _consumeDebugPoints(int cost) async {
+    if (!kDebugMode) return;
+    if (cost <= 0) return;
+    final ai = _aiModel;
+    if (ai == null) return;
+    final override = ai.debugPointsOverride;
+    if (override == null) return;
+    final next = (override - cost);
+    await ai.setDebugPointsOverride(next);
+  }
+
+  void debugConsumeOnlinePoints(int cost) {
+    unawaited(_consumeDebugPoints(cost));
+  }
+
   bool _onlineTranslateEntitled() {
     if (_translationMode != TranslationMode.bigModel) return true;
     if (_usingPersonalTencentKeys) {
@@ -570,13 +588,7 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   bool _onlineTranslateEnoughForText(String text) {
-    if (_translationMode != TranslationMode.bigModel) return true;
-    if (_usingPersonalTencentKeys) {
-      return getEmbeddedPublicHunyuanCredentials().isUsable;
-    }
-    final need = _estimateOnlineTranslateCost(text);
-    if (need <= 0) return true;
-    return pointsBalance > need;
+    return _onlineTranslateEntitled();
   }
 
   void _onAiModelChanged() {
@@ -602,47 +614,33 @@ class TranslationProvider extends ChangeNotifier {
         _readAloudEngine == ReadAloudEngine.online &&
         !_usingPersonalTencentKeys &&
         !entitled) {
-      if (_localReadAloudAvailable) {
-        _readAloudEngine = ReadAloudEngine.local;
-        changed = true;
-        toastMessage ??= '积分不足，已切换到本地朗读';
-      } else {
-        _aiReadAloudEnabled = false;
-        changed = true;
-        toastMessage ??= '积分不足，已停止朗读';
-      }
+      _aiReadAloudEnabled = false;
+      changed = true;
+      toastMessage ??= '积分不足，暂停在线朗读';
     }
 
     if (_aiReadAloudEnabled &&
         _readAloudEngine == ReadAloudEngine.online &&
         _usingPersonalTencentKeys &&
         !personalUsable) {
-      if (_localReadAloudAvailable) {
-        _readAloudEngine = ReadAloudEngine.local;
-        changed = true;
-        toastMessage ??= '个人密钥不可用，已切换到本地朗读';
-      } else {
-        _aiReadAloudEnabled = false;
-        changed = true;
-        toastMessage ??= '个人密钥不可用，已停止朗读';
-      }
-    }
-
-    if (_aiTranslateEnabled &&
-        _translationMode == TranslationMode.bigModel &&
-        !_usingPersonalTencentKeys &&
-        !entitled) {
-      _translationMode = TranslationMode.machine;
-      _config = _sanitizeConfig(_config, _translationMode);
-      _rebuildService();
+      _aiReadAloudEnabled = false;
       changed = true;
-      toastMessage ??= '积分不足，已切换为机翻';
+      toastMessage ??= '已开启使用个人密钥，但未正确设置个人密钥';
     }
 
     if (_aiTranslateEnabled && _usingPersonalTencentKeys && !personalUsable) {
       _aiTranslateEnabled = false;
       changed = true;
       toastMessage ??= '个人密钥不可用，已停止翻译';
+    }
+
+    if (_aiTranslateEnabled &&
+        _translationMode == TranslationMode.bigModel &&
+        !_usingPersonalTencentKeys &&
+        !entitled) {
+      _aiTranslateEnabled = false;
+      changed = true;
+      toastMessage ??= '积分不足，暂停大模型翻译';
     }
 
     if (changed) {
@@ -653,16 +651,28 @@ class TranslationProvider extends ChangeNotifier {
 
   void _rebuildService() {
     final creds = getEmbeddedPublicHunyuanCredentials();
-    final engine = switch (_translationMode) {
-      TranslationMode.machine => FallbackTranslationEngine(
-          primary: AzureTranslationEngine(),
-          fallback: TmtTranslationEngine(credentials: creds),
-          primaryAvailable: () => AzureTranslationEngine.isConfigured,
-          fallbackAvailable: () =>
-              _usingPersonalTencentKeys || TencentApiClient.hasScfProxyUrl,
-        ),
-      TranslationMode.bigModel => HunyuanTranslationEngine(credentials: creds),
-    };
+    final primary = AzureTranslationEngine();
+    final fallback = TmtTranslationEngine(credentials: creds);
+    final machineEngine = FallbackTranslationEngine(
+      primary: primary,
+      fallback: fallback,
+      primaryAvailable: () => AzureTranslationEngine.isConfigured,
+      fallbackAvailable: () =>
+          _usingPersonalTencentKeys || TencentApiClient.hasScfProxyUrl,
+    );
+    _machineEngineId = machineEngine.id;
+
+    final bigModelEngine = HunyuanTranslationEngine(credentials: creds);
+    _bigModelEngineId = bigModelEngine.id;
+
+    _machineService = TranslationService(
+      cache: _cache,
+      engine: machineEngine,
+      backend: TranslationBackend.online,
+    );
+
+    final engine =
+        _translationMode == TranslationMode.bigModel ? bigModelEngine : machineEngine;
 
     _service = TranslationService(
       cache: _cache,
@@ -1017,12 +1027,6 @@ class TranslationProvider extends ChangeNotifier {
 
   Future<void> setAiTranslateEnabled(bool value) async {
     if (value) {
-      if (_translationMode == TranslationMode.bigModel &&
-          !_usingPersonalTencentKeys &&
-          pointsBalance <= 0) {
-        await setTranslationMode(TranslationMode.machine);
-        onError?.call('积分不足，已切换为机翻');
-      }
       _validateEngineConfig();
     }
     _aiTranslateEnabled = value;
@@ -1040,23 +1044,13 @@ class TranslationProvider extends ChangeNotifier {
         if (_readAloudEngine == ReadAloudEngine.online &&
             _usingPersonalTencentKeys &&
             !getEmbeddedPublicHunyuanCredentials().isUsable) {
-          if (_localReadAloudAvailable) {
-            _readAloudEngine = ReadAloudEngine.local;
-            onError?.call('个人密钥不可用，已切换到本地朗读');
-          } else {
-            throw TranslationConfigException('已开启使用个人密钥，但未正确设置个人密钥');
-          }
+          throw TranslationConfigException('已开启使用个人密钥，但未正确设置个人密钥');
         }
         if (_readAloudEngine == ReadAloudEngine.online &&
             !_usingPersonalTencentKeys) {
           final points = _aiModel?.pointsBalance ?? 0;
           if (points <= 0) {
-            if (_localReadAloudAvailable) {
-              _readAloudEngine = ReadAloudEngine.local;
-              onError?.call('积分不足，已切换到本地朗读');
-            } else {
-              throw TranslationConfigException('朗读需要购买积分后使用');
-            }
+            throw TranslationConfigException('朗读需要购买积分后使用');
           }
         }
       } catch (e) {
@@ -1095,13 +1089,7 @@ class TranslationProvider extends ChangeNotifier {
     }
 
     final normalized = _service.normalizeParagraphText(paragraphText);
-    if (_translationMode == TranslationMode.bigModel &&
-        !_usingPersonalTencentKeys &&
-        pointsBalance <= _estimateOnlineTranslateCost(normalized)) {
-      await setTranslationMode(TranslationMode.machine);
-      onError?.call('积分不足，已切换为机翻');
-      return translateParagraphWithState(normalized);
-    }
+
     final cacheKey =
         _service.buildCacheKey(config: _config, paragraphText: normalized);
     final cached = _cache.getSynchronous(cacheKey);
@@ -1118,6 +1106,10 @@ class TranslationProvider extends ChangeNotifier {
         config: _config,
         paragraphText: normalized,
       );
+      if (_translationMode == TranslationMode.bigModel &&
+          !_usingPersonalTencentKeys) {
+        unawaited(_consumeDebugPoints(_estimateOnlineTranslateCost(normalized)));
+      }
       _pendingKeys.remove(cacheKey);
       _failedKeys.remove(cacheKey);
       _cacheRevision++;
@@ -1154,14 +1146,16 @@ class TranslationProvider extends ChangeNotifier {
   bool _readerTranslationQueueInFlight = false;
 
   bool isTranslationPending(String paragraphText) {
+    final normalized = _service.normalizeParagraphText(paragraphText);
     final key =
-        _service.buildCacheKey(config: _config, paragraphText: paragraphText);
+        _service.buildCacheKey(config: _config, paragraphText: normalized);
     return _pendingKeys.contains(key);
   }
 
   bool isTranslationFailed(String paragraphText) {
+    final normalized = _service.normalizeParagraphText(paragraphText);
     final key =
-        _service.buildCacheKey(config: _config, paragraphText: paragraphText);
+        _service.buildCacheKey(config: _config, paragraphText: normalized);
     return _failedKeys.contains(key);
   }
 
@@ -1225,10 +1219,14 @@ class TranslationProvider extends ChangeNotifier {
   }
 
   void retryTranslation(String paragraphText) {
-    final key =
-        _service.buildCacheKey(config: _config, paragraphText: paragraphText);
-    _failedKeys.remove(key); // 清除失败标记
-    _pendingKeys.remove(key); // 清除pending标记
+    final normalized = _service.normalizeParagraphText(paragraphText);
+    final k1 = _service.buildCacheKey(config: _config, paragraphText: normalized);
+    final k2 =
+        _machineService.buildCacheKey(config: _config, paragraphText: normalized);
+    _failedKeys.remove(k1);
+    _failedKeys.remove(k2);
+    _pendingKeys.remove(k1);
+    _pendingKeys.remove(k2);
 
     // 重新请求翻译
     requestTranslationForParagraphs({0: paragraphText});
@@ -1237,8 +1235,12 @@ class TranslationProvider extends ChangeNotifier {
   void clearFailedForParagraphs(Iterable<String> paragraphs) {
     bool changed = false;
     for (final text in paragraphs) {
-      final key = _service.buildCacheKey(config: _config, paragraphText: text);
-      if (_failedKeys.remove(key)) {
+      final normalized = _service.normalizeParagraphText(text);
+      final k1 =
+          _service.buildCacheKey(config: _config, paragraphText: normalized);
+      final k2 = _machineService.buildCacheKey(
+          config: _config, paragraphText: normalized);
+      if (_failedKeys.remove(k1) || _failedKeys.remove(k2)) {
         changed = true;
       }
     }
@@ -1262,42 +1264,35 @@ class TranslationProvider extends ChangeNotifier {
       bool pendingChanged = false;
 
       for (final entry in paragraphsByIndex.entries) {
-        if (_translationMode == TranslationMode.bigModel &&
-            !_usingPersonalTencentKeys &&
-            pointsBalance <= _estimateOnlineTranslateCost(entry.value)) {
-          unawaited(setTranslationMode(TranslationMode.machine));
-          onError?.call('积分不足，已切换为机翻');
-          break;
-        }
+        final normalized = _service.normalizeParagraphText(entry.value);
+        final cost = _translationMode == TranslationMode.bigModel &&
+                !_usingPersonalTencentKeys
+            ? _estimateOnlineTranslateCost(normalized)
+            : 0;
+
         final cacheKey =
-            _service.buildCacheKey(config: _config, paragraphText: entry.value);
+            _service.buildCacheKey(config: _config, paragraphText: normalized);
         final existing = _cache.getSynchronous(cacheKey);
         if (existing != null) continue;
-
         if (_failedKeys.contains(cacheKey)) continue;
         if (_pendingKeys.contains(cacheKey)) continue;
 
         _pendingKeys.add(cacheKey);
         pendingChanged = true;
 
-        Future<String> f;
-        try {
-          f = _service.translateParagraph(
-              config: _config, paragraphText: entry.value);
-        } catch (e) {
-          _handleTranslationError(cacheKey, entry.value, e);
-          continue;
-        }
-
-        f.then((result) {
+        _service
+            .translateParagraph(config: _config, paragraphText: normalized)
+            .then((_) {
+          if (cost > 0) unawaited(_consumeDebugPoints(cost));
           _pendingKeys.remove(cacheKey);
-          _failedKeys.remove(cacheKey); // 清除失败标记
+          _failedKeys.remove(cacheKey);
           _cacheRevision++;
           _scheduleNotify();
         }).catchError((e) {
-          _handleTranslationError(cacheKey, entry.value, e);
+          _handleTranslationError(cacheKey, normalized, e);
         });
       }
+
       if (pendingChanged) {
         _scheduleNotify();
       }
@@ -1316,22 +1311,30 @@ class TranslationProvider extends ChangeNotifier {
     final key =
         _service.buildCacheKey(config: _config, paragraphText: normalized);
     final cached = _cache.getSynchronous(key);
-    if (cached == null) return null;
-    return cached;
+    if (cached != null) return cached;
+
+    final altEngineId = _translationMode == TranslationMode.bigModel
+        ? _machineEngineId
+        : _bigModelEngineId;
+    if (altEngineId.trim().isEmpty) return null;
+    final altKey = _cache.buildKey(
+      engineId: altEngineId,
+      sourceLang: _config.sourceLang,
+      targetLang: _config.targetLang,
+      text: normalized,
+    );
+    return _cache.getSynchronous(altKey);
   }
 
   Future<void> prefetchParagraphs(List<String> nextParagraphs) async {
     if (nextParagraphs.isEmpty) return;
     if (!_canPrefetch()) return;
     for (final p in nextParagraphs) {
-      if (_translationMode == TranslationMode.bigModel &&
-          !_usingPersonalTencentKeys &&
-          pointsBalance <= _estimateOnlineTranslateCost(p)) {
-        unawaited(setTranslationMode(TranslationMode.machine));
-        onError?.call('积分不足，已切换为机翻');
-        break;
-      }
       final normalized = _service.normalizeParagraphText(p);
+      final cost = _translationMode == TranslationMode.bigModel &&
+              !_usingPersonalTencentKeys
+          ? _estimateOnlineTranslateCost(normalized)
+          : 0;
       final cacheKey =
           _service.buildCacheKey(config: _config, paragraphText: normalized);
       final existing = _cache.getSynchronous(cacheKey);
@@ -1343,6 +1346,7 @@ class TranslationProvider extends ChangeNotifier {
       _service
           .translateParagraph(config: _config, paragraphText: normalized)
           .then((_) {
+        if (cost > 0) unawaited(_consumeDebugPoints(cost));
         _pendingKeys.remove(cacheKey);
         _failedKeys.remove(cacheKey);
         _cacheRevision++;

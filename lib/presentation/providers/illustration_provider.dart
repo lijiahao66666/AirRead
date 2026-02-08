@@ -75,13 +75,9 @@ class IllustrationProvider extends ChangeNotifier {
 
     try {
       if (generateText == null && !usingPersonalTencentKeys()) {
-        final n = content.trim().length;
-        if (n > 0) {
-          final required = (n * 1.5).ceil();
-          final available = pointsBalance ?? 0;
-          if (available <= required) {
-            throw StateError('本章字数较多，积分不足（需>$required），无法进行场景分析');
-          }
+        final available = pointsBalance ?? 0;
+        if (available <= 0) {
+          throw StateError('插图需要购买积分后使用');
         }
       }
       final paragraphs = _splitParagraphsForAnalysis(content);

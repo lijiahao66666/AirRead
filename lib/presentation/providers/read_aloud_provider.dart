@@ -283,12 +283,8 @@ class ReadAloudProvider extends ChangeNotifier {
     if (tp.readAloudEngine == ReadAloudEngine.online &&
         !tp.usingPersonalTencentKeys &&
         tp.pointsBalance <= 0) {
-      if (tp.localReadAloudAvailable) {
-        unawaited(tp.setReadAloudEngine(ReadAloudEngine.local));
-        tp.onError?.call('积分不足，已切换到本地朗读');
-      } else {
-        tp.onError?.call('积分不足，已停止朗读');
-      }
+      unawaited(tp.setAiReadAloudEnabled(false));
+      tp.onError?.call('积分不足，暂停在线朗读');
       unawaited(
           stop(keepResume: true, endedNaturally: false, stopEngine: false));
       return;
@@ -897,30 +893,16 @@ class ReadAloudProvider extends ChangeNotifier {
 
     try {
       if (tp.readAloudEngine == ReadAloudEngine.online) {
-        if (!tp.usingPersonalTencentKeys) {
-          final need = entry.speechText.trim().length * 10;
-          if (tp.pointsBalance <= need) {
-            if (tp.localReadAloudAvailable) {
-              unawaited(tp.setReadAloudEngine(ReadAloudEngine.local));
-              tp.onError?.call('积分不足，已切换到本地朗读');
-            } else {
-              tp.onError?.call('积分不足，已停止朗读');
-            }
-            await stop(
-                keepResume: true, endedNaturally: false, stopEngine: false);
-            return;
-          }
-        }
         if (!tp.usingPersonalTencentKeys && tp.pointsBalance <= 0) {
-          if (tp.localReadAloudAvailable) {
-            unawaited(tp.setReadAloudEngine(ReadAloudEngine.local));
-            tp.onError?.call('积分不足，已切换到本地朗读');
-          } else {
-            tp.onError?.call('积分不足，已停止朗读');
-          }
+          unawaited(tp.setAiReadAloudEnabled(false));
+          tp.onError?.call('积分不足，暂停在线朗读');
           await stop(
               keepResume: true, endedNaturally: false, stopEngine: false);
           return;
+        }
+        if (!tp.usingPersonalTencentKeys) {
+          final need = entry.speechText.trim().length * 10;
+          tp.debugConsumeOnlinePoints(need);
         }
         await _persistPosition(position);
         final bytes = await _getOnlineTtsBytesDedup(

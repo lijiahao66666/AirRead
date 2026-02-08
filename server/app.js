@@ -507,7 +507,12 @@ async function handleApiProxy(req, res, body) {
 
   // --- Security Check: Auth Token ---
   // Only online big model translation / QA / TTS require JWT.
-  const clientToken = (req.headers['x-airread-token'] || '').trim();
+  let clientToken = String(req.headers['x-airread-token'] || '').trim();
+  if (!clientToken) {
+    const auth = String(req.headers['authorization'] || '').trim();
+    const m = auth.match(/^Bearer\s+(.+)$/i);
+    if (m) clientToken = String(m[1] || '').trim();
+  }
   const jwtSecret = (process.env.JWT_SECRET || '').trim();
   const requiresAuth = !usingPersonalKeys && String(action) !== 'TextTranslate';
 
@@ -518,11 +523,20 @@ async function handleApiProxy(req, res, body) {
 
     const claim = verifyJwt(clientToken, jwtSecret);
     if (!claim) {
-      return sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing JWT token' });
+      const jwtOptional = String(process.env.JWT_OPTIONAL || '').trim() === '1';
+      const jwtOptionalHeader = String(process.env.JWT_OPTIONAL_HEADER || '').trim() === '1';
+      const debugNoJwtHeader = String(req.headers['x-airread-debug-nojwt'] || '').trim() === '1';
+      const remote = String(req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : '').trim();
+      const fromLocal = (remote === '127.0.0.1' || remote === '::1' || remote.endsWith('127.0.0.1'));
+      const allowNoJwt = jwtOptional || (jwtOptionalHeader && debugNoJwtHeader && fromLocal);
+      if (!allowNoJwt) {
+        return sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing JWT token' });
+      }
+      req.jwtClaim = null;
+    } else {
+      // Points-based system: token validity only, no scope separation
+      req.jwtClaim = claim;
     }
-
-    // Points-based system: token validity only, no scope separation
-    req.jwtClaim = claim;
   }
 
   const bucket = process.env.BUCKET_NAME;
@@ -935,7 +949,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'content-type,x-airread-token,accept');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type,x-airread-token,authorization,accept');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.end();
     return;
