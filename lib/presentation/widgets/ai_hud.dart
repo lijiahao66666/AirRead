@@ -303,6 +303,8 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           onReadAloudChanged: widget.onReadAloudChanged,
           onOpenQa: () => _push(AiHudRoute.qa),
           onShowTopMessage: widget.onShowTopMessage,
+          chapterTextCache: widget.chapterTextCache,
+          currentChapterIndex: widget.currentChapterIndex,
         ),
       AiHudRoute.qa => _QaPanel(
           key: const ValueKey('qa'),
@@ -2053,7 +2055,7 @@ class _TencentHunyuanSettingsPanelState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '问答设置',
+                '问答/生图设置',
                 style: TextStyle(
                   color: widget.textColor,
                   fontWeight: FontWeight.w900,
@@ -2066,7 +2068,7 @@ class _TencentHunyuanSettingsPanelState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '问答大模型',
+                      '文本/生图大模型',
                       style: TextStyle(
                         color: widget.textColor,
                         fontSize: 13,
@@ -2127,6 +2129,18 @@ class _TencentHunyuanSettingsPanelState
                             height: 1.35,
                           ),
                         ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '生图会使用大模型先对章节进行生图场景分析；打开插图开关后会消耗一定积分。若确定生成插图，将基于场景提示词生成一张插图，需消耗2万积分（不生图则不消耗），请按需使用。',
+                          style: TextStyle(
+                            color: widget.isDark
+                                ? const Color(0xFFE6A23C)
+                                : const Color(0xFFF57C00),
+                            fontSize: 12,
+                            height: 1.35,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                         const SizedBox(height: 10),
                         _redeemRow(aiModel, cardBg: cardBg),
                       ],
@@ -2143,10 +2157,113 @@ class _TencentHunyuanSettingsPanelState
                   ],
                 ),
               ),
+              const SizedBox(height: 10),
+              _itemBox(
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '每章最大生图个数',
+                            style: TextStyle(
+                              color: widget.textColor,
+                              fontSize: 13,
+                              fontWeight: FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                        _countStepper(
+                          value: aiModel.maxIllustrationsPerChapter,
+                          min: 3,
+                          max: 5,
+                          onChanged: (v) => unawaited(
+                              aiModel.setMaxIllustrationsPerChapter(v)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'AI会根据每章内容给出0-${aiModel.maxIllustrationsPerChapter}个插图建议；该数量为上限，实际数量由AI决定，可根据情况选择是否生图。',
+                      style: TextStyle(
+                        color: widget.textColor.withOpacityCompat(0.65),
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _countStepper({
+    required int value,
+    required int min,
+    required int max,
+    required ValueChanged<int> onChanged,
+  }) {
+    final clamped = value.clamp(min, max);
+    final canDec = clamped > min;
+    final canInc = clamped < max;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: widget.textColor.withOpacityCompat(0.06),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: widget.textColor.withOpacityCompat(0.08),
+          width: AppTokens.stroke,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: canDec ? () => onChanged(clamped - 1) : null,
+            borderRadius: BorderRadius.circular(999),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              child: Icon(
+                Icons.remove,
+                size: 18,
+                color: canDec
+                    ? widget.textColor.withOpacityCompat(0.9)
+                    : widget.textColor.withOpacityCompat(0.25),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '$clamped',
+            style: TextStyle(
+              color: widget.textColor,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: canInc ? () => onChanged(clamped + 1) : null,
+            borderRadius: BorderRadius.circular(999),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              child: Icon(
+                Icons.add,
+                size: 18,
+                color: canInc
+                    ? widget.textColor.withOpacityCompat(0.9)
+                    : widget.textColor.withOpacityCompat(0.25),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2269,6 +2386,8 @@ class _MainPanel extends StatelessWidget {
 
   final VoidCallback onOpenQa;
   final void Function(String, {bool isError})? onShowTopMessage;
+  final Map<int, String> chapterTextCache;
+  final int currentChapterIndex;
 
   const _MainPanel({
     super.key,
@@ -2282,7 +2401,14 @@ class _MainPanel extends StatelessWidget {
     required this.onReadAloudChanged,
     required this.onOpenQa,
     this.onShowTopMessage,
+    required this.chapterTextCache,
+    required this.currentChapterIndex,
   });
+
+  int _requiredPointsForFullChapter(String text) {
+    final n = text.trim().length;
+    return (n * 1.5).ceil();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2293,6 +2419,8 @@ class _MainPanel extends StatelessWidget {
     final usingPersonalKeys = translationProvider.usingPersonalTencentKeys;
     final personalKeysUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
     final personalKeysMissing = usingPersonalKeys && !personalKeysUsable;
+    final currentChapterText = chapterTextCache[currentChapterIndex] ?? '';
+    final requiredPoints = _requiredPointsForFullChapter(currentChapterText);
 
     final bool qaReady = switch (source) {
       AiModelSource.none => false,
@@ -2306,6 +2434,11 @@ class _MainPanel extends StatelessWidget {
       AiModelSource.local when !qaReady => '本地模型未就绪，下载完成后可用',
       _ => '',
     };
+
+    final bool qaBlockedByChapterPoints = source == AiModelSource.online &&
+        !usingPersonalKeys &&
+        aiModel.pointsBalance <= requiredPoints &&
+        currentChapterText.trim().isNotEmpty;
 
     final bool translationBlockedByKeys = personalKeysMissing;
     final bool translationBlockedByEntitlement =
@@ -2322,7 +2455,7 @@ class _MainPanel extends StatelessWidget {
     if (translationBlockedByKeys) {
       translateSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
     } else if (translationBlockedByEntitlement) {
-      translateSubtitle = '大模型翻译需购买积分后使用';
+      translateSubtitle = '积分不足，已停止翻译与预取';
     } else if (!translateValue) {
       translateSubtitle = '打开后将实时对内容进行翻译';
     } else {
@@ -2347,10 +2480,44 @@ class _MainPanel extends StatelessWidget {
         : (onlineReadAloudKeysMissing
             ? '已开启使用个人密钥，但未正确设置个人密钥'
             : (onlineReadAloudBlocked
-                ? '在线朗读需要购买积分后使用'
+                ? '积分不足，已停止朗读与预取'
                 : (readAloudEnabled ? '已开启，点击页面小喇叭朗读或暂停' : '开启后，可朗读当前页')));
     final bool readAloudValue =
         localReadAloudBlocked ? false : readAloudEnabled;
+
+    final bool illustrationBlockedByKeys = personalKeysMissing;
+    final bool illustrationBlockedByModel = source == AiModelSource.none;
+    final bool illustrationBlockedByEntitlement =
+        source == AiModelSource.online && !onlineEntitled && !usingPersonalKeys;
+    final bool illustrationBlockedByChapterPoints =
+        source == AiModelSource.online &&
+            !usingPersonalKeys &&
+            aiModel.pointsBalance <= requiredPoints &&
+            currentChapterText.trim().isNotEmpty;
+    final bool illustrationBlocked = illustrationBlockedByKeys ||
+        illustrationBlockedByModel ||
+        illustrationBlockedByEntitlement ||
+        illustrationBlockedByChapterPoints;
+    final bool illustrationValue =
+        illustrationBlocked ? false : aiModel.illustrationEnabled;
+    final ValueChanged<bool>? illustrationOnChanged = illustrationBlocked
+        ? null
+        : (v) => unawaited(aiModel.setIllustrationEnabled(v));
+
+    String illustrationSubtitle;
+    if (illustrationBlockedByModel) {
+      illustrationSubtitle = '需要先在设置中选择文本/生图大模型';
+    } else if (illustrationBlockedByKeys) {
+      illustrationSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
+    } else if (illustrationBlockedByEntitlement) {
+      illustrationSubtitle = '在线大模型需要购买积分后使用';
+    } else if (illustrationBlockedByChapterPoints) {
+      illustrationSubtitle = '本章字数较多，积分不足（需>$requiredPoints），无法进行场景分析';
+    } else if (!illustrationValue) {
+      illustrationSubtitle = '打开后会对当前章节进行生图场景分析（会消耗积分）';
+    } else {
+      illustrationSubtitle = '已开启，进入章节后自动分析场景';
+    }
 
     return SingleChildScrollView(
       key: const PageStorageKey('ai_hud_main_scroll'),
@@ -2375,9 +2542,18 @@ class _MainPanel extends StatelessWidget {
             value: readAloudValue,
             onChanged: readAloudBlocked ? null : onReadAloudChanged,
           ),
+          const SizedBox(height: 10),
+          _featureRow(
+            context,
+            icon: Icons.image_outlined,
+            title: '插图',
+            subtitle: illustrationSubtitle,
+            value: illustrationValue,
+            onChanged: illustrationOnChanged,
+          ),
           const SizedBox(height: 14),
           _qaEntry(
-            enabled: qaReady,
+            enabled: qaReady && !qaBlockedByChapterPoints,
             subtitle: source == AiModelSource.none
                 ? '需要选择问答大模型后使用'
                 : (source == AiModelSource.local && !qaReady)
@@ -2388,7 +2564,9 @@ class _MainPanel extends StatelessWidget {
                                 !onlineEntitled &&
                                 !usingPersonalKeys)
                             ? '在线大模型需要购买积分后使用'
-                            : '支持问答/总结/提取要点',
+                            : qaBlockedByChapterPoints
+                                ? '本章字数较多，积分不足（需>$requiredPoints），无法使用'
+                                : '支持问答/总结/提取要点',
             onTap: onOpenQa,
           ),
         ],
@@ -2997,6 +3175,8 @@ class _QaPanelState extends State<_QaPanel> {
   void _sendQuickAction(QAType qaType) async {
     if (_messageState != _MessageState.idle) return;
 
+    if (!_checkChapterPointsEnoughForQa()) return;
+
     final String quickText;
     switch (qaType) {
       case QAType.summary:
@@ -3023,6 +3203,8 @@ class _QaPanelState extends State<_QaPanel> {
     final text = _inputCtl.text.trim();
     if (text.isEmpty || _messageState != _MessageState.idle) return;
     FocusManager.instance.primaryFocus?.unfocus();
+
+    if (!_checkChapterPointsEnoughForQa()) return;
 
     if (text == '总结本章') {
       _inputCtl.clear();
@@ -3053,6 +3235,13 @@ class _QaPanelState extends State<_QaPanel> {
     final qaStream = _qaStream ?? context.read<QaStreamProvider>();
     _qaStream ??= qaStream;
 
+    if (!_checkChapterPointsEnoughForQa()) {
+      setState(() {
+        _messageState = _MessageState.idle;
+      });
+      return;
+    }
+
     setState(() {
       _actionTargetIndex = null;
       _activeReplyIndex = null;
@@ -3080,6 +3269,27 @@ class _QaPanelState extends State<_QaPanel> {
     );
     _activeStreamId = streamId;
     _onQaStreamUpdated();
+  }
+
+  int _requiredPointsForFullChapter(String text) {
+    final n = text.trim().length;
+    return (n * 1.5).ceil();
+  }
+
+  bool _checkChapterPointsEnoughForQa() {
+    final aiModel = context.read<AiModelProvider>();
+    if (aiModel.source != AiModelSource.online) return true;
+    final tp = context.read<TranslationProvider>();
+    if (tp.usingPersonalTencentKeys &&
+        getEmbeddedPublicHunyuanCredentials().isUsable) {
+      return true;
+    }
+    final text = widget.chapterTextCache[widget.currentChapterIndex] ?? '';
+    final required = _requiredPointsForFullChapter(text);
+    if (text.trim().isEmpty) return true;
+    if (aiModel.pointsBalance > required) return true;
+    _showTopError('本章字数较多，积分不足（需>$required），无法使用问答/总结/要点');
+    return false;
   }
 
   void _scrollToBottom() {

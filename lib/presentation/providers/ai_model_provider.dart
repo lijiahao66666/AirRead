@@ -23,11 +23,16 @@ class AiModelProvider extends ChangeNotifier {
   static const String _kModelSource = 'ai_model_source';
   static const String _kLocalModelId = 'ai_local_model_id';
   static const String _kPointsBalance = 'points_balance';
+  static const String _kMaxIllustrationsPerChapter =
+      'ai_max_illustrations_per_chapter';
+  static const String _kIllustrationEnabled = 'ai_illustration_enabled';
 
   LlmClient? _llmClient;
   AiModelSource _source = AiModelSource.none;
   String _localModelId = ModelManager.qwen3_0_6b;
   int _pointsBalance = 0;
+  int _maxIllustrationsPerChapter = 3;
+  bool _illustrationEnabled = false;
 
   // 模型安装状态
   ModelInstallStatus _modelInstallStatus = ModelInstallStatus.notInstalled;
@@ -57,8 +62,10 @@ class AiModelProvider extends ChangeNotifier {
   ModelInstallStatus get modelInstallStatus => _modelInstallStatus;
   double get downloadProgress => _downloadProgress;
   String get currentDownloadFile => _currentDownloadFile;
-  bool get isModelInstalled => _modelInstallStatus == ModelInstallStatus.installed;
-  bool get isDownloading => _modelInstallStatus == ModelInstallStatus.installing;
+  bool get isModelInstalled =>
+      _modelInstallStatus == ModelInstallStatus.installed;
+  bool get isDownloading =>
+      _modelInstallStatus == ModelInstallStatus.installing;
 
   Future<void> setSource(AiModelSource value) async {
     if (_source == value) return;
@@ -82,6 +89,25 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   int get pointsBalance => _pointsBalance;
+  int get maxIllustrationsPerChapter => _maxIllustrationsPerChapter;
+  bool get illustrationEnabled => _illustrationEnabled;
+
+  Future<void> setMaxIllustrationsPerChapter(int value) async {
+    final v = value.clamp(3, 5);
+    if (_maxIllustrationsPerChapter == v) return;
+    _maxIllustrationsPerChapter = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kMaxIllustrationsPerChapter, v);
+  }
+
+  Future<void> setIllustrationEnabled(bool value) async {
+    if (_illustrationEnabled == value) return;
+    _illustrationEnabled = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kIllustrationEnabled, value);
+  }
 
   Future<void> setPointsBalance(int value) async {
     final v = value < 0 ? 0 : value;
@@ -118,6 +144,9 @@ class AiModelProvider extends ChangeNotifier {
     }
 
     _pointsBalance = prefs.getInt(_kPointsBalance) ?? 0;
+    _maxIllustrationsPerChapter =
+        (prefs.getInt(_kMaxIllustrationsPerChapter) ?? 3).clamp(3, 5);
+    _illustrationEnabled = prefs.getBool(_kIllustrationEnabled) ?? false;
 
     // 检查模型是否已安装
     await _checkModelInstallation();
@@ -146,10 +175,12 @@ class AiModelProvider extends ChangeNotifier {
     _llmClient = createLocalLlmClient();
 
     try {
-      final success = await _llmClient!.initialize(
+      final success = await _llmClient!
+          .initialize(
         model: _localModelId,
-      ).timeout(
-        const Duration(seconds: 60),  // 增加到60秒，Qwen3-0.6B需要更长时间
+      )
+          .timeout(
+        const Duration(seconds: 60), // 增加到60秒，Qwen3-0.6B需要更长时间
         onTimeout: () {
           debugPrint('[AiModelProvider] LLM initialization timed out');
           return false;

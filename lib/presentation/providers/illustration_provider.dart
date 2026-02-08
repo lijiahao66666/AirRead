@@ -45,23 +45,51 @@ class IllustrationProvider extends ChangeNotifier {
     return _cache[chapterId] ?? [];
   }
 
+  List<String> _splitParagraphsForAnalysis(String content) {
+    final normalized = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final parts = normalized.split(RegExp(r'\n{2,}'));
+    final out = <String>[];
+    for (final p in parts) {
+      final t = p.trim();
+      if (t.isEmpty) continue;
+      out.add(t);
+    }
+    return out;
+  }
+
   /// 分析章节生成场景卡片
   Future<void> analyzeChapter({
     required String chapterId,
     required String chapterTitle,
     required String content,
+    required int maxScenes,
+    bool force = false,
+    int? pointsBalance,
+    Future<String> Function(String prompt)? generateText,
   }) async {
     await _ensureReady();
 
-    // 如果已有缓存且不为空，暂不重复分析（除非强制刷新，后续可加参数）
-    if (_cache.containsKey(chapterId) && _cache[chapterId]!.isNotEmpty) {
+    if (!force && _cache.containsKey(chapterId)) {
       return;
     }
 
     try {
-      final cards = await _buildService().analyzeScenes(
-        chapterText: content,
+      if (generateText == null && !usingPersonalTencentKeys()) {
+        final n = content.trim().length;
+        if (n > 0) {
+          final required = (n * 1.5).ceil();
+          final available = pointsBalance ?? 0;
+          if (available <= required) {
+            throw StateError('本章字数较多，积分不足（需>$required），无法进行场景分析');
+          }
+        }
+      }
+      final paragraphs = _splitParagraphsForAnalysis(content);
+      final cards = await _buildService().analyzeScenesFromParagraphs(
+        paragraphs: paragraphs,
         chapterTitle: chapterTitle,
+        maxScenes: maxScenes,
+        generateText: generateText,
       );
       _cache[chapterId] = cards;
       notifyListeners();
@@ -72,7 +100,12 @@ class IllustrationProvider extends ChangeNotifier {
   }
 
   /// 对指定卡片进行生图
-  Future<void> generateImage(String chapterId, SceneCard card) async {
+  Future<void> generateImage(
+    String chapterId,
+    SceneCard card, {
+    String? stylePrefix,
+    String resolution = '1024:1024',
+  }) async {
     await _ensureReady();
     if (_generatingTaskIds.contains(card.id)) return;
 
@@ -84,7 +117,11 @@ class IllustrationProvider extends ChangeNotifier {
 
     try {
       // 1. 提交任务
-      final jobId = await _buildService().submitGeneration(card);
+      final jobId = await _buildService().submitGeneration(
+        card: card,
+        stylePrefix: stylePrefix,
+        resolution: resolution,
+      );
       card.jobId = jobId;
       notifyListeners();
 
@@ -121,6 +158,7 @@ class IllustrationProvider extends ChangeNotifier {
       composition: '默认',
       palette: '默认',
       status: SceneCardStatus.draft,
+      createdAt: DateTime.now(),
     );
 
     // 加入缓存列表头部
@@ -128,9 +166,6 @@ class IllustrationProvider extends ChangeNotifier {
     list.insert(0, card);
     _cache[chapterId] = list;
     notifyListeners();
-
-    // 自动开始生成
-    generateImage(chapterId, card);
     return card;
   }
 }

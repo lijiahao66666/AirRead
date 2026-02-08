@@ -7,6 +7,8 @@ enum SceneCardStatus {
 
 class SceneCard {
   final String id;
+  final int? anchorParagraphIndex;
+  final String? anchorQuote;
   final String title;
   final String location;
   final String time;
@@ -17,7 +19,7 @@ class SceneCard {
   final String lighting;
   final String composition;
   final String palette;
-  
+
   // 生成状态相关
   SceneCardStatus status;
   String? jobId;
@@ -27,6 +29,8 @@ class SceneCard {
 
   SceneCard({
     required this.id,
+    this.anchorParagraphIndex,
+    this.anchorQuote,
     required this.title,
     required this.location,
     required this.time,
@@ -48,6 +52,8 @@ class SceneCard {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      'anchorParagraphIndex': anchorParagraphIndex,
+      'anchorQuote': anchorQuote,
       'title': title,
       'location': location,
       'time': time,
@@ -69,6 +75,8 @@ class SceneCard {
   factory SceneCard.fromJson(Map<String, dynamic> json) {
     return SceneCard(
       id: json['id'] ?? '',
+      anchorParagraphIndex: json['anchorParagraphIndex'],
+      anchorQuote: json['anchorQuote'],
       title: json['title'] ?? '',
       location: json['location'] ?? '',
       time: json['time'] ?? '',
@@ -90,8 +98,11 @@ class SceneCard {
   }
 
   // 生成提示词
-  String toPrompt() {
-    return '古代玄幻插画，国风插画，细腻画风，柔和光影，无文字无水印\n'
+  String toPrompt({String? stylePrefix}) {
+    final style = (stylePrefix == null || stylePrefix.trim().isEmpty)
+        ? '古代玄幻插画，国风插画，细腻画风，柔和光影，无文字无水印'
+        : stylePrefix.trim();
+    return '$style\n'
         '场景：$location，$time\n'
         '人物：$characters\n'
         '动作：$action\n'

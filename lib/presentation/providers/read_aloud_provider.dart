@@ -97,6 +97,9 @@ class ReadAloudProvider extends ChangeNotifier {
   String? _lastSourceLang;
   String? _lastTargetLang;
   int? _lastCacheRevision;
+  bool? _lastAiReadAloudEnabled;
+  int? _lastPointsBalance;
+  bool? _lastUsingPersonalTencentKeys;
   bool _queueDirty = false;
   SharedPreferences? _prefs;
   StreamSubscription<dynamic>? _localTtsSub;
@@ -176,6 +179,9 @@ class ReadAloudProvider extends ChangeNotifier {
     _lastSourceLang = tp.config.sourceLang;
     _lastTargetLang = tp.config.targetLang;
     _lastCacheRevision = tp.cacheRevision;
+    _lastAiReadAloudEnabled = tp.aiReadAloudEnabled;
+    _lastPointsBalance = tp.pointsBalance;
+    _lastUsingPersonalTencentKeys = tp.usingPersonalTencentKeys;
     tp.addListener(_onTtsConfigChanged);
   }
 
@@ -240,6 +246,11 @@ class ReadAloudProvider extends ChangeNotifier {
     final fromChanged = _lastSourceLang != tp.config.sourceLang;
     final toChanged = _lastTargetLang != tp.config.targetLang;
     final cacheChanged = _lastCacheRevision != tp.cacheRevision;
+    final aiReadAloudEnabledChanged =
+        _lastAiReadAloudEnabled != tp.aiReadAloudEnabled;
+    final pointsBalanceChanged = _lastPointsBalance != tp.pointsBalance;
+    final personalKeysChanged =
+        _lastUsingPersonalTencentKeys != tp.usingPersonalTencentKeys;
 
     final changed = engineChanged ||
         voiceChanged ||
@@ -248,7 +259,10 @@ class ReadAloudProvider extends ChangeNotifier {
         applyToReaderChanged ||
         displayModeChanged ||
         fromChanged ||
-        toChanged;
+        toChanged ||
+        aiReadAloudEnabledChanged ||
+        pointsBalanceChanged ||
+        personalKeysChanged;
     if (!changed && !cacheChanged) return;
 
     _lastEngine = tp.readAloudEngine;
@@ -260,8 +274,24 @@ class ReadAloudProvider extends ChangeNotifier {
     _lastSourceLang = tp.config.sourceLang;
     _lastTargetLang = tp.config.targetLang;
     _lastCacheRevision = tp.cacheRevision;
+    _lastAiReadAloudEnabled = tp.aiReadAloudEnabled;
+    _lastPointsBalance = tp.pointsBalance;
+    _lastUsingPersonalTencentKeys = tp.usingPersonalTencentKeys;
 
     if (!_playing && !_preparing && !_paused) return;
+
+    if (tp.readAloudEngine == ReadAloudEngine.online &&
+        !tp.usingPersonalTencentKeys &&
+        tp.pointsBalance <= 0) {
+      tp.onError?.call('在线朗读积分已用尽，已停止朗读与预取');
+      unawaited(stop(keepResume: true, endedNaturally: false, stopEngine: false));
+      return;
+    }
+
+    if (!tp.aiReadAloudEnabled) {
+      unawaited(stop(keepResume: true, endedNaturally: false, stopEngine: false));
+      return;
+    }
 
     if (cacheChanged && !changed) {
       if (!tp.applyToReader) return;
@@ -860,6 +890,20 @@ class ReadAloudProvider extends ChangeNotifier {
 
     try {
       if (tp.readAloudEngine == ReadAloudEngine.online) {
+        if (!tp.usingPersonalTencentKeys) {
+          final need = entry.speechText.trim().length * 10;
+          if (tp.pointsBalance <= need) {
+            tp.onError?.call('积分不足（需>$need），已停止朗读与预取');
+            await stop(
+                keepResume: true, endedNaturally: false, stopEngine: false);
+            return;
+          }
+        }
+        if (!tp.usingPersonalTencentKeys && tp.pointsBalance <= 0) {
+          tp.onError?.call('在线朗读积分已用尽，已停止朗读与预取');
+          await stop(keepResume: true, endedNaturally: false, stopEngine: false);
+          return;
+        }
         await _persistPosition(position);
         final bytes = await _getOnlineTtsBytesDedup(
           text: entry.speechText,
@@ -964,10 +1008,17 @@ class ReadAloudProvider extends ChangeNotifier {
   }) {
     if (session != _session) return;
     if (_queue.isEmpty) return;
+    final tp = _tp;
+    if (tp == null) return;
+    if (!tp.usingPersonalTencentKeys && tp.pointsBalance <= 0) return;
     final int end =
         (startIndex + _onlinePrefetchDistance).clamp(0, _queue.length);
     for (int i = startIndex; i < end; i++) {
       final text = _queue[i].speechText;
+      if (!tp.usingPersonalTencentKeys) {
+        final need = text.trim().length * 10;
+        if (tp.pointsBalance <= need) break;
+      }
       unawaited(_getOnlineTtsBytesDedup(
           text: text, voiceType: voiceType, speed: speed));
     }

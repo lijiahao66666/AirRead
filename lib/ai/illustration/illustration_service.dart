@@ -28,40 +28,74 @@ class IllustrationService {
         _textClient = HunyuanTextClient(credentials: credentials),
         _baseStoragePath = baseStoragePath;
 
-  /// 使用 LLM 分析文本生成场景卡片
-  Future<List<SceneCard>> analyzeScenes({
-    required String chapterText,
+  Future<List<SceneCard>> analyzeScenesFromParagraphs({
+    required List<String> paragraphs,
     required String chapterTitle,
-    int maxScenes = 3,
+    required int maxScenes,
+    Future<String> Function(String prompt)? generateText,
   }) async {
-    // 截取前 4000 字符避免 token 溢出
-    final safeText = chapterText.length > 4000
-        ? chapterText.substring(0, 4000)
-        : chapterText;
+    final cap = maxScenes.clamp(0, 5);
+    if (cap <= 0) return const <SceneCard>[];
 
-    final prompt = _buildScenePrompt(safeText, maxScenes);
-
-    // 使用非流式调用获取 JSON
-    // 注意：这里复用了 HunyuanTextClient 的 chatOnce 逻辑（或需改为流式拼接）
-    // 为了简单，这里假设 HunyuanTextClient 支持 chatStream 聚合
-    final stream = _textClient.chatStream(
-      userText: prompt,
-      model: 'hunyuan-standard', // 使用标准版即可，省钱且够用
+    final run = generateText ?? _runOnlineTextModel;
+    final prompt = _buildScenePromptFromParagraphs(
+      paragraphs: paragraphs,
+      chapterTitle: chapterTitle,
+      maxScenes: cap,
     );
 
+    final first = await run(prompt);
+    final firstParsed = _parseAndValidateSceneCards(
+      first,
+      chapterTitle: chapterTitle,
+      paragraphs: paragraphs,
+    );
+    if (firstParsed.ok) {
+      return firstParsed.cards;
+    }
+
+    final repairPrompt = _buildRepairPrompt(
+      paragraphs: paragraphs,
+      chapterTitle: chapterTitle,
+      maxScenes: cap,
+      errorHint: firstParsed.errorHint,
+    );
+    final second = await run(repairPrompt);
+    final secondParsed = _parseAndValidateSceneCards(
+      second,
+      chapterTitle: chapterTitle,
+      paragraphs: paragraphs,
+    );
+    if (secondParsed.ok) {
+      return secondParsed.cards;
+    }
+
+    return secondParsed.cards;
+  }
+
+  Future<String> _runOnlineTextModel(String prompt) async {
+    final stream = _textClient.chatStream(
+      userText: prompt,
+      model: 'hunyuan-standard',
+    );
     final buffer = StringBuffer();
     await for (final chunk in stream) {
       buffer.write(chunk.content);
     }
-
-    final content = buffer.toString();
-    return _parseSceneCards(content, chapterTitle);
+    return buffer.toString();
   }
 
   /// 提交生图任务
-  Future<String> submitGeneration(SceneCard card) async {
-    final prompt = card.toPrompt();
-    return await _imageClient.submitTextToImageJob(prompt: prompt);
+  Future<String> submitGeneration({
+    required SceneCard card,
+    String? stylePrefix,
+    String resolution = '1024:1024',
+  }) async {
+    final prompt = card.toPrompt(stylePrefix: stylePrefix);
+    return await _imageClient.submitTextToImageJob(
+      prompt: prompt,
+      resolution: resolution,
+    );
   }
 
   /// 轮询任务状态直到完成或失败
@@ -113,44 +147,135 @@ class IllustrationService {
     return filePath;
   }
 
-  String _buildScenePrompt(String text, int maxScenes) {
-    return "你是小说分镜与插画策划师。\n"
-        "请基于以下章节内容，抽取可用于插画生成的场景卡片。\n"
-        "插画风格：古代玄幻插画\n"
-        "场景数量：$maxScenes 个\n"
-        "输出格式：严格 JSON 数组，每项包含字段：\n"
-        "title, location, time, characters, action, mood, visual_anchors, lighting, composition, palette\n"
-        "不要输出除 JSON 之外的任何文字。\n\n"
-        "章节内容如下：\n"
-        "$text\n";
+  String _normalizeForPrompt(String s, {required int maxLen}) {
+    final t = s.replaceAll(RegExp(r'\s+'), ' ').replaceAll('\u0000', '').trim();
+    if (t.length <= maxLen) return t;
+    return '${t.substring(0, maxLen)}…';
   }
 
-  List<SceneCard> _parseSceneCards(String jsonStr, String chapterTitle) {
-    final start = jsonStr.indexOf('[');
-    final end = jsonStr.lastIndexOf(']');
-    if (start == -1 || end == -1) return [];
-
-    final cleanJson = jsonStr.substring(start, end + 1);
-    try {
-      final List<dynamic> list = jsonDecode(cleanJson);
-      return list
-          .map((item) => SceneCard(
-                id: const Uuid().v4(),
-                title: item['title'] ?? '场景',
-                location: item['location'] ?? '未知',
-                time: item['time'] ?? '未知',
-                characters: item['characters'] ?? '未知',
-                action: item['action'] ?? '场景摘要',
-                mood: item['mood'] ?? '默认',
-                visualAnchors: item['visual_anchors'] ?? '',
-                lighting: item['lighting'] ?? '自然光',
-                composition: item['composition'] ?? '中景',
-                palette: item['palette'] ?? '默认色调',
-              ))
-          .toList();
-    } catch (e) {
-      debugPrint('Parse scene cards error: $e');
-      return [];
+  String _buildScenePromptFromParagraphs({
+    required List<String> paragraphs,
+    required String chapterTitle,
+    required int maxScenes,
+  }) {
+    final buffer = StringBuffer();
+    buffer.writeln('你是小说分镜与插画策划师。');
+    buffer.writeln('请基于给定章节的“段落列表”，抽取适合插画生成的场景卡片。');
+    buffer.writeln('你可以输出0到$maxScenes个场景（这是上限，不是必须输出满额）。');
+    buffer.writeln('输出必须是严格 JSON 数组，且不要输出除 JSON 之外的任何文字。');
+    buffer.writeln('每项必须包含字段：');
+    buffer.writeln(
+      'title, location, time, characters, action, mood, visual_anchors, lighting, composition, palette, paragraph_index, anchor_quote',
+    );
+    buffer.writeln(
+        '其中 paragraph_index 必须是你选择的段落编号；anchor_quote 必须是该段落中的原句子片段（原样摘录，且能在该段落中精确匹配到）。');
+    buffer.writeln();
+    buffer.writeln('章节标题：$chapterTitle');
+    buffer.writeln('段落如下：');
+    final maxTotal = 9000;
+    int total = 0;
+    for (int i = 0; i < paragraphs.length; i++) {
+      final line = 'P$i: ${_normalizeForPrompt(paragraphs[i], maxLen: 220)}';
+      total += line.length + 1;
+      if (total > maxTotal) break;
+      buffer.writeln(line);
     }
+    return buffer.toString();
+  }
+
+  String _buildRepairPrompt({
+    required List<String> paragraphs,
+    required String chapterTitle,
+    required int maxScenes,
+    required String errorHint,
+  }) {
+    final buffer = StringBuffer();
+    buffer.writeln('你上一次输出的 JSON 不符合要求：$errorHint');
+    buffer.writeln('请重新输出严格 JSON 数组（只输出 JSON），规则与字段要求保持一致。');
+    buffer.writeln('你可以输出0到$maxScenes个场景（这是上限）。');
+    buffer.writeln(
+        '字段：title, location, time, characters, action, mood, visual_anchors, lighting, composition, palette, paragraph_index, anchor_quote');
+    buffer.writeln('要求：paragraph_index 必须有效；anchor_quote 必须能在对应段落文本中精确匹配。');
+    buffer.writeln();
+    buffer.writeln('章节标题：$chapterTitle');
+    buffer.writeln('段落如下：');
+    final maxTotal = 9000;
+    int total = 0;
+    for (int i = 0; i < paragraphs.length; i++) {
+      final line = 'P$i: ${_normalizeForPrompt(paragraphs[i], maxLen: 220)}';
+      total += line.length + 1;
+      if (total > maxTotal) break;
+      buffer.writeln(line);
+    }
+    return buffer.toString();
+  }
+
+  ({bool ok, List<SceneCard> cards, String errorHint})
+      _parseAndValidateSceneCards(
+    String raw, {
+    required String chapterTitle,
+    required List<String> paragraphs,
+  }) {
+    final start = raw.indexOf('[');
+    final end = raw.lastIndexOf(']');
+    if (start == -1 || end == -1 || end <= start) {
+      return (ok: false, cards: const <SceneCard>[], errorHint: '未找到JSON数组');
+    }
+
+    final cleanJson = raw.substring(start, end + 1);
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(cleanJson);
+    } catch (e) {
+      return (ok: false, cards: const <SceneCard>[], errorHint: 'JSON解析失败');
+    }
+    if (decoded is! List) {
+      return (ok: false, cards: const <SceneCard>[], errorHint: 'JSON不是数组');
+    }
+
+    final List<SceneCard> out = [];
+    final List<String> errors = [];
+    for (int i = 0; i < decoded.length; i++) {
+      final item = decoded[i];
+      if (item is! Map) {
+        errors.add('第${i + 1}项不是对象');
+        continue;
+      }
+      final map = item.cast<String, dynamic>();
+      final dynamic idxRaw = map['paragraph_index'];
+      final int? idx = idxRaw is int
+          ? idxRaw
+          : (idxRaw is String ? int.tryParse(idxRaw) : null);
+      final quote = (map['anchor_quote'] ?? '').toString().trim();
+      if (idx == null || idx < 0 || idx >= paragraphs.length) {
+        errors.add('第${i + 1}项 paragraph_index 无效');
+        continue;
+      }
+      if (quote.isEmpty || !paragraphs[idx].contains(quote)) {
+        errors.add('第${i + 1}项 anchor_quote 不匹配段落');
+        continue;
+      }
+
+      out.add(SceneCard(
+        id: const Uuid().v4(),
+        anchorParagraphIndex: idx,
+        anchorQuote: quote,
+        title: (map['title'] ?? '场景').toString(),
+        location: (map['location'] ?? '未知').toString(),
+        time: (map['time'] ?? '未知').toString(),
+        characters: (map['characters'] ?? '未知').toString(),
+        action: (map['action'] ?? '场景摘要').toString(),
+        mood: (map['mood'] ?? '默认').toString(),
+        visualAnchors: (map['visual_anchors'] ?? '').toString(),
+        lighting: (map['lighting'] ?? '自然光').toString(),
+        composition: (map['composition'] ?? '中景').toString(),
+        palette: (map['palette'] ?? '默认色调').toString(),
+        createdAt: DateTime.now(),
+      ));
+    }
+
+    final ok = errors.isEmpty;
+    final hint = errors.isEmpty ? '' : errors.take(3).join('；');
+    return (ok: ok, cards: out, errorHint: hint.isEmpty ? '未知错误' : hint);
   }
 }

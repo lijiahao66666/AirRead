@@ -17,6 +17,7 @@ import '../../widgets/glass_panel.dart';
 import '../../widgets/illustration_panel.dart';
 import '../../providers/books_provider.dart';
 import '../../providers/ai_model_provider.dart';
+import '../../providers/illustration_provider.dart';
 import '../../providers/read_aloud_provider.dart';
 import '../../providers/translation_provider.dart';
 import '../../../data/services/book_parser.dart';
@@ -440,6 +441,8 @@ class _ReaderPageState extends State<ReaderPage>
   List<_ReaderChapter> _chapters = [];
   int _currentChapterIndex = 0;
   final Set<int> _expandedChapterIndices = {};
+  final Set<int> _illustrationAutoAnalyzeRequested = {};
+  final Set<int> _illustrationPrefetchRequested = {};
 
   // Horizontal Mode State
   // We track the "Page" index within the current chapter.
@@ -4579,6 +4582,56 @@ class _ReaderPageState extends State<ReaderPage>
     });
   }
 
+  int _requiredPointsForChapterText(String text) {
+    final n = text.trim().length;
+    return (n * 1.5).ceil();
+  }
+
+  Future<void> _maybeAnalyzeIllustrationsForChapter(int chapterIndex) async {
+    if (!mounted) return;
+    if (chapterIndex < 0 || chapterIndex >= _chapters.length) return;
+    final aiModel = context.read<AiModelProvider>();
+    if (!aiModel.illustrationEnabled) return;
+    if (aiModel.source == AiModelSource.none) return;
+
+    final tp = context.read<TranslationProvider>();
+    final usingPersonal = tp.usingPersonalTencentKeys &&
+        getEmbeddedPublicHunyuanCredentials().isUsable;
+
+    if (aiModel.source == AiModelSource.online && !usingPersonal) {
+      final plain = _getPlainTextForChapter(chapterIndex);
+      if (plain.trim().isEmpty) return;
+      final required = _requiredPointsForChapterText(plain);
+      if (aiModel.pointsBalance <= required) {
+        return;
+      }
+    }
+
+    Future<String> Function(String prompt)? generateText;
+    if (aiModel.source == AiModelSource.local) {
+      if (!aiModel.loaded) return;
+      generateText = (prompt) => aiModel.generate(
+            prompt: prompt,
+            maxTokens: 1024,
+            temperature: 0.2,
+          );
+    }
+
+    final chapter = _chapters[chapterIndex];
+    final chapterTitle = (chapter.title ?? '正文').trim();
+    final chapterContent = _getPlainTextForChapter(chapterIndex);
+    if (chapterContent.trim().isEmpty) return;
+
+    await context.read<IllustrationProvider>().analyzeChapter(
+          chapterId: '$chapterIndex',
+          chapterTitle: chapterTitle.isEmpty ? '正文' : chapterTitle,
+          content: chapterContent,
+          maxScenes: aiModel.maxIllustrationsPerChapter,
+          pointsBalance: aiModel.pointsBalance,
+          generateText: generateText,
+        );
+  }
+
   Future<void> _ensureChapterContentCached(int chapterIndex) async {
     if (chapterIndex < 0 || chapterIndex >= _chapters.length) return;
     if (_chapterContentCache[chapterIndex] != null ||
@@ -4602,6 +4655,7 @@ class _ReaderPageState extends State<ReaderPage>
           _chapterTitleLength[chapterIndex] = (t.isEmpty ? '正文' : t).length;
           _chapterParagraphsCache.remove(chapterIndex);
         });
+        unawaited(_maybeAnalyzeIllustrationsForChapter(chapterIndex));
       } finally {
         if (identical(_chapterPlainLoading[chapterIndex], chapter)) {
           _chapterPlainLoading.remove(chapterIndex);
@@ -4626,6 +4680,7 @@ class _ReaderPageState extends State<ReaderPage>
       setState(() {
         _chapterContentCache[chapterIndex] = value;
       });
+      unawaited(_maybeAnalyzeIllustrationsForChapter(chapterIndex));
     } finally {
       if (identical(_chapterHtmlLoading[chapterIndex], chapter)) {
         _chapterHtmlLoading.remove(chapterIndex);
@@ -6098,6 +6153,14 @@ class _ReaderPageState extends State<ReaderPage>
   void _startTranslationQueueIfNeeded(TranslationProvider tp, int session) {
     if (_translationQueueRunning) return;
     if (_translationQueue.isEmpty) return;
+    if (tp.translationMode == TranslationMode.bigModel &&
+        !tp.usingPersonalTencentKeys &&
+        tp.pointsBalance <= 0) {
+      _translationQueue.clear();
+      tp.onError?.call('在线翻译积分已用尽，已停止翻译与预取');
+      _syncTranslationQueueStatus(tp);
+      return;
+    }
     _translationQueueRunning = true;
     unawaited(_runTranslationQueue(tp, session));
     if (mounted) setState(() {});
@@ -6106,8 +6169,24 @@ class _ReaderPageState extends State<ReaderPage>
 
   Future<void> _runTranslationQueue(TranslationProvider tp, int session) async {
     while (mounted && session == _translationQueueSession) {
+      if (tp.translationMode == TranslationMode.bigModel &&
+          !tp.usingPersonalTencentKeys &&
+          tp.pointsBalance <= 0) {
+        _translationQueue.clear();
+        tp.onError?.call('在线翻译积分已用尽，已停止翻译与预取');
+        break;
+      }
       if (_translationQueue.isEmpty) break;
       final item = _translationQueue.removeFirst();
+      if (tp.translationMode == TranslationMode.bigModel &&
+          !tp.usingPersonalTencentKeys) {
+        final need = item.text.trim().length;
+        if (need > 0 && tp.pointsBalance <= need) {
+          _translationQueue.clear();
+          tp.onError?.call('积分不足（需>$need），已停止翻译与预取');
+          break;
+        }
+      }
       _translationQueueStates[item.key] = _TranslationQueueState.translating;
       _translationQueueInFlight = true;
       if (mounted) setState(() {});
@@ -6243,8 +6322,39 @@ class _ReaderPageState extends State<ReaderPage>
   @override
   Widget build(BuildContext context) {
     final tp = context.watch<TranslationProvider>();
+    final aiModel = context.watch<AiModelProvider>();
     final readAloud = context.watch<ReadAloudProvider>();
     final pos = readAloud.position;
+    if (!aiModel.illustrationEnabled) {
+      _illustrationAutoAnalyzeRequested.clear();
+      _illustrationPrefetchRequested.clear();
+    } else if (_chapters.isNotEmpty &&
+        !_illustrationAutoAnalyzeRequested.contains(_currentChapterIndex)) {
+      _illustrationAutoAnalyzeRequested.add(_currentChapterIndex);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_maybeAnalyzeIllustrationsForChapter(_currentChapterIndex));
+      });
+    }
+    final canIllustrationPrefetchNext = switch (aiModel.source) {
+      AiModelSource.none => false,
+      AiModelSource.local => true,
+      AiModelSource.online => (tp.usingPersonalTencentKeys &&
+              getEmbeddedPublicHunyuanCredentials().isUsable) ||
+          aiModel.pointsBalance > 0,
+    };
+    final nextIllChapterIndex = _currentChapterIndex + 1;
+    if (aiModel.illustrationEnabled &&
+        canIllustrationPrefetchNext &&
+        nextIllChapterIndex >= 0 &&
+        nextIllChapterIndex < _chapters.length &&
+        !_illustrationPrefetchRequested.contains(nextIllChapterIndex)) {
+      _illustrationPrefetchRequested.add(nextIllChapterIndex);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_ensureChapterContentCached(nextIllChapterIndex));
+      });
+    }
     _scheduleChapterTranslationPrefetch(
       tp: tp,
       chapterIndex: _currentChapterIndex + 1,

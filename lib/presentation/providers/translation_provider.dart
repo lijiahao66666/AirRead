@@ -554,6 +554,31 @@ class TranslationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  int get pointsBalance => _aiModel?.pointsBalance ?? 0;
+
+  int _estimateOnlineTranslateCost(String text) {
+    final normalized = _service.normalizeParagraphText(text);
+    return normalized.isEmpty ? 0 : normalized.length;
+  }
+
+  bool _onlineTranslateEntitled() {
+    if (_translationMode != TranslationMode.bigModel) return true;
+    if (_usingPersonalTencentKeys) {
+      return getEmbeddedPublicHunyuanCredentials().isUsable;
+    }
+    return pointsBalance > 0;
+  }
+
+  bool _onlineTranslateEnoughForText(String text) {
+    if (_translationMode != TranslationMode.bigModel) return true;
+    if (_usingPersonalTencentKeys) {
+      return getEmbeddedPublicHunyuanCredentials().isUsable;
+    }
+    final need = _estimateOnlineTranslateCost(text);
+    if (need <= 0) return true;
+    return pointsBalance > need;
+  }
+
   void _onAiModelChanged() {
     _rebuildService();
     _syncFeatureFlagsToModel();
@@ -564,6 +589,8 @@ class TranslationProvider extends ChangeNotifier {
     final entitled = (_aiModel?.pointsBalance ?? 0) > 0;
     final personalUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
     bool changed = false;
+    bool translateStoppedByPoints = false;
+    bool readAloudStoppedByPoints = false;
 
     if (_aiReadAloudEnabled &&
         _readAloudEngine == ReadAloudEngine.local &&
@@ -578,6 +605,7 @@ class TranslationProvider extends ChangeNotifier {
         !entitled) {
       _aiReadAloudEnabled = false;
       changed = true;
+      readAloudStoppedByPoints = true;
     }
 
     if (_aiReadAloudEnabled &&
@@ -594,6 +622,7 @@ class TranslationProvider extends ChangeNotifier {
         !entitled) {
       _aiTranslateEnabled = false;
       changed = true;
+      translateStoppedByPoints = true;
     }
 
     if (_aiTranslateEnabled && _usingPersonalTencentKeys && !personalUsable) {
@@ -603,6 +632,12 @@ class TranslationProvider extends ChangeNotifier {
 
     if (changed) {
       _savePrefs().then((_) {});
+      if (translateStoppedByPoints) {
+        onError?.call('在线翻译积分已用尽，已停止翻译与预取');
+      }
+      if (readAloudStoppedByPoints) {
+        onError?.call('在线朗读积分已用尽，已停止朗读与预取');
+      }
     }
   }
 
@@ -1033,7 +1068,17 @@ class TranslationProvider extends ChangeNotifier {
       rethrow;
     }
 
+    if (!_onlineTranslateEntitled()) {
+      onError?.call('在线翻译积分已用尽，已停止翻译与预取');
+      return null;
+    }
+
     final normalized = _service.normalizeParagraphText(paragraphText);
+    if (!_onlineTranslateEnoughForText(normalized)) {
+      final need = _estimateOnlineTranslateCost(normalized);
+      onError?.call('积分不足（需>$need），已停止翻译与预取');
+      return null;
+    }
     final cacheKey =
         _service.buildCacheKey(config: _config, paragraphText: normalized);
     final cached = _cache.getSynchronous(cacheKey);
@@ -1190,9 +1235,21 @@ class TranslationProvider extends ChangeNotifier {
         }
         rethrow;
       }
+
+      if (!_onlineTranslateEntitled()) {
+        onError?.call('在线翻译积分已用尽，已停止翻译与预取');
+        return;
+      }
+
       bool pendingChanged = false;
 
       for (final entry in paragraphsByIndex.entries) {
+        if (!_onlineTranslateEntitled()) break;
+        if (!_onlineTranslateEnoughForText(entry.value)) {
+          final need = _estimateOnlineTranslateCost(entry.value);
+          onError?.call('积分不足（需>$need），已停止翻译与预取');
+          break;
+        }
         final cacheKey =
             _service.buildCacheKey(config: _config, paragraphText: entry.value);
         final existing = _cache.getSynchronous(cacheKey);
@@ -1247,7 +1304,30 @@ class TranslationProvider extends ChangeNotifier {
   Future<void> prefetchParagraphs(List<String> nextParagraphs) async {
     if (nextParagraphs.isEmpty) return;
     if (!_canPrefetch()) return;
-    _service.prefetch(config: _config, nextParagraphs: nextParagraphs);
+    if (!_onlineTranslateEntitled()) return;
+    for (final p in nextParagraphs) {
+      if (!_onlineTranslateEntitled()) break;
+      if (!_onlineTranslateEnoughForText(p)) break;
+      final normalized = _service.normalizeParagraphText(p);
+      final cacheKey =
+          _service.buildCacheKey(config: _config, paragraphText: normalized);
+      final existing = _cache.getSynchronous(cacheKey);
+      if (existing != null) continue;
+      if (_failedKeys.contains(cacheKey)) continue;
+      if (_pendingKeys.contains(cacheKey)) continue;
+      _pendingKeys.add(cacheKey);
+      _scheduleNotify();
+      _service
+          .translateParagraph(config: _config, paragraphText: normalized)
+          .then((_) {
+        _pendingKeys.remove(cacheKey);
+        _failedKeys.remove(cacheKey);
+        _cacheRevision++;
+        _scheduleNotify();
+      }).catchError((e) {
+        _handleTranslationError(cacheKey, normalized, e);
+      });
+    }
   }
 
   bool _canPrefetch() {

@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
+import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
+import '../providers/ai_model_provider.dart';
 import '../providers/illustration_provider.dart';
 import '../../ai/illustration/scene_card.dart';
 import 'scene_image.dart';
@@ -36,7 +39,24 @@ class IllustrationPanel extends StatefulWidget {
 }
 
 class _IllustrationPanelState extends State<IllustrationPanel> {
-  bool _analyzing = false;
+  String _styleKey = '国风';
+  String _ratioKey = '1:1';
+
+  static const Map<String, String> _stylePrompts = {
+    '国风': '古代玄幻插画，国风插画，细腻画风，柔和光影，无文字无水印',
+    '水墨': '古代玄幻插画，水墨国风，留白，柔和光影，无文字无水印',
+    '厚涂': '古代玄幻插画，厚涂风格，电影感光影，高细节，无文字无水印',
+    '日漫': '古代玄幻插画，日系动漫风格，线条清晰，柔和光影，无文字无水印',
+    '写实': '古代玄幻插画，写实风格，电影级光影，高细节，无文字无水印',
+  };
+
+  static const Map<String, String> _ratioToResolution = {
+    '1:1': '1024:1024',
+    '3:4': '768:1024',
+    '4:3': '1024:768',
+    '9:16': '768:1280',
+    '16:9': '1280:768',
+  };
 
   @override
   void initState() {
@@ -49,48 +69,26 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
           chapterId: widget.chapterId,
           selectionText: selection,
         ));
-        return;
       }
-      final scenes = provider.getScenes(widget.chapterId);
-      if (scenes.isEmpty) _analyzeScenes();
     });
-  }
-
-  Future<void> _analyzeScenes() async {
-    if (_analyzing) return;
-    setState(() => _analyzing = true);
-
-    try {
-      await context.read<IllustrationProvider>().analyzeChapter(
-            chapterId: widget.chapterId,
-            chapterTitle: widget.chapterTitle,
-            content: widget.chapterContent,
-          );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('场景分析失败: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _analyzing = false);
-      }
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // 保持与 QA 面板一致的背景色计算逻辑
     final Color cardBg = widget.isDark
         ? Colors.white.withOpacityCompat(0.07)
         : AppColors.mistWhite;
 
     return Consumer<IllustrationProvider>(
       builder: (context, provider, child) {
+        final aiModel = context.watch<AiModelProvider>();
+        final usingPersonal = usingPersonalTencentKeys();
+        final canGenerateImage = usingPersonal || aiModel.pointsBalance > 20000;
+        final selectedStyle = _stylePrompts[_styleKey] ?? _stylePrompts['国风']!;
+        final selectedResolution =
+            _ratioToResolution[_ratioKey] ?? _ratioToResolution['1:1']!;
         final scenes = provider.getScenes(widget.chapterId);
 
-        // 保持与 QA 面板一致的外层容器
         return Container(
           decoration: BoxDecoration(
             color: cardBg,
@@ -128,87 +126,223 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
+                          if (!usingPersonal)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                '剩余积分：${aiModel.pointsBalance}（生图2万/张）',
+                                style: TextStyle(
+                                  color: widget.isDark
+                                      ? const Color(0xFFE6A23C)
+                                      : const Color(0xFFF57C00),
+                                  fontSize: 12,
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ),
-                    if (_analyzing)
-                      SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: widget.textColor.withOpacityCompat(0.5),
-                        ),
-                      )
-                    else
-                      IconButton(
-                        icon: const Icon(Icons.refresh_rounded, size: 20),
-                        tooltip: '重新分析场景',
-                        onPressed: _analyzeScenes,
-                        color: widget.textColor.withOpacityCompat(0.7),
-                      ),
                   ],
                 ),
               ),
 
               const Divider(height: 1),
 
-              // 场景列表
-              Expanded(
-                child: scenes.isEmpty && _analyzing
-                    ? const Center(child: Text('AI 正在分析精彩场景...'))
-                    : scenes.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.image_search_rounded,
-                                  size: 48,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _settingsRow(
+                      label: '风格',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _stylePrompts.keys.map((k) {
+                          final active = k == _styleKey;
+                          return _chip(
+                            label: k,
+                            active: active,
+                            onTap: () => setState(() => _styleKey = k),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _settingsRow(
+                      label: '画幅',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _ratioToResolution.keys.map((k) {
+                          final active = k == _ratioKey;
+                          return _chip(
+                            label: k,
+                            active: active,
+                            onTap: () => setState(() => _ratioKey = k),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    if (!usingPersonal && !canGenerateImage)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '积分不足2万，无法生成插图，请先购买积分。',
+                                style: TextStyle(
                                   color:
-                                      widget.textColor.withOpacityCompat(0.2),
+                                      widget.textColor.withOpacityCompat(0.65),
+                                  fontSize: 12,
+                                  height: 1.35,
                                 ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  '暂无场景灵感',
-                                  style: TextStyle(
-                                    color:
-                                        widget.textColor.withOpacityCompat(0.4),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                OutlinedButton.icon(
-                                  onPressed: _analyzeScenes,
-                                  icon: const Icon(Icons.auto_awesome),
-                                  label: const Text('寻找灵感'),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppColors.techBlue,
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 16),
-                            itemCount: scenes.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 16),
-                            itemBuilder: (context, index) {
-                              return _SceneCardWidget(
-                                card: scenes[index],
-                                isDark: widget.isDark,
-                                textColor: widget.textColor,
-                                onGenerate: () => provider.generateImage(
-                                    widget.chapterId, scenes[index]),
-                              );
-                            },
-                          ),
+                            TextButton(
+                              onPressed: () async {
+                                final uri = Uri.parse(
+                                    'https://pay.ldxp.cn/item/ajnlvp');
+                                await launchUrl(uri,
+                                    mode: LaunchMode.externalApplication);
+                              },
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppColors.techBlue,
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(0, 0),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: const Text(
+                                '购买',
+                                style: TextStyle(
+                                    fontSize: 12, fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+
+              Expanded(
+                child: scenes.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.image_search_rounded,
+                              size: 48,
+                              color: widget.textColor.withOpacityCompat(0.2),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              '本章暂无场景',
+                              style: TextStyle(
+                                color: widget.textColor.withOpacityCompat(0.4),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              '请在AI伴读中开启插图开关并进入章节后自动分析场景。',
+                              style: TextStyle(
+                                color: widget.textColor.withOpacityCompat(0.6),
+                                fontSize: 12,
+                                height: 1.35,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 16),
+                        itemCount: scenes.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 16),
+                        itemBuilder: (context, index) {
+                          return _SceneCardWidget(
+                            card: scenes[index],
+                            isDark: widget.isDark,
+                            textColor: widget.textColor,
+                            canGenerate: canGenerateImage,
+                            onGenerate: () => provider.generateImage(
+                              widget.chapterId,
+                              scenes[index],
+                              stylePrefix: selectedStyle,
+                              resolution: selectedResolution,
+                            ),
+                          );
+                        },
+                      ),
               ),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _settingsRow({required String label, required Widget child}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 44,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: widget.textColor.withOpacityCompat(0.6),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: child),
+      ],
+    );
+  }
+
+  Widget _chip({
+    required String label,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    final bg = active ? AppColors.techBlue : widget.textColor.withOpacity(0.06);
+    final fg = active ? Colors.white : widget.textColor.withOpacity(0.85);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: active
+                ? AppColors.techBlue
+                : widget.textColor.withOpacityCompat(0.08),
+            width: AppTokens.stroke,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: fg,
+            height: 1.0,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -218,12 +352,14 @@ class _SceneCardWidget extends StatelessWidget {
   final bool isDark;
   final Color textColor;
   final VoidCallback onGenerate;
+  final bool canGenerate;
 
   const _SceneCardWidget({
     required this.card,
     required this.isDark,
     required this.textColor,
     required this.onGenerate,
+    required this.canGenerate,
   });
 
   @override
@@ -282,7 +418,7 @@ class _SceneCardWidget extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(left: 8),
                         child: TextButton.icon(
-                          onPressed: onGenerate,
+                          onPressed: canGenerate ? onGenerate : null,
                           icon: const Icon(Icons.brush_rounded, size: 16),
                           label: const Text('生成'),
                           style: TextButton.styleFrom(
@@ -388,9 +524,7 @@ class _SceneCardWidget extends StatelessWidget {
       case SceneCardStatus.completed:
         if (card.localImagePath != null) {
           return GestureDetector(
-            onTap: () {
-              // TODO: 查看大图
-            },
+            onTap: () {},
             child: buildSceneImage(
               card.localImagePath!,
               fit: BoxFit.cover,
@@ -424,7 +558,7 @@ class _SceneCardWidget extends StatelessWidget {
                   ),
                 const SizedBox(height: 8),
                 TextButton(
-                  onPressed: onGenerate,
+                  onPressed: canGenerate ? onGenerate : null,
                   child: const Text('重试'),
                 ),
               ],
