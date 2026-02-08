@@ -239,28 +239,57 @@ class IllustrationService {
     required int maxScenes,
   }) {
     final buffer = StringBuffer();
-    buffer.writeln('你是小说分镜与插画策划师。');
-    buffer.writeln('请基于给定章节的“段落列表”，抽取适合插画生成的场景卡片。');
-    buffer.writeln('你可以输出0到$maxScenes个场景（这是上限，不是必须输出满额）。');
-    buffer.writeln('输出必须是严格 JSON 数组，且不要输出除 JSON 之外的任何文字。');
-    buffer.writeln('每项必须包含字段：');
+    buffer.writeln('你是小说分镜导演+插画提示词工程师。');
+    buffer.writeln('目标：抽取0-$maxScenes个最适合插画的关键画面，画面要贴合情节且可直接用于生图。');
+    buffer.writeln('约束：只允许依据下方“段落摘录”的信息，不要编造人物设定/地点道具/剧情细节。');
+    buffer.writeln('硬性输出长度限制：最终JSON输出（UTF-8）总长度必须 <= 1000 字（尽量更短）。');
+    buffer.writeln('输出：仅输出严格JSON数组，不要输出任何解释文字；不要缩进、不要换行、使用紧凑JSON。');
     buffer.writeln(
-      'title, location, time, characters, action, mood, visual_anchors, lighting, composition, palette, start_paragraph_index, end_paragraph_index',
-    );
+        '字段：title, location, time, characters, action, mood, visual_anchors, lighting, composition, palette, start_paragraph_index, end_paragraph_index');
     buffer.writeln(
-        '其中 start_paragraph_index 与 end_paragraph_index 必须有效，且 start_paragraph_index <= end_paragraph_index；end_paragraph_index 表示这张插图应该展示在该段落之后。');
-    buffer.writeln('每个场景对应一个连续段落范围（闭区间），请按时间顺序输出，尽量避免范围重叠。');
+        '要求：start_paragraph_index/end_paragraph_index必须是下方出现的段落索引，且连续闭区间；end_paragraph_index表示插图展示在该段落之后。');
+    buffer.writeln('字段长度上限（包含标点）：');
+    buffer.writeln('title<=14字；location<=18字；time<=12字；mood<=10字；');
+    buffer.writeln('characters<=34字；action<=80字；visual_anchors<=80字；');
+    buffer.writeln('lighting<=18字；composition<=18字；palette<=18字。');
+    buffer.writeln('如果超过1024字，请优先减少场景数量，并缩短 action/visual_anchors 等字段。');
+    buffer.writeln('写法：');
+    buffer.writeln('1) title：8-14字，直指冲突/转折/高潮。');
+    buffer.writeln('2) location/time：具体到室内外/地形/天气/时辰。');
+    buffer.writeln('3) characters：人数+外观(衣着/发型/表情/姿态)+彼此位置关系。');
+    buffer.writeln('4) action：用镜头语言写画面(景别/机位/动作/互动/关键物件/动态细节)。');
+    buffer.writeln('5) visual_anchors：5-12个名词短语(道具/环境/纹理/标志物)。');
+    buffer.writeln(
+        '6) lighting/composition/palette：写成可用于生图的具体描述(光源方向/氛围/构图/色调)。');
     buffer.writeln();
-    buffer.writeln('章节标题：$chapterTitle');
-    buffer.writeln('段落如下：');
-    final maxTotal = 9000;
-    int total = 0;
-    for (int i = 0; i < paragraphs.length; i++) {
-      final line = 'P$i: ${_normalizeForPrompt(paragraphs[i], maxLen: 220)}';
-      total += line.length + 1;
-      if (total > maxTotal) break;
-      buffer.writeln(line);
+    buffer.writeln(
+        '章节标题：${chapterTitle.trim().isEmpty ? '正文' : chapterTitle.trim()}');
+    buffer.writeln('段落摘录：');
+
+    final n = paragraphs.length;
+    final indices = <int>[];
+    if (n <= 18) {
+      for (int i = 0; i < n; i++) {
+        indices.add(i);
+      }
+    } else {
+      for (int i = 0; i < 6; i++) {
+        indices.add(i);
+      }
+      final midStart = ((n - 6) ~/ 2).clamp(6, n - 12);
+      for (int i = 0; i < 6; i++) {
+        indices.add(midStart + i);
+      }
+      for (int i = n - 6; i < n; i++) {
+        indices.add(i);
+      }
     }
+    final unique = indices.toSet().toList()..sort();
+    for (final i in unique) {
+      if (i < 0 || i >= n) continue;
+      buffer.writeln('P$i: ${_normalizeForPrompt(paragraphs[i], maxLen: 90)}');
+    }
+
     return buffer.toString();
   }
 

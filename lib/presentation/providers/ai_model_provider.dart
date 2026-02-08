@@ -138,8 +138,14 @@ class AiModelProvider extends ChangeNotifier {
 
   Future<void> addPoints(int delta) async {
     if (delta == 0) return;
-    final next = _pointsBalance + delta;
-    await setPointsBalance(next);
+    if (kDebugMode) {
+      final override = _debugPointsOverride;
+      if (override != null) {
+        await setDebugPointsOverride(override + delta);
+        return;
+      }
+    }
+    await setPointsBalance(_pointsBalance + delta);
   }
 
   Future<void> _load() async {

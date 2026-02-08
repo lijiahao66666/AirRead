@@ -1,3 +1,4 @@
+import 'dart:convert';
 import '../tencentcloud/tencent_api_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
 import '../tencentcloud/embedded_public_hunyuan_credentials.dart';
@@ -16,6 +17,24 @@ class HunyuanImageClient {
     required TencentCredentials credentials,
   })  : _api = api ?? TencentApiClient(),
         _credentials = credentials;
+
+  String _truncateUtf8(String s, {required int maxBytes}) {
+    if (maxBytes <= 0) return '';
+    final raw = s.trim();
+    final rawBytes = utf8.encode(raw);
+    if (rawBytes.length <= maxBytes) return raw;
+
+    final out = StringBuffer();
+    int used = 0;
+    for (final r in raw.runes) {
+      final ch = String.fromCharCode(r);
+      final b = utf8.encode(ch).length;
+      if (used + b > maxBytes) break;
+      out.write(ch);
+      used += b;
+    }
+    return out.toString().trimRight();
+  }
 
   /// 提交文生图任务
   /// 返回 JobId
@@ -36,7 +55,7 @@ class HunyuanImageClient {
       secretKey: _credentials.secretKey,
       useScfProxy: !usingPersonalTencentKeys(),
       payload: {
-        'Prompt': prompt,
+        'Prompt': _truncateUtf8(prompt, maxBytes: 1024),
         'Resolution': resolution,
         'Revise': revise,
         // 'Styles': [styles.toString()], // 可选，暂时不传，由 prompt 控制

@@ -5675,7 +5675,7 @@ class _ReaderPageState extends State<ReaderPage>
                 WidgetSpan(
                   alignment: PlaceholderAlignment.middle,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    padding: const EdgeInsets.fromLTRB(0, 6, 8, 6),
                     child: InkWell(
                       onTapDown: (_) => _suppressReaderTap(),
                       onTap: () => unawaited(
@@ -5739,7 +5739,7 @@ class _ReaderPageState extends State<ReaderPage>
                 WidgetSpan(
                   alignment: PlaceholderAlignment.middle,
                   child: Padding(
-                    padding: const EdgeInsets.only(top: 12, bottom: 6),
+                    padding: const EdgeInsets.fromLTRB(0, 6, 8, 6),
                     child: InkWell(
                       onTapDown: (_) => _suppressReaderTap(),
                       onTap: () => unawaited(
@@ -5751,7 +5751,7 @@ class _ReaderPageState extends State<ReaderPage>
                       borderRadius: BorderRadius.circular(999),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
+                            horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
                           color: AppColors.techBlue.withOpacityCompat(0.12),
                           borderRadius: BorderRadius.circular(999),
