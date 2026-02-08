@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../ai/illustration/illustration_service.dart';
 import '../../ai/illustration/scene_card.dart';
@@ -20,8 +22,19 @@ class IllustrationProvider extends ChangeNotifier {
   }
 
   Future<void> _init() async {
-    final docDir = await getApplicationDocumentsDirectory();
-    _storagePath = docDir.path;
+    if (kIsWeb) {
+      _storagePath = '';
+      notifyListeners();
+      return;
+    }
+    try {
+      final docDir = await getApplicationDocumentsDirectory();
+      _storagePath = docDir.path;
+    } on MissingPluginException {
+      _storagePath = Directory.systemTemp.path;
+    } catch (_) {
+      _storagePath = Directory.systemTemp.path;
+    }
     notifyListeners();
   }
 
@@ -85,6 +98,7 @@ class IllustrationProvider extends ChangeNotifier {
         paragraphs: paragraphs,
         chapterTitle: chapterTitle,
         maxScenes: maxScenes,
+        debugName: chapterId,
         generateText: generateText,
       );
       _cache[chapterId] = cards;

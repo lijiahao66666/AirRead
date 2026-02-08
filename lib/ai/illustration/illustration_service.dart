@@ -32,6 +32,7 @@ class IllustrationService {
     required List<String> paragraphs,
     required String chapterTitle,
     required int maxScenes,
+    String? debugName,
     Future<String> Function(String prompt)? generateText,
   }) async {
     final cap = maxScenes.clamp(0, 5);
@@ -44,13 +45,49 @@ class IllustrationService {
       maxScenes: cap,
     );
 
-    final first = await run(prompt);
+    String? first;
+    Object? firstError;
+    try {
+      first = await run(prompt);
+    } catch (e) {
+      firstError = e;
+    }
+    if (firstError != null) {
+      await _writeDebugSceneAnalysis(
+        debugName: debugName,
+        chapterTitle: chapterTitle,
+        prompt: prompt,
+        firstRaw: null,
+        firstError: firstError.toString(),
+        firstParsed: null,
+        repairPrompt: null,
+        secondRaw: null,
+        secondError: null,
+        secondParsed: null,
+        paragraphs: paragraphs,
+      );
+      throw firstError!;
+    }
+    final firstText = first ?? '';
     final firstParsed = _parseAndValidateSceneCards(
-      first,
+      firstText,
       chapterTitle: chapterTitle,
       paragraphs: paragraphs,
     );
     if (firstParsed.ok) {
+      await _writeDebugSceneAnalysis(
+        debugName: debugName,
+        chapterTitle: chapterTitle,
+        prompt: prompt,
+        firstRaw: firstText,
+        firstError: null,
+        firstParsed: firstParsed,
+        repairPrompt: null,
+        secondRaw: null,
+        secondError: null,
+        secondParsed: null,
+        paragraphs: paragraphs,
+      );
       return firstParsed.cards;
     }
 
@@ -60,26 +97,76 @@ class IllustrationService {
       maxScenes: cap,
       errorHint: firstParsed.errorHint,
     );
-    final second = await run(repairPrompt);
+    String? second;
+    Object? secondError;
+    try {
+      second = await run(repairPrompt);
+    } catch (e) {
+      secondError = e;
+    }
+    if (secondError != null) {
+      await _writeDebugSceneAnalysis(
+        debugName: debugName,
+        chapterTitle: chapterTitle,
+        prompt: prompt,
+        firstRaw: firstText,
+        firstError: null,
+        firstParsed: firstParsed,
+        repairPrompt: repairPrompt,
+        secondRaw: null,
+        secondError: secondError.toString(),
+        secondParsed: null,
+        paragraphs: paragraphs,
+      );
+      throw secondError!;
+    }
+    final secondText = second ?? '';
     final secondParsed = _parseAndValidateSceneCards(
-      second,
+      secondText,
       chapterTitle: chapterTitle,
       paragraphs: paragraphs,
     );
     if (secondParsed.ok) {
+      await _writeDebugSceneAnalysis(
+        debugName: debugName,
+        chapterTitle: chapterTitle,
+        prompt: prompt,
+        firstRaw: firstText,
+        firstError: null,
+        firstParsed: firstParsed,
+        repairPrompt: repairPrompt,
+        secondRaw: secondText,
+        secondError: null,
+        secondParsed: secondParsed,
+        paragraphs: paragraphs,
+      );
       return secondParsed.cards;
     }
 
+    await _writeDebugSceneAnalysis(
+      debugName: debugName,
+      chapterTitle: chapterTitle,
+      prompt: prompt,
+      firstRaw: firstText,
+      firstError: null,
+      firstParsed: firstParsed,
+      repairPrompt: repairPrompt,
+      secondRaw: secondText,
+      secondError: null,
+      secondParsed: secondParsed,
+      paragraphs: paragraphs,
+    );
     return secondParsed.cards;
   }
 
   Future<String> _runOnlineTextModel(String prompt) async {
     final stream = _textClient.chatStream(
       userText: prompt,
-      model: 'hunyuan-standard',
+      model: 'hunyuan-a13b',
     );
     final buffer = StringBuffer();
     await for (final chunk in stream) {
+      if (chunk.isReasoning) continue;
       buffer.write(chunk.content);
     }
     return buffer.toString();
@@ -112,6 +199,7 @@ class IllustrationService {
         final urls = status['ResultImage'];
         if (urls is List && urls.isNotEmpty) {
           final url = urls.first.toString();
+          if (kIsWeb) return url;
           return await _downloadImage(url, jobId);
         }
         throw Exception('Success but no image url');
@@ -131,6 +219,7 @@ class IllustrationService {
 
   /// 下载图片到本地
   Future<String> _downloadImage(String url, String jobId) async {
+    if (kIsWeb) return url;
     final resp = await http.get(Uri.parse(url));
     if (resp.statusCode != 200) {
       throw Exception('Failed to download image: ${resp.statusCode}');
@@ -151,6 +240,83 @@ class IllustrationService {
     final t = s.replaceAll(RegExp(r'\s+'), ' ').replaceAll('\u0000', '').trim();
     if (t.length <= maxLen) return t;
     return '${t.substring(0, maxLen)}…';
+  }
+
+  String _normalizeForMatch(String s) {
+    return s.replaceAll('\u0000', '').replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  String _safeFileName(String s) {
+    final t = s.trim().replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_');
+    if (t.isEmpty) return 'untitled';
+    return t.length > 80 ? t.substring(0, 80) : t;
+  }
+
+  Future<void> _writeDebugSceneAnalysis({
+    required String? debugName,
+    required String chapterTitle,
+    required String prompt,
+    required String? firstRaw,
+    required String? firstError,
+    required ({bool ok, List<SceneCard> cards, String errorHint})? firstParsed,
+    required String? repairPrompt,
+    required String? secondRaw,
+    required String? secondError,
+    required ({bool ok, List<SceneCard> cards, String errorHint})? secondParsed,
+    required List<String> paragraphs,
+  }) async {
+    if (kIsWeb) return;
+    try {
+      final base = _baseStoragePath.trim();
+      if (base.isEmpty) return;
+      final dir = Directory(path.join(base, 'illustrations', 'debug_scene'));
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      final ts = DateTime.now().toIso8601String().replaceAll(':', '-');
+      final tag = _safeFileName(debugName ?? chapterTitle);
+      final file = File(path.join(dir.path, '${ts}_$tag.json'));
+
+      final paragraphPreviews = <Map<String, dynamic>>[];
+      for (int i = 0; i < paragraphs.length; i++) {
+        paragraphPreviews.add({
+          'index': i,
+          'preview': _normalizeForPrompt(paragraphs[i], maxLen: 260),
+        });
+        if (paragraphPreviews.length >= 40) break;
+      }
+
+      final payload = <String, dynamic>{
+        'debugName': debugName,
+        'chapterTitle': chapterTitle,
+        'prompt': prompt,
+        if (firstRaw != null || firstError != null || firstParsed != null)
+          'first': {
+            if (firstRaw != null) 'raw': firstRaw,
+            if (firstError != null) 'error': firstError,
+            if (firstParsed != null) ...{
+              'ok': firstParsed.ok,
+              'errorHint': firstParsed.errorHint,
+              'cards': firstParsed.cards.map((e) => e.toJson()).toList(),
+            },
+          },
+        if (repairPrompt != null) 'repairPrompt': repairPrompt,
+        if (secondRaw != null || secondError != null || secondParsed != null)
+          'second': {
+            if (secondRaw != null) 'raw': secondRaw,
+            if (secondError != null) 'error': secondError,
+            if (secondParsed != null) ...{
+              'ok': secondParsed.ok,
+              'errorHint': secondParsed.errorHint,
+              'cards': secondParsed.cards.map((e) => e.toJson()).toList(),
+            },
+          },
+        'paragraphPreviews': paragraphPreviews,
+      };
+
+      await file.writeAsString(jsonEncode(payload));
+      debugPrint('[IllustrationService] debug_scene saved: ${file.path}');
+    } catch (_) {}
   }
 
   String _buildScenePromptFromParagraphs({
@@ -251,9 +417,18 @@ class IllustrationService {
         errors.add('第${i + 1}项 paragraph_index 无效');
         continue;
       }
-      if (quote.isEmpty || !paragraphs[idx].contains(quote)) {
+      if (quote.isEmpty) {
         errors.add('第${i + 1}项 anchor_quote 不匹配段落');
         continue;
+      }
+      final para = paragraphs[idx];
+      if (!para.contains(quote)) {
+        final qn = _normalizeForMatch(quote);
+        final pn = _normalizeForMatch(para);
+        if (qn.isEmpty || !pn.contains(qn)) {
+          errors.add('第${i + 1}项 anchor_quote 不匹配段落');
+          continue;
+        }
       }
 
       out.add(SceneCard(

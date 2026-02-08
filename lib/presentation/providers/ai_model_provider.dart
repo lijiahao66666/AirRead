@@ -187,10 +187,15 @@ class AiModelProvider extends ChangeNotifier {
 
   /// 检查模型安装状态
   Future<void> _checkModelInstallation() async {
-    final isInstalled = await ModelManager.isModelInstalled(_localModelId);
-    if (isInstalled) {
-      _modelInstallStatus = ModelInstallStatus.installed;
-    } else {
+    try {
+      final isInstalled = await ModelManager.isModelInstalled(_localModelId);
+      if (isInstalled) {
+        _modelInstallStatus = ModelInstallStatus.installed;
+      } else {
+        _modelInstallStatus = ModelInstallStatus.notInstalled;
+      }
+    } catch (e) {
+      debugPrint('[AiModelProvider] _checkModelInstallation failed: $e');
       _modelInstallStatus = ModelInstallStatus.notInstalled;
     }
   }

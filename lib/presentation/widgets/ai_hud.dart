@@ -2657,9 +2657,9 @@ class _MainPanel extends StatelessWidget {
     } else if (illustrationBlockedByEntitlement) {
       illustrationSubtitle = '在线大模型需要购买积分后使用';
     } else if (!illustrationValue) {
-      illustrationSubtitle = '打开后进入章节自动分析插图（消耗积分）';
+      illustrationSubtitle = '打开后进入章节自动分析(消耗积分)';
     } else {
-      illustrationSubtitle = '已开启，分析章节插图中…留意阅读页插图提示';
+      illustrationSubtitle = '分析插图中…留意阅读页插图提示';
     }
     if (source == AiModelSource.none && aiModel.illustrationEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2735,6 +2735,13 @@ class _MainPanel extends StatelessWidget {
         : textColor.withOpacityCompat(0.08);
 
     final bool disabled = onChanged == null;
+    void onToggle(bool next) {
+      if (disabled) return;
+      if (!value && next) {
+        onShowTopMessage?.call('已开启$title', isError: false);
+      }
+      onChanged(next);
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -2748,8 +2755,7 @@ class _MainPanel extends StatelessWidget {
           Expanded(
             child: InkWell(
               onTap: () {
-                if (disabled) return;
-                onChanged(!value);
+                onToggle(!value);
               },
               borderRadius: BorderRadius.circular(AppTokens.radiusMd),
               child: Padding(
@@ -2806,7 +2812,7 @@ class _MainPanel extends StatelessWidget {
           Switch(
             value: value,
             activeThumbColor: AppColors.techBlue,
-            onChanged: onChanged,
+            onChanged: onToggle,
           ),
         ],
       ),

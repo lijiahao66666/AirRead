@@ -2158,7 +2158,7 @@ class _ReaderPageState extends State<ReaderPage>
   }) async {
     final chapter = _chapters[chapterIndex];
     final chapterTitle = (chapter.title ?? '正文').trim();
-    final chapterId = '$chapterIndex';
+    final chapterId = '${widget.bookId}::$chapterIndex';
     final plain = _getPlainTextForChapter(chapterIndex);
 
     await showModalBottomSheet(
@@ -4651,16 +4651,17 @@ class _ReaderPageState extends State<ReaderPage>
     _illustrationAutoAnalyzeRequested.add(chapterIndex);
     try {
       await context.read<IllustrationProvider>().analyzeChapter(
-            chapterId: '$chapterIndex',
+            chapterId: '${widget.bookId}::$chapterIndex',
             chapterTitle: chapterTitle.isEmpty ? '正文' : chapterTitle,
             content: chapterContent,
             maxScenes: aiModel.maxIllustrationsPerChapter,
             pointsBalance: aiModel.pointsBalance,
             generateText: generateText,
           );
-    } catch (_) {
+    } catch (e) {
       _illustrationAutoAnalyzeRequested.remove(chapterIndex);
-      rethrow;
+      _showTopError(e.toString());
+      return;
     }
   }
 

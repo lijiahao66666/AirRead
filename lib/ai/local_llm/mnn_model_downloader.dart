@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
@@ -58,9 +59,22 @@ class MnnModelDownloader {
       Duration(seconds: 45);
   String _lastError = '';
 
+  Future<Directory> _getAppDirSafe() async {
+    if (kIsWeb) {
+      throw UnsupportedError('Local model storage is not supported on Web.');
+    }
+    try {
+      return await getApplicationDocumentsDirectory();
+    } on MissingPluginException {
+      return Directory.systemTemp;
+    } catch (_) {
+      return Directory.systemTemp;
+    }
+  }
+
   /// 获取模型目录路径
   Future<String> getModelDir() async {
-    final appDir = await getApplicationDocumentsDirectory();
+    final appDir = await _getAppDirSafe();
     return p.join(appDir.path, spec.modelDirRelative);
   }
 
