@@ -517,6 +517,7 @@ class _ReaderPageState extends State<ReaderPage>
   int _lastAiPointsBalance = 0;
   bool _lastAiLoaded = false;
   AiModelSource _lastAiSource = AiModelSource.none;
+  String? _lastIllustrationUiLogKey;
 
   @override
   void initState() {
@@ -3469,7 +3470,10 @@ class _ReaderPageState extends State<ReaderPage>
     final mq = MediaQuery.of(context);
     final size = mq.size;
     const margin = 12.0;
-    final bottomInset = _contentBottomInset ?? mq.viewPadding.bottom;
+    final storedBottomInset = _contentBottomInset ?? 0.0;
+    final bottomInset = storedBottomInset > mq.viewPadding.bottom
+        ? storedBottomInset
+        : mq.viewPadding.bottom;
     final topInset = mq.viewPadding.top;
 
     const double capsuleW = 164;
@@ -4682,8 +4686,9 @@ class _ReaderPageState extends State<ReaderPage>
     }
 
     _illustrationAutoAnalyzeRequested.add(chapterIndex);
-    print(
-        '[ReaderPage] auto analyze illustrations: bookId=${widget.bookId} chapterIndex=$chapterIndex');
+    debugPrint(
+      '[ILLU][autoAnalyze] start bookId=${widget.bookId} chapterIndex=$chapterIndex source=${aiModel.source.name} localReady=${aiModel.loaded && aiModel.localImageReady} points=${aiModel.pointsBalance} contentLen=${chapterContent.length}',
+    );
     try {
       await context.read<IllustrationProvider>().analyzeChapter(
             chapterId: '${widget.bookId}::$chapterIndex',
@@ -4693,9 +4698,17 @@ class _ReaderPageState extends State<ReaderPage>
             pointsBalance: aiModel.pointsBalance,
             generateText: generateText,
           );
+      final chapterId = '${widget.bookId}::$chapterIndex';
+      final scenes = context.read<IllustrationProvider>().getScenes(chapterId);
+      debugPrint(
+        '[ILLU][autoAnalyze] done chapterId=$chapterId scenes=${scenes.length}',
+      );
     } catch (e) {
       _illustrationAutoAnalyzeRequested.remove(chapterIndex);
       _showTopError(e.toString());
+      debugPrint(
+        '[ILLU][autoAnalyze] failed bookId=${widget.bookId} chapterIndex=$chapterIndex err=$e',
+      );
       return;
     }
   }
@@ -5364,7 +5377,9 @@ class _ReaderPageState extends State<ReaderPage>
         double snap(double value) => (value * dpr).roundToDouble() / dpr;
         double snapDown(double value) => (value * dpr).floorToDouble() / dpr;
 
-        final double safeBottom = _contentBottomInset ?? padding.bottom;
+        final storedBottomInset = _contentBottomInset ?? 0.0;
+        final double safeBottom =
+            storedBottomInset > padding.bottom ? storedBottomInset : padding.bottom;
 
         final TextStyle effectiveTextStyle =
             (Theme.of(context).textTheme.bodyLarge ?? const TextStyle())
@@ -5655,6 +5670,15 @@ class _ReaderPageState extends State<ReaderPage>
           }
           TextSpan effectiveBodySpan = bodySpan;
           final showChapterEndButton = isLastPage && scenes.isNotEmpty;
+          if (kDebugMode) {
+            final uiKey =
+                '$chapterId|cur=$isCurrentPage|last=$isLastPage|scenes=${scenes.length}|hints=${hintOffsets.length}';
+            if (uiKey != _lastIllustrationUiLogKey &&
+                (isCurrentPage || isLastPage)) {
+              _lastIllustrationUiLogKey = uiKey;
+              debugPrint('[ILLU][ui] $uiKey range=${range.start}-${end}');
+            }
+          }
           if (hintOffsets.isNotEmpty || showChapterEndButton) {
             final pageText = effectiveText.substring(
                 range.start.clamp(0, effectiveText.length), end);
@@ -5962,6 +5986,12 @@ class _ReaderPageState extends State<ReaderPage>
     final chapterId = '${widget.bookId}::$chapterIndex';
     final plain = _getPlainTextForChapter(chapterIndex);
     final panelTitle = onlySceneId == null ? '本章插图' : '插图';
+    if (kDebugMode) {
+      final scenes = context.read<IllustrationProvider>().getScenes(chapterId);
+      debugPrint(
+        '[ILLU][openPanel] chapterId=$chapterId onlySceneId=$onlySceneId scenes=${scenes.length} plainLen=${plain.length}',
+      );
+    }
 
     await showModalBottomSheet(
       context: context,

@@ -84,6 +84,11 @@ class IllustrationProvider extends ChangeNotifier {
     await _ensureReady();
 
     if (!force && _cache.containsKey(chapterId)) {
+      if (kDebugMode) {
+        debugPrint(
+          '[ILLU][analyzeChapter] skip cached chapterId=$chapterId scenes=${_cache[chapterId]?.length ?? 0}',
+        );
+      }
       return;
     }
 
@@ -95,6 +100,11 @@ class IllustrationProvider extends ChangeNotifier {
         }
       }
       final paragraphs = _splitParagraphsForAnalysis(content);
+      if (kDebugMode) {
+        debugPrint(
+          '[ILLU][analyzeChapter] start chapterId=$chapterId maxScenes=$maxScenes paragraphs=${paragraphs.length} local=${generateText != null}',
+        );
+      }
       final cards = await _buildService().analyzeScenesFromParagraphs(
         paragraphs: paragraphs,
         chapterTitle: chapterTitle,
@@ -102,6 +112,11 @@ class IllustrationProvider extends ChangeNotifier {
         debugName: chapterId,
         generateText: generateText,
       );
+      if (kDebugMode) {
+        debugPrint(
+          '[ILLU][analyzeChapter] done chapterId=$chapterId cards=${cards.length}',
+        );
+      }
       _cache[chapterId] = cards;
       notifyListeners();
     } catch (e) {

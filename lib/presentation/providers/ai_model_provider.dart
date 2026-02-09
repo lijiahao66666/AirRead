@@ -130,6 +130,11 @@ class AiModelProvider extends ChangeNotifier {
   Future<void> setIllustrationEnabled(bool value) async {
     if (_illustrationEnabled == value) return;
     _illustrationEnabled = value;
+    if (kDebugMode) {
+      debugPrint(
+        '[ILLU][setIllustrationEnabled] enabled=$_illustrationEnabled source=${_source.name} localTextInstalled=$localTextInstalled localTextReady=$localTextReady localImageInstalled=$localImageInstalled localImageReady=$localImageReady points=$pointsBalance',
+      );
+    }
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kIllustrationEnabled, value);

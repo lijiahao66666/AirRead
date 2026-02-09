@@ -45,6 +45,11 @@ class IllustrationService {
       maxScenes: cap,
       forLocalSd: generateText != null,
     );
+    if (kDebugMode) {
+      debugPrint(
+        '[ILLU][analyzeScenesFromParagraphs] start debugName=$debugName cap=$cap local=${generateText != null} paragraphs=${paragraphs.length} promptLen=${prompt.length}',
+      );
+    }
 
     String? first;
     Object? firstError;
@@ -54,6 +59,11 @@ class IllustrationService {
       firstError = e;
     }
     if (firstError != null) {
+      if (kDebugMode) {
+        debugPrint(
+          '[ILLU][analyzeScenesFromParagraphs] modelError debugName=$debugName err=$firstError',
+        );
+      }
       await _writeDebugSceneAnalysis(
         debugName: debugName,
         chapterTitle: chapterTitle,
@@ -71,6 +81,12 @@ class IllustrationService {
       chapterTitle: chapterTitle,
       paragraphs: paragraphs,
     );
+    if (kDebugMode) {
+      final preview = _truncateForDebug(firstText, 260) ?? '';
+      debugPrint(
+        '[ILLU][analyzeScenesFromParagraphs] parsed debugName=$debugName ok=${firstParsed.ok} cards=${firstParsed.cards.length} hint=${firstParsed.errorHint} rawPreview=${jsonEncode(preview)}',
+      );
+    }
     if (firstParsed.ok) {
       await _writeDebugSceneAnalysis(
         debugName: debugName,
