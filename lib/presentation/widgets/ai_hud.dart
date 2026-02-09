@@ -2313,7 +2313,7 @@ class _TencentHunyuanSettingsPanelState
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '生图会使用大模型先对章节进行生图场景分析；打开插图开关后会消耗一定积分。若确定生成插图，将基于场景提示词生成一张插图，需消耗2万积分（不生图则不消耗），请按需使用。',
+                          '生图会使用大模型先对章节进行生图场景分析；打开插图开关后就会消耗积分。若确定生成插图，将基于场景提示词生成一张插图，需消耗2万积分（不生图则不消耗），请按需使用。',
                           style: TextStyle(
                             color: widget.isDark
                                 ? const Color(0xFFE6A23C)
@@ -2331,7 +2331,7 @@ class _TencentHunyuanSettingsPanelState
                     if (aiModel.source == AiModelSource.local) ...[
                       const SizedBox(height: 12),
                       Text(
-                        '本地模型可离线免费使用，但效果不如在线大模型。',
+                        '本地模型可离线免费使用，但效果不如在线大模型。如仅需使用问答，只需下载文本模型，如需使用插图，需同时下载文本和生图模型。',
                         style: TextStyle(
                           color: widget.textColor.withOpacityCompat(0.65),
                           fontSize: 12,
@@ -2503,6 +2503,8 @@ class _TencentHunyuanSettingsPanelState
         Expanded(
           child: Text(
             '$title($sizeText)',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: widget.textColor.withOpacityCompat(0.65),
               fontSize: 13,
@@ -2568,19 +2570,17 @@ class _TencentHunyuanSettingsPanelState
                 backgroundColor: widget.textColor.withOpacityCompat(0.1),
               ),
             ),
-            const SizedBox(width: 8),
-            // 取消文字按钮
-            TextButton(
-              onPressed: onCancel,
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 0),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                foregroundColor: widget.textColor.withOpacityCompat(0.6),
-              ),
-              child: const Text(
-                '取消',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: onCancel,
+              borderRadius: BorderRadius.circular(999),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(
+                  Icons.close,
+                  size: 16,
+                  color: widget.textColor.withOpacityCompat(0.6),
+                ),
               ),
             ),
           ],

@@ -51,6 +51,7 @@ airread_license.py
 .cxx/
 android/app/.cxx/
 .tmp_mnn*
+.mnn_build/
 
 # AI Assistant tools
 .codebuddy/

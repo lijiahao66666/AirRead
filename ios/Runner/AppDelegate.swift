@@ -274,24 +274,28 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
         let presencePenalty = (args["presencePenalty"] as? NSNumber)?.doubleValue ?? 0.0
         let repetitionPenalty = (args["repetitionPenalty"] as? NSNumber)?.doubleValue ?? 1.0
         let enableThinking = (args["enableThinking"] as? NSNumber)?.boolValue ?? false
-
-        let response = self.mnnLlmBridge?.chatOnce(
-          userText,
-          maxNewTokens: Int(maxNewTokens),
-          maxInputTokens: Int(maxInputTokens),
-          temperature: temperature,
-          topP: topP,
-          topK: Int(topK),
-          minP: minP,
-          presencePenalty: presencePenalty,
-          repetitionPenalty: repetitionPenalty,
-          enableThinking: enableThinking
-        )
-
-        if let response = response {
-          result(response)
-        } else {
-          result(FlutterError(code: "GENERATION_FAILED", message: "Generation failed", details: nil))
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+          let response = self.mnnLlmBridge?.chatOnce(
+            userText,
+            maxNewTokens: Int(maxNewTokens),
+            maxInputTokens: Int(maxInputTokens),
+            temperature: temperature,
+            topP: topP,
+            topK: Int(topK),
+            minP: minP,
+            presencePenalty: presencePenalty,
+            repetitionPenalty: repetitionPenalty,
+            enableThinking: enableThinking
+          )
+          
+          DispatchQueue.main.async {
+            if let response = response {
+              result(response)
+            } else {
+              result(FlutterError(code: "GENERATION_FAILED", message: "Generation failed", details: nil))
+            }
+          }
         }
 
       case "chatStream":
