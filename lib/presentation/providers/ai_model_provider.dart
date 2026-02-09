@@ -45,6 +45,15 @@ class AiModelProvider extends ChangeNotifier {
   StreamSubscription? _progressSubscription;
   StreamSubscription? _fileSubscription;
 
+  // 生图模型安装状态
+  ModelInstallStatus _imageModelInstallStatus = ModelInstallStatus.notInstalled;
+  double _imageDownloadProgress = 0.0;
+  String _imageCurrentDownloadFile = '';
+  MnnModelDownloader? _imageDownloader;
+  StreamSubscription? _imageStatusSubscription;
+  StreamSubscription? _imageProgressSubscription;
+  StreamSubscription? _imageFileSubscription;
+
   AiModelProvider() {
     TencentApiClient.onPointsBalanceChanged = (v) {
       if (_pointsBalance == v) return;
@@ -68,6 +77,19 @@ class AiModelProvider extends ChangeNotifier {
       _modelInstallStatus == ModelInstallStatus.installed;
   bool get isDownloading =>
       _modelInstallStatus == ModelInstallStatus.installing;
+
+  ModelInstallStatus get imageModelInstallStatus => _imageModelInstallStatus;
+  double get imageDownloadProgress => _imageDownloadProgress;
+  String get imageCurrentDownloadFile => _imageCurrentDownloadFile;
+  bool get isImageModelInstalled =>
+      _imageModelInstallStatus == ModelInstallStatus.installed;
+  bool get isImageDownloading =>
+      _imageModelInstallStatus == ModelInstallStatus.installing;
+
+  bool get localTextInstalled => isModelInstalled;
+  bool get localTextReady => loaded;
+  bool get localImageInstalled => isImageModelInstalled;
+  bool get localImageReady => localImageInstalled;
 
   Future<void> setSource(AiModelSource value) async {
     if (_source == value) return;
@@ -182,6 +204,7 @@ class AiModelProvider extends ChangeNotifier {
 
     // 检查模型是否已安装
     await _checkModelInstallation();
+    await _checkImageModelInstallation();
 
     // 如果模型已安装，初始化 LLM 客户端
     if (_modelInstallStatus == ModelInstallStatus.installed) {
@@ -203,6 +226,19 @@ class AiModelProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('[AiModelProvider] _checkModelInstallation failed: $e');
       _modelInstallStatus = ModelInstallStatus.notInstalled;
+    }
+  }
+
+  Future<void> _checkImageModelInstallation() async {
+    try {
+      final isInstalled =
+          await ModelManager.isModelInstalled(ModelManager.sd_v1_5);
+      _imageModelInstallStatus = isInstalled
+          ? ModelInstallStatus.installed
+          : ModelInstallStatus.notInstalled;
+    } catch (e) {
+      debugPrint('[AiModelProvider] _checkImageModelInstallation failed: $e');
+      _imageModelInstallStatus = ModelInstallStatus.notInstalled;
     }
   }
 
@@ -288,6 +324,52 @@ class AiModelProvider extends ChangeNotifier {
     });
   }
 
+  Future<void> startImageModelDownload() async {
+    if (_imageModelInstallStatus == ModelInstallStatus.installing) {
+      return;
+    }
+
+    _imageModelInstallStatus = ModelInstallStatus.installing;
+    _imageDownloadProgress = 0.0;
+    _imageCurrentDownloadFile = '';
+    notifyListeners();
+
+    await _cancelImageSubscriptions();
+
+    _imageDownloader = ModelManager.installModel(ModelManager.sd_v1_5);
+
+    _imageStatusSubscription = _imageDownloader!.statusStream.listen((status) {
+      switch (status) {
+        case ModelDownloadStatus.completed:
+          _imageModelInstallStatus = ModelInstallStatus.installed;
+          break;
+        case ModelDownloadStatus.failed:
+          _imageModelInstallStatus = ModelInstallStatus.failed;
+          break;
+        case ModelDownloadStatus.notDownloaded:
+          _imageModelInstallStatus = ModelInstallStatus.notInstalled;
+          break;
+        case ModelDownloadStatus.downloading:
+        case ModelDownloadStatus.extracting:
+          _imageModelInstallStatus = ModelInstallStatus.installing;
+          break;
+      }
+      notifyListeners();
+    });
+
+    _imageProgressSubscription =
+        _imageDownloader!.progressStream.listen((progress) {
+      _imageDownloadProgress = progress;
+      notifyListeners();
+    });
+
+    _imageFileSubscription =
+        _imageDownloader!.currentFileStream.listen((fileName) {
+      _imageCurrentDownloadFile = fileName;
+      notifyListeners();
+    });
+  }
+
   /// 取消下载
   Future<void> cancelModelDownload() async {
     _downloader?.cancel();
@@ -307,6 +389,23 @@ class AiModelProvider extends ChangeNotifier {
     _fileSubscription = null;
   }
 
+  Future<void> cancelImageModelDownload() async {
+    _imageDownloader?.cancel();
+    await _cancelImageSubscriptions();
+    _imageModelInstallStatus = ModelInstallStatus.notInstalled;
+    _imageDownloadProgress = 0.0;
+    notifyListeners();
+  }
+
+  Future<void> _cancelImageSubscriptions() async {
+    await _imageStatusSubscription?.cancel();
+    await _imageProgressSubscription?.cancel();
+    await _imageFileSubscription?.cancel();
+    _imageStatusSubscription = null;
+    _imageProgressSubscription = null;
+    _imageFileSubscription = null;
+  }
+
   /// 删除已下载的模型
   Future<void> deleteModel() async {
     await _cancelSubscriptions();
@@ -318,6 +417,17 @@ class AiModelProvider extends ChangeNotifier {
     _llmClient = null;
     _modelInstallStatus = ModelInstallStatus.notInstalled;
     _downloadProgress = 0.0;
+    notifyListeners();
+  }
+
+  Future<void> deleteImageModel() async {
+    await _cancelImageSubscriptions();
+    _imageDownloader?.dispose();
+    _imageDownloader = null;
+
+    await ModelManager.deleteModel(ModelManager.sd_v1_5);
+    _imageModelInstallStatus = ModelInstallStatus.notInstalled;
+    _imageDownloadProgress = 0.0;
     notifyListeners();
   }
 
@@ -359,6 +469,8 @@ class AiModelProvider extends ChangeNotifier {
   void dispose() {
     _cancelSubscriptions();
     _downloader?.dispose();
+    _cancelImageSubscriptions();
+    _imageDownloader?.dispose();
     _llmClient?.dispose();
     super.dispose();
   }

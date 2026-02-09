@@ -100,7 +100,34 @@ class SceneCard {
   }
 
   // 生成提示词
-  String toPrompt({String? stylePrefix}) {
+  String toPrompt({
+    String? stylePrefix,
+    bool forLocalSd = false,
+    int localMaxChars = 500,
+  }) {
+    if (forLocalSd) {
+      final style = (stylePrefix == null || stylePrefix.trim().isEmpty)
+          ? 'ancient Chinese fantasy illustration, high detail, soft lighting, no text, no watermark'
+          : stylePrefix.trim();
+      final prompt = StringBuffer()
+        ..write(style)
+        ..write('. ')
+        ..write('Location: $location. ')
+        ..write('Time: $time. ')
+        ..write('Characters: $characters. ')
+        ..write('Action: $action. ')
+        ..write('Mood: $mood. ')
+        ..write('Visual anchors: $visualAnchors. ')
+        ..write('Lighting: $lighting. ')
+        ..write('Color palette: $palette. ')
+        ..write('Composition: $composition. ')
+        ..write(
+            'Negative: text, watermark, logo, blurry, deformed, extra limbs, low quality.');
+      final s = prompt.toString().trim();
+      if (localMaxChars <= 0) return '';
+      return s.length <= localMaxChars ? s : s.substring(0, localMaxChars);
+    }
+
     final style = (stylePrefix == null || stylePrefix.trim().isEmpty)
         ? '古代玄幻插画，国风插画，细腻画风，柔和光影，无文字无水印'
         : stylePrefix.trim();

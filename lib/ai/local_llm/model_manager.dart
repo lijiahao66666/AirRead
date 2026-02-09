@@ -5,6 +5,7 @@ import 'mnn_model_spec.dart';
 /// 负责检查、下载和管理 MNN 模型
 class ModelManager {
   static const String qwen3_0_6b = 'qwen3-0.6b-mnn';
+  static const String sd_v1_5 = 'stable-diffusion-v1-5-mnn';
 
   static const MnnModelSpec qwen3Spec = MnnModelSpec(
     id: qwen3_0_6b,
@@ -34,7 +35,49 @@ class ModelManager {
     },
   );
 
-  static const List<MnnModelSpec> localModels = [qwen3Spec];
+  static const MnnModelSpec sdV15Spec = MnnModelSpec(
+    id: sd_v1_5,
+    displayName: 'Stable Diffusion v1.5',
+    sizeLabel: '1.15GB',
+    estimatedTotalSizeBytes: 1155 * 1024 * 1024,
+    baseUrl:
+        'https://modelscope.cn/models/MNN/stable-diffusion-v1-5-mnn/resolve/master/general/',
+    filesToDownload: [
+      'alphas.txt',
+      'merges.txt',
+      'vocab.json',
+      'text_encoder.mnn',
+      'text_encoder.mnn.weight',
+      'unet.mnn',
+      'unet.mnn.weight',
+      'vae_decoder.mnn',
+      'vae_decoder.mnn.weight',
+    ],
+    criticalFiles: [
+      'alphas.txt',
+      'merges.txt',
+      'vocab.json',
+      'text_encoder.mnn',
+      'text_encoder.mnn.weight',
+      'unet.mnn',
+      'unet.mnn.weight',
+      'vae_decoder.mnn',
+      'vae_decoder.mnn.weight',
+    ],
+    minExpectedBytesByFile: {
+      'alphas.txt': 2 * 1024,
+      'merges.txt': 100 * 1024,
+      'vocab.json': 500 * 1024,
+      'text_encoder.mnn': 50 * 1024,
+      'text_encoder.mnn.weight': 50 * 1024 * 1024,
+      'unet.mnn': 200 * 1024,
+      'unet.mnn.weight': 200 * 1024 * 1024,
+      'vae_decoder.mnn': 50 * 1024,
+      'vae_decoder.mnn.weight': 10 * 1024 * 1024,
+    },
+  );
+
+  static const List<MnnModelSpec> localModels = [qwen3Spec, sdV15Spec];
 
   static MnnModelSpec specFor(String modelId) {
     return localModels.firstWhere((e) => e.id == modelId, orElse: () => qwen3Spec);
@@ -53,7 +96,7 @@ class ModelManager {
     return await MnnModelDownloader(spec: specFor(modelId)).getDownloadedSize();
   }
 
-  /// 获取模型总大小（字节）- 预估390MB
+  /// 获取模型总大小（字节）- 预估
   static int totalSizeFor(String modelId) => specFor(modelId).estimatedTotalSizeBytes;
 
   /// 获取格式化的模型大小文本

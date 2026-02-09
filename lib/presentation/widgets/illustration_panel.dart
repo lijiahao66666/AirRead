@@ -54,6 +54,19 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     '写实': '古代玄幻插画，写实风格，电影级光影，高细节，无文字无水印',
   };
 
+  static const Map<String, String> _stylePromptsEn = {
+    '国风':
+        'ancient Chinese fantasy illustration, Chinese ink style, high detail, soft lighting, no text, no watermark',
+    '水墨':
+        'ancient Chinese fantasy illustration, ink wash painting, minimalism, high detail, soft lighting, no text, no watermark',
+    '厚涂':
+        'ancient Chinese fantasy illustration, painterly thick paint, cinematic lighting, ultra detailed, no text, no watermark',
+    '日漫':
+        'ancient Chinese fantasy illustration, Japanese anime style, clean lineart, soft lighting, no text, no watermark',
+    '写实':
+        'ancient Chinese fantasy illustration, realistic, cinematic lighting, ultra detailed, no text, no watermark',
+  };
+
   static const Map<String, String> _ratioToResolution = {
     '1:1': '1024:1024',
     '3:4': '768:1024',
@@ -95,12 +108,13 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     required SceneCard card,
     required String stylePrefix,
     required String resolution,
+    required bool useLocalSd,
   }) async {
     if (card.status == SceneCardStatus.generating) return;
     if (_pendingGenerateCardIds.contains(card.id)) return;
     _pendingGenerateCardIds.add(card.id);
     bool deducted = false;
-    if (!usingPersonal) {
+    if (!useLocalSd && !usingPersonal) {
       if (aiModel.pointsBalance < _imageCostPoints) {
         _pendingGenerateCardIds.remove(card.id);
         return;
@@ -114,6 +128,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         card,
         stylePrefix: stylePrefix,
         resolution: resolution,
+        useLocalSd: useLocalSd,
       );
       if (deducted && card.status == SceneCardStatus.failed) {
         await aiModel.addPoints(_imageCostPoints);
@@ -133,9 +148,13 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       builder: (context, provider, child) {
         final aiModel = context.watch<AiModelProvider>();
         final usingPersonal = usingPersonalTencentKeys();
-        final canGenerateImage =
-            usingPersonal || aiModel.pointsBalance >= _imageCostPoints;
-        final selectedStyle = _stylePrompts[_styleKey] ?? _stylePrompts['国风']!;
+        final isLocal = aiModel.source == AiModelSource.local;
+        final canGenerateImage = isLocal
+            ? (aiModel.localTextReady && aiModel.localImageReady)
+            : (usingPersonal || aiModel.pointsBalance >= _imageCostPoints);
+        final selectedStyle =
+            (isLocal ? _stylePromptsEn : _stylePrompts)[_styleKey] ??
+                (isLocal ? _stylePromptsEn : _stylePrompts)['国风']!;
         final selectedResolution =
             _ratioToResolution[_ratioKey] ?? _ratioToResolution['1:1']!;
         final selectedAspectRatio = _ratioKeyToAspect(_ratioKey);
@@ -191,7 +210,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                         }).toList(),
                       ),
                     ),
-                    if (!usingPersonal && !canGenerateImage)
+                    if (!isLocal && !usingPersonal && !canGenerateImage)
                       Padding(
                         padding: const EdgeInsets.only(top: 10),
                         child: Row(
@@ -285,6 +304,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                                 card: visibleScenes[index],
                                 stylePrefix: selectedStyle,
                                 resolution: selectedResolution,
+                                useLocalSd: isLocal,
                               ),
                             ),
                           );

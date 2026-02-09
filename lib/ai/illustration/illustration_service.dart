@@ -43,6 +43,7 @@ class IllustrationService {
       paragraphs: paragraphs,
       chapterTitle: chapterTitle,
       maxScenes: cap,
+      forLocalSd: generateText != null,
     );
 
     String? first;
@@ -237,6 +238,7 @@ class IllustrationService {
     required List<String> paragraphs,
     required String chapterTitle,
     required int maxScenes,
+    required bool forLocalSd,
   }) {
     final buffer = StringBuffer();
     buffer.writeln('你是小说分镜导演+插画提示词工程师。');
@@ -253,6 +255,12 @@ class IllustrationService {
     buffer.writeln('characters<=34字；action<=80字；visual_anchors<=80字；');
     buffer.writeln('lighting<=18字；composition<=18字；palette<=18字。');
     buffer.writeln('如果超过1024字，请优先减少场景数量，并缩短 action/visual_anchors 等字段。');
+    if (forLocalSd) {
+      buffer.writeln('本地生图要求：');
+      buffer.writeln('1) 除 title 允许中文外，其余字段必须为英文，且不要使用中文标点。');
+      buffer.writeln('2) action 作为生图场景描述词，必须英文，长度 <= 500 字符。');
+      buffer.writeln('3) 为了保证总长度不超限，请尽量输出更少的场景（宁可少于上限）。');
+    }
     buffer.writeln('写法：');
     buffer.writeln('1) title：8-14字，直指冲突/转折/高潮。');
     buffer.writeln('2) location/time：具体到室内外/地形/天气/时辰。');

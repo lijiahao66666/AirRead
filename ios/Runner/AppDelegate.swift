@@ -189,6 +189,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var mnnLlmBridge: MnnLlmBridge?
+  private let sdBridge: MnnSdBridge = MnnSdBridge()
   
   override func application(
     _ application: UIApplication,
@@ -349,6 +350,44 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
         // 仅用于 Android，iOS 直接返回成功
         result(nil)
 
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
+    let sdChannel = FlutterMethodChannel(name: "airread/local_sd", binaryMessenger: controller.binaryMessenger)
+    sdChannel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else { return }
+      switch call.method {
+      case "isAvailable":
+        result(MnnSdBridge.isAvailable())
+      case "initialize":
+        guard let args = call.arguments as? [String: Any],
+              let modelDir = args["modelDir"] as? String else {
+          result(FlutterError(code: "INVALID_ARGS", message: "Missing modelDir", details: nil))
+          return
+        }
+        self.sdBridge.initialize(modelDir) { ok in
+          if ok {
+            result(nil)
+          } else {
+            result(FlutterError(code: "INIT_FAILED", message: "Failed to initialize SD model", details: nil))
+          }
+        }
+      case "txt2img":
+        guard let args = call.arguments as? [String: Any],
+              let prompt = args["prompt"] as? String else {
+          result(FlutterError(code: "INVALID_ARGS", message: "Missing prompt", details: nil))
+          return
+        }
+        let steps = (args["steps"] as? NSNumber)?.intValue ?? 20
+        let seed = (args["seed"] as? NSNumber)?.intValue ?? -1
+        let out = self.sdBridge.txt2img(prompt, steps: steps, seed: seed)
+        if let out = out, !out.isEmpty {
+          result(out)
+        } else {
+          result(FlutterError(code: "GENERATION_FAILED", message: "SD txt2img failed", details: nil))
+        }
       default:
         result(FlutterMethodNotImplemented)
       }

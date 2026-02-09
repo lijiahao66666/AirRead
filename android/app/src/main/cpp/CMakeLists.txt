@@ -5,6 +5,7 @@ set(MNN_ROOT "c:/Users/28679/traeProjects/MNN")
 set(MNN_INCLUDE_DIR ${MNN_ROOT}/include)
 set(MNN_LIB_DIR ${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI})
 set(MNN_LIB_PATH ${MNN_LIB_DIR}/libMNN.so)
+set(DIFFUSION_LIB_PATH ${MNN_LIB_DIR}/libdiffusion.so)
 
 # 检查 MNN 库是否存在
 if (EXISTS "${MNN_LIB_PATH}")
@@ -19,6 +20,7 @@ if (EXISTS "${MNN_LIB_PATH}")
         # 创建 mnn_bridge 库（完整版本，使用 LLM 引擎）
         add_library(mnn_bridge SHARED 
             mnn_bridge_real.cpp
+            sd_bridge.cpp
         )
         
         # 添加 MNN 库
@@ -28,6 +30,14 @@ if (EXISTS "${MNN_LIB_PATH}")
         # 添加 LLM 库
         add_library(llm SHARED IMPORTED)
         set_target_properties(llm PROPERTIES IMPORTED_LOCATION ${LLM_LIB_PATH})
+
+        if (EXISTS "${DIFFUSION_LIB_PATH}")
+            add_library(diffusion SHARED IMPORTED)
+            set_target_properties(diffusion PROPERTIES IMPORTED_LOCATION ${DIFFUSION_LIB_PATH})
+            target_compile_definitions(mnn_bridge PRIVATE ENABLE_DIFFUSION=1)
+        else()
+            target_compile_definitions(mnn_bridge PRIVATE ENABLE_DIFFUSION=0)
+        endif()
         
         # 设置包含目录
         target_include_directories(mnn_bridge PRIVATE 
@@ -47,6 +57,9 @@ if (EXISTS "${MNN_LIB_PATH}")
             android 
             log
         )
+        if (TARGET diffusion)
+            target_link_libraries(mnn_bridge diffusion)
+        endif()
         
         # 添加 C++17 支持
         target_compile_options(mnn_bridge PRIVATE -std=c++17)
@@ -56,11 +69,20 @@ if (EXISTS "${MNN_LIB_PATH}")
         # 创建 mnn_bridge 库（简化版本，不依赖 LLM 引擎）
         add_library(mnn_bridge SHARED 
             mnn_bridge_simple.cpp
+            sd_bridge.cpp
         )
         
         # 添加 MNN 库
         add_library(MNN SHARED IMPORTED)
         set_target_properties(MNN PROPERTIES IMPORTED_LOCATION ${MNN_LIB_PATH})
+
+        if (EXISTS "${DIFFUSION_LIB_PATH}")
+            add_library(diffusion SHARED IMPORTED)
+            set_target_properties(diffusion PROPERTIES IMPORTED_LOCATION ${DIFFUSION_LIB_PATH})
+            target_compile_definitions(mnn_bridge PRIVATE ENABLE_DIFFUSION=1)
+        else()
+            target_compile_definitions(mnn_bridge PRIVATE ENABLE_DIFFUSION=0)
+        endif()
         
         # 设置包含目录
         target_include_directories(mnn_bridge PRIVATE 
@@ -78,6 +100,9 @@ if (EXISTS "${MNN_LIB_PATH}")
             android 
             log
         )
+        if (TARGET diffusion)
+            target_link_libraries(mnn_bridge diffusion)
+        endif()
         
         # 添加 C++17 支持
         target_compile_options(mnn_bridge PRIVATE -std=c++17)

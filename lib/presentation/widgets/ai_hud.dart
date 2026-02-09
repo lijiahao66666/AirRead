@@ -13,6 +13,7 @@ import 'package:uuid/uuid.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../ai/licensing/license_codec.dart';
+import '../../ai/local_llm/model_manager.dart';
 import '../../ai/reading/qa_service.dart';
 export '../../ai/reading/qa_service.dart' show QAStreamChunk, QAType;
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
@@ -2329,10 +2330,31 @@ class _TencentHunyuanSettingsPanelState
                     // 本地模型提示（与本地按钮左对齐）
                     if (aiModel.source == AiModelSource.local) ...[
                       const SizedBox(height: 12),
+                      Text(
+                        '本地模型可离线免费使用，但效果不如在线大模型。',
+                        style: TextStyle(
+                          color: widget.textColor.withOpacityCompat(0.65),
+                          fontSize: 12,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       _localModelStatusRow(
                         aiModel,
+                        kindLabel: '文本模型',
                         title: aiModel.localModelName,
                         sizeText: aiModel.localModelSizeLabel,
+                        isImageModel: false,
+                      ),
+                      const SizedBox(height: 8),
+                      _localModelStatusRow(
+                        aiModel,
+                        kindLabel: '生图模型',
+                        title:
+                            ModelManager.displayNameFor(ModelManager.sd_v1_5),
+                        sizeText:
+                            ModelManager.sizeLabelFor(ModelManager.sd_v1_5),
+                        isImageModel: true,
                       ),
                     ],
                   ],
@@ -2450,11 +2472,34 @@ class _TencentHunyuanSettingsPanelState
 
   Widget _localModelStatusRow(
     AiModelProvider aiModel, {
+    required String kindLabel,
     required String title,
     required String sizeText,
+    required bool isImageModel,
   }) {
     return Row(
       children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: widget.textColor.withOpacityCompat(0.06),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: widget.textColor.withOpacityCompat(0.08),
+              width: AppTokens.stroke,
+            ),
+          ),
+          child: Text(
+            kindLabel,
+            style: TextStyle(
+              color: widget.textColor.withOpacityCompat(0.8),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              height: 1.0,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
         Expanded(
           child: Text(
             '$title($sizeText)',
@@ -2465,20 +2510,35 @@ class _TencentHunyuanSettingsPanelState
             ),
           ),
         ),
-        _buildModelActionButton(aiModel),
+        _buildModelActionButton(aiModel, isImageModel: isImageModel),
       ],
     );
   }
 
   /// 构建模型操作按钮（下载/安装中/已安装）
-  Widget _buildModelActionButton(AiModelProvider aiModel) {
+  Widget _buildModelActionButton(
+    AiModelProvider aiModel, {
+    required bool isImageModel,
+  }) {
+    final installStatus = isImageModel
+        ? aiModel.imageModelInstallStatus
+        : aiModel.modelInstallStatus;
+    final progress =
+        isImageModel ? aiModel.imageDownloadProgress : aiModel.downloadProgress;
+    final onStart = isImageModel
+        ? aiModel.startImageModelDownload
+        : aiModel.startModelDownload;
+    final onCancel = isImageModel
+        ? aiModel.cancelImageModelDownload
+        : aiModel.cancelModelDownload;
+
     // 根据安装状态显示不同按钮
-    switch (aiModel.modelInstallStatus) {
+    switch (installStatus) {
       case ModelInstallStatus.notInstalled:
       case ModelInstallStatus.failed:
         // 未安装或失败，显示下载文字按钮（类似购买/兑换样式）
         return TextButton(
-          onPressed: () => aiModel.startModelDownload(),
+          onPressed: onStart,
           style: TextButton.styleFrom(
             padding: EdgeInsets.zero,
             minimumSize: const Size(0, 0),
@@ -2501,9 +2561,7 @@ class _TencentHunyuanSettingsPanelState
               width: 16,
               height: 16,
               child: CircularProgressIndicator(
-                value: aiModel.downloadProgress > 0
-                    ? aiModel.downloadProgress
-                    : null,
+                value: progress > 0 ? progress : null,
                 strokeWidth: 2,
                 valueColor:
                     const AlwaysStoppedAnimation<Color>(AppColors.techBlue),
@@ -2513,7 +2571,7 @@ class _TencentHunyuanSettingsPanelState
             const SizedBox(width: 8),
             // 取消文字按钮
             TextButton(
-              onPressed: () => aiModel.cancelModelDownload(),
+              onPressed: onCancel,
               style: TextButton.styleFrom(
                 padding: EdgeInsets.zero,
                 minimumSize: const Size(0, 0),
@@ -2656,13 +2714,23 @@ class _MainPanel extends StatelessWidget {
 
     final bool illustrationBlockedByKeys = personalKeysMissing;
     final bool illustrationBlockedByModel = source == AiModelSource.none;
-    final bool illustrationBlockedByLocalNotReady =
-        source == AiModelSource.local && !aiModel.loaded;
+    final bool illustrationBlockedByLocalTextNotInstalled =
+        source == AiModelSource.local && !aiModel.localTextInstalled;
+    final bool illustrationBlockedByLocalTextNotReady =
+        source == AiModelSource.local &&
+            aiModel.localTextInstalled &&
+            !aiModel.localTextReady;
+    final bool illustrationBlockedByLocalImageNotInstalled =
+        source == AiModelSource.local &&
+            aiModel.localTextReady &&
+            !aiModel.localImageInstalled;
     final bool illustrationBlockedByEntitlement =
         source == AiModelSource.online && !onlineEntitled && !usingPersonalKeys;
     final bool illustrationBlocked = illustrationBlockedByKeys ||
         illustrationBlockedByModel ||
-        illustrationBlockedByLocalNotReady ||
+        illustrationBlockedByLocalTextNotInstalled ||
+        illustrationBlockedByLocalTextNotReady ||
+        illustrationBlockedByLocalImageNotInstalled ||
         illustrationBlockedByEntitlement;
     final bool illustrationValue =
         illustrationBlocked ? false : aiModel.illustrationEnabled;
@@ -2673,8 +2741,12 @@ class _MainPanel extends StatelessWidget {
     String illustrationSubtitle;
     if (illustrationBlockedByModel) {
       illustrationSubtitle = '需要先在设置中选择大模型';
-    } else if (illustrationBlockedByLocalNotReady) {
+    } else if (illustrationBlockedByLocalTextNotInstalled) {
+      illustrationSubtitle = '文本模型未下载，下载后可用';
+    } else if (illustrationBlockedByLocalTextNotReady) {
       illustrationSubtitle = '本地模型未就绪，初始化后可用';
+    } else if (illustrationBlockedByLocalImageNotInstalled) {
+      illustrationSubtitle = '生图模型未下载，下载后可用';
     } else if (illustrationBlockedByKeys) {
       illustrationSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
     } else if (illustrationBlockedByEntitlement) {

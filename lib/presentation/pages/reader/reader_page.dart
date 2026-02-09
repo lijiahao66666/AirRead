@@ -4665,6 +4665,7 @@ class _ReaderPageState extends State<ReaderPage>
     Future<String> Function(String prompt)? generateText;
     if (aiModel.source == AiModelSource.local) {
       if (!aiModel.loaded) return;
+      if (!aiModel.localImageReady) return;
       generateText = (prompt) => aiModel.generate(
             prompt: prompt,
             maxTokens: 1024,

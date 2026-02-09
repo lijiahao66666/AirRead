@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../ai/illustration/illustration_service.dart';
 import '../../ai/illustration/scene_card.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
+import '../../ai/local_sd/sd_mnn_client.dart';
 
 class IllustrationProvider extends ChangeNotifier {
   // 章节 ID -> 场景卡片列表
@@ -115,6 +116,7 @@ class IllustrationProvider extends ChangeNotifier {
     SceneCard card, {
     String? stylePrefix,
     String resolution = '1024:1024',
+    bool useLocalSd = false,
   }) async {
     await _ensureReady();
     if (_generatingTaskIds.contains(card.id)) return;
@@ -126,19 +128,32 @@ class IllustrationProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 1. 提交任务
-      final jobId = await _buildService().submitGeneration(
-        card: card,
-        stylePrefix: stylePrefix,
-        resolution: resolution,
-      );
-      card.jobId = jobId;
-      notifyListeners();
+      if (useLocalSd) {
+        final prompt =
+            card.toPrompt(stylePrefix: stylePrefix, forLocalSd: true);
+        final localPath = await SdMnnClient.txt2img(
+          prompt: prompt,
+          width: 512,
+          height: 512,
+          steps: 20,
+        );
+        card.localImagePath = localPath;
+        card.status = SceneCardStatus.completed;
+      } else {
+        // 1. 提交任务
+        final jobId = await _buildService().submitGeneration(
+          card: card,
+          stylePrefix: stylePrefix,
+          resolution: resolution,
+        );
+        card.jobId = jobId;
+        notifyListeners();
 
-      // 2. 轮询结果
-      final localPath = await _buildService().pollJobStatus(jobId);
-      card.localImagePath = localPath;
-      card.status = SceneCardStatus.completed;
+        // 2. 轮询结果
+        final localPath = await _buildService().pollJobStatus(jobId);
+        card.localImagePath = localPath;
+        card.status = SceneCardStatus.completed;
+      }
     } catch (e) {
       debugPrint('Generate image failed: $e');
       card.status = SceneCardStatus.failed;
