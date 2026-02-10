@@ -521,6 +521,25 @@ class _ReaderPageState extends State<ReaderPage>
   VoidCallback? _illustrationListener;
   bool _lastIsAnalyzing = false;
 
+  void _showCenterToast(String msg) {
+    if (!mounted) return;
+    setState(() {
+      _centerToastText = msg;
+    });
+    // Auto hide after 2.5s
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted && _centerToastText == msg) {
+        setState(() {
+          _centerToastText = '';
+        });
+      }
+    });
+  }
+
+  void _showTopError(String msg, {bool isError = true}) {
+    _showCenterToast(msg);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -536,8 +555,11 @@ class _ReaderPageState extends State<ReaderPage>
 
       if (_lastIsAnalyzing && !isAnalyzing) {
         // Analysis just finished
-        if (p.getScenes(chapterId).isNotEmpty) {
-          _showTopError('插图分析完成，可留意页面的查看插图按钮', isError: false);
+        final scenes = p.getScenes(chapterId);
+        if (scenes.isNotEmpty) {
+          _showCenterToast('插图分析完成，可留意页面的查看插图按钮');
+        } else {
+           _showCenterToast('插图分析失败，请重试');
         }
       }
       _lastIsAnalyzing = isAnalyzing;
@@ -3418,28 +3440,7 @@ class _ReaderPageState extends State<ReaderPage>
     if (!_aiReadAloudPlaying) return;
     unawaited(_stopReadAloud(keepResume: true));
     final text = message.isEmpty ? '朗读失败' : '朗读失败：$message';
-    _showTopError(text);
-  }
-
-  void _showTopError(String message, {bool isError = true}) {
-    if (_lastErrorMessage == message &&
-        _lastErrorTime != null &&
-        DateTime.now().difference(_lastErrorTime!) <
-            const Duration(seconds: 3)) {
-      return;
-    }
-    _lastErrorMessage = message;
-    _lastErrorTime = DateTime.now();
-    _centerToastTimer?.cancel();
-    setState(() {
-      _centerToastText = message;
-    });
-    _centerToastTimer = Timer(const Duration(milliseconds: 2400), () {
-      if (!mounted) return;
-      setState(() {
-        _centerToastText = '';
-      });
-    });
+    _showCenterToast(text);
   }
 
   Widget _buildReadAloudFloatingButton() {
@@ -5803,15 +5804,18 @@ class _ReaderPageState extends State<ReaderPage>
                   alignment: PlaceholderAlignment.middle,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(0, 6, 8, 6),
-                    child: InkWell(
+                    child: GestureDetector(
                       onTapDown: (_) => _suppressReaderTap(),
-                      onTap: () => unawaited(
-                        _openIllustrationPanelForChapter(
-                          chapterIndex: chapterIndex,
-                          onlySceneId: h.sceneId,
-                        ),
-                      ),
-                      borderRadius: BorderRadius.circular(999),
+                      onTap: () {
+                        // Ensure tap suppression is active before opening panel
+                        _suppressReaderTap();
+                        unawaited(
+                          _openIllustrationPanelForChapter(
+                            chapterIndex: chapterIndex,
+                            onlySceneId: h.sceneId,
+                          ),
+                        );
+                      },
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 6),
@@ -5867,15 +5871,17 @@ class _ReaderPageState extends State<ReaderPage>
                   alignment: PlaceholderAlignment.middle,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(0, 6, 8, 6),
-                    child: InkWell(
+                    child: GestureDetector(
                       onTapDown: (_) => _suppressReaderTap(),
-                      onTap: () => unawaited(
-                        _openIllustrationPanelForChapter(
-                          chapterIndex: chapterIndex,
-                          onlySceneId: null,
-                        ),
-                      ),
-                      borderRadius: BorderRadius.circular(999),
+                      onTap: () {
+                        _suppressReaderTap();
+                        unawaited(
+                          _openIllustrationPanelForChapter(
+                            chapterIndex: chapterIndex,
+                            onlySceneId: null,
+                          ),
+                        );
+                      },
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 6),
@@ -6763,7 +6769,7 @@ class _ReaderPageState extends State<ReaderPage>
         aiModel.pointsBalance <= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _showTopError('积分不足，暂停插图生成', isError: false);
+        _showCenterToast('积分不足，暂停插图生成');
         unawaited(aiModel.setIllustrationEnabled(false));
       });
     }
@@ -6923,7 +6929,11 @@ class _ReaderPageState extends State<ReaderPage>
                   builder: (context, illuProvider, _) {
                     final chapterId = '${widget.bookId}::$_currentChapterIndex';
                     final isAnalyzing = illuProvider.isAnalyzing(chapterId);
-                    if (!isAnalyzing) return const SizedBox.shrink();
+                    
+                    // Prevent overlapping with toast: only show analyzing if no toast is visible
+                    if (!isAnalyzing || _centerToastText.trim().isNotEmpty) {
+                      return const SizedBox.shrink();
+                    }
 
                     return AnimatedBuilder(
                       animation: _controlsController,
@@ -6973,17 +6983,9 @@ class _ReaderPageState extends State<ReaderPage>
                   },
                 ),
                 if (_centerToastText.trim().isNotEmpty)
-                  AnimatedBuilder(
-                    animation: _controlsController,
-                    builder: (context, child) {
-                      return Positioned(
-                        top: contentTopInset +
-                            16 +
-                            (48 * _controlsController.value),
-                        right: 16,
-                        child: child!,
-                      );
-                    },
+                  Positioned(
+                    top: contentTopInset + 6, // Approximate alignment with first line baseline
+                    right: 20,
                     child: IgnorePointer(
                       child: AnimatedOpacity(
                         opacity: _centerToastText.trim().isNotEmpty ? 1 : 0,
@@ -7004,12 +7006,16 @@ class _ReaderPageState extends State<ReaderPage>
                               color: Colors.white,
                               fontSize: 13,
                               height: 1.1,
+                              decoration: TextDecoration.none,
+                              fontWeight: FontWeight.normal,
                             ),
+                            textAlign: TextAlign.center,
                           ),
                         ),
                       ),
                     ),
                   ),
+
                 if (_showControls)
                   Positioned.fill(
                     child: GestureDetector(

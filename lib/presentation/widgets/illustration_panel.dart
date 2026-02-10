@@ -45,6 +45,25 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
   String _ratioKey = '1:1';
   static const int _imageCostPoints = 20000;
   final Set<String> _pendingGenerateCardIds = {};
+  
+  String _toastText = '';
+  Timer? _toastTimer;
+
+  void _showToast(String msg) {
+    final t = msg.trim();
+    if (t.isEmpty) return;
+    _toastTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _toastText = t;
+    });
+    _toastTimer = Timer(const Duration(milliseconds: 2400), () {
+      if (!mounted) return;
+      setState(() {
+        _toastText = '';
+      });
+    });
+  }
 
   static const Map<String, String> _stylePrompts = {
     '国风': '古代玄幻插画，国风插画，细腻画风，柔和光影，无文字无水印',
@@ -117,6 +136,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     if (!useLocalSd && !usingPersonal) {
       if (aiModel.pointsBalance < _imageCostPoints) {
         _pendingGenerateCardIds.remove(card.id);
+        _showToast('积分不足，无法生成');
         return;
       }
       await aiModel.addPoints(-_imageCostPoints);
@@ -163,156 +183,187 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
             ? scenes
             : scenes.where((e) => e.id == widget.onlySceneId).toList();
 
-        return Container(
-          decoration: BoxDecoration(
-            color: cardBg,
-            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-            border: Border.all(
-              color: widget.textColor.withOpacityCompat(0.08),
-              width: AppTokens.stroke,
-            ),
-          ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _settingsRow(
-                      label: '风格',
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _stylePrompts.keys.map((k) {
-                          final active = k == _styleKey;
-                          return _chip(
-                            label: k,
-                            active: active,
-                            onTap: () => setState(() => _styleKey = k),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    _settingsRow(
-                      label: '画幅',
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _ratioToResolution.keys.map((k) {
-                          final active = k == _ratioKey;
-                          return _chip(
-                            label: k,
-                            active: active,
-                            onTap: () => setState(() => _ratioKey = k),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    if (!isLocal && !usingPersonal && !canGenerateImage)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '积分不足2万，无法生成插图，请先购买积分。',
-                                style: TextStyle(
-                                  color:
-                                      widget.textColor.withOpacityCompat(0.65),
-                                  fontSize: 12,
-                                  height: 1.35,
-                                ),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () async {
-                                final uri = Uri.parse(
-                                    'https://pay.ldxp.cn/item/ajnlvp');
-                                await launchUrl(uri,
-                                    mode: LaunchMode.externalApplication);
-                              },
-                              style: TextButton.styleFrom(
-                                foregroundColor: AppColors.techBlue,
-                                padding: EdgeInsets.zero,
-                                minimumSize: const Size(0, 0),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: const Text(
-                                '购买',
-                                style: TextStyle(
-                                    fontSize: 12, fontWeight: FontWeight.w700),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+        return Stack(
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+                border: Border.all(
+                  color: widget.textColor.withOpacityCompat(0.08),
+                  width: AppTokens.stroke,
                 ),
               ),
-              Expanded(
-                child: visibleScenes.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.image_search_rounded,
-                              size: 48,
-                              color: widget.textColor.withOpacityCompat(0.2),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              '暂无插图',
-                              style: TextStyle(
-                                color: widget.textColor.withOpacityCompat(0.4),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              widget.onlySceneId == null
-                                  ? '请在AI伴读中开启插图开关并进入章节后自动分析场景。'
-                                  : '未找到该插图。',
-                              style: TextStyle(
-                                color: widget.textColor.withOpacityCompat(0.6),
-                                fontSize: 12,
-                                height: 1.35,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _settingsRow(
+                          label: '风格',
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _stylePrompts.keys.map((k) {
+                              final active = k == _styleKey;
+                              return _chip(
+                                label: k,
+                                active: active,
+                                onTap: () => setState(() => _styleKey = k),
+                              );
+                            }).toList(),
+                          ),
                         ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 16),
-                        itemCount: visibleScenes.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 16),
-                        itemBuilder: (context, index) {
-                          return _SceneCardWidget(
-                            card: visibleScenes[index],
-                            isDark: widget.isDark,
-                            textColor: widget.textColor,
-                            canGenerate: canGenerateImage,
-                            imageAspectRatio: selectedAspectRatio,
-                            onGenerate: () => unawaited(
-                              _generateWithPoints(
-                                provider: provider,
-                                aiModel: aiModel,
-                                usingPersonal: usingPersonal,
-                                card: visibleScenes[index],
-                                stylePrefix: selectedStyle,
-                                resolution: selectedResolution,
-                                useLocalSd: isLocal,
-                              ),
+                        const SizedBox(height: 10),
+                        _settingsRow(
+                          label: '画幅',
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _ratioToResolution.keys.map((k) {
+                              final active = k == _ratioKey;
+                              return _chip(
+                                label: k,
+                                active: active,
+                                onTap: () => setState(() => _ratioKey = k),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                        if (!isLocal && !usingPersonal && !canGenerateImage)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '积分不足2万，无法生成插图，请先购买积分。',
+                                    style: TextStyle(
+                                      color:
+                                          widget.textColor.withOpacityCompat(0.65),
+                                      fontSize: 12,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () async {
+                                    final uri = Uri.parse(
+                                        'https://pay.ldxp.cn/item/ajnlvp');
+                                    await launchUrl(uri,
+                                        mode: LaunchMode.externalApplication);
+                                  },
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: AppColors.techBlue,
+                                    padding: EdgeInsets.zero,
+                                    minimumSize: const Size(0, 0),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text(
+                                    '购买',
+                                    style: TextStyle(
+                                        fontSize: 12, fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                              ],
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: visibleScenes.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.image_search_rounded,
+                                  size: 48,
+                                  color: widget.textColor.withOpacityCompat(0.2),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  '暂无插图',
+                                  style: TextStyle(
+                                    color: widget.textColor.withOpacityCompat(0.4),
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  widget.onlySceneId == null
+                                      ? '请在AI伴读中开启插图开关并进入章节后自动分析场景。'
+                                      : '未找到该插图。',
+                                  style: TextStyle(
+                                    color: widget.textColor.withOpacityCompat(0.6),
+                                    fontSize: 12,
+                                    height: 1.35,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 16),
+                            itemCount: visibleScenes.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 16),
+                            itemBuilder: (context, index) {
+                              return _SceneCardWidget(
+                                card: visibleScenes[index],
+                                isDark: widget.isDark,
+                                textColor: widget.textColor,
+                                canGenerate: canGenerateImage,
+                                imageAspectRatio: selectedAspectRatio,
+                                onGenerate: () => unawaited(
+                                  _generateWithPoints(
+                                    provider: provider,
+                                    aiModel: aiModel,
+                                    usingPersonal: usingPersonal,
+                                    card: visibleScenes[index],
+                                    stylePrefix: selectedStyle,
+                                    resolution: selectedResolution,
+                                    useLocalSd: isLocal,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            if (_toastText.isNotEmpty)
+              Center(
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: _toastText.isNotEmpty ? 1 : 0,
+                    duration: const Duration(milliseconds: 160),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacityCompat(0.72),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _toastText,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          height: 1.1,
+                          decoration: TextDecoration.none,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         );
       },
     );
@@ -435,7 +486,7 @@ class _SceneCardWidget extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Expanded(
                       child: Text(
@@ -468,29 +519,6 @@ class _SceneCardWidget extends StatelessWidget {
                           ),
                         ),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  card.action,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: textColor.withOpacityCompat(0.7),
-                    height: 1.5,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    _Tag(text: card.mood, color: textColor),
-                    if (card.visualAnchors.isNotEmpty)
-                      _Tag(
-                          text: card.visualAnchors.split('、').first,
-                          color: textColor),
                   ],
                 ),
               ],

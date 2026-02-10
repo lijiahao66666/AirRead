@@ -2313,7 +2313,7 @@ class _TencentHunyuanSettingsPanelState
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '生图会使用大模型先对章节进行生图场景分析；打开插图开关后就会消耗积分。若确定生成插图，将基于场景提示词生成一张插图，需消耗2万积分（不生图则不消耗），请按需使用。',
+                          '生图会使用大模型先对章节进行生图分析；打开插图开关后就会消耗积分。若确定生成插图，将基于提示词生成一张插图，需消耗2万积分（不生图则不消耗），请按需使用。',
                           style: TextStyle(
                             color: widget.isDark
                                 ? const Color(0xFFE6A23C)
@@ -2379,8 +2379,8 @@ class _TencentHunyuanSettingsPanelState
                         ),
                         _countStepper(
                           value: aiModel.maxIllustrationsPerChapter,
-                          min: 3,
-                          max: 5,
+                          min: 2,
+                          max: 20,
                           onChanged: (v) => unawaited(
                               aiModel.setMaxIllustrationsPerChapter(v)),
                         ),
@@ -3546,36 +3546,9 @@ class _QaPanelState extends State<_QaPanel> {
   }
 
   void _showTopError(String message) {
-    if (message.trim().isEmpty) return;
-    if (_lastErrorMessage == message) return;
-    _lastErrorMessage = message;
-
-    if (widget.onShowTopMessage != null) {
-      widget.onShowTopMessage!(message, isError: true);
-      return;
-    }
-
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentMaterialBanner();
-    messenger.showMaterialBanner(
-      MaterialBanner(
-        backgroundColor: Colors.red.withOpacityCompat(0.95),
-        content: Text(
-          message,
-          style: const TextStyle(color: Colors.white),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => messenger.hideCurrentMaterialBanner(),
-            child: const Text('关闭', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-    Future.delayed(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      messenger.hideCurrentMaterialBanner();
-    });
+    // Deprecated: Red banner is removed.
+    // Redirect to unified toast
+    _showQaToast(message);
   }
 
   void _showQaToast(String message) {
@@ -4241,30 +4214,27 @@ class _QaPanelState extends State<_QaPanel> {
               ],
             ),
             if (_qaToastText.trim().isNotEmpty)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 74,
+              Center(
                 child: IgnorePointer(
-                  child: Center(
-                    child: AnimatedOpacity(
-                      opacity: _qaToastText.trim().isNotEmpty ? 1 : 0,
-                      duration: const Duration(milliseconds: 160),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacityCompat(0.72),
-                          borderRadius: BorderRadius.circular(999),
+                  child: AnimatedOpacity(
+                    opacity: _qaToastText.trim().isNotEmpty ? 1 : 0,
+                    duration: const Duration(milliseconds: 160),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacityCompat(0.72),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _qaToastText,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          height: 1.1,
+                          decoration: TextDecoration.none,
                         ),
-                        child: Text(
-                          _qaToastText,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            height: 1.1,
-                          ),
-                        ),
+                        textAlign: TextAlign.center,
                       ),
                     ),
                   ),

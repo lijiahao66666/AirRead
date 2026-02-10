@@ -113,6 +113,9 @@ class AzureTranslationEngine implements TranslationEngine {
 
     debugPrint(
         'AzureTranslator response status=${resp.statusCode} bytes=${resp.bodyBytes.length}');
+    // Log the full body for debugging purposes
+    debugPrint('AzureTranslator response body: ${utf8.decode(resp.bodyBytes)}');
+
     final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
     if (decoded is! List || decoded.isEmpty) {
       throw StateError('Azure translate response empty');
@@ -128,6 +131,10 @@ class AzureTranslationEngine implements TranslationEngine {
         final out = item['text']?.toString() ?? '';
         if (out.trim().isEmpty) {
           throw StateError('Azure translate result empty');
+        }
+        // Check for echo translation (source == target) which often indicates failure
+        if (out.trim() == normalized && normalized.length > 5) {
+           throw StateError('Azure translate result equals source (echo)');
         }
         return out;
       }

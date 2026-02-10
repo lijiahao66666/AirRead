@@ -170,7 +170,7 @@ class QAService {
   final ReadingContextService contextService;
   final TencentCredentials credentials;
   final String localModelId;
-  static const int _localQaHardMaxNewTokens = 1536;
+  static const int _localQaHardMaxNewTokens = 2048; // Increased from 1536
   static const int _localQaHardMaxInputTokens = 6144;
   static const int _localQaContextReserveTokens = 512;
 
@@ -277,8 +277,9 @@ class QAService {
     final contextSize = maxContextTokens ?? 4096;
     final usable = contextSize - _localQaContextReserveTokens;
 
-    // 分配策略：1/3 给输出，2/3 给输入，但有最小值和硬限制
-    int maxNew = (usable ~/ 3).clamp(64, _localQaHardMaxNewTokens);
+    // 分配策略：调整为 1/2 给输出，以支持长文本生成 (如插图分析)
+    // 之前是 1/3，对于 4096 窗口，输出约 1194，现在提升到约 1792
+    int maxNew = (usable ~/ 2).clamp(256, _localQaHardMaxNewTokens);
     int maxInput = (usable - maxNew).clamp(256, _localQaHardMaxInputTokens);
 
     return _LocalCaps(maxInputTokens: maxInput, maxNewTokens: maxNew);

@@ -119,7 +119,7 @@ class AiModelProvider extends ChangeNotifier {
   bool get illustrationEnabled => _illustrationEnabled;
 
   Future<void> setMaxIllustrationsPerChapter(int value) async {
-    final v = value.clamp(3, 5);
+    final v = value.clamp(2, 20);
     if (_maxIllustrationsPerChapter == v) return;
     _maxIllustrationsPerChapter = v;
     notifyListeners();
@@ -204,7 +204,7 @@ class AiModelProvider extends ChangeNotifier {
       }
     }
     _maxIllustrationsPerChapter =
-        (prefs.getInt(_kMaxIllustrationsPerChapter) ?? 3).clamp(3, 5);
+        (prefs.getInt(_kMaxIllustrationsPerChapter) ?? 3).clamp(2, 20);
     _illustrationEnabled = prefs.getBool(_kIllustrationEnabled) ?? false;
 
     // 检查模型是否已安装
