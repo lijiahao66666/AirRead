@@ -143,6 +143,87 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     }
   }
 
+  Future<bool> _confirmReanalyze() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('重新分析本章插图？'),
+          content: const Text('将覆盖当前场景卡片，需要重新分析。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('重新分析'),
+            ),
+          ],
+        );
+      },
+    );
+    return result ?? false;
+  }
+
+  Future<void> _reanalyzeChapter({
+    required IllustrationProvider provider,
+    required AiModelProvider aiModel,
+    required bool usingPersonal,
+  }) async {
+    if (provider.isAnalyzingOrQueued(widget.chapterId)) {
+      _showToast('正在分析中...');
+      return;
+    }
+    final content = widget.chapterContent.trim();
+    if (content.isEmpty) {
+      _showToast('章节内容为空');
+      return;
+    }
+    if (!aiModel.illustrationEnabled) {
+      _showToast('请先开启插图功能');
+      return;
+    }
+    if (aiModel.source == AiModelSource.none) {
+      _showToast('请先选择AI模型');
+      return;
+    }
+    final ok = await _confirmReanalyze();
+    if (!ok) return;
+
+    provider.clearChapter(widget.chapterId);
+
+    Future<String> Function(String prompt)? generateText;
+    if (aiModel.source == AiModelSource.local) {
+      if (!aiModel.loaded) {
+        _showToast('本地模型未就绪');
+        return;
+      }
+      generateText = (prompt) => aiModel.generate(
+            prompt: prompt,
+            maxTokens: 1024,
+            temperature: 0.2,
+          );
+    }
+
+    try {
+      _showToast('开始重新分析...');
+      await provider.analyzeChapter(
+        chapterId: widget.chapterId,
+        chapterTitle: widget.chapterTitle.trim().isEmpty
+            ? '正文'
+            : widget.chapterTitle.trim(),
+        content: content,
+        maxScenes: aiModel.maxIllustrationsPerChapter,
+        force: true,
+        pointsBalance: aiModel.pointsBalance,
+        generateText: generateText,
+      );
+    } catch (e) {
+      _showToast(e.toString());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final Color cardBg = widget.isDark
@@ -154,6 +235,9 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         final aiModel = context.watch<AiModelProvider>();
         final usingPersonal = usingPersonalTencentKeys();
         final isLocal = aiModel.source == AiModelSource.local;
+        final analyzing = provider.isAnalyzing(widget.chapterId);
+        final analyzingOrQueued =
+            provider.isAnalyzingOrQueued(widget.chapterId);
         final canGenerateImage = !isLocal &&
             (usingPersonal || aiModel.pointsBalance >= _imageCostPoints);
         final selectedStyle = _stylePrompts[_styleKey] ?? _stylePrompts['国风']!;
@@ -183,6 +267,71 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (widget.onlySceneId == null)
+                          Row(
+                            children: [
+                              if (analyzing)
+                                SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: widget.textColor
+                                        .withOpacityCompat(0.55),
+                                  ),
+                                )
+                              else if (analyzingOrQueued)
+                                Icon(
+                                  Icons.schedule_rounded,
+                                  size: 14,
+                                  color:
+                                      widget.textColor.withOpacityCompat(0.5),
+                                ),
+                              if (analyzing || analyzingOrQueued)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 6),
+                                  child: Text(
+                                    analyzing ? '分析中' : '等待分析',
+                                    style: TextStyle(
+                                      color: widget.textColor
+                                          .withOpacityCompat(0.6),
+                                      fontSize: 12,
+                                      height: 1.0,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              const Spacer(),
+                              TextButton.icon(
+                                onPressed: analyzingOrQueued
+                                    ? null
+                                    : () => unawaited(
+                                          _reanalyzeChapter(
+                                            provider: provider,
+                                            aiModel: aiModel,
+                                            usingPersonal: usingPersonal,
+                                          ),
+                                        ),
+                                icon:
+                                    const Icon(Icons.refresh_rounded, size: 16),
+                                label: const Text('重新分析本章'),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppColors.techBlue,
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(0, 0),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  textStyle: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.0,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        if (widget.onlySceneId == null)
+                          const SizedBox(height: 8),
                         _settingsRow(
                           label: '风格',
                           child: Wrap(

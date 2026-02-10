@@ -19,9 +19,14 @@ class IllustrationProvider extends ChangeNotifier {
   final Queue<_AnalysisTask> _analysisQueue = Queue();
   bool _isAnalyzing = false;
   final Set<String> _analyzingChapterIds = {};
+  final Map<String, Completer<void>> _analysisInFlight = {};
 
   bool isAnalyzing(String chapterId) =>
       _analyzingChapterIds.contains(chapterId);
+  UnmodifiableSetView<String> get analyzingChapterIds =>
+      UnmodifiableSetView(_analyzingChapterIds);
+  bool isAnalyzingOrQueued(String chapterId) =>
+      _analysisInFlight.containsKey(chapterId);
 
   String? _storagePath;
   Future<void>? _initFuture;
@@ -67,6 +72,12 @@ class IllustrationProvider extends ChangeNotifier {
     return _cache[chapterId] ?? [];
   }
 
+  void clearChapter(String chapterId) {
+    if (!_cache.containsKey(chapterId)) return;
+    _cache.remove(chapterId);
+    notifyListeners();
+  }
+
   List<String> _splitParagraphsForAnalysis(String content) {
     final normalized = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final parts = normalized.split(RegExp(r'\n{2,}'));
@@ -99,6 +110,10 @@ class IllustrationProvider extends ChangeNotifier {
       }
       return;
     }
+    final inflight = _analysisInFlight[chapterId];
+    if (inflight != null) {
+      return inflight.future;
+    }
 
     try {
       if (generateText == null && !usingPersonalTencentKeys()) {
@@ -110,6 +125,7 @@ class IllustrationProvider extends ChangeNotifier {
       final paragraphs = _splitParagraphsForAnalysis(content);
 
       final completer = Completer<void>();
+      _analysisInFlight[chapterId] = completer;
       final task = _AnalysisTask(
         chapterId: chapterId,
         chapterTitle: chapterTitle,
@@ -129,6 +145,7 @@ class IllustrationProvider extends ChangeNotifier {
       _processAnalysisQueue();
       return completer.future;
     } catch (e) {
+      _analysisInFlight.remove(chapterId);
       debugPrint('Analyze chapter failed: $e');
       rethrow;
     }
@@ -166,6 +183,7 @@ class IllustrationProvider extends ChangeNotifier {
       debugPrint('Process analysis queue failed: $e');
       task.completer.completeError(e);
     } finally {
+      _analysisInFlight.remove(task.chapterId);
       _analyzingChapterIds.remove(task.chapterId);
       _isAnalyzing = false;
       notifyListeners();
