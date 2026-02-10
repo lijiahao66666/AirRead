@@ -519,7 +519,8 @@ class _ReaderPageState extends State<ReaderPage>
   AiModelSource _lastAiSource = AiModelSource.none;
   String? _lastIllustrationUiLogKey;
   VoidCallback? _illustrationListener;
-  bool _lastIsAnalyzing = false;
+  Set<String> _lastAnalyzingChapterIds = {};
+  final Set<String> _pendingIllustrationCompletionChapterIds = {};
 
   void _showCenterToast(String msg) {
     if (!mounted) return;
@@ -540,6 +541,40 @@ class _ReaderPageState extends State<ReaderPage>
     _showCenterToast(msg);
   }
 
+  double _readerTopExtraForOverlay(BuildContext context) {
+    final dpr = View.of(context).devicePixelRatio;
+    double snap(double value) => (value * dpr).roundToDouble() / dpr;
+    final TextStyle effectiveTextStyle =
+        (Theme.of(context).textTheme.bodyLarge ?? const TextStyle()).copyWith(
+      height: _lineHeight,
+      fontSize: _fontSize,
+      color: _textColor,
+    );
+    final maxWidth = MediaQuery.of(context).size.width;
+    final safeContentWidth = (maxWidth - 48).clamp(40.0, maxWidth <= 1 ? 1.0 : maxWidth);
+    final textScaler = MediaQuery.of(context).textScaler;
+    final probe = TextPainter(
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+      textHeightBehavior: const TextHeightBehavior(
+        applyHeightToFirstAscent: false,
+        applyHeightToLastDescent: false,
+      ),
+      strutStyle: StrutStyle.fromTextStyle(effectiveTextStyle, forceStrutHeight: true),
+      text: TextSpan(text: '国Ay', style: effectiveTextStyle),
+    )..layout(minWidth: 0, maxWidth: safeContentWidth);
+    final minLineHeight = probe.height;
+    return snap((minLineHeight * 0.18).clamp(4.0, 10.0));
+  }
+
+  void _consumePendingIllustrationCompletionToastForCurrentChapter() {
+    final chapterId = '${widget.bookId}::$_currentChapterIndex';
+    if (!_pendingIllustrationCompletionChapterIds.remove(chapterId)) return;
+    final p = context.read<IllustrationProvider>();
+    final scenes = p.getScenes(chapterId);
+    _showCenterToast(scenes.isNotEmpty ? '插图分析完成' : '插图分析失败');
+  }
+
   @override
   void initState() {
     super.initState();
@@ -547,22 +582,25 @@ class _ReaderPageState extends State<ReaderPage>
 
     // Setup IllustrationProvider listener
     final illuProvider = context.read<IllustrationProvider>();
+    _lastAnalyzingChapterIds = illuProvider.analyzingChapterIds.toSet();
     _illustrationListener = () {
       if (!mounted) return;
       final p = context.read<IllustrationProvider>();
-      final chapterId = '${widget.bookId}::$_currentChapterIndex';
-      final isAnalyzing = p.isAnalyzing(chapterId);
-
-      if (_lastIsAnalyzing && !isAnalyzing) {
-        // Analysis just finished
-        final scenes = p.getScenes(chapterId);
-        if (scenes.isNotEmpty) {
-          _showCenterToast('插图分析完成');
-        } else {
-           _showCenterToast('插图分析失败');
+      final nowAnalyzing = p.analyzingChapterIds.toSet();
+      final finished = _lastAnalyzingChapterIds.difference(nowAnalyzing);
+      if (finished.isNotEmpty) {
+        final currentChapterId = '${widget.bookId}::$_currentChapterIndex';
+        for (final chapterId in finished) {
+          final scenes = p.getScenes(chapterId);
+          final msg = scenes.isNotEmpty ? '插图分析完成' : '插图分析失败';
+          if (chapterId == currentChapterId) {
+            _showCenterToast(msg);
+          } else {
+            _pendingIllustrationCompletionChapterIds.add(chapterId);
+          }
         }
       }
-      _lastIsAnalyzing = isAnalyzing;
+      _lastAnalyzingChapterIds = nowAnalyzing;
     };
     illuProvider.addListener(_illustrationListener!);
 
@@ -5289,6 +5327,10 @@ class _ReaderPageState extends State<ReaderPage>
             });
             _saveProgressDebounced();
             _scheduleUpdateReadAloudFollowFromCurrentView();
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              _consumePendingIllustrationCompletionToastForCurrentChapter();
+            });
 
             final translationProvider =
                 Provider.of<TranslationProvider>(context, listen: false);
@@ -6830,6 +6872,7 @@ class _ReaderPageState extends State<ReaderPage>
     final stableSystemGestureInsets = view.systemGestureInsets;
     double contentTopInset = viewPadding.top;
     if (padding.top > contentTopInset) contentTopInset = padding.top;
+    final overlayTop = contentTopInset + _readerTopExtraForOverlay(context);
 
     double contentBottomInset = viewPadding.bottom;
     if (padding.bottom > contentBottomInset) {
@@ -6939,9 +6982,7 @@ class _ReaderPageState extends State<ReaderPage>
                       animation: _controlsController,
                       builder: (context, child) {
                         return Positioned(
-                          top: contentTopInset +
-                              16 +
-                              (48 * _controlsController.value),
+                          top: overlayTop + (48 * _controlsController.value),
                           right: 16,
                           child: child!,
                         );
@@ -6984,7 +7025,7 @@ class _ReaderPageState extends State<ReaderPage>
                 ),
                 if (_centerToastText.trim().isNotEmpty)
                   Positioned(
-                    top: contentTopInset + 6, // Approximate alignment with first line baseline
+                    top: overlayTop,
                     right: 20,
                     child: IgnorePointer(
                       child: AnimatedOpacity(
