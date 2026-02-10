@@ -45,7 +45,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
   String _ratioKey = '1:1';
   static const int _imageCostPoints = 20000;
   final Set<String> _pendingGenerateCardIds = {};
-  
+
   String _toastText = '';
   Timer? _toastTimer;
 
@@ -71,19 +71,6 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     '厚涂': '古代玄幻插画，厚涂风格，电影感光影，高细节，无文字无水印',
     '日漫': '古代玄幻插画，日系动漫风格，线条清晰，柔和光影，无文字无水印',
     '写实': '古代玄幻插画，写实风格，电影级光影，高细节，无文字无水印',
-  };
-
-  static const Map<String, String> _stylePromptsEn = {
-    '国风':
-        'ancient Chinese fantasy illustration, Chinese ink style, high detail, soft lighting, no text, no watermark',
-    '水墨':
-        'ancient Chinese fantasy illustration, ink wash painting, minimalism, high detail, soft lighting, no text, no watermark',
-    '厚涂':
-        'ancient Chinese fantasy illustration, painterly thick paint, cinematic lighting, ultra detailed, no text, no watermark',
-    '日漫':
-        'ancient Chinese fantasy illustration, Japanese anime style, clean lineart, soft lighting, no text, no watermark',
-    '写实':
-        'ancient Chinese fantasy illustration, realistic, cinematic lighting, ultra detailed, no text, no watermark',
   };
 
   static const Map<String, String> _ratioToResolution = {
@@ -127,13 +114,12 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     required SceneCard card,
     required String stylePrefix,
     required String resolution,
-    required bool useLocalSd,
   }) async {
     if (card.status == SceneCardStatus.generating) return;
     if (_pendingGenerateCardIds.contains(card.id)) return;
     _pendingGenerateCardIds.add(card.id);
     bool deducted = false;
-    if (!useLocalSd && !usingPersonal) {
+    if (!usingPersonal) {
       if (aiModel.pointsBalance < _imageCostPoints) {
         _pendingGenerateCardIds.remove(card.id);
         _showToast('积分不足，无法生成');
@@ -148,7 +134,6 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         card,
         stylePrefix: stylePrefix,
         resolution: resolution,
-        useLocalSd: useLocalSd,
       );
       if (deducted && card.status == SceneCardStatus.failed) {
         await aiModel.addPoints(_imageCostPoints);
@@ -169,12 +154,9 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         final aiModel = context.watch<AiModelProvider>();
         final usingPersonal = usingPersonalTencentKeys();
         final isLocal = aiModel.source == AiModelSource.local;
-        final canGenerateImage = isLocal
-            ? (aiModel.localTextReady && aiModel.localImageReady)
-            : (usingPersonal || aiModel.pointsBalance >= _imageCostPoints);
-        final selectedStyle =
-            (isLocal ? _stylePromptsEn : _stylePrompts)[_styleKey] ??
-                (isLocal ? _stylePromptsEn : _stylePrompts)['国风']!;
+        final canGenerateImage = !isLocal &&
+            (usingPersonal || aiModel.pointsBalance >= _imageCostPoints);
+        final selectedStyle = _stylePrompts[_styleKey] ?? _stylePrompts['国风']!;
         final selectedResolution =
             _ratioToResolution[_ratioKey] ?? _ratioToResolution['1:1']!;
         final selectedAspectRatio = _ratioKeyToAspect(_ratioKey);
@@ -232,6 +214,18 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                             }).toList(),
                           ),
                         ),
+                        if (isLocal)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: Text(
+                              '本地模式暂不支持插图生成功能。',
+                              style: TextStyle(
+                                color: widget.textColor.withOpacityCompat(0.65),
+                                fontSize: 12,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
                         if (!isLocal && !usingPersonal && !canGenerateImage)
                           Padding(
                             padding: const EdgeInsets.only(top: 10),
@@ -241,8 +235,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                                   child: Text(
                                     '积分不足2万，无法生成插图，请先购买积分。',
                                     style: TextStyle(
-                                      color:
-                                          widget.textColor.withOpacityCompat(0.65),
+                                      color: widget.textColor
+                                          .withOpacityCompat(0.65),
                                       fontSize: 12,
                                       height: 1.35,
                                     ),
@@ -259,12 +253,14 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                                     foregroundColor: AppColors.techBlue,
                                     padding: EdgeInsets.zero,
                                     minimumSize: const Size(0, 0),
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
                                   ),
                                   child: const Text(
                                     '购买',
                                     style: TextStyle(
-                                        fontSize: 12, fontWeight: FontWeight.w700),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700),
                                   ),
                                 ),
                               ],
@@ -282,13 +278,15 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                                 Icon(
                                   Icons.image_search_rounded,
                                   size: 48,
-                                  color: widget.textColor.withOpacityCompat(0.2),
+                                  color:
+                                      widget.textColor.withOpacityCompat(0.2),
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
                                   '暂无插图',
                                   style: TextStyle(
-                                    color: widget.textColor.withOpacityCompat(0.4),
+                                    color:
+                                        widget.textColor.withOpacityCompat(0.4),
                                   ),
                                 ),
                                 const SizedBox(height: 16),
@@ -297,7 +295,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                                       ? '请在AI伴读中开启插图开关并进入章节后自动分析场景。'
                                       : '未找到该插图。',
                                   style: TextStyle(
-                                    color: widget.textColor.withOpacityCompat(0.6),
+                                    color:
+                                        widget.textColor.withOpacityCompat(0.6),
                                     fontSize: 12,
                                     height: 1.35,
                                   ),
@@ -310,7 +309,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 16, vertical: 16),
                             itemCount: visibleScenes.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 16),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 16),
                             itemBuilder: (context, index) {
                               return _SceneCardWidget(
                                 card: visibleScenes[index],
@@ -326,7 +326,6 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                                     card: visibleScenes[index],
                                     stylePrefix: selectedStyle,
                                     resolution: selectedResolution,
-                                    useLocalSd: isLocal,
                                   ),
                                 ),
                               );

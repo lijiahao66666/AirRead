@@ -20,7 +20,8 @@ class IllustrationProvider extends ChangeNotifier {
   bool _isAnalyzing = false;
   final Set<String> _analyzingChapterIds = {};
 
-  bool isAnalyzing(String chapterId) => _analyzingChapterIds.contains(chapterId);
+  bool isAnalyzing(String chapterId) =>
+      _analyzingChapterIds.contains(chapterId);
 
   String? _storagePath;
   Future<void>? _initFuture;
@@ -107,7 +108,7 @@ class IllustrationProvider extends ChangeNotifier {
         }
       }
       final paragraphs = _splitParagraphsForAnalysis(content);
-      
+
       final completer = Completer<void>();
       final task = _AnalysisTask(
         chapterId: chapterId,
@@ -124,7 +125,7 @@ class IllustrationProvider extends ChangeNotifier {
           '[ILLU][analyzeChapter] queued chapterId=$chapterId queueLen=${_analysisQueue.length} local=${generateText != null}',
         );
       }
-      
+
       _processAnalysisQueue();
       return completer.future;
     } catch (e) {
@@ -178,7 +179,6 @@ class IllustrationProvider extends ChangeNotifier {
     SceneCard card, {
     String? stylePrefix,
     String resolution = '1024:1024',
-    bool useLocalSd = false,
   }) async {
     await _ensureReady();
     if (_generatingTaskIds.contains(card.id)) return;
@@ -190,24 +190,18 @@ class IllustrationProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      if (useLocalSd) {
-        throw UnimplementedError('Local SD support has been removed');
-      } else {
-        // 1. 提交任务
-        final jobId = await _buildService().submitGeneration(
-          card: card,
-          stylePrefix: stylePrefix ?? '',
-          forLocalSd: false,
-          resolution: resolution,
-        );
-        card.jobId = jobId;
-        notifyListeners();
+      final jobId = await _buildService().submitGeneration(
+        card: card,
+        stylePrefix: stylePrefix ?? '',
+        forLocalSd: false,
+        resolution: resolution,
+      );
+      card.jobId = jobId;
+      notifyListeners();
 
-        // 2. 轮询结果
-        final localPath = await _buildService().pollJobStatus(jobId);
-        card.localImagePath = localPath;
-        card.status = SceneCardStatus.completed;
-      }
+      final localPath = await _buildService().pollJobStatus(jobId);
+      card.localImagePath = localPath;
+      card.status = SceneCardStatus.completed;
     } catch (e) {
       debugPrint('Generate image failed: $e');
       card.status = SceneCardStatus.failed;

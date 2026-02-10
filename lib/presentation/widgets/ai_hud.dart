@@ -2351,7 +2351,7 @@ class _TencentHunyuanSettingsPanelState
                 ),
               ),
               const SizedBox(height: 10),
-              
+
               /*
               // 插图设置（如果本地模式则禁用）
               Builder(builder: (context) {
@@ -2441,7 +2441,7 @@ class _TencentHunyuanSettingsPanelState
                 );
               }),
               */
-              
+
               // 恢复每章最大生图个数设置（独立显示）
               if (aiModel.source != AiModelSource.local)
                 _itemBox(
@@ -2464,8 +2464,8 @@ class _TencentHunyuanSettingsPanelState
                             value: aiModel.maxIllustrationsPerChapter,
                             min: 2,
                             max: 20,
-                            onChanged: (v) =>
-                                unawaited(aiModel.setMaxIllustrationsPerChapter(v)),
+                            onChanged: (v) => unawaited(
+                                aiModel.setMaxIllustrationsPerChapter(v)),
                           ),
                         ],
                       ),

@@ -559,7 +559,7 @@ class _ReaderPageState extends State<ReaderPage>
         if (scenes.isNotEmpty) {
           _showCenterToast('插图分析完成');
         } else {
-           _showCenterToast('插图分析失败');
+          _showCenterToast('插图分析失败');
         }
       }
       _lastIsAnalyzing = isAnalyzing;
@@ -4691,7 +4691,6 @@ class _ReaderPageState extends State<ReaderPage>
     Future<String> Function(String prompt)? generateText;
     if (aiModel.source == AiModelSource.local) {
       if (!aiModel.loaded) return;
-      if (!aiModel.localImageReady) return;
       generateText = (prompt) => aiModel.generate(
             prompt: prompt,
             maxTokens: 1024,
@@ -4709,7 +4708,7 @@ class _ReaderPageState extends State<ReaderPage>
 
     _illustrationAutoAnalyzeRequested.add(chapterIndex);
     debugPrint(
-      '[ILLU][autoAnalyze] start bookId=${widget.bookId} chapterIndex=$chapterIndex source=${aiModel.source.name} localReady=${aiModel.loaded && aiModel.localImageReady} points=${aiModel.pointsBalance} contentLen=${chapterContent.length}',
+      '[ILLU][autoAnalyze] start bookId=${widget.bookId} chapterIndex=$chapterIndex source=${aiModel.source.name} points=${aiModel.pointsBalance} contentLen=${chapterContent.length}',
     );
     try {
       await context.read<IllustrationProvider>().analyzeChapter(
@@ -5402,8 +5401,9 @@ class _ReaderPageState extends State<ReaderPage>
         double snapDown(double value) => (value * dpr).floorToDouble() / dpr;
 
         final storedBottomInset = _contentBottomInset ?? 0.0;
-        final double safeBottom =
-            storedBottomInset > padding.bottom ? storedBottomInset : padding.bottom;
+        final double safeBottom = storedBottomInset > padding.bottom
+            ? storedBottomInset
+            : padding.bottom;
 
         final TextStyle effectiveTextStyle =
             (Theme.of(context).textTheme.bodyLarge ?? const TextStyle())
@@ -5439,7 +5439,7 @@ class _ReaderPageState extends State<ReaderPage>
         final double topExtra = snap((minLineHeight * 0.18).clamp(4.0, 10.0));
         final bool needsExtraBottomPadding =
             !kIsWeb && Platform.isIOS && safeBottom > 0.5;
-        
+
         // Use standard padding for better screen utilization.
         // We will explicitly handle the footer position to avoid overlap.
         final double minBottomExtra = needsExtraBottomPadding ? 16.0 : 10.0;
@@ -5447,22 +5447,22 @@ class _ReaderPageState extends State<ReaderPage>
         final double bottomExtra =
             snap((minLineHeight * 0.28).clamp(minBottomExtra, maxBottomExtra));
         final double topMargin = snapUp(padding.top + topExtra);
-        
+
         // Calculate Footer Position (closer to bottom)
         // User feedback: "Whitespace too large, reduce it."
         // Adjusted from 32.0 to 24.0. This is still well above the Home Indicator (~8-10pt).
         final double footerBottomPos = safeBottom > 20 ? 24.0 : 12.0;
         final double footerHeight = 20.0;
         final double footerTopEdge = footerBottomPos + footerHeight;
-        
+
         // Ensure text doesn't overlap footer
-        // User feedback: "Whitespace too large." 
+        // User feedback: "Whitespace too large."
         // Buffer reduced from 20.0 to 12.0.
         final double minBottomMargin = snapUp(footerTopEdge + 12.0);
-        
+
         double bottomMargin = snapUp(safeBottom + bottomExtra);
         // If the calculated bottom margin (based on safe area) is less than what we need for the footer,
-        // use the footer-based margin. 
+        // use the footer-based margin.
         // Note: safeBottom is usually ~34. bottomExtra ~16. Total ~50.
         // footerTopEdge ~32. minBottomMargin ~40.
         // So normally bottomMargin (50) > minBottomMargin (40), meaning text is naturally high enough.
@@ -5482,7 +5482,7 @@ class _ReaderPageState extends State<ReaderPage>
 
         // Safety buffer for pagination:
         // User feedback: "Last line slightly clipped."
-        // We restore the 8.0 pixel buffer. This slightly reduces the effective height used for 
+        // We restore the 8.0 pixel buffer. This slightly reduces the effective height used for
         // pagination calculation, ensuring the last line fits completely within the rendered viewport
         // without being clipped by the container bounds.
         final double paginationViewportHeight = viewportHeight - 8.0;
@@ -5512,9 +5512,9 @@ class _ReaderPageState extends State<ReaderPage>
         if (displayRanges == null || displayRanges.isEmpty) {
           final fallbackRanges = _chapterFallbackPageRanges[chapterIndex];
           final fallbackKey = _chapterFallbackPageRangeKeys[chapterIndex];
-          final expectedTextLength = (displayEffectiveText ??
-                  _getPlainTextForChapter(chapterIndex))
-              .length;
+          final expectedTextLength =
+              (displayEffectiveText ?? _getPlainTextForChapter(chapterIndex))
+                  .length;
           final expectedKey = _paginationKey(
             viewportHeight: paginationViewportHeight,
             contentWidth: safeContentWidth,
@@ -5673,35 +5673,35 @@ class _ReaderPageState extends State<ReaderPage>
               ),
             ),
             // Footer with Page Number
-             if (!_showControls)
-             Positioned(
-               left: 24,
-               right: 24,
-               bottom: footerBottomPos,
-               height: footerHeight,
-              child: DefaultTextStyle(
-                style: effectiveTextStyle.copyWith(
-                  fontSize: 10,
-                  height: 1.2,
-                  color: effectiveTextStyle.color?.withOpacity(0.5),
-                ),
-                child: Row(
-                  children: [
-                    // Chapter Title (Left)
-                    Expanded(
-                      child: Text(
-                        _chapters[chapterIndex].title ?? '',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+            if (!_showControls)
+              Positioned(
+                left: 24,
+                right: 24,
+                bottom: footerBottomPos,
+                height: footerHeight,
+                child: DefaultTextStyle(
+                  style: effectiveTextStyle.copyWith(
+                    fontSize: 10,
+                    height: 1.2,
+                    color: effectiveTextStyle.color?.withOpacity(0.5),
+                  ),
+                  child: Row(
+                    children: [
+                      // Chapter Title (Left)
+                      Expanded(
+                        child: Text(
+                          _chapters[chapterIndex].title ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 16),
-                    // Page Number (Right)
-                    Text('${pageIndex + 1}/${displayRanges.length}'),
-                  ],
+                      const SizedBox(width: 16),
+                      // Page Number (Right)
+                      Text('${pageIndex + 1}/${displayRanges.length}'),
+                    ],
+                  ),
                 ),
               ),
-            ),
           ],
         );
       },
@@ -6674,7 +6674,7 @@ class _ReaderPageState extends State<ReaderPage>
       final result = _translatedResultsQueue.removeFirst();
       if (!result.success) continue;
       final key = result.item.key;
-      
+
       // Removed intermediate setState here to prevent flash
       // _translationQueueStates[key] = _TranslationQueueState.translated;
       // if (mounted) setState(() {});
@@ -6682,7 +6682,7 @@ class _ReaderPageState extends State<ReaderPage>
 
       final inserted =
           await _applyTranslatedResultAndWaitPagination(result.item, session);
-      
+
       if (session != _translationQueueSession) break;
       if (inserted) {
         _translationQueueStates[key] = _TranslationQueueState.inserted;
@@ -6929,7 +6929,7 @@ class _ReaderPageState extends State<ReaderPage>
                   builder: (context, illuProvider, _) {
                     final chapterId = '${widget.bookId}::$_currentChapterIndex';
                     final isAnalyzing = illuProvider.isAnalyzing(chapterId);
-                    
+
                     // Prevent overlapping with toast: only show analyzing if no toast is visible
                     if (!isAnalyzing || _centerToastText.trim().isNotEmpty) {
                       return const SizedBox.shrink();
@@ -6984,7 +6984,8 @@ class _ReaderPageState extends State<ReaderPage>
                 ),
                 if (_centerToastText.trim().isNotEmpty)
                   Positioned(
-                    top: contentTopInset + 6, // Approximate alignment with first line baseline
+                    top: contentTopInset +
+                        6, // Approximate alignment with first line baseline
                     right: 20,
                     child: IgnorePointer(
                       child: AnimatedOpacity(
@@ -7049,7 +7050,8 @@ class _ReaderPageState extends State<ReaderPage>
                     if (!_showControls && _controlsController.value <= 0.001) {
                       return const SizedBox.shrink();
                     }
-                    return SlideTransition(position: _topBarOffset, child: child);
+                    return SlideTransition(
+                        position: _topBarOffset, child: child);
                   },
                 ),
                 AnimatedBuilder(
@@ -7099,8 +7101,7 @@ class _ReaderPageState extends State<ReaderPage>
                                               0.4 * _pulseController.value),
                                       blurRadius:
                                           10 + (10 * _pulseController.value),
-                                      spreadRadius:
-                                          2 * _pulseController.value,
+                                      spreadRadius: 2 * _pulseController.value,
                                     ),
                                   ],
                                 ),

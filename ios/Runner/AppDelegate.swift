@@ -189,7 +189,6 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var mnnLlmBridge: MnnLlmBridge?
-  // private let sdBridge: MnnSdBridge = MnnSdBridge()
   
   override func application(
     _ application: UIApplication,

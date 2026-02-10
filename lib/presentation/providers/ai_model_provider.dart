@@ -45,15 +45,6 @@ class AiModelProvider extends ChangeNotifier {
   StreamSubscription? _progressSubscription;
   StreamSubscription? _fileSubscription;
 
-  // 生图模型安装状态 (Removed)
-  // ModelInstallStatus _imageModelInstallStatus = ModelInstallStatus.notInstalled;
-  // double _imageDownloadProgress = 0.0;
-  // String _imageCurrentDownloadFile = '';
-  // MnnModelDownloader? _imageDownloader;
-  // StreamSubscription? _imageStatusSubscription;
-  // StreamSubscription? _imageProgressSubscription;
-  // StreamSubscription? _imageFileSubscription;
-
   AiModelProvider() {
     TencentApiClient.onPointsBalanceChanged = (v) {
       if (_pointsBalance == v) return;
@@ -78,23 +69,13 @@ class AiModelProvider extends ChangeNotifier {
   bool get isDownloading =>
       _modelInstallStatus == ModelInstallStatus.installing;
 
-  // ModelInstallStatus get imageModelInstallStatus => _imageModelInstallStatus;
-  // double get imageDownloadProgress => _imageDownloadProgress;
-  // String get imageCurrentDownloadFile => _imageCurrentDownloadFile;
-  // bool get isImageModelInstalled =>
-  //     _imageModelInstallStatus == ModelInstallStatus.installed;
-  // bool get isImageDownloading =>
-  //     _imageModelInstallStatus == ModelInstallStatus.installing;
-
   bool get localTextInstalled => isModelInstalled;
   bool get localTextReady => loaded;
-  bool get localImageInstalled => false; // Removed local SD support
-  bool get localImageReady => false;
 
   Future<void> setSource(AiModelSource value) async {
     if (_source == value) return;
     _source = value;
-    
+
     // 如果切换到本地模式，强制关闭插图功能
     if (_source == AiModelSource.local) {
       if (_illustrationEnabled) {
@@ -103,7 +84,7 @@ class AiModelProvider extends ChangeNotifier {
         await prefs.setBool(_kIllustrationEnabled, false);
       }
     }
-    
+
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kModelSource, value.name);
@@ -142,7 +123,7 @@ class AiModelProvider extends ChangeNotifier {
     _illustrationEnabled = value;
     if (kDebugMode) {
       debugPrint(
-        '[ILLU][setIllustrationEnabled] enabled=$_illustrationEnabled source=${_source.name} localTextInstalled=$localTextInstalled localTextReady=$localTextReady localImageInstalled=$localImageInstalled localImageReady=$localImageReady points=$pointsBalance',
+        '[ILLU][setIllustrationEnabled] enabled=$_illustrationEnabled source=${_source.name} localTextInstalled=$localTextInstalled localTextReady=$localTextReady points=$pointsBalance',
       );
     }
     notifyListeners();

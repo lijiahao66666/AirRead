@@ -19,12 +19,10 @@ import java.util.concurrent.Executors
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "airread/local_llm"
     private val STREAM_CHANNEL = "airread/local_llm_stream"
-    // private val SD_CHANNEL = "airread/local_sd"
     private val TTS_CHANNEL = "airread/local_tts"
     private val TTS_STREAM_CHANNEL = "airread/local_tts_events"
     private val DEFAULT_MAX_NEW_TOKENS = 1024
     private val llmExecutor = Executors.newSingleThreadExecutor()
-    // private val sdExecutor = Executors.newSingleThreadExecutor()
 
     @Volatile
     private var streamSink: EventChannel.EventSink? = null
@@ -328,7 +326,7 @@ class MainActivity: FlutterActivity() {
                 // 尝试加载库，即使部分失败也继续，只要 mnn_bridge 加载成功即可
                 val libs = listOf(
                     "c++_shared", "mnncore", "MNN", "MNN_Express",
-                    "MNNOpenCV", "MNN_CL", "MNN_Vulkan", "llm", "diffusion", "mnn_bridge"
+                    "MNNOpenCV", "MNN_CL", "MNN_Vulkan", "llm", "mnn_bridge"
                 )
 
                 for (lib in libs) {
@@ -385,10 +383,6 @@ class MainActivity: FlutterActivity() {
         enableThinking: Int,
         callback: Any
     )
-
-    // external fun nativeSdIsAvailable(): Boolean
-    // external fun nativeSdInit(modelDir: String)
-    // external fun nativeSdTxt2Img(prompt: String, steps: Int, seed: Int): String
 
     @Keep
     inner class LocalLlmStreamCallback {
@@ -698,68 +692,6 @@ class MainActivity: FlutterActivity() {
             }
         }
 
-/*
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SD_CHANNEL).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "isAvailable" -> {
-                    if (!nativeLibLoaded) {
-                        result.success(false)
-                        return@setMethodCallHandler
-                    }
-                    try {
-                        result.success(nativeSdIsAvailable())
-                    } catch (_: UnsatisfiedLinkError) {
-                        result.success(false)
-                    }
-                }
-                "initialize" -> {
-                    val modelDir = call.argument<String>("modelDir")
-                    if (modelDir.isNullOrBlank()) {
-                        result.error("INVALID_ARG", "modelDir is null", null)
-                        return@setMethodCallHandler
-                    }
-                    if (!nativeLibLoaded) {
-                        result.error("NOT_AVAILABLE", "Native library not loaded", null)
-                        return@setMethodCallHandler
-                    }
-                    sdExecutor.execute {
-                        try {
-                            nativeSdInit(modelDir)
-                            runOnUiThread { result.success(null) }
-                        } catch (e: UnsatisfiedLinkError) {
-                            runOnUiThread { result.error("NATIVE_ERR", "SD init failed", e.toString()) }
-                        } catch (e: Exception) {
-                            runOnUiThread { result.error("NATIVE_ERR", "SD init failed", e.toString()) }
-                        }
-                    }
-                }
-                "txt2img" -> {
-                    val prompt = call.argument<String>("prompt")
-                    val steps = call.argument<Number>("steps")?.toInt() ?: 20
-                    val seed = call.argument<Number>("seed")?.toInt() ?: -1
-                    if (prompt.isNullOrBlank()) {
-                        result.error("INVALID_ARG", "prompt is null", null)
-                        return@setMethodCallHandler
-                    }
-                    if (!nativeLibLoaded) {
-                        result.error("NOT_AVAILABLE", "Native library not loaded", null)
-                        return@setMethodCallHandler
-                    }
-                    sdExecutor.execute {
-                        try {
-                            val outPath = nativeSdTxt2Img(prompt, steps, seed)
-                            runOnUiThread { result.success(outPath) }
-                        } catch (e: UnsatisfiedLinkError) {
-                            runOnUiThread { result.error("NATIVE_ERR", "SD txt2img failed", e.toString()) }
-                        } catch (e: Exception) {
-                            runOnUiThread { result.error("NATIVE_ERR", "SD txt2img failed", e.toString()) }
-                        }
-                    }
-                }
-                else -> result.notImplemented()
-            }
-        }
-*/
     }
 
     override fun onDestroy() {
@@ -768,9 +700,6 @@ class MainActivity: FlutterActivity() {
             tts?.shutdown()
         } catch (_: Exception) {}
         tts = null
-        try {
-            sdExecutor.shutdown()
-        } catch (_: Exception) {}
         super.onDestroy()
     }
 }

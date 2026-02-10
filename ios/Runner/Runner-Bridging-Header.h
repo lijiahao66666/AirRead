@@ -9,7 +9,6 @@
 #define Runner_Bridging_Header_h
 
 #import "MnnLlmBridge.h"
-#import "MnnSdBridge.h"
 
 // Flutter
 #import <Flutter/Flutter.h>

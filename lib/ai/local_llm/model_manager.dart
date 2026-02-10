@@ -5,7 +5,6 @@ import 'mnn_model_spec.dart';
 /// 负责检查、下载和管理 MNN 模型
 class ModelManager {
   static const String qwen3_0_6b = 'qwen3-0.6b-mnn';
-  // static const String sd_v1_5 = 'stable-diffusion-v1-5-mnn'; // Removed
 
   static const MnnModelSpec qwen3Spec = MnnModelSpec(
     id: qwen3_0_6b,
@@ -35,51 +34,7 @@ class ModelManager {
     },
   );
 
-/*
-  static const MnnModelSpec sdV15Spec = MnnModelSpec(
-    id: 'stable-diffusion-v1-5-mnn',
-    displayName: 'Stable Diffusion v1.5',
-    sizeLabel: '1.15GB',
-    estimatedTotalSizeBytes: 1155 * 1024 * 1024,
-    baseUrl:
-        'https://modelscope.cn/models/MNN/stable-diffusion-v1-5-mnn/resolve/master/general/',
-    filesToDownload: [
-      'alphas.txt',
-      'merges.txt',
-      'vocab.json',
-      'text_encoder.mnn',
-      'text_encoder.mnn.weight',
-      'unet.mnn',
-      'unet.mnn.weight',
-      'vae_decoder.mnn',
-      'vae_decoder.mnn.weight',
-    ],
-    criticalFiles: [
-      'alphas.txt',
-      'merges.txt',
-      'vocab.json',
-      'text_encoder.mnn',
-      'text_encoder.mnn.weight',
-      'unet.mnn',
-      'unet.mnn.weight',
-      'vae_decoder.mnn',
-      'vae_decoder.mnn.weight',
-    ],
-    minExpectedBytesByFile: {
-      'alphas.txt': 2 * 1024,
-      'merges.txt': 100 * 1024,
-      'vocab.json': 500 * 1024,
-      'text_encoder.mnn': 50 * 1024,
-      'text_encoder.mnn.weight': 50 * 1024 * 1024,
-      'unet.mnn': 200 * 1024,
-      'unet.mnn.weight': 200 * 1024 * 1024,
-      'vae_decoder.mnn': 50 * 1024,
-      'vae_decoder.mnn.weight': 10 * 1024 * 1024,
-    },
-  );
-*/
-
-  static const List<MnnModelSpec> localModels = [qwen3Spec]; // Removed sdV15Spec
+  static const List<MnnModelSpec> localModels = [qwen3Spec];
 
   static MnnModelSpec specFor(String modelId) {
     return localModels.firstWhere((e) => e.id == modelId, orElse: () => qwen3Spec);
