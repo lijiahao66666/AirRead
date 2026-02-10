@@ -13,7 +13,7 @@ import 'package:uuid/uuid.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../ai/licensing/license_codec.dart';
-import '../../ai/local_llm/model_manager.dart';
+// import '../../ai/local_llm/model_manager.dart'; // Unused
 import '../../ai/reading/qa_service.dart';
 export '../../ai/reading/qa_service.dart' show QAStreamChunk, QAType;
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
@@ -3131,7 +3131,7 @@ class _QaPanelState extends State<_QaPanel> {
   VoidCallback? _qaStreamListener;
   int? _activeStreamId;
   int? _activeStreamReplyIndex;
-  String? _lastErrorMessage;
+  // String? _lastErrorMessage;
   Timer? _qaToastTimer;
   String _qaToastText = '';
   bool _qaBlockedByEntitlement = false;
@@ -3363,9 +3363,9 @@ class _QaPanelState extends State<_QaPanel> {
     if (!mounted) return;
     final s = _qaStream?.stateFor(widget.bookId);
     if (s == null) return;
-    if (!s.hasError) {
-      _lastErrorMessage = null;
-    }
+    // if (!s.hasError) {
+    //   _lastErrorMessage = null;
+    // }
 
     if (_activeStreamId != s.streamId || _activeStreamReplyIndex == null) {
       _attachActiveStreamIfAny();
