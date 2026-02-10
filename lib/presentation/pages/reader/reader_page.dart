@@ -571,8 +571,13 @@ class _ReaderPageState extends State<ReaderPage>
     final chapterId = '${widget.bookId}::$_currentChapterIndex';
     if (!_pendingIllustrationCompletionChapterIds.remove(chapterId)) return;
     final p = context.read<IllustrationProvider>();
+    final analyzed = p.hasChapter(chapterId);
+    if (!analyzed) {
+      _showCenterToast('插图分析失败');
+      return;
+    }
     final scenes = p.getScenes(chapterId);
-    _showCenterToast(scenes.isNotEmpty ? '插图分析完成' : '插图分析失败');
+    _showCenterToast(scenes.isNotEmpty ? '插图分析完成' : '本章暂无适合插画的场景');
   }
 
   @override
@@ -591,8 +596,11 @@ class _ReaderPageState extends State<ReaderPage>
       if (finished.isNotEmpty) {
         final currentChapterId = '${widget.bookId}::$_currentChapterIndex';
         for (final chapterId in finished) {
+          final analyzed = p.hasChapter(chapterId);
           final scenes = p.getScenes(chapterId);
-          final msg = scenes.isNotEmpty ? '插图分析完成' : '插图分析失败';
+          final msg = !analyzed
+              ? '插图分析失败'
+              : (scenes.isNotEmpty ? '插图分析完成' : '本章暂无适合插画的场景');
           if (chapterId == currentChapterId) {
             _showCenterToast(msg);
           } else {
@@ -5846,48 +5854,51 @@ class _ReaderPageState extends State<ReaderPage>
                   alignment: PlaceholderAlignment.middle,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(0, 6, 8, 6),
-                    child: GestureDetector(
-                      onTapDown: (_) => _suppressReaderTap(),
-                      onTap: () {
-                        // Ensure tap suppression is active before opening panel
-                        _suppressReaderTap();
-                        unawaited(
-                          _openIllustrationPanelForChapter(
-                            chapterIndex: chapterIndex,
-                            onlySceneId: h.sceneId,
-                          ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: AppColors.techBlue.withOpacityCompat(0.12),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: AppColors.techBlue.withOpacityCompat(0.28),
-                            width: AppTokens.stroke,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.image_outlined,
-                              size: 14,
-                              color: AppColors.techBlue,
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (_) => _suppressReaderTap(),
+                      child: GestureDetector(
+                        onTapDown: (_) => _suppressReaderTap(),
+                        onTap: () {
+                          _suppressReaderTap();
+                          unawaited(
+                            _openIllustrationPanelForChapter(
+                              chapterIndex: chapterIndex,
+                              onlySceneId: h.sceneId,
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '查看插图',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppColors.techBlue.withOpacityCompat(0.12),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: AppColors.techBlue.withOpacityCompat(0.28),
+                              width: AppTokens.stroke,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.image_outlined,
+                                size: 14,
                                 color: AppColors.techBlue,
-                                height: 1.0,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 6),
+                              Text(
+                                '查看插图',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.techBlue,
+                                  height: 1.0,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -5913,47 +5924,51 @@ class _ReaderPageState extends State<ReaderPage>
                   alignment: PlaceholderAlignment.middle,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(0, 6, 8, 6),
-                    child: GestureDetector(
-                      onTapDown: (_) => _suppressReaderTap(),
-                      onTap: () {
-                        _suppressReaderTap();
-                        unawaited(
-                          _openIllustrationPanelForChapter(
-                            chapterIndex: chapterIndex,
-                            onlySceneId: null,
-                          ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: AppColors.techBlue.withOpacityCompat(0.12),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: AppColors.techBlue.withOpacityCompat(0.28),
-                            width: AppTokens.stroke,
-                          ),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.collections_outlined,
-                              size: 14,
-                              color: AppColors.techBlue,
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (_) => _suppressReaderTap(),
+                      child: GestureDetector(
+                        onTapDown: (_) => _suppressReaderTap(),
+                        onTap: () {
+                          _suppressReaderTap();
+                          unawaited(
+                            _openIllustrationPanelForChapter(
+                              chapterIndex: chapterIndex,
+                              onlySceneId: null,
                             ),
-                            SizedBox(width: 6),
-                            Text(
-                              '查看本章插图',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppColors.techBlue.withOpacityCompat(0.12),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: AppColors.techBlue.withOpacityCompat(0.28),
+                              width: AppTokens.stroke,
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.collections_outlined,
+                                size: 14,
                                 color: AppColors.techBlue,
-                                height: 1.0,
                               ),
-                            ),
-                          ],
+                              SizedBox(width: 6),
+                              Text(
+                                '查看本章插图',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.techBlue,
+                                  height: 1.0,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

@@ -104,6 +104,11 @@ class IllustrationService {
     // Sort by index
     allCards.sort((a, b) => (a.endParagraphIndex ?? 0).compareTo(b.endParagraphIndex ?? 0));
     
+    if (kDebugMode) {
+      debugPrint(
+        '[ILLU] aggregate debugName=$debugName partitions=$partitionCount cards=${allCards.length} indices=${allCards.map((e) => e.endParagraphIndex).toList()}',
+      );
+    }
     return allCards;
   }
 
@@ -145,6 +150,16 @@ class IllustrationService {
       chapterTitle: chapterTitle,
       paragraphs: allParagraphs, // Use full list for validation safety
     );
+    if (kDebugMode) {
+      debugPrint(
+        '[ILLU] parsed debugName=$debugName ok=${parsed.ok} cards=${parsed.cards.length} hint=${parsed.errorHint}',
+      );
+      for (final c in parsed.cards) {
+        debugPrint(
+          '[ILLU] card idx=${c.endParagraphIndex} title=${c.title} promptLen=${c.action.length}',
+        );
+      }
+    }
     
     // Filter out invalid indices just in case (e.g. out of chunk range, though we validate against full doc)
     return parsed.cards;
