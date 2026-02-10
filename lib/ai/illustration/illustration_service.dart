@@ -49,12 +49,17 @@ class IllustrationService {
       debugPrint(
         '[ILLU][analyzeScenesFromParagraphs] start debugName=$debugName cap=$cap local=${generateText != null} paragraphs=${paragraphs.length} promptLen=${prompt.length}',
       );
+      // Log the full prompt
+      debugPrint('[ILLU][analyzeScenesFromParagraphs] PROMPT:\n$prompt');
     }
 
     String? first;
     Object? firstError;
     try {
       first = await run(prompt);
+      if (kDebugMode) {
+        debugPrint('[ILLU][analyzeScenesFromParagraphs] RAW RESULT:\n$first');
+      }
     } catch (e) {
       firstError = e;
     }

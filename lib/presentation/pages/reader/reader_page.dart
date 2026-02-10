@@ -518,11 +518,31 @@ class _ReaderPageState extends State<ReaderPage>
   bool _lastAiLoaded = false;
   AiModelSource _lastAiSource = AiModelSource.none;
   String? _lastIllustrationUiLogKey;
+  VoidCallback? _illustrationListener;
+  bool _lastIsAnalyzing = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // Setup IllustrationProvider listener
+    final illuProvider = context.read<IllustrationProvider>();
+    _illustrationListener = () {
+      if (!mounted) return;
+      final p = context.read<IllustrationProvider>();
+      final chapterId = '${widget.bookId}::$_currentChapterIndex';
+      final isAnalyzing = p.isAnalyzing(chapterId);
+
+      if (_lastIsAnalyzing && !isAnalyzing) {
+        // Analysis just finished
+        if (p.getScenes(chapterId).isNotEmpty) {
+          _showTopError('插图分析完成，可留意页面的查看插图按钮', isError: false);
+        }
+      }
+      _lastIsAnalyzing = isAnalyzing;
+    };
+    illuProvider.addListener(_illustrationListener!);
 
     // Setup TranslationProvider error handler
     final transProvider = context.read<TranslationProvider>();
@@ -822,6 +842,13 @@ class _ReaderPageState extends State<ReaderPage>
 
   @override
   void dispose() {
+    try {
+      if (_illustrationListener != null) {
+        context
+            .read<IllustrationProvider>()
+            .removeListener(_illustrationListener!);
+      }
+    } catch (_) {}
     try {
       context.read<TranslationProvider>().onError = null;
     } catch (_) {}
@@ -6641,11 +6668,15 @@ class _ReaderPageState extends State<ReaderPage>
       final result = _translatedResultsQueue.removeFirst();
       if (!result.success) continue;
       final key = result.item.key;
-      _translationQueueStates[key] = _TranslationQueueState.translated;
-      if (mounted) setState(() {});
-      _syncTranslationQueueStatus(tp);
+      
+      // Removed intermediate setState here to prevent flash
+      // _translationQueueStates[key] = _TranslationQueueState.translated;
+      // if (mounted) setState(() {});
+      // _syncTranslationQueueStatus(tp);
+
       final inserted =
           await _applyTranslatedResultAndWaitPagination(result.item, session);
+      
       if (session != _translationQueueSession) break;
       if (inserted) {
         _translationQueueStates[key] = _TranslationQueueState.inserted;
@@ -6887,27 +6918,92 @@ class _ReaderPageState extends State<ReaderPage>
                           style: const TextStyle(color: Colors.red)))
                 else
                   readerContent,
-                if (_centerToastText.trim().isNotEmpty)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Center(
-                        child: AnimatedOpacity(
-                          opacity: _centerToastText.trim().isNotEmpty ? 1 : 0,
-                          duration: const Duration(milliseconds: 160),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacityCompat(0.72),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              _centerToastText,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                height: 1.1,
+                // Illustration analyzing status
+                Consumer<IllustrationProvider>(
+                  builder: (context, illuProvider, _) {
+                    final chapterId = '${widget.bookId}::$_currentChapterIndex';
+                    final isAnalyzing = illuProvider.isAnalyzing(chapterId);
+                    if (!isAnalyzing) return const SizedBox.shrink();
+
+                    return AnimatedBuilder(
+                      animation: _controlsController,
+                      builder: (context, child) {
+                        return Positioned(
+                          top: contentTopInset +
+                              16 +
+                              (48 * _controlsController.value),
+                          right: 16,
+                          child: child!,
+                        );
+                      },
+                      child: IgnorePointer(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacityCompat(0.72),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
                               ),
+                              SizedBox(width: 8),
+                              Text(
+                                "正在分析插图...",
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  height: 1.1,
+                                  decoration: TextDecoration.none,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                if (_centerToastText.trim().isNotEmpty)
+                  AnimatedBuilder(
+                    animation: _controlsController,
+                    builder: (context, child) {
+                      return Positioned(
+                        top: contentTopInset +
+                            16 +
+                            (48 * _controlsController.value),
+                        right: 16,
+                        child: child!,
+                      );
+                    },
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        opacity: _centerToastText.trim().isNotEmpty ? 1 : 0,
+                        duration: const Duration(milliseconds: 160),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacityCompat(0.72),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            _centerToastText,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              height: 1.1,
                             ),
                           ),
                         ),

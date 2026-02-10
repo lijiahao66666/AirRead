@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +16,13 @@ class IllustrationProvider extends ChangeNotifier {
 
   // 正在生成的任务 ID 集合
   final Set<String> _generatingTaskIds = {};
+
+  // 串行分析队列
+  final Queue<_AnalysisTask> _analysisQueue = Queue();
+  bool _isAnalyzing = false;
+  final Set<String> _analyzingChapterIds = {};
+
+  bool isAnalyzing(String chapterId) => _analyzingChapterIds.contains(chapterId);
 
   String? _storagePath;
   Future<void>? _initFuture;
@@ -100,28 +109,69 @@ class IllustrationProvider extends ChangeNotifier {
         }
       }
       final paragraphs = _splitParagraphsForAnalysis(content);
-      if (kDebugMode) {
-        debugPrint(
-          '[ILLU][analyzeChapter] start chapterId=$chapterId maxScenes=$maxScenes paragraphs=${paragraphs.length} local=${generateText != null}',
-        );
-      }
-      final cards = await _buildService().analyzeScenesFromParagraphs(
-        paragraphs: paragraphs,
+      
+      final completer = Completer<void>();
+      final task = _AnalysisTask(
+        chapterId: chapterId,
         chapterTitle: chapterTitle,
+        paragraphs: paragraphs,
         maxScenes: maxScenes,
-        debugName: chapterId,
         generateText: generateText,
+        completer: completer,
       );
+
+      _analysisQueue.add(task);
       if (kDebugMode) {
         debugPrint(
-          '[ILLU][analyzeChapter] done chapterId=$chapterId cards=${cards.length}',
+          '[ILLU][analyzeChapter] queued chapterId=$chapterId queueLen=${_analysisQueue.length} local=${generateText != null}',
         );
       }
-      _cache[chapterId] = cards;
-      notifyListeners();
+      
+      _processAnalysisQueue();
+      return completer.future;
     } catch (e) {
       debugPrint('Analyze chapter failed: $e');
       rethrow;
+    }
+  }
+
+  Future<void> _processAnalysisQueue() async {
+    if (_isAnalyzing || _analysisQueue.isEmpty) return;
+
+    _isAnalyzing = true;
+    final task = _analysisQueue.removeFirst();
+    _analyzingChapterIds.add(task.chapterId);
+    notifyListeners();
+
+    try {
+      if (kDebugMode) {
+        debugPrint(
+          '[ILLU][processQueue] start chapterId=${task.chapterId} maxScenes=${task.maxScenes} paragraphs=${task.paragraphs.length} local=${task.generateText != null}',
+        );
+      }
+      final cards = await _buildService().analyzeScenesFromParagraphs(
+        paragraphs: task.paragraphs,
+        chapterTitle: task.chapterTitle,
+        maxScenes: task.maxScenes,
+        debugName: task.chapterId,
+        generateText: task.generateText,
+      );
+      if (kDebugMode) {
+        debugPrint(
+          '[ILLU][processQueue] done chapterId=${task.chapterId} cards=${cards.length}',
+        );
+      }
+      _cache[task.chapterId] = cards;
+      task.completer.complete();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Process analysis queue failed: $e');
+      task.completer.completeError(e);
+    } finally {
+      _analyzingChapterIds.remove(task.chapterId);
+      _isAnalyzing = false;
+      notifyListeners();
+      _processAnalysisQueue();
     }
   }
 
@@ -208,4 +258,22 @@ class IllustrationProvider extends ChangeNotifier {
     notifyListeners();
     return card;
   }
+}
+
+class _AnalysisTask {
+  final String chapterId;
+  final String chapterTitle;
+  final List<String> paragraphs;
+  final int maxScenes;
+  final Future<String> Function(String prompt)? generateText;
+  final Completer<void> completer;
+
+  _AnalysisTask({
+    required this.chapterId,
+    required this.chapterTitle,
+    required this.paragraphs,
+    required this.maxScenes,
+    this.generateText,
+    required this.completer,
+  });
 }

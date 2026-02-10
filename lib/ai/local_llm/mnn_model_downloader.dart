@@ -249,38 +249,28 @@ class MnnModelDownloader {
     final files = spec.filesToDownload;
     if (files.isEmpty) return;
 
-    final weightFile = spec.progressFileName;
-    final hasWeightFile = files.contains(weightFile);
-    final double weightPortion;
-    final double nonWeightEach;
-    if (files.length == 1) {
-      weightPortion = 1.0;
-      nonWeightEach = 0.0;
-    } else if (hasWeightFile) {
-      weightPortion = 0.9;
-      nonWeightEach = 0.1 / (files.length - 1);
-    } else {
-      weightPortion = 0.0;
-      nonWeightEach = 1.0 / files.length;
-    }
-
-    double acc = 0.0;
+    // Calculate total received bytes
+    int totalReceived = 0;
     for (final fileName in files) {
-      final received = _receivedBytesByFile[fileName] ?? 0;
-      final expectedRaw = _expectedBytesByFile[fileName] ?? 0;
-      final expected = expectedRaw > 0
-          ? expectedRaw
-          : (spec.minExpectedBytesByFile[fileName] ?? 1);
-      final frac = (received / expected).clamp(0.0, 1.0);
-      final w =
-          (hasWeightFile && fileName == weightFile) ? weightPortion : nonWeightEach;
-      acc += w * frac;
+      totalReceived += _receivedBytesByFile[fileName] ?? 0;
     }
 
-    final next = acc.clamp(0.0, 1.0);
-    if (next == _progress) return;
-    _progress = next;
-    _progressController.add(_progress);
+    // Use estimated total size as the baseline
+    // If estimated size is 0 or invalid, fallback to a small number to avoid div by zero
+    final totalExpected = spec.estimatedTotalSizeBytes > 0
+        ? spec.estimatedTotalSizeBytes
+        : 1024 * 1024 * 100; // 100MB fallback
+
+    double p = totalReceived / totalExpected;
+    
+    // Clamp to 0.0 - 0.99
+    // We leave 1.0 for the explicit completion state
+    final next = p.clamp(0.0, 0.99);
+
+    if ((next - _progress).abs() > 0.001) {
+      _progress = next;
+      _progressController.add(_progress);
+    }
   }
 
   HttpClient _createHttpClient() {
@@ -456,6 +446,30 @@ class MnnModelDownloader {
 
       if (response.statusCode == 200 || response.statusCode == 206) {
         break;
+      }
+
+      // Handle 416 Range Not Satisfiable
+      // Usually means the file is already fully downloaded (existingBytes >= remoteSize)
+      if (response.statusCode == 416) {
+        debugPrint(
+            '[MnnModelDownloader] 416 Range Not Satisfiable for $fileName. Checking local file...');
+        final localSize = await _safeFileLength(savePath);
+        final minBytes = _minExpectedBytes(fileName) ?? 1;
+        if (localSize > 0 && localSize >= minBytes) {
+          debugPrint(
+              '[MnnModelDownloader] Local file seems valid (size=$localSize). Treating as success.');
+          onProgress(localSize); // Update progress with full size
+          return _DownloadResult.success;
+        } else {
+          debugPrint(
+              '[MnnModelDownloader] Local file invalid/small ($localSize). Deleting and retrying.');
+          try {
+            await File(savePath).delete();
+          } catch (_) {}
+          _lastError = '416 but local file invalid';
+          // Continue to next attempt (which will be from scratch since file is deleted)
+          continue;
+        }
       }
 
       debugPrint(

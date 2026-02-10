@@ -126,10 +126,13 @@ class AzureTranslationEngine implements TranslationEngine {
       final item = translations.first;
       if (item is Map) {
         final out = item['text']?.toString() ?? '';
+        if (out.trim().isEmpty) {
+          throw StateError('Azure translate result empty');
+        }
         return out;
       }
     }
-    return '';
+    throw StateError('Azure translate result not found');
   }
 
   @override
@@ -288,7 +291,7 @@ class FallbackTranslationEngine implements TranslationEngine {
       throw StateError('No translation backend available');
     }
 
-    debugPrint('Falling back to secondary engine');
+    debugPrint('Falling back to secondary engine (forced)');
     try {
       return await fallback.translate(
         text: text,
@@ -657,8 +660,7 @@ class TranslationProvider extends ChangeNotifier {
       primary: primary,
       fallback: fallback,
       primaryAvailable: () => AzureTranslationEngine.isConfigured,
-      fallbackAvailable: () =>
-          _usingPersonalTencentKeys || TencentApiClient.hasScfProxyUrl,
+      fallbackAvailable: () => true, // Always allow fallback; TmtEngine handles auth/SCF internally
     );
     _machineEngineId = machineEngine.id;
 
