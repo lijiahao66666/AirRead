@@ -568,8 +568,10 @@ class _ReaderPageState extends State<ReaderPage>
 
     _pageController = PageController(initialPage: 1000);
     _pageViewCenterIndex = 1000;
-    // Hide System UI immediately on entry
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.edgeToEdge,
+      overlays: SystemUiOverlay.values,
+    );
 
     // Controls Animation
     _controlsController = AnimationController(
@@ -577,11 +579,11 @@ class _ReaderPageState extends State<ReaderPage>
       duration: const Duration(milliseconds: 300),
     );
     _topBarOffset =
-        Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero).animate(
+        Tween<Offset>(begin: const Offset(0, -1.12), end: Offset.zero).animate(
       CurvedAnimation(parent: _controlsController, curve: Curves.easeOut),
     );
     _bottomBarOffset =
-        Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero).animate(
+        Tween<Offset>(begin: const Offset(0, 1.12), end: Offset.zero).animate(
       CurvedAnimation(parent: _controlsController, curve: Curves.easeOut),
     );
 
@@ -1638,13 +1640,10 @@ class _ReaderPageState extends State<ReaderPage>
       _showControls = next;
     });
 
-    // Toggle System UI and Animation
+    // Toggle Animation
     if (next) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge,
-          overlays: SystemUiOverlay.values);
       _controlsController.forward();
     } else {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       _controlsController.reverse();
     }
   }
@@ -1795,7 +1794,6 @@ class _ReaderPageState extends State<ReaderPage>
         setState(() {
           _showControls = false;
         });
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
         _controlsController.reverse();
       }
     });
@@ -1938,15 +1936,11 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   void _hideControls() {
-    if (!_showControls) return;
-
-    // Do not drop hide requests during animation; always converge to hidden state.
-    setState(() {
-      _showControls = false;
-    });
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-
-    // Reverse even while animating forward; this prevents occasional "stuck visible".
+    if (_showControls) {
+      setState(() {
+        _showControls = false;
+      });
+    }
     _controlsController.reverse();
   }
 
@@ -5233,6 +5227,7 @@ class _ReaderPageState extends State<ReaderPage>
           onPageChanged: (index) {
             final int diff = index - _pageViewCenterIndex;
             if (diff == 0) return;
+            _hideControls();
             setState(() {
               _pageViewCenterIndex = index;
 
@@ -5375,6 +5370,7 @@ class _ReaderPageState extends State<ReaderPage>
       builder: (context, constraints) {
         final dpr = MediaQuery.of(context).devicePixelRatio;
         double snap(double value) => (value * dpr).roundToDouble() / dpr;
+        double snapUp(double value) => (value * dpr).ceilToDouble() / dpr;
         double snapDown(double value) => (value * dpr).floorToDouble() / dpr;
 
         final storedBottomInset = _contentBottomInset ?? 0.0;
@@ -5413,10 +5409,39 @@ class _ReaderPageState extends State<ReaderPage>
         )..layout(minWidth: 0, maxWidth: safeContentWidth);
         final double minLineHeight = probe.height;
         final double topExtra = snap((minLineHeight * 0.18).clamp(4.0, 10.0));
+        final bool needsExtraBottomPadding =
+            !kIsWeb && Platform.isIOS && safeBottom > 0.5;
+        
+        // Use standard padding for better screen utilization.
+        // We will explicitly handle the footer position to avoid overlap.
+        final double minBottomExtra = needsExtraBottomPadding ? 16.0 : 10.0;
+        final double maxBottomExtra = needsExtraBottomPadding ? 24.0 : 18.0;
         final double bottomExtra =
-            snap((minLineHeight * 0.28).clamp(10.0, 18.0));
-        final double topMargin = snap(padding.top + topExtra);
-        final double bottomMargin = snap(safeBottom + bottomExtra);
+            snap((minLineHeight * 0.28).clamp(minBottomExtra, maxBottomExtra));
+        final double topMargin = snapUp(padding.top + topExtra);
+        
+        // Calculate Footer Position (closer to bottom)
+        // User feedback: "Whitespace too large, reduce it."
+        // Adjusted from 32.0 to 24.0. This is still well above the Home Indicator (~8-10pt).
+        final double footerBottomPos = safeBottom > 20 ? 24.0 : 12.0;
+        final double footerHeight = 20.0;
+        final double footerTopEdge = footerBottomPos + footerHeight;
+        
+        // Ensure text doesn't overlap footer
+        // User feedback: "Whitespace too large." 
+        // Buffer reduced from 20.0 to 12.0.
+        final double minBottomMargin = snapUp(footerTopEdge + 12.0);
+        
+        double bottomMargin = snapUp(safeBottom + bottomExtra);
+        // If the calculated bottom margin (based on safe area) is less than what we need for the footer,
+        // use the footer-based margin. 
+        // Note: safeBottom is usually ~34. bottomExtra ~16. Total ~50.
+        // footerTopEdge ~32. minBottomMargin ~40.
+        // So normally bottomMargin (50) > minBottomMargin (40), meaning text is naturally high enough.
+        // This ensures we don't artificially push text too high if not needed.
+        if (bottomMargin < minBottomMargin) {
+          bottomMargin = minBottomMargin;
+        }
 
         double viewportHeight = snapDown(
           constraints.maxHeight - topMargin - bottomMargin - (1 / dpr),
@@ -5427,12 +5452,19 @@ class _ReaderPageState extends State<ReaderPage>
           viewportHeight = minLineHeight;
         }
 
-        _lastPaginationViewportHeight = viewportHeight;
+        // Safety buffer for pagination:
+        // User feedback: "Last line slightly clipped."
+        // We restore the 8.0 pixel buffer. This slightly reduces the effective height used for 
+        // pagination calculation, ensuring the last line fits completely within the rendered viewport
+        // without being clipped by the container bounds.
+        final double paginationViewportHeight = viewportHeight - 8.0;
+
+        _lastPaginationViewportHeight = paginationViewportHeight;
         _lastPaginationContentWidth = safeContentWidth;
 
         _scheduleTextPaginationForChapter(
           chapterIndex: chapterIndex,
-          viewportHeight: viewportHeight,
+          viewportHeight: paginationViewportHeight,
           contentWidth: safeContentWidth,
           minPages: (pageIndex + 3).clamp(6, 999999),
         );
@@ -5440,7 +5472,7 @@ class _ReaderPageState extends State<ReaderPage>
         if (tp.applyToReader) {
           _schedulePlainPaginationForChapter(
             chapterIndex: chapterIndex,
-            viewportHeight: viewportHeight,
+            viewportHeight: paginationViewportHeight,
             contentWidth: safeContentWidth,
             minPages: (pageIndex + 3).clamp(6, 999999),
           );
@@ -5451,7 +5483,18 @@ class _ReaderPageState extends State<ReaderPage>
         String? displayEffectiveText = _chapterEffectiveText[chapterIndex];
         if (displayRanges == null || displayRanges.isEmpty) {
           final fallbackRanges = _chapterFallbackPageRanges[chapterIndex];
-          if (fallbackRanges != null && fallbackRanges.isNotEmpty) {
+          final fallbackKey = _chapterFallbackPageRangeKeys[chapterIndex];
+          final expectedTextLength = (displayEffectiveText ??
+                  _getPlainTextForChapter(chapterIndex))
+              .length;
+          final expectedKey = _paginationKey(
+            viewportHeight: paginationViewportHeight,
+            contentWidth: safeContentWidth,
+            textLength: expectedTextLength,
+          );
+          if (fallbackRanges != null &&
+              fallbackRanges.isNotEmpty &&
+              fallbackKey == expectedKey) {
             displayRanges = fallbackRanges;
             displayEffectiveText = _chapterFallbackEffectiveText[chapterIndex];
           }
@@ -5462,14 +5505,14 @@ class _ReaderPageState extends State<ReaderPage>
         if (pageIndex >= displayRanges.length) {
           _scheduleTextPaginationForChapter(
             chapterIndex: chapterIndex,
-            viewportHeight: viewportHeight,
+            viewportHeight: paginationViewportHeight,
             contentWidth: safeContentWidth,
             minPages: (pageIndex + 3).clamp(6, 999999),
           );
           if (tp.applyToReader) {
             _schedulePlainPaginationForChapter(
               chapterIndex: chapterIndex,
-              viewportHeight: viewportHeight,
+              viewportHeight: paginationViewportHeight,
               contentWidth: safeContentWidth,
               minPages: (pageIndex + 3).clamp(6, 999999),
             );
@@ -5580,22 +5623,54 @@ class _ReaderPageState extends State<ReaderPage>
                 onPointerMove: (e) => _onReaderPointerMove(e.localPosition),
                 onPointerUp: (e) => _onReaderPointerUp(
                     pos: e.localPosition, width: constraints.maxWidth),
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: _buildPageBody(
-                      chapterIndex: chapterIndex,
-                      range: range,
-                      end: end,
-                      effectiveText: effectiveText,
-                      bodySpan: span,
-                      bodyStyle: effectiveTextStyle,
-                      isCurrentPage: isCurrentPage,
-                      highlightText: highlightText,
-                      isLastPage: safeIndex == displayRanges.length - 1,
+                child: ClipRect(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: _buildPageBody(
+                        chapterIndex: chapterIndex,
+                        range: range,
+                        end: end,
+                        effectiveText: effectiveText,
+                        bodySpan: span,
+                        bodyStyle: effectiveTextStyle,
+                        isCurrentPage: isCurrentPage,
+                        highlightText: highlightText,
+                        isLastPage: safeIndex == displayRanges.length - 1,
+                      ),
                     ),
                   ),
+                ),
+              ),
+            ),
+            // Footer with Page Number
+             if (!_showControls)
+             Positioned(
+               left: 24,
+               right: 24,
+               bottom: footerBottomPos,
+               height: footerHeight,
+              child: DefaultTextStyle(
+                style: effectiveTextStyle.copyWith(
+                  fontSize: 10,
+                  height: 1.2,
+                  color: effectiveTextStyle.color?.withOpacity(0.5),
+                ),
+                child: Row(
+                  children: [
+                    // Chapter Title (Left)
+                    Expanded(
+                      child: Text(
+                        _chapters[chapterIndex].title ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    // Page Number (Right)
+                    Text('${pageIndex + 1}/${displayRanges.length}'),
+                  ],
                 ),
               ),
             ),
@@ -6711,6 +6786,11 @@ class _ReaderPageState extends State<ReaderPage>
     final padding = mq.padding;
     final viewPadding = mq.viewPadding;
     final systemGestureInsets = mq.systemGestureInsets;
+    final view = View.of(context);
+    final dpr = view.devicePixelRatio;
+    final stablePadding = view.padding;
+    final stableViewPadding = view.viewPadding;
+    final stableSystemGestureInsets = view.systemGestureInsets;
     double contentTopInset = viewPadding.top;
     if (padding.top > contentTopInset) contentTopInset = padding.top;
 
@@ -6720,6 +6800,33 @@ class _ReaderPageState extends State<ReaderPage>
     }
     if (systemGestureInsets.bottom > contentBottomInset) {
       contentBottomInset = systemGestureInsets.bottom;
+    }
+    final stableBottomCandidates = <double>[
+      stablePadding.bottom / dpr,
+      stableViewPadding.bottom / dpr,
+      stableSystemGestureInsets.bottom / dpr,
+    ];
+    for (final v in stableBottomCandidates) {
+      if (v > contentBottomInset) contentBottomInset = v;
+    }
+    if (!kIsWeb && Platform.isIOS) {
+      final stableTopCandidates = <double>[
+        stablePadding.top / dpr,
+        stableViewPadding.top / dpr,
+      ];
+      final hasNotch = contentTopInset > 20.5 ||
+          padding.top > 20.5 ||
+          viewPadding.top > 20.5 ||
+          stableTopCandidates.any((e) => e > 20.5);
+      final hasHomeIndicator = hasNotch ||
+          contentBottomInset > 0.5 ||
+          padding.bottom > 0.5 ||
+          viewPadding.bottom > 0.5 ||
+          systemGestureInsets.bottom > 0.5 ||
+          stableBottomCandidates.any((e) => e > 0.5);
+      if (hasHomeIndicator && contentBottomInset < 34.0) {
+        contentBottomInset = 34.0;
+      }
     }
     _contentBottomInset = contentBottomInset;
 
@@ -6752,7 +6859,7 @@ class _ReaderPageState extends State<ReaderPage>
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        systemNavigationBarColor: barColor,
+        systemNavigationBarColor: Colors.transparent,
         statusBarIconBrightness: systemIconBrightness,
         systemNavigationBarIconBrightness: systemIconBrightness,
         systemNavigationBarContrastEnforced: false,
@@ -6815,12 +6922,12 @@ class _ReaderPageState extends State<ReaderPage>
                       child: Container(color: Colors.transparent),
                     ),
                   ),
-                SlideTransition(
-                  position: _topBarOffset,
+                AnimatedBuilder(
+                  animation: _controlsController,
                   child: Container(
-                    height: contentTopInset + 56,
+                    height: contentTopInset + 48,
                     padding: EdgeInsets.only(
-                        top: contentTopInset + 4, left: 16, right: 16),
+                        top: contentTopInset, left: 16, right: 16),
                     color: barColor,
                     child: Row(
                       children: [
@@ -6836,70 +6943,85 @@ class _ReaderPageState extends State<ReaderPage>
                       ],
                     ),
                   ),
+                  builder: (context, child) {
+                    if (!_showControls && _controlsController.value <= 0.001) {
+                      return const SizedBox.shrink();
+                    }
+                    return SlideTransition(position: _topBarOffset, child: child);
+                  },
                 ),
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: SlideTransition(
-                    position: _bottomBarOffset,
-                    child: Container(
-                      padding: EdgeInsets.only(
-                          bottom: contentBottomInset + 8,
-                          top: 12,
-                          left: 24,
-                          right: 24),
-                      color: barColor,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          _buildFlatButton(
-                              icon: Icons.menu_rounded,
-                              onTap: _showTableOfContents,
-                              tooltip: '目录'),
-                          GestureDetector(
-                            onTap: () {
-                              _openAiHud();
-                            },
-                            child: AnimatedBuilder(
-                              animation: _pulseController,
-                              builder: (context, child) {
-                                return Container(
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: AppColors.techBlue
-                                            .withOpacityCompat(
-                                                0.4 * _pulseController.value),
-                                        blurRadius:
-                                            10 + (10 * _pulseController.value),
-                                        spreadRadius:
-                                            2 * _pulseController.value,
-                                      ),
-                                    ],
-                                  ),
-                                  child: child,
-                                );
-                              },
-                              child: Container(
-                                width: 48,
-                                height: 48,
-                                decoration: const BoxDecoration(
-                                  color: Colors.transparent,
+                AnimatedBuilder(
+                  animation: _controlsController,
+                  builder: (context, child) {
+                    if (!_showControls && _controlsController.value <= 0.001) {
+                      return const SizedBox.shrink();
+                    }
+                    return Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: SlideTransition(
+                        position: _bottomBarOffset,
+                        child: child!,
+                      ),
+                    );
+                  },
+                  child: Container(
+                    padding: EdgeInsets.only(
+                        bottom: contentBottomInset,
+                        top: 4,
+                        left: 24,
+                        right: 24),
+                    color: barColor,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _buildFlatButton(
+                            icon: Icons.menu_rounded,
+                            onTap: _showTableOfContents,
+                            tooltip: '目录'),
+                        GestureDetector(
+                          onTap: () {
+                            _openAiHud();
+                          },
+                          child: AnimatedBuilder(
+                            animation: _pulseController,
+                            builder: (context, child) {
+                              return Container(
+                                decoration: BoxDecoration(
                                   shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.techBlue
+                                          .withOpacityCompat(
+                                              0.4 * _pulseController.value),
+                                      blurRadius:
+                                          10 + (10 * _pulseController.value),
+                                      spreadRadius:
+                                          2 * _pulseController.value,
+                                    ),
+                                  ],
                                 ),
-                                child: const Icon(Icons.auto_awesome,
-                                    size: 24, color: AppColors.techBlue),
+                                child: child,
+                              );
+                            },
+                            child: Container(
+                              width: 48,
+                              height: 48,
+                              decoration: const BoxDecoration(
+                                color: Colors.transparent,
+                                shape: BoxShape.circle,
                               ),
+                              child: const Icon(Icons.auto_awesome,
+                                  size: 24, color: AppColors.techBlue),
                             ),
                           ),
-                          _buildFlatButton(
-                              icon: Icons.text_fields_rounded,
-                              onTap: _showSettings,
-                              tooltip: '阅读设置'),
-                        ],
-                      ),
+                        ),
+                        _buildFlatButton(
+                            icon: Icons.text_fields_rounded,
+                            onTap: _showSettings,
+                            tooltip: '阅读设置'),
+                      ],
                     ),
                   ),
                 ),
