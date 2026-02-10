@@ -2237,7 +2237,7 @@ class _TencentHunyuanSettingsPanelState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '问答/生图设置',
+                '插图/问答设置',
                 style: TextStyle(
                   color: widget.textColor,
                   fontWeight: FontWeight.w900,
@@ -2250,7 +2250,7 @@ class _TencentHunyuanSettingsPanelState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '文本/生图大模型',
+                      '推理模型',
                       style: TextStyle(
                         color: widget.textColor,
                         fontSize: 13,
@@ -2331,7 +2331,7 @@ class _TencentHunyuanSettingsPanelState
                     if (aiModel.source == AiModelSource.local) ...[
                       const SizedBox(height: 12),
                       Text(
-                        '本地模型可离线免费使用，但效果不如在线大模型。如需使用问答，需下载模型文件。',
+                        '本地模型可离线免费使用，但效果不如在线大模型。只能使用问答，需下载模型文件，插图功能需要使用在线模型。',
                         style: TextStyle(
                           color: widget.textColor.withOpacityCompat(0.65),
                           fontSize: 12,
