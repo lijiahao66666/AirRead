@@ -19,12 +19,12 @@ import java.util.concurrent.Executors
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "airread/local_llm"
     private val STREAM_CHANNEL = "airread/local_llm_stream"
-    private val SD_CHANNEL = "airread/local_sd"
+    // private val SD_CHANNEL = "airread/local_sd"
     private val TTS_CHANNEL = "airread/local_tts"
     private val TTS_STREAM_CHANNEL = "airread/local_tts_events"
     private val DEFAULT_MAX_NEW_TOKENS = 1024
     private val llmExecutor = Executors.newSingleThreadExecutor()
-    private val sdExecutor = Executors.newSingleThreadExecutor()
+    // private val sdExecutor = Executors.newSingleThreadExecutor()
 
     @Volatile
     private var streamSink: EventChannel.EventSink? = null
@@ -386,9 +386,9 @@ class MainActivity: FlutterActivity() {
         callback: Any
     )
 
-    external fun nativeSdIsAvailable(): Boolean
-    external fun nativeSdInit(modelDir: String)
-    external fun nativeSdTxt2Img(prompt: String, steps: Int, seed: Int): String
+    // external fun nativeSdIsAvailable(): Boolean
+    // external fun nativeSdInit(modelDir: String)
+    // external fun nativeSdTxt2Img(prompt: String, steps: Int, seed: Int): String
 
     @Keep
     inner class LocalLlmStreamCallback {
@@ -698,6 +698,7 @@ class MainActivity: FlutterActivity() {
             }
         }
 
+/*
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SD_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "isAvailable" -> {
@@ -758,6 +759,7 @@ class MainActivity: FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+*/
     }
 
     override fun onDestroy() {

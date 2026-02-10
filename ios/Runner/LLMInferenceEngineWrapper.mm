@@ -138,12 +138,12 @@ private:
         
         // 发送完整的UTF-8字符串
         if (!outputStr.empty() && callback_) {
-            NSMutableString *hex = [NSMutableString stringWithCapacity:(NSUInteger)outputStr.size() * 3];
-            size_t n = outputStr.size() > 16 ? 16 : outputStr.size();
-            for (size_t j = 0; j < n; j++) {
-                [hex appendFormat:@"%02X ", (unsigned char)outputStr[j]];
-            }
-            ARLog(@"[Utf8SafeStreamBuffer] Sending %zu bytes, first=%@", outputStr.size(), hex);
+            // NSMutableString *hex = [NSMutableString stringWithCapacity:(NSUInteger)outputStr.size() * 3];
+            // size_t n = outputStr.size() > 16 ? 16 : outputStr.size();
+            // for (size_t j = 0; j < n; j++) {
+            //     [hex appendFormat:@"%02X ", (unsigned char)outputStr[j]];
+            // }
+            // ARLog(@"[Utf8SafeStreamBuffer] Sending %zu bytes, first=%@", outputStr.size(), hex);
             callback_(outputStr.c_str(), outputStr.size());
         }
         

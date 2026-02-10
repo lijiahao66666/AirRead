@@ -2331,7 +2331,7 @@ class _TencentHunyuanSettingsPanelState
                     if (aiModel.source == AiModelSource.local) ...[
                       const SizedBox(height: 12),
                       Text(
-                        '本地模型可离线免费使用，但效果不如在线大模型。如仅需使用问答，只需下载文本模型，如需使用插图，需同时下载文本和生图模型。',
+                        '本地模型可离线免费使用，但效果不如在线大模型。如仅需使用问答，只需下载文本模型。',
                         style: TextStyle(
                           color: widget.textColor.withOpacityCompat(0.65),
                           fontSize: 12,
@@ -2346,58 +2346,99 @@ class _TencentHunyuanSettingsPanelState
                         sizeText: aiModel.localModelSizeLabel,
                         isImageModel: false,
                       ),
-                      const SizedBox(height: 8),
-                      _localModelStatusRow(
-                        aiModel,
-                        kindLabel: '生图模型',
-                        title:
-                            ModelManager.displayNameFor(ModelManager.sd_v1_5),
-                        sizeText:
-                            ModelManager.sizeLabelFor(ModelManager.sd_v1_5),
-                        isImageModel: true,
-                      ),
                     ],
                   ],
                 ),
               ),
               const SizedBox(height: 10),
-              _itemBox(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '每章最大生图个数',
-                            style: TextStyle(
-                              color: widget.textColor,
-                              fontSize: 13,
-                              fontWeight: FontWeight.normal,
+              
+              // 插图设置（如果本地模式则禁用）
+              Builder(builder: (context) {
+                final bool isLocal = aiModel.source == AiModelSource.local;
+                final bool isIllustrationDisabled = isLocal;
+                
+                return _itemBox(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '智能插图',
+                                  style: TextStyle(
+                                    color: isIllustrationDisabled
+                                        ? widget.textColor.withOpacityCompat(0.5)
+                                        : widget.textColor,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.normal,
+                                  ),
+                                ),
+                                if (isLocal)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      '本地模型不支持插图功能',
+                                      style: TextStyle(
+                                        color: widget.textColor.withOpacityCompat(0.65),
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
+                          Switch(
+                            value: !isIllustrationDisabled && aiModel.illustrationEnabled,
+                            onChanged: isIllustrationDisabled
+                                ? null
+                                : (v) => unawaited(aiModel.setIllustrationEnabled(v)),
+                            activeColor: AppColors.techBlue,
+                          ),
+                        ],
+                      ),
+                      
+                      if (!isIllustrationDisabled && aiModel.illustrationEnabled) ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '每章最大生图个数',
+                                style: TextStyle(
+                                  color: widget.textColor,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                            _countStepper(
+                              value: aiModel.maxIllustrationsPerChapter,
+                              min: 2,
+                              max: 20,
+                              onChanged: (v) => unawaited(
+                                  aiModel.setMaxIllustrationsPerChapter(v)),
+                            ),
+                          ],
                         ),
-                        _countStepper(
-                          value: aiModel.maxIllustrationsPerChapter,
-                          min: 2,
-                          max: 20,
-                          onChanged: (v) => unawaited(
-                              aiModel.setMaxIllustrationsPerChapter(v)),
+                        const SizedBox(height: 8),
+                        Text(
+                          'AI会根据每章内容给出0-${aiModel.maxIllustrationsPerChapter}个插图建议；该数量为上限，实际数量由AI决定，可根据情况选择是否生图。',
+                          style: TextStyle(
+                            color: widget.textColor.withOpacityCompat(0.65),
+                            fontSize: 12,
+                            height: 1.35,
+                          ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'AI会根据每章内容给出0-${aiModel.maxIllustrationsPerChapter}个插图建议；该数量为上限，实际数量由AI决定，可根据情况选择是否生图。',
-                      style: TextStyle(
-                        color: widget.textColor.withOpacityCompat(0.65),
-                        fontSize: 12,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                    ],
+                  ),
+                );
+              }),
             ],
           ),
         );
@@ -2477,6 +2518,9 @@ class _TencentHunyuanSettingsPanelState
     required String sizeText,
     required bool isImageModel,
   }) {
+    // 隐藏本地生图模型行
+    if (isImageModel) return const SizedBox.shrink();
+
     return Row(
       children: [
         Container(

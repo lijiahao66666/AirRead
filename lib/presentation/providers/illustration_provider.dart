@@ -8,7 +8,6 @@ import 'package:path_provider/path_provider.dart';
 import '../../ai/illustration/illustration_service.dart';
 import '../../ai/illustration/scene_card.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
-import '../../ai/local_sd/sd_mnn_client.dart';
 
 class IllustrationProvider extends ChangeNotifier {
   // 章节 ID -> 场景卡片列表
@@ -154,7 +153,6 @@ class IllustrationProvider extends ChangeNotifier {
         chapterTitle: task.chapterTitle,
         maxScenes: task.maxScenes,
         debugName: task.chapterId,
-        generateText: task.generateText,
       );
       if (kDebugMode) {
         debugPrint(
@@ -194,21 +192,13 @@ class IllustrationProvider extends ChangeNotifier {
 
     try {
       if (useLocalSd) {
-        final prompt =
-            card.toPrompt(stylePrefix: stylePrefix, forLocalSd: true);
-        final localPath = await SdMnnClient.txt2img(
-          prompt: prompt,
-          width: 512,
-          height: 512,
-          steps: 20,
-        );
-        card.localImagePath = localPath;
-        card.status = SceneCardStatus.completed;
+        throw UnimplementedError('Local SD support has been removed');
       } else {
         // 1. 提交任务
         final jobId = await _buildService().submitGeneration(
           card: card,
-          stylePrefix: stylePrefix,
+          stylePrefix: stylePrefix ?? '',
+          forLocalSd: false,
           resolution: resolution,
         );
         card.jobId = jobId;

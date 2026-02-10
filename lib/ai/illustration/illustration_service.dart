@@ -33,12 +33,11 @@ class IllustrationService {
     required String chapterTitle,
     required int maxScenes,
     String? debugName,
-    Future<String> Function(String prompt)? generateText,
   }) async {
     final cap = maxScenes.clamp(0, 20);
     if (cap <= 0 || paragraphs.isEmpty) return const <SceneCard>[];
 
-    final run = generateText ?? _runOnlineTextModel;
+    final run = _runOnlineTextModel;
     final n = paragraphs.length;
     
     // Adaptive Partitioning with Overlap
@@ -49,9 +48,9 @@ class IllustrationService {
 
     // Calculate chunk size
     final double step = n / partitionCount;
-    final int overlap = 5; // Look ahead 5 paragraphs
+    final int overlap = 0; // Remove overlap as requested
 
-    final List<Future<List<SceneCard>>> futures = [];
+    final List<List<SceneCard>> results = [];
 
     for (int i = 0; i < partitionCount; i++) {
       final int start = (i * step).floor();
@@ -61,21 +60,18 @@ class IllustrationService {
 
       // Extract paragraphs for this chunk
       final subParagraphs = paragraphs.sublist(start, end);
-      // Map global index to local index is not needed if we provide "P{index}: content" format
-      // But we need to tell the prompt the actual global indices so the output 'index' is correct.
       
-      futures.add(_analyzeSingleChunk(
+      // Execute sequentially to avoid native crash in local LLM
+      final chunkCards = await _analyzeSingleChunk(
         run: run,
-        allParagraphs: paragraphs, // Pass full list for context if needed? No, just pass chunk but use global indices in prompt
+        allParagraphs: paragraphs,
         chunkStartIndex: start,
         chunkParagraphs: subParagraphs,
         chapterTitle: chapterTitle,
         debugName: '$debugName-chunk-$i',
-        forLocalSd: generateText != null,
-      ));
+      );
+      results.add(chunkCards);
     }
-
-    final results = await Future.wait(futures);
     
     // Aggregate and Deduplicate
     final List<SceneCard> allCards = [];
@@ -118,22 +114,26 @@ class IllustrationService {
     required List<String> chunkParagraphs,
     required String chapterTitle,
     required String? debugName,
-    required bool forLocalSd,
   }) async {
     final prompt = _buildChunkPrompt(
       chunkStartIndex: chunkStartIndex,
       chunkParagraphs: chunkParagraphs,
       chapterTitle: chapterTitle,
-      forLocalSd: forLocalSd,
     );
 
     if (kDebugMode) {
       debugPrint('[ILLU] chunk start=$chunkStartIndex len=${chunkParagraphs.length}');
+      // Log full input prompt for debugging
+      debugPrint('[ILLU] PROMPT_INPUT:\n$prompt');
     }
 
     String? response;
     try {
       response = await run(prompt);
+      if (kDebugMode) {
+        // Log full output response for debugging
+        debugPrint('[ILLU] PROMPT_OUTPUT:\n$response');
+      }
     } catch (e) {
       debugPrint('[ILLU] chunk error: $e');
       return [];
@@ -156,32 +156,32 @@ class IllustrationService {
     required int chunkStartIndex,
     required List<String> chunkParagraphs,
     required String chapterTitle,
-    required bool forLocalSd,
   }) {
     final buffer = StringBuffer();
     buffer.writeln('你是一个专业的插画分镜师。');
-    buffer.writeln('任务：阅读下方小说片段，提取**0到1个**最适合绘制插画的关键场景。如果不适合生图，可返回空数组。');
-    buffer.writeln('输出要求：');
-    buffer.writeln('1. 仅输出一个标准的JSON数组。');
-    buffer.writeln('2. 数组中每个元素是一个对象，包含以下字段：');
-    buffer.writeln('   - index (int): 该场景对应的段落索引（必须使用下方文本中标记的 Px 索引）。');
+    buffer.writeln('任务：阅读下方小说片段，判断其中是否包含**极具画面感且适合绘制插画**的关键场景。');
+    buffer.writeln('要求：');
+    buffer.writeln('1. 如果该片段包含精彩的画面场景，提取**1个**最关键的场景。');
+    buffer.writeln('2. 警告：如果该片段平淡无奇、缺乏具体画面、只是对话或心理描写，请务必直接输出 null。');
+    buffer.writeln('   不要强行生成！不要为了生成而生成！无画面感必须返回 null！');
+    buffer.writeln('输出格式：');
+    buffer.writeln('仅输出一个JSON对象（或 null），不要输出数组，不要包含任何解释文字。');
+    buffer.writeln('JSON字段说明：');
+    buffer.writeln('   - index (int): 该场景对应的段落全局唯一索引（必须严格对应下方文本行首的数字标记！）。');
+    buffer.writeln('     例如：如果选中了标记为 "12: ..." 的段落，index 必须填 12。');
     buffer.writeln('   - title (string): 场景标题，简练概括画面，允许中文。');
-    buffer.writeln('   - prompt (string): ${forLocalSd ? "英文生图提示词" : "中文生图提示词"}，描述画面内容、构图、光影等细节，长度<=150字符。');
-    buffer.writeln('3. 读者读完第index段落时，应该看到这幅插图。');
-    buffer.writeln('4. 不要输出任何解释性文字，不要包含Markdown标记。');
+    buffer.writeln('   - prompt (string): 中文生图提示词，描述画面内容、构图、光影等细节，长度<=150字符。');
+    buffer.writeln('   - important: 仅当画面感极强时才输出对象，否则输出 null。');
     
-    if (forLocalSd) {
-      buffer.writeln('重要：prompt字段必须翻译为英文！');
-    }
-
     buffer.writeln();
-    buffer.writeln('小说片段：');
+    buffer.writeln('小说片段（行首数字为全局索引）：');
     
     for (int i = 0; i < chunkParagraphs.length; i++) {
       final globalIndex = chunkStartIndex + i;
       String p = chunkParagraphs[i];
-      String normalized = _normalizeForPrompt(p, maxLen: forLocalSd ? 150 : 120); 
-      buffer.writeln('P$globalIndex: $normalized');
+      String normalized = _normalizeForPrompt(p, maxLen: 120); 
+      // Remove 'P' prefix, use raw number
+      buffer.writeln('$globalIndex: $normalized');
     }
     
     return buffer.toString();
@@ -459,20 +459,26 @@ class IllustrationService {
     final end = (lastBracket != -1 && lastBracket > start) ? lastBracket : raw.length - 1;
 
     if (start == -1 || end <= start) {
+      // New logic: Allow single object or null
+      final rawTrimmed = raw.trim();
+      if (rawTrimmed == 'null') {
+         return (ok: true, cards: const <SceneCard>[], errorHint: '');
+      }
+      
       // Compatibility: Check if it's a single object (starts with {)
       final startObj = raw.indexOf('{');
       final endObj = raw.lastIndexOf('}');
       if (startObj != -1 && endObj != -1 && endObj > startObj) {
-        // Wrap single object in array
+        // It is a single object
         final singleJson = raw.substring(startObj, endObj + 1);
         try {
           final decodedSingle = jsonDecode(singleJson);
           return _parseDecodedList([decodedSingle], paragraphs);
         } catch (_) {
-           return (ok: false, cards: const <SceneCard>[], errorHint: '未找到JSON数组或对象');
+           return (ok: false, cards: const <SceneCard>[], errorHint: '未找到JSON对象');
         }
       }
-      return (ok: false, cards: const <SceneCard>[], errorHint: '未找到JSON数组');
+      return (ok: false, cards: const <SceneCard>[], errorHint: '未找到JSON对象或数组');
     }
 
     final maybeTruncatedJson = raw.substring(start, lastBracket != -1 ? end + 1 : raw.length);
@@ -542,9 +548,20 @@ class IllustrationService {
       }
       final map = item.cast<String, dynamic>();
       
-      // Schema validation: index, title, scene
-      if (!map.containsKey('index') || !map.containsKey('title') || !map.containsKey('scene')) {
-         errors.add('第${i + 1}项 缺少必要字段(index/title/scene)');
+      // Schema validation: index, title, prompt (was scene in prompt instructions, but check logic here)
+      // The prompt asks for 'prompt' key, but let's check both for safety or just 'prompt'
+      // Old code checked 'scene' because user requested 'scene' key in prompt.
+      // Current prompt asks for 'prompt' key.
+      
+      String? promptVal;
+      if (map.containsKey('prompt')) {
+        promptVal = map['prompt']?.toString();
+      } else if (map.containsKey('scene')) {
+        promptVal = map['scene']?.toString();
+      }
+      
+      if (!map.containsKey('index') || !map.containsKey('title') || promptVal == null) {
+         errors.add('第${i + 1}项 缺少必要字段(index/title/prompt)');
          continue;
       }
 
@@ -559,10 +576,10 @@ class IllustrationService {
       }
       
       final String title = (map['title'] ?? '场景').toString();
-      final String scene = (map['scene'] ?? '').toString();
+      final String scene = promptVal ?? '';
 
       if (scene.isEmpty) {
-        errors.add('第${i + 1}项 scene为空');
+        errors.add('第${i + 1}项 prompt为空');
         continue;
       }
 

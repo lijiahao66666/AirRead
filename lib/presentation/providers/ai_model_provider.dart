@@ -45,7 +45,7 @@ class AiModelProvider extends ChangeNotifier {
   StreamSubscription? _progressSubscription;
   StreamSubscription? _fileSubscription;
 
-  // 生图模型安装状态
+  // 生图模型安装状态 (Deprecated: Local SD removed)
   ModelInstallStatus _imageModelInstallStatus = ModelInstallStatus.notInstalled;
   double _imageDownloadProgress = 0.0;
   String _imageCurrentDownloadFile = '';
@@ -88,12 +88,22 @@ class AiModelProvider extends ChangeNotifier {
 
   bool get localTextInstalled => isModelInstalled;
   bool get localTextReady => loaded;
-  bool get localImageInstalled => isImageModelInstalled;
-  bool get localImageReady => localImageInstalled;
+  bool get localImageInstalled => false; // Removed local SD support
+  bool get localImageReady => false;
 
   Future<void> setSource(AiModelSource value) async {
     if (_source == value) return;
     _source = value;
+    
+    // 如果切换到本地模式，强制关闭插图功能
+    if (_source == AiModelSource.local) {
+      if (_illustrationEnabled) {
+        _illustrationEnabled = false;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_kIllustrationEnabled, false);
+      }
+    }
+    
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kModelSource, value.name);
@@ -209,7 +219,7 @@ class AiModelProvider extends ChangeNotifier {
 
     // 检查模型是否已安装
     await _checkModelInstallation();
-    await _checkImageModelInstallation();
+    // await _checkImageModelInstallation(); // Removed
 
     // 如果模型已安装，初始化 LLM 客户端
     if (_modelInstallStatus == ModelInstallStatus.installed) {
