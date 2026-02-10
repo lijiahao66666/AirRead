@@ -72,6 +72,8 @@ class IllustrationProvider extends ChangeNotifier {
     return _cache[chapterId] ?? [];
   }
 
+  bool hasChapter(String chapterId) => _cache.containsKey(chapterId);
+
   void clearChapter(String chapterId) {
     if (!_cache.containsKey(chapterId)) return;
     _cache.remove(chapterId);
