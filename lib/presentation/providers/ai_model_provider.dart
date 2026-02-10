@@ -45,14 +45,14 @@ class AiModelProvider extends ChangeNotifier {
   StreamSubscription? _progressSubscription;
   StreamSubscription? _fileSubscription;
 
-  // 生图模型安装状态 (Deprecated: Local SD removed)
-  ModelInstallStatus _imageModelInstallStatus = ModelInstallStatus.notInstalled;
-  double _imageDownloadProgress = 0.0;
-  String _imageCurrentDownloadFile = '';
-  MnnModelDownloader? _imageDownloader;
-  StreamSubscription? _imageStatusSubscription;
-  StreamSubscription? _imageProgressSubscription;
-  StreamSubscription? _imageFileSubscription;
+  // 生图模型安装状态 (Removed)
+  // ModelInstallStatus _imageModelInstallStatus = ModelInstallStatus.notInstalled;
+  // double _imageDownloadProgress = 0.0;
+  // String _imageCurrentDownloadFile = '';
+  // MnnModelDownloader? _imageDownloader;
+  // StreamSubscription? _imageStatusSubscription;
+  // StreamSubscription? _imageProgressSubscription;
+  // StreamSubscription? _imageFileSubscription;
 
   AiModelProvider() {
     TencentApiClient.onPointsBalanceChanged = (v) {
@@ -78,13 +78,13 @@ class AiModelProvider extends ChangeNotifier {
   bool get isDownloading =>
       _modelInstallStatus == ModelInstallStatus.installing;
 
-  ModelInstallStatus get imageModelInstallStatus => _imageModelInstallStatus;
-  double get imageDownloadProgress => _imageDownloadProgress;
-  String get imageCurrentDownloadFile => _imageCurrentDownloadFile;
-  bool get isImageModelInstalled =>
-      _imageModelInstallStatus == ModelInstallStatus.installed;
-  bool get isImageDownloading =>
-      _imageModelInstallStatus == ModelInstallStatus.installing;
+  // ModelInstallStatus get imageModelInstallStatus => _imageModelInstallStatus;
+  // double get imageDownloadProgress => _imageDownloadProgress;
+  // String get imageCurrentDownloadFile => _imageCurrentDownloadFile;
+  // bool get isImageModelInstalled =>
+  //     _imageModelInstallStatus == ModelInstallStatus.installed;
+  // bool get isImageDownloading =>
+  //     _imageModelInstallStatus == ModelInstallStatus.installing;
 
   bool get localTextInstalled => isModelInstalled;
   bool get localTextReady => loaded;
@@ -244,6 +244,7 @@ class AiModelProvider extends ChangeNotifier {
     }
   }
 
+  /*
   Future<void> _checkImageModelInstallation() async {
     try {
       final isInstalled =
@@ -256,6 +257,7 @@ class AiModelProvider extends ChangeNotifier {
       _imageModelInstallStatus = ModelInstallStatus.notInstalled;
     }
   }
+  */
 
   /// 初始化 LLM 客户端
   Future<void> _initializeLlmClient() async {
@@ -339,6 +341,7 @@ class AiModelProvider extends ChangeNotifier {
     });
   }
 
+/*
   Future<void> startImageModelDownload() async {
     if (_imageModelInstallStatus == ModelInstallStatus.installing) {
       return;
@@ -384,6 +387,7 @@ class AiModelProvider extends ChangeNotifier {
       notifyListeners();
     });
   }
+*/
 
   /// 取消下载
   Future<void> cancelModelDownload() async {
@@ -404,6 +408,7 @@ class AiModelProvider extends ChangeNotifier {
     _fileSubscription = null;
   }
 
+/*
   Future<void> cancelImageModelDownload() async {
     _imageDownloader?.cancel();
     await _cancelImageSubscriptions();
@@ -420,6 +425,7 @@ class AiModelProvider extends ChangeNotifier {
     _imageProgressSubscription = null;
     _imageFileSubscription = null;
   }
+*/
 
   /// 删除已下载的模型
   Future<void> deleteModel() async {
@@ -435,6 +441,7 @@ class AiModelProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+/*
   Future<void> deleteImageModel() async {
     await _cancelImageSubscriptions();
     _imageDownloader?.dispose();
@@ -445,6 +452,7 @@ class AiModelProvider extends ChangeNotifier {
     _imageDownloadProgress = 0.0;
     notifyListeners();
   }
+*/
 
   Future<String> generate({
     required String prompt,
@@ -484,8 +492,8 @@ class AiModelProvider extends ChangeNotifier {
   void dispose() {
     _cancelSubscriptions();
     _downloader?.dispose();
-    _cancelImageSubscriptions();
-    _imageDownloader?.dispose();
+    // _cancelImageSubscriptions();
+    // _imageDownloader?.dispose();
     _llmClient?.dispose();
     super.dispose();
   }

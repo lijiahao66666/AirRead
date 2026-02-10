@@ -5,7 +5,7 @@ import 'mnn_model_spec.dart';
 /// 负责检查、下载和管理 MNN 模型
 class ModelManager {
   static const String qwen3_0_6b = 'qwen3-0.6b-mnn';
-  static const String sd_v1_5 = 'stable-diffusion-v1-5-mnn';
+  // static const String sd_v1_5 = 'stable-diffusion-v1-5-mnn'; // Removed
 
   static const MnnModelSpec qwen3Spec = MnnModelSpec(
     id: qwen3_0_6b,
@@ -35,8 +35,9 @@ class ModelManager {
     },
   );
 
+/*
   static const MnnModelSpec sdV15Spec = MnnModelSpec(
-    id: sd_v1_5,
+    id: 'stable-diffusion-v1-5-mnn',
     displayName: 'Stable Diffusion v1.5',
     sizeLabel: '1.15GB',
     estimatedTotalSizeBytes: 1155 * 1024 * 1024,
@@ -76,8 +77,9 @@ class ModelManager {
       'vae_decoder.mnn.weight': 10 * 1024 * 1024,
     },
   );
+*/
 
-  static const List<MnnModelSpec> localModels = [qwen3Spec, sdV15Spec];
+  static const List<MnnModelSpec> localModels = [qwen3Spec]; // Removed sdV15Spec
 
   static MnnModelSpec specFor(String modelId) {
     return localModels.firstWhere((e) => e.id == modelId, orElse: () => qwen3Spec);

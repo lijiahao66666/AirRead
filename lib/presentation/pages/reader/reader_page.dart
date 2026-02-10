@@ -557,9 +557,9 @@ class _ReaderPageState extends State<ReaderPage>
         // Analysis just finished
         final scenes = p.getScenes(chapterId);
         if (scenes.isNotEmpty) {
-          _showCenterToast('插图分析完成，可留意页面的查看插图按钮');
+          _showCenterToast('插图分析完成');
         } else {
-           _showCenterToast('插图分析失败，请重试');
+           _showCenterToast('插图分析失败');
         }
       }
       _lastIsAnalyzing = isAnalyzing;

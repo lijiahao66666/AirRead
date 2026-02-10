@@ -2331,7 +2331,7 @@ class _TencentHunyuanSettingsPanelState
                     if (aiModel.source == AiModelSource.local) ...[
                       const SizedBox(height: 12),
                       Text(
-                        '本地模型可离线免费使用，但效果不如在线大模型。如仅需使用问答，只需下载文本模型。',
+                        '本地模型可离线免费使用，但效果不如在线大模型。如需使用问答，需下载模型文件。',
                         style: TextStyle(
                           color: widget.textColor.withOpacityCompat(0.65),
                           fontSize: 12,
@@ -2341,7 +2341,7 @@ class _TencentHunyuanSettingsPanelState
                       const SizedBox(height: 10),
                       _localModelStatusRow(
                         aiModel,
-                        kindLabel: '文本模型',
+                        // kindLabel: '文本模型', // Removed
                         title: aiModel.localModelName,
                         sizeText: aiModel.localModelSizeLabel,
                         isImageModel: false,
@@ -2352,6 +2352,7 @@ class _TencentHunyuanSettingsPanelState
               ),
               const SizedBox(height: 10),
               
+              /*
               // 插图设置（如果本地模式则禁用）
               Builder(builder: (context) {
                 final bool isLocal = aiModel.source == AiModelSource.local;
@@ -2439,6 +2440,47 @@ class _TencentHunyuanSettingsPanelState
                   ),
                 );
               }),
+              */
+              
+              // 恢复每章最大生图个数设置（独立显示）
+              if (aiModel.source != AiModelSource.local)
+                _itemBox(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '每章最大生图个数',
+                              style: TextStyle(
+                                color: widget.textColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                          _countStepper(
+                            value: aiModel.maxIllustrationsPerChapter,
+                            min: 2,
+                            max: 20,
+                            onChanged: (v) =>
+                                unawaited(aiModel.setMaxIllustrationsPerChapter(v)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'AI会根据每章内容给出0-${aiModel.maxIllustrationsPerChapter}个插图建议；该数量为上限，实际数量由AI决定，可根据情况选择是否生图。',
+                        style: TextStyle(
+                          color: widget.textColor.withOpacityCompat(0.65),
+                          fontSize: 12,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         );
@@ -2513,7 +2555,7 @@ class _TencentHunyuanSettingsPanelState
 
   Widget _localModelStatusRow(
     AiModelProvider aiModel, {
-    required String kindLabel,
+    // required String kindLabel, // Removed
     required String title,
     required String sizeText,
     required bool isImageModel,
@@ -2523,6 +2565,7 @@ class _TencentHunyuanSettingsPanelState
 
     return Row(
       children: [
+        /*
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
@@ -2544,9 +2587,10 @@ class _TencentHunyuanSettingsPanelState
           ),
         ),
         const SizedBox(width: 10),
+        */
         Expanded(
           child: Text(
-            '$title($sizeText)',
+            '$title ($sizeText)',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -2566,17 +2610,12 @@ class _TencentHunyuanSettingsPanelState
     AiModelProvider aiModel, {
     required bool isImageModel,
   }) {
-    final installStatus = isImageModel
-        ? aiModel.imageModelInstallStatus
-        : aiModel.modelInstallStatus;
-    final progress =
-        isImageModel ? aiModel.imageDownloadProgress : aiModel.downloadProgress;
-    final onStart = isImageModel
-        ? aiModel.startImageModelDownload
-        : aiModel.startModelDownload;
-    final onCancel = isImageModel
-        ? aiModel.cancelImageModelDownload
-        : aiModel.cancelModelDownload;
+    if (isImageModel) return const SizedBox.shrink(); // Hide for image model
+
+    final installStatus = aiModel.modelInstallStatus;
+    final progress = aiModel.downloadProgress;
+    final onStart = aiModel.startModelDownload;
+    final onCancel = aiModel.cancelModelDownload;
 
     // 根据安装状态显示不同按钮
     switch (installStatus) {
@@ -2758,23 +2797,12 @@ class _MainPanel extends StatelessWidget {
 
     final bool illustrationBlockedByKeys = personalKeysMissing;
     final bool illustrationBlockedByModel = source == AiModelSource.none;
-    final bool illustrationBlockedByLocalTextNotInstalled =
-        source == AiModelSource.local && !aiModel.localTextInstalled;
-    final bool illustrationBlockedByLocalTextNotReady =
-        source == AiModelSource.local &&
-            aiModel.localTextInstalled &&
-            !aiModel.localTextReady;
-    final bool illustrationBlockedByLocalImageNotInstalled =
-        source == AiModelSource.local &&
-            aiModel.localTextReady &&
-            !aiModel.localImageInstalled;
+    final bool illustrationBlockedByLocal = source == AiModelSource.local;
     final bool illustrationBlockedByEntitlement =
         source == AiModelSource.online && !onlineEntitled && !usingPersonalKeys;
     final bool illustrationBlocked = illustrationBlockedByKeys ||
         illustrationBlockedByModel ||
-        illustrationBlockedByLocalTextNotInstalled ||
-        illustrationBlockedByLocalTextNotReady ||
-        illustrationBlockedByLocalImageNotInstalled ||
+        illustrationBlockedByLocal ||
         illustrationBlockedByEntitlement;
     final bool illustrationValue =
         illustrationBlocked ? false : aiModel.illustrationEnabled;
@@ -2784,13 +2812,9 @@ class _MainPanel extends StatelessWidget {
 
     String illustrationSubtitle;
     if (illustrationBlockedByModel) {
-      illustrationSubtitle = '需要先在设置中选择大模型';
-    } else if (illustrationBlockedByLocalTextNotInstalled) {
-      illustrationSubtitle = '文本模型未下载，下载后可用';
-    } else if (illustrationBlockedByLocalTextNotReady) {
-      illustrationSubtitle = '本地模型未就绪，初始化后可用';
-    } else if (illustrationBlockedByLocalImageNotInstalled) {
-      illustrationSubtitle = '生图模型未下载，下载后可用';
+      illustrationSubtitle = '需要先在设置中选择在线大模型';
+    } else if (illustrationBlockedByLocal) {
+      illustrationSubtitle = '本地模型不支持插图功能';
     } else if (illustrationBlockedByKeys) {
       illustrationSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
     } else if (illustrationBlockedByEntitlement) {
