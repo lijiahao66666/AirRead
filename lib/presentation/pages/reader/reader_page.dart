@@ -527,8 +527,8 @@ class _ReaderPageState extends State<ReaderPage>
 
   static const double _kFloatingCapsuleHeight = 52;
   static const double _kFloatingHandleWidth = 22;
-  static const double _kReadAloudExpandedWidth = 190;
-  static const double _kIllustrationExpandedWidth = 150;
+  static const double _kReadAloudExpandedWidth = 150;
+  static const double _kIllustrationExpandedWidth = 110;
 
   double _readAloudFabWidth(bool collapsed) {
     return collapsed
@@ -3704,95 +3704,104 @@ class _ReaderPageState extends State<ReaderPage>
                             ? const SizedBox.shrink()
                             : Padding(
                                 padding:
-                                    const EdgeInsets.symmetric(horizontal: 8),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    _readAloudCapsuleButton(
-                                      icon: Icons.replay_rounded,
-                                      spinTurns: _readAloudBackSpinTurns,
-                                      enabled:
-                                          tp.aiReadAloudEnabled && !atBookStart,
-                                      onTap: () {
-                                        _touchFloatingUi();
-                                        setState(() =>
-                                            _readAloudBackSpinTurns -= 1.0);
-                                        unawaited(_handleReadAloudBackTap());
-                                      },
-                                    ),
-                                    _readAloudCapsuleButton(
-                                      icon: Icons.volume_up_rounded,
-                                      highlight: readAloud.playing ||
-                                          readAloud.preparing,
-                                      enabled: true,
-                                      showProgress: readAloud.preparing,
-                                      onTap: () {
-                                        _touchFloatingUi();
-                                        if (readAloud.bookId == widget.bookId &&
-                                            (readAloud.playing ||
-                                                readAloud.preparing)) {
-                                          unawaited(readAloud.pause());
-                                          return;
-                                        }
-                                        if (readAloud.bookId == widget.bookId &&
-                                            readAloud.paused) {
-                                          unawaited(readAloud.resume());
-                                          return;
-                                        }
-                                        unawaited(() async {
-                                          final tp = context
-                                              .read<TranslationProvider>();
-                                          final rap =
-                                              context.read<ReadAloudProvider>();
-                                          if (!tp.aiReadAloudEnabled) return;
-                                          final resume = rap.position;
-                                          int targetChapter =
-                                              _currentChapterIndex;
-                                          int? startPara;
-
-                                          if (resume != null &&
-                                              resume.bookId == widget.bookId) {
-                                            targetChapter = resume.chapterIndex;
-                                          } else {
-                                            final visibleMap =
-                                                _paragraphsByIndexForPageOffsetForTranslation(
-                                                    0, tp);
-                                            if (visibleMap.isNotEmpty) {
-                                              final sortedKeys = visibleMap.keys
-                                                  .toList()
-                                                ..sort();
-                                              startPara = sortedKeys.first;
-                                            }
+                                    const EdgeInsets.symmetric(horizontal: 6),
+                                child: Center(
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _readAloudCapsuleButton(
+                                        icon: Icons.replay_rounded,
+                                        spinTurns: _readAloudBackSpinTurns,
+                                        enabled: tp.aiReadAloudEnabled &&
+                                            !atBookStart,
+                                        onTap: () {
+                                          _touchFloatingUi();
+                                          setState(() =>
+                                              _readAloudBackSpinTurns -= 1.0);
+                                          unawaited(_handleReadAloudBackTap());
+                                        },
+                                      ),
+                                      const SizedBox(width: 6),
+                                      _readAloudCapsuleButton(
+                                        icon: Icons.volume_up_rounded,
+                                        highlight: readAloud.playing ||
+                                            readAloud.preparing,
+                                        enabled: true,
+                                        showProgress: readAloud.preparing,
+                                        onTap: () {
+                                          _touchFloatingUi();
+                                          if (readAloud.bookId ==
+                                                  widget.bookId &&
+                                              (readAloud.playing ||
+                                                  readAloud.preparing)) {
+                                            unawaited(readAloud.pause());
+                                            return;
                                           }
+                                          if (readAloud.bookId ==
+                                                  widget.bookId &&
+                                              readAloud.paused) {
+                                            unawaited(readAloud.resume());
+                                            return;
+                                          }
+                                          unawaited(() async {
+                                            final tp = context
+                                                .read<TranslationProvider>();
+                                            final rap = context
+                                                .read<ReadAloudProvider>();
+                                            if (!tp.aiReadAloudEnabled) return;
+                                            final resume = rap.position;
+                                            int targetChapter =
+                                                _currentChapterIndex;
+                                            int? startPara;
 
-                                          final paras =
-                                              await _paragraphsForChapter(
-                                                  targetChapter);
-                                          if (!mounted) return;
-                                          await rap.startOrResume(
-                                            bookId: widget.bookId,
-                                            chapterIndex: targetChapter,
-                                            paragraphs: paras,
-                                            startParagraphIndex: startPara,
-                                          );
-                                        }());
-                                      },
-                                    ),
-                                    _readAloudCapsuleButton(
-                                      icon: Icons.replay_rounded,
-                                      spinTurns: _readAloudForwardSpinTurns,
-                                      mirrorX: true,
-                                      enabled:
-                                          tp.aiReadAloudEnabled && !atBookEnd,
-                                      onTap: () {
-                                        _touchFloatingUi();
-                                        setState(() =>
-                                            _readAloudForwardSpinTurns += 1.0);
-                                        unawaited(_handleReadAloudForwardTap());
-                                      },
-                                    ),
-                                  ],
+                                            if (resume != null &&
+                                                resume.bookId ==
+                                                    widget.bookId) {
+                                              targetChapter =
+                                                  resume.chapterIndex;
+                                            } else {
+                                              final visibleMap =
+                                                  _paragraphsByIndexForPageOffsetForTranslation(
+                                                      0, tp);
+                                              if (visibleMap.isNotEmpty) {
+                                                final sortedKeys =
+                                                    visibleMap.keys.toList()
+                                                      ..sort();
+                                                startPara = sortedKeys.first;
+                                              }
+                                            }
+
+                                            final paras =
+                                                await _paragraphsForChapter(
+                                                    targetChapter);
+                                            if (!mounted) return;
+                                            await rap.startOrResume(
+                                              bookId: widget.bookId,
+                                              chapterIndex: targetChapter,
+                                              paragraphs: paras,
+                                              startParagraphIndex: startPara,
+                                            );
+                                          }());
+                                        },
+                                      ),
+                                      const SizedBox(width: 6),
+                                      _readAloudCapsuleButton(
+                                        icon: Icons.replay_rounded,
+                                        spinTurns: _readAloudForwardSpinTurns,
+                                        mirrorX: true,
+                                        enabled:
+                                            tp.aiReadAloudEnabled && !atBookEnd,
+                                        onTap: () {
+                                          _touchFloatingUi();
+                                          setState(() =>
+                                              _readAloudForwardSpinTurns +=
+                                                  1.0);
+                                          unawaited(
+                                              _handleReadAloudForwardTap());
+                                        },
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                       ),
@@ -3940,90 +3949,95 @@ class _ReaderPageState extends State<ReaderPage>
                           ? const SizedBox.shrink()
                           : Padding(
                               padding:
-                                  const EdgeInsets.symmetric(horizontal: 8),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  _readAloudCapsuleButton(
-                                    icon: Icons.auto_awesome_rounded,
-                                    enabled: canAnalyze,
-                                    showProgress: analyzing,
-                                    highlight: analyzingOrQueued,
-                                    onTap: () {
-                                      _touchFloatingUi();
-                                      unawaited(() async {
-                                        final provider = context
-                                            .read<IllustrationProvider>();
-                                        final ai =
-                                            context.read<AiModelProvider>();
-                                        final chapterIndex =
-                                            _currentChapterIndex;
-                                        final chapter = _chapters[chapterIndex];
-                                        final chapterTitle =
-                                            (chapter.title ?? '正文').trim();
-                                        final plain = _getPlainTextForChapter(
-                                            chapterIndex);
-                                        if (plain.trim().isEmpty) {
-                                          unawaited(_ensureChapterContentCached(
-                                              chapterIndex));
-                                          _showTopError('章节内容为空');
-                                          return;
-                                        }
-
-                                        Future<String> Function(String prompt)?
-                                            run;
-                                        if (ai.illustrationForceLocalAnalyze) {
-                                          if (!ai
-                                              .localModelReadyForIllustrationAnalysis) {
-                                            _showTopError('本地模型未就绪，需下载模型');
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                              child: Center(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _readAloudCapsuleButton(
+                                      icon: Icons.auto_awesome_rounded,
+                                      enabled: canAnalyze,
+                                      showProgress: analyzing,
+                                      highlight: analyzingOrQueued,
+                                      onTap: () {
+                                        _touchFloatingUi();
+                                        unawaited(() async {
+                                          final provider = context
+                                              .read<IllustrationProvider>();
+                                          final ai =
+                                              context.read<AiModelProvider>();
+                                          final chapterIndex =
+                                              _currentChapterIndex;
+                                          final chapter =
+                                              _chapters[chapterIndex];
+                                          final chapterTitle =
+                                              (chapter.title ?? '正文').trim();
+                                          final plain = _getPlainTextForChapter(
+                                              chapterIndex);
+                                          if (plain.trim().isEmpty) {
+                                            unawaited(
+                                                _ensureChapterContentCached(
+                                                    chapterIndex));
+                                            _showTopError('章节内容为空');
                                             return;
                                           }
-                                          run = (prompt) => ai.generate(
-                                                prompt: prompt,
-                                                maxTokens: 1024,
-                                                temperature: 0.2,
-                                              );
-                                        }
 
-                                        final chapterId =
-                                            '${widget.bookId}::$chapterIndex';
-                                        provider.clearChapter(chapterId);
-                                        _illustrationAutoAnalyzeRequested
-                                            .remove(chapterIndex);
-                                        try {
-                                          await provider.analyzeChapter(
-                                            chapterId: chapterId,
-                                            chapterTitle: chapterTitle.isEmpty
-                                                ? '正文'
-                                                : chapterTitle,
-                                            content: plain,
-                                            maxScenes:
-                                                ai.maxIllustrationsPerChapter,
-                                            force: true,
-                                            pointsBalance: ai.pointsBalance,
-                                            generateText: run,
-                                          );
-                                        } catch (e) {
-                                          _showTopError(e.toString());
-                                        }
-                                      }());
-                                    },
-                                  ),
-                                  _readAloudCapsuleButton(
-                                    icon: Icons.collections_outlined,
-                                    enabled: true,
-                                    onTap: () {
-                                      _touchFloatingUi();
-                                      unawaited(
-                                        _openIllustrationPanelForChapter(
-                                          chapterIndex: _currentChapterIndex,
-                                          onlySceneId: null,
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ],
+                                          Future<String> Function(
+                                              String prompt)? run;
+                                          if (ai
+                                              .illustrationForceLocalAnalyze) {
+                                            if (!ai
+                                                .localModelReadyForIllustrationAnalysis) {
+                                              _showTopError('本地模型未就绪，需下载模型');
+                                              return;
+                                            }
+                                            run = (prompt) => ai.generate(
+                                                  prompt: prompt,
+                                                  maxTokens: 1024,
+                                                  temperature: 0.2,
+                                                );
+                                          }
+
+                                          final chapterId =
+                                              '${widget.bookId}::$chapterIndex';
+                                          provider.clearChapter(chapterId);
+                                          _illustrationAutoAnalyzeRequested
+                                              .remove(chapterIndex);
+                                          try {
+                                            await provider.analyzeChapter(
+                                              chapterId: chapterId,
+                                              chapterTitle: chapterTitle.isEmpty
+                                                  ? '正文'
+                                                  : chapterTitle,
+                                              content: plain,
+                                              maxScenes:
+                                                  ai.maxIllustrationsPerChapter,
+                                              force: true,
+                                              pointsBalance: ai.pointsBalance,
+                                              generateText: run,
+                                            );
+                                          } catch (e) {
+                                            _showTopError(e.toString());
+                                          }
+                                        }());
+                                      },
+                                    ),
+                                    const SizedBox(width: 6),
+                                    _readAloudCapsuleButton(
+                                      icon: Icons.collections_outlined,
+                                      enabled: true,
+                                      onTap: () {
+                                        _touchFloatingUi();
+                                        unawaited(
+                                          _openIllustrationPanelForChapter(
+                                            chapterIndex: _currentChapterIndex,
+                                            onlySceneId: null,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                     ),
