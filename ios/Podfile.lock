@@ -100,7 +100,7 @@ SPEC CHECKSUMS:
   file_picker: 9b3292d7c8bc68c8a7bf8eb78f730e49c8efc517
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
-  LocalMNN: 112fd21bf35e24a3c47e02802b6d14a34c273966
+  LocalMNN: 06aa39d95ce0273fd8a345f306a92dfeb668ea5d
   permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
   SDWebImage: 1bb6a1b84b6fe87b972a102bdc77dd589df33477
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
