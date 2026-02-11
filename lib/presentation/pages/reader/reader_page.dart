@@ -521,6 +521,7 @@ class _ReaderPageState extends State<ReaderPage>
   VoidCallback? _illustrationListener;
   Set<String> _lastAnalyzingChapterIds = {};
   final Set<String> _pendingIllustrationCompletionChapterIds = {};
+  bool _lastAiReadAloudEnabled = false;
   Timer? _floatingUiAutoHideTimer;
   bool _readAloudFabCollapsed = false;
   bool _illustrationFabCollapsed = false;
@@ -695,6 +696,7 @@ class _ReaderPageState extends State<ReaderPage>
 
     // Setup TranslationProvider error handler
     final transProvider = context.read<TranslationProvider>();
+    _lastAiReadAloudEnabled = transProvider.aiReadAloudEnabled;
     transProvider.onError = (msg) {
       if (!mounted) return;
       _showTopError(msg);
@@ -721,6 +723,11 @@ class _ReaderPageState extends State<ReaderPage>
               (nowPoints > 0 && _lastAiPointsBalance <= 0) ||
               (nowLoaded && !_lastAiLoaded) ||
               (nowSource != _lastAiSource));
+
+      if (nowIllustrationEnabled && !_lastIllustrationEnabled) {
+        _setIllustrationFabCollapsed(false);
+        _touchFloatingUi();
+      }
 
       _lastIllustrationEnabled = nowIllustrationEnabled;
       _lastAiPointsBalance = nowPoints;
@@ -7293,6 +7300,16 @@ class _ReaderPageState extends State<ReaderPage>
     final tp = context.watch<TranslationProvider>();
     final aiModel = context.watch<AiModelProvider>();
     final readAloud = context.watch<ReadAloudProvider>();
+
+    if (tp.aiReadAloudEnabled && !_lastAiReadAloudEnabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _setReadAloudFabCollapsed(false);
+        _touchFloatingUi();
+      });
+    }
+    _lastAiReadAloudEnabled = tp.aiReadAloudEnabled;
+
     final pos = readAloud.position;
     final canUseOnlineWithPersonalKeys = tp.usingPersonalTencentKeys &&
         getEmbeddedPublicHunyuanCredentials().isUsable;
