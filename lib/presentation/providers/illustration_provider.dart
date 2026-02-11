@@ -89,8 +89,16 @@ class IllustrationProvider extends ChangeNotifier {
     if (scenes == null || scenes.isEmpty) return;
     final idx = scenes.indexWhere((e) => e.id == sceneId);
     if (idx < 0) return;
-    scenes[idx].action = prompt.trim();
+    scenes[idx].action = _normalizeScenePrompt(prompt);
     notifyListeners();
+  }
+
+  String _normalizeScenePrompt(String input) {
+    var s = input.replaceAll('\u0000', '');
+    s = s.replaceAll(RegExp(r'\\[nrt]'), ' ');
+    s = s.replaceAll(RegExp(r'[\r\n]+'), ' ');
+    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return s;
   }
 
   Future<List<SceneCard>> analyzeSelectionForChapter({

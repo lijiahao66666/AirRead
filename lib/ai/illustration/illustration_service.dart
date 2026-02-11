@@ -266,9 +266,42 @@ class IllustrationService {
   }
 
   String _normalizeForPrompt(String s, {required int maxLen}) {
-    final t = s.replaceAll(RegExp(r'\s+'), ' ').replaceAll('\u0000', '').trim();
+    var t = s.replaceAll('\u0000', '').replaceAll(RegExp(r'\s+'), ' ').trim();
+    t = _trimOuterPunctuation(t);
     if (t.length <= maxLen) return t;
     return '${t.substring(0, maxLen)}…';
+  }
+
+  String _trimOuterPunctuation(String input) {
+    var s = input.trim();
+    if (s.isEmpty) return s;
+    const int maxPass = 4;
+    for (int i = 0; i < maxPass; i++) {
+      final before = s;
+      s = s
+          .replaceAll(
+            RegExp('^[\\s"\'“”‘’《》〈〉「」『』【】〔〕（）()\\[\\]]+'),
+            '',
+          )
+          .replaceAll(RegExp(r'^[,，。．、!！?？;；:：…—\-]+'), '')
+          .replaceAll(
+            RegExp('[\\s"\'“”‘’《》〈〉「」『』【】〔〕（）()\\[\\]]+\$'),
+            '',
+          )
+          .replaceAll(RegExp(r'[,，。．、!！?？;；:：…—\-]+$'), '')
+          .trim();
+      if (s.isEmpty) return '';
+      if (s == before) break;
+    }
+    return s;
+  }
+
+  String _normalizeModelPrompt(String input) {
+    var s = input.replaceAll('\u0000', '');
+    s = s.replaceAll(RegExp(r'\\[nrt]'), ' ');
+    s = s.replaceAll(RegExp(r'[\r\n]+'), ' ');
+    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return s;
   }
 
   String _safeFileName(String s) {
@@ -418,7 +451,7 @@ class IllustrationService {
       }
 
       final String title = (map['title'] ?? '场景').toString();
-      final String scene = promptVal ?? '';
+      final String scene = _normalizeModelPrompt(promptVal ?? '');
 
       if (scene.isEmpty) {
         errors.add('第${i + 1}项 prompt为空');

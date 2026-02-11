@@ -10,6 +10,14 @@ import '../providers/illustration_provider.dart';
 import '../../ai/illustration/scene_card.dart';
 import 'scene_image.dart';
 
+String _normalizeIllustrationPromptText(String input) {
+  var s = input.replaceAll('\u0000', '');
+  s = s.replaceAll(RegExp(r'\\[nrt]'), ' ');
+  s = s.replaceAll(RegExp(r'[\r\n]+'), ' ');
+  s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return s;
+}
+
 class IllustrationPanel extends StatefulWidget {
   final bool isDark;
   final Color bgColor;
@@ -751,7 +759,9 @@ class _SceneCardWidget extends StatelessWidget {
                 GestureDetector(
                   onTap: onEditPrompt,
                   child: Text(
-                    card.action.trim().isEmpty ? '（暂无）' : card.action,
+                    _normalizeIllustrationPromptText(card.action).isEmpty
+                        ? '（暂无）'
+                        : _normalizeIllustrationPromptText(card.action),
                     style: TextStyle(
                       fontSize: 12,
                       height: 1.35,
