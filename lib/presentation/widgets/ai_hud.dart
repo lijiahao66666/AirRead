@@ -232,14 +232,27 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
                   child: panel,
                 );
 
-          return ClipRect(
-            child: AnimatedSize(
+          return Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) {
+              FocusManager.instance.primaryFocus?.unfocus();
+            },
+            child: AnimatedPadding(
               duration: reduceMotion
                   ? Duration.zero
-                  : const Duration(milliseconds: 240),
+                  : const Duration(milliseconds: 200),
               curve: Curves.easeOutCubic,
-              alignment: Alignment.bottomCenter,
-              child: sizedPanel,
+              padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+              child: ClipRect(
+                child: AnimatedSize(
+                  duration: reduceMotion
+                      ? Duration.zero
+                      : const Duration(milliseconds: 240),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.bottomCenter,
+                  child: sizedPanel,
+                ),
+              ),
             ),
           );
         },
@@ -405,6 +418,8 @@ class _TencentHunyuanSettingsPanelState
   final TextEditingController _userSecretIdController = TextEditingController();
   final TextEditingController _userSecretKeyController =
       TextEditingController();
+  final FocusNode _userSecretIdFocus = FocusNode();
+  final FocusNode _userSecretKeyFocus = FocusNode();
   bool _userKeysEnabled = false;
   bool _redeemBusy = false;
   String? _userKeysHint;
@@ -481,6 +496,8 @@ class _TencentHunyuanSettingsPanelState
     _userKeysHintTimer?.cancel();
     _userSecretIdController.dispose();
     _userSecretKeyController.dispose();
+    _userSecretIdFocus.dispose();
+    _userSecretKeyFocus.dispose();
     super.dispose();
   }
 
@@ -491,7 +508,10 @@ class _TencentHunyuanSettingsPanelState
         : AppColors.mistWhite;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.only(bottom: 6),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: EdgeInsets.only(
+        bottom: 6 + MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -750,6 +770,7 @@ class _TencentHunyuanSettingsPanelState
   }
 
   Future<void> _saveUserTencentCredentials() async {
+    FocusScope.of(context).unfocus();
     final secretId = _userSecretIdController.text.trim();
     final secretKey = _userSecretKeyController.text.trim();
     final prefs = await SharedPreferences.getInstance();
@@ -778,6 +799,7 @@ class _TencentHunyuanSettingsPanelState
   }
 
   Future<void> _clearUserTencentCredentials() async {
+    FocusScope.of(context).unfocus();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kUserTencentKeysEnabled, false);
     await prefs.remove(_kUserTencentSecretId);
@@ -853,6 +875,14 @@ class _TencentHunyuanSettingsPanelState
             const SizedBox(height: 12),
             TextField(
               controller: _userSecretIdController,
+              focusNode: _userSecretIdFocus,
+              textInputAction: TextInputAction.next,
+              scrollPadding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom + 160,
+              ),
+              onSubmitted: (_) {
+                FocusScope.of(context).requestFocus(_userSecretKeyFocus);
+              },
               decoration: InputDecoration(
                 hintText: 'SecretId',
                 isDense: true,
@@ -887,7 +917,18 @@ class _TencentHunyuanSettingsPanelState
             const SizedBox(height: 10),
             TextField(
               controller: _userSecretKeyController,
+              focusNode: _userSecretKeyFocus,
               obscureText: true,
+              textInputAction: TextInputAction.done,
+              scrollPadding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom + 160,
+              ),
+              onSubmitted: (_) {
+                FocusScope.of(context).unfocus();
+              },
+              onEditingComplete: () {
+                FocusScope.of(context).unfocus();
+              },
               decoration: InputDecoration(
                 hintText: 'SecretKey',
                 isDense: true,

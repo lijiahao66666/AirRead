@@ -6289,7 +6289,7 @@ class _ReaderPageState extends State<ReaderPage>
                 WidgetSpan(
                   alignment: PlaceholderAlignment.middle,
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 6, 8, 6),
+                    padding: const EdgeInsets.only(right: 8),
                     child: Listener(
                       behavior: HitTestBehavior.opaque,
                       onPointerDown: (_) => _suppressReaderTap(),
@@ -6306,7 +6306,7 @@ class _ReaderPageState extends State<ReaderPage>
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
+                              horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
                             color: AppColors.techBlue.withOpacityCompat(0.12),
                             borderRadius: BorderRadius.circular(999),
