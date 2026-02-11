@@ -2466,7 +2466,8 @@ class _TencentHunyuanSettingsPanelState
                                 Text(
                                   '开启后进入章节将自动分析插图场景',
                                   style: TextStyle(
-                                    color: widget.textColor.withOpacityCompat(0.65),
+                                    color: widget.textColor
+                                        .withOpacityCompat(0.65),
                                     fontSize: 12,
                                     height: 1.35,
                                   ),
@@ -2481,7 +2482,9 @@ class _TencentHunyuanSettingsPanelState
                               activeThumbColor: AppColors.techBlue,
                               onChanged: aiModel.source == AiModelSource.online
                                   ? (v) => unawaited(
-                                        aiModel.setIllustrationAutoAnalyzeEnabled(v),
+                                        aiModel
+                                            .setIllustrationAutoAnalyzeEnabled(
+                                                v),
                                       )
                                   : null,
                             ),
@@ -2498,9 +2501,11 @@ class _TencentHunyuanSettingsPanelState
                                 Text(
                                   '强制本地模型分析',
                                   style: TextStyle(
-                                    color: aiModel.localModelReadyForIllustrationAnalysis
+                                    color: aiModel
+                                            .localModelReadyForIllustrationAnalysis
                                         ? widget.textColor
-                                        : widget.textColor.withOpacityCompat(0.5),
+                                        : widget.textColor
+                                            .withOpacityCompat(0.5),
                                     fontSize: 13,
                                     fontWeight: FontWeight.normal,
                                   ),
@@ -2511,7 +2516,8 @@ class _TencentHunyuanSettingsPanelState
                                       ? '使用本地模型进行插图场景分析'
                                       : '本地模型未就绪，需下载模型',
                                   style: TextStyle(
-                                    color: widget.textColor.withOpacityCompat(0.65),
+                                    color: widget.textColor
+                                        .withOpacityCompat(0.65),
                                     fontSize: 12,
                                     height: 1.35,
                                   ),
@@ -2522,15 +2528,20 @@ class _TencentHunyuanSettingsPanelState
                           Transform.scale(
                             scale: 0.85,
                             child: Switch(
-                              value: aiModel.localModelReadyForIllustrationAnalysis &&
-                                      aiModel.illustrationForceLocalAnalyze
-                                  ? true
-                                  : false,
+                              value:
+                                  aiModel.localModelReadyForIllustrationAnalysis &&
+                                          aiModel.illustrationForceLocalAnalyze
+                                      ? true
+                                      : false,
                               activeThumbColor: AppColors.techBlue,
-                              onChanged: aiModel.source == AiModelSource.online &&
-                                      aiModel.localModelReadyForIllustrationAnalysis
+                              onChanged: aiModel.source ==
+                                          AiModelSource.online &&
+                                      aiModel
+                                          .localModelReadyForIllustrationAnalysis
                                   ? (v) => unawaited(
-                                        aiModel.setIllustrationForceLocalAnalyze(v),
+                                        aiModel
+                                            .setIllustrationForceLocalAnalyze(
+                                                v),
                                       )
                                   : null,
                             ),
@@ -2857,7 +2868,7 @@ class _MainPanel extends StatelessWidget {
     } else if (translationBlockedByEntitlement) {
       translateSubtitle = '大模型翻译需要购买积分后使用';
     } else if (!translateValue) {
-      translateSubtitle = '打开后将实时对内容进行翻译';
+      translateSubtitle = '开启后，可实时翻译页面内容';
     } else {
       translateSubtitle = '翻译中...';
     }
@@ -2881,7 +2892,7 @@ class _MainPanel extends StatelessWidget {
             ? '已开启使用个人密钥，但未正确设置个人密钥'
             : (onlineReadAloudBlocked
                 ? '在线朗读需要购买积分后使用'
-                : (readAloudEnabled ? '已开启，点击页面小喇叭朗读或暂停' : '开启后，可朗读当前页')));
+                : (readAloudEnabled ? '已开启，点击页面胶囊按钮朗读或暂停' : '开启后，可朗读页面内容')));
     final bool readAloudValue =
         localReadAloudBlocked ? false : readAloudEnabled;
 
@@ -2910,9 +2921,9 @@ class _MainPanel extends StatelessWidget {
     } else if (illustrationBlockedByEntitlement) {
       illustrationSubtitle = '在线大模型需要购买积分后使用';
     } else if (!illustrationValue) {
-      illustrationSubtitle = '打开后进入章节自动分析';
+      illustrationSubtitle = '开启后，可使用页面内容生成插图';
     } else {
-      illustrationSubtitle = '分析插图中…留意阅读页插图提示';
+      illustrationSubtitle = '已开启，点击页面胶囊按钮分析生成插图';
     }
     if (source == AiModelSource.none && aiModel.illustrationEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
