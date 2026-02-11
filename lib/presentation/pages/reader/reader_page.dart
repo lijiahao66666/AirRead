@@ -3893,10 +3893,11 @@ class _ReaderPageState extends State<ReaderPage>
     if (!aiModel.illustrationEnabled) return const SizedBox.shrink();
     if (aiModel.source != AiModelSource.online) return const SizedBox.shrink();
 
-    final illuProvider = context.watch<IllustrationProvider>();
     final String chapterId = '${widget.bookId}::$_currentChapterIndex';
-    final bool analyzing = illuProvider.isAnalyzing(chapterId);
-    final bool analyzingOrQueued = illuProvider.isAnalyzingOrQueued(chapterId);
+    final bool analyzing = context
+        .select<IllustrationProvider, bool>((p) => p.isAnalyzing(chapterId));
+    final bool analyzingOrQueued = context.select<IllustrationProvider, bool>(
+        (p) => p.isAnalyzingOrQueued(chapterId));
 
     final tp = context.read<TranslationProvider>();
     final usingPersonal = tp.usingPersonalTencentKeys &&
@@ -5732,6 +5733,7 @@ class _ReaderPageState extends State<ReaderPage>
         child: PageView.builder(
           controller: _pageController,
           padEnds: false,
+          physics: const NeverScrollableScrollPhysics(),
           onPageChanged: (index) {
             final int diff = index - _pageViewCenterIndex;
             if (diff == 0) return;
@@ -7403,8 +7405,7 @@ class _ReaderPageState extends State<ReaderPage>
     const double _kBottomMenuPaddingY = 10.0;
     const double _kBottomMenuHeight =
         _kBottomMenuButtonSize + _kBottomMenuPaddingY * 2;
-    final controlsT = _controlsController.value;
-    final bottomMenuReserve = controlsT <= 0.001 ? 0.0 : _kBottomMenuHeight;
+    const bottomMenuReserve = 0.0;
 
     // Determine dynamic background for bars
     // Ensure fully opaque background as requested

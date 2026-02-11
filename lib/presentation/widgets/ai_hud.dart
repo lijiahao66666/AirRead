@@ -420,6 +420,7 @@ class _TencentHunyuanSettingsPanelState
       TextEditingController();
   final FocusNode _userSecretIdFocus = FocusNode();
   final FocusNode _userSecretKeyFocus = FocusNode();
+  final GlobalKey _userSecretKeyFieldKey = GlobalKey();
   bool _userKeysEnabled = false;
   bool _redeemBusy = false;
   String? _userKeysHint;
@@ -488,12 +489,44 @@ class _TencentHunyuanSettingsPanelState
   @override
   void initState() {
     super.initState();
+    _userSecretIdFocus.addListener(_onUserSecretIdFocusChanged);
+    _userSecretKeyFocus.addListener(_onUserSecretKeyFocusChanged);
     _loadUserTencentCredentials();
+  }
+
+  void _onUserSecretIdFocusChanged() {
+    if (!_userSecretIdFocus.hasFocus) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _userSecretKeyFieldKey.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        alignment: 1.0,
+      );
+    });
+  }
+
+  void _onUserSecretKeyFocusChanged() {
+    if (!_userSecretKeyFocus.hasFocus) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _userSecretKeyFieldKey.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        alignment: 1.0,
+      );
+    });
   }
 
   @override
   void dispose() {
     _userKeysHintTimer?.cancel();
+    _userSecretIdFocus.removeListener(_onUserSecretIdFocusChanged);
+    _userSecretKeyFocus.removeListener(_onUserSecretKeyFocusChanged);
     _userSecretIdController.dispose();
     _userSecretKeyController.dispose();
     _userSecretIdFocus.dispose();
@@ -509,9 +542,7 @@ class _TencentHunyuanSettingsPanelState
 
     return SingleChildScrollView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: EdgeInsets.only(
-        bottom: 6 + MediaQuery.of(context).viewInsets.bottom,
-      ),
+      padding: const EdgeInsets.only(bottom: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -877,9 +908,7 @@ class _TencentHunyuanSettingsPanelState
               controller: _userSecretIdController,
               focusNode: _userSecretIdFocus,
               textInputAction: TextInputAction.next,
-              scrollPadding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom + 160,
-              ),
+              scrollPadding: const EdgeInsets.only(bottom: 24),
               onSubmitted: (_) {
                 FocusScope.of(context).requestFocus(_userSecretKeyFocus);
               },
@@ -917,12 +946,11 @@ class _TencentHunyuanSettingsPanelState
             const SizedBox(height: 10),
             TextField(
               controller: _userSecretKeyController,
+              key: _userSecretKeyFieldKey,
               focusNode: _userSecretKeyFocus,
               obscureText: true,
               textInputAction: TextInputAction.done,
-              scrollPadding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom + 160,
-              ),
+              scrollPadding: const EdgeInsets.only(bottom: 24),
               onSubmitted: (_) {
                 FocusScope.of(context).unfocus();
               },

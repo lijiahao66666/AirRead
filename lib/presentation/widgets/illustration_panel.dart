@@ -469,6 +469,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                                 const SizedBox(height: 16),
                             itemBuilder: (context, index) {
                               return _SceneCardWidget(
+                                key: ValueKey(visibleScenes[index].id),
                                 card: visibleScenes[index],
                                 isDark: widget.isDark,
                                 textColor: widget.textColor,
@@ -645,6 +646,7 @@ class _SceneCardWidget extends StatelessWidget {
   final bool canGenerate;
 
   const _SceneCardWidget({
+    super.key,
     required this.card,
     required this.isDark,
     required this.textColor,

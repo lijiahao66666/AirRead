@@ -283,7 +283,6 @@ class IllustrationProvider extends ChangeNotifier {
           ..addAll(resultCards);
       }
       task.completer.complete(resultCards);
-      notifyListeners();
     } catch (e) {
       debugPrint('Process analysis queue failed: $e');
       task.completer.completeError(e);
