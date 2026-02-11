@@ -658,7 +658,7 @@ class _ReaderPageState extends State<ReaderPage>
       return;
     }
     final scenes = p.getScenes(chapterId);
-    _showCenterToast(scenes.isNotEmpty ? '插图分析完成' : '本章暂无适合插画的场景');
+    _showCenterToast(scenes.isNotEmpty ? '插图分析完成' : '无适合插画的场景');
   }
 
   @override
@@ -681,7 +681,7 @@ class _ReaderPageState extends State<ReaderPage>
           final scenes = p.getScenes(chapterId);
           final msg = !analyzed
               ? '插图分析失败'
-              : (scenes.isNotEmpty ? '插图分析完成' : '本章暂无适合插画的场景');
+              : (scenes.isNotEmpty ? '插图分析完成' : '无适合插画的场景');
           if (chapterId == currentChapterId) {
             _showCenterToast(msg);
           } else {
@@ -2338,6 +2338,40 @@ class _ReaderPageState extends State<ReaderPage>
     if (clean.length > 300) return '选中内容过长，建议精简到 300 字以内';
     final hasContent = RegExp(r'[\u4e00-\u9fa5a-zA-Z0-9]').hasMatch(clean);
     if (!hasContent) return '选中内容无效';
+    return null;
+  }
+
+  int? _paragraphIndexAtOffset({
+    required String effectiveText,
+    required int absoluteOffset,
+  }) {
+    final safeOffset = absoluteOffset.clamp(0, effectiveText.length);
+    final matches = RegExp(r'\n{2,}').allMatches(effectiveText);
+    int startPos = 0;
+    int paraIndex = 0;
+    for (final m in matches) {
+      final endPos = m.start;
+      final raw = effectiveText.substring(startPos, endPos);
+      final cleaned = raw
+          .replaceAll(RegExp(r'^\n+'), '')
+          .replaceAll(RegExp(r'\n+$'), '')
+          .replaceAll(RegExp(r'^[ \t\u3000]+'), '');
+      if (cleaned.trim().isNotEmpty) {
+        if (safeOffset <= endPos) return paraIndex;
+        paraIndex++;
+      }
+      startPos = m.end;
+    }
+    if (startPos <= effectiveText.length) {
+      final raw = effectiveText.substring(startPos);
+      final cleaned = raw
+          .replaceAll(RegExp(r'^\n+'), '')
+          .replaceAll(RegExp(r'\n+$'), '')
+          .replaceAll(RegExp(r'^[ \t\u3000]+'), '');
+      if (cleaned.trim().isNotEmpty) {
+        return paraIndex;
+      }
+    }
     return null;
   }
 
@@ -6341,7 +6375,15 @@ class _ReaderPageState extends State<ReaderPage>
                   ((aiModel.source == AiModelSource.local && aiModel.loaded) ||
                       (aiModel.source == AiModelSource.online &&
                           (aiModel.pointsBalance > 0 || personalUsable)));
-
+              final selectionIllustrationErr =
+                  _validateSelectionForIllustration(text);
+              final canIllustrate = text.isNotEmpty &&
+                  ((aiModel.illustrationForceLocalAnalyze &&
+                          aiModel.localModelReadyForIllustrationAnalysis) ||
+                      (aiModel.source == AiModelSource.local &&
+                          aiModel.loaded) ||
+                      (aiModel.source == AiModelSource.online &&
+                          (aiModel.pointsBalance > 0 || personalUsable)));
               final isDarkBg = _bgColor.computeLuminance() < 0.5;
               final toolbarBg = isDarkBg
                   ? Colors.white.withOpacityCompat(0.94)
@@ -6416,6 +6458,101 @@ class _ReaderPageState extends State<ReaderPage>
                     },
                     type: ContextMenuButtonType.custom,
                     label: '解释',
+                  ),
+                if (canIllustrate)
+                  ContextMenuButtonItem(
+                    onPressed: () {
+                      ContextMenuController.removeAny();
+                      selectableRegionState.hideToolbar();
+                      if (mounted) {
+                        setState(() {
+                          _selectionAreaResetToken++;
+                        });
+                      }
+                      unawaited(() async {
+                        final err = selectionIllustrationErr;
+                        if (err != null) {
+                          _showCenterToast(err);
+                          return;
+                        }
+                        final pageText = effectiveText.substring(
+                          range.start.clamp(0, effectiveText.length),
+                          end,
+                        );
+                        int rel = pageText.indexOf(text);
+                        int abs = -1;
+                        if (rel >= 0) {
+                          abs = range.start + rel;
+                        } else {
+                          abs = effectiveText.indexOf(text);
+                        }
+                        if (abs < 0) {
+                          _showCenterToast('无法定位段落');
+                          return;
+                        }
+                        final paraIndex = _paragraphIndexAtOffset(
+                          effectiveText: effectiveText,
+                          absoluteOffset: abs,
+                        );
+                        if (paraIndex == null) {
+                          _showCenterToast('无法定位段落');
+                          return;
+                        }
+
+                        final chapter = _chapters[chapterIndex];
+                        final chapterTitle = (chapter.title ?? '正文').trim();
+                        final chapterId = '${widget.bookId}::$chapterIndex';
+
+                        Future<String> Function(String prompt)? generateText;
+                        if (aiModel.illustrationForceLocalAnalyze) {
+                          if (!aiModel.localModelReadyForIllustrationAnalysis) {
+                            _showCenterToast('本地模型未就绪，需下载模型');
+                            return;
+                          }
+                          generateText = (prompt) => aiModel.generate(
+                                prompt: prompt,
+                                maxTokens: 1024,
+                                temperature: 0.2,
+                              );
+                        } else if (aiModel.source == AiModelSource.local) {
+                          if (!aiModel.loaded) {
+                            _showCenterToast('本地模型未就绪');
+                            return;
+                          }
+                          generateText = (prompt) => aiModel.generate(
+                                prompt: prompt,
+                                maxTokens: 1024,
+                                temperature: 0.2,
+                              );
+                        } else if (aiModel.source == AiModelSource.online &&
+                            !personalUsable &&
+                            aiModel.pointsBalance <= 0) {
+                          _showCenterToast('积分不足，无法插图分析');
+                          return;
+                        }
+
+                        try {
+                          final cards = await context
+                              .read<IllustrationProvider>()
+                              .analyzeSelectionForChapter(
+                                chapterId: chapterId,
+                                chapterTitle:
+                                    chapterTitle.isEmpty ? '正文' : chapterTitle,
+                                selectionText: text,
+                                paragraphIndex: paraIndex,
+                                pointsBalance: aiModel.pointsBalance,
+                                generateText: generateText,
+                              );
+                          _showCenterToast(
+                            cards.isNotEmpty ? '插图分析完成' : '无适合插画的场景',
+                          );
+                        } catch (e) {
+                          _showCenterToast(e.toString());
+                        }
+                      }());
+                    },
+                    type: ContextMenuButtonType.custom,
+                    label: '插图',
                   ),
               ];
               final ContextMenuButtonItem? copyItem = selectableRegionState

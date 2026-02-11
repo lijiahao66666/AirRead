@@ -19,7 +19,7 @@ class IllustrationProvider extends ChangeNotifier {
   final Queue<_AnalysisTask> _analysisQueue = Queue();
   bool _isAnalyzing = false;
   final Set<String> _analyzingChapterIds = {};
-  final Map<String, Completer<void>> _analysisInFlight = {};
+  final Map<String, Completer<List<SceneCard>>> _analysisInFlight = {};
 
   bool isAnalyzing(String chapterId) =>
       _analyzingChapterIds.contains(chapterId);
@@ -93,6 +93,43 @@ class IllustrationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<List<SceneCard>> analyzeSelectionForChapter({
+    required String chapterId,
+    required String chapterTitle,
+    required String selectionText,
+    required int paragraphIndex,
+    int? pointsBalance,
+    Future<String> Function(String prompt)? generateText,
+  }) async {
+    await _ensureReady();
+    if (generateText == null && !usingPersonalTencentKeys()) {
+      final available = pointsBalance ?? 0;
+      if (available <= 0) {
+        throw StateError('插图需要购买积分后使用');
+      }
+    }
+
+    final inflightKey =
+        '$chapterId::sel::${DateTime.now().millisecondsSinceEpoch}';
+    final completer = Completer<List<SceneCard>>();
+    _analysisInFlight[inflightKey] = completer;
+    final task = _AnalysisTask(
+      taskId: inflightKey,
+      outputChapterId: chapterId,
+      chapterTitle: chapterTitle,
+      paragraphs: [selectionText.trim()],
+      maxScenes: 1,
+      generateText: generateText,
+      fixedParagraphIndex: paragraphIndex,
+      mergeIntoExisting: true,
+      markChapterAnalyzing: false,
+      completer: completer,
+    );
+    _analysisQueue.add(task);
+    _processAnalysisQueue();
+    return completer.future;
+  }
+
   List<String> _splitParagraphsForAnalysis(String content) {
     final normalized = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final parts = normalized.split(RegExp(r'\n{2,}'));
@@ -127,7 +164,8 @@ class IllustrationProvider extends ChangeNotifier {
     }
     final inflight = _analysisInFlight[chapterId];
     if (inflight != null) {
-      return inflight.future;
+      await inflight.future;
+      return;
     }
 
     try {
@@ -139,14 +177,18 @@ class IllustrationProvider extends ChangeNotifier {
       }
       final paragraphs = _splitParagraphsForAnalysis(content);
 
-      final completer = Completer<void>();
+      final completer = Completer<List<SceneCard>>();
       _analysisInFlight[chapterId] = completer;
       final task = _AnalysisTask(
-        chapterId: chapterId,
+        taskId: chapterId,
+        outputChapterId: chapterId,
         chapterTitle: chapterTitle,
         paragraphs: paragraphs,
         maxScenes: maxScenes,
         generateText: generateText,
+        fixedParagraphIndex: null,
+        mergeIntoExisting: false,
+        markChapterAnalyzing: true,
         completer: completer,
       );
 
@@ -158,7 +200,8 @@ class IllustrationProvider extends ChangeNotifier {
       }
 
       _processAnalysisQueue();
-      return completer.future;
+      await completer.future;
+      return;
     } catch (e) {
       _analysisInFlight.remove(chapterId);
       debugPrint('Analyze chapter failed: $e');
@@ -171,24 +214,37 @@ class IllustrationProvider extends ChangeNotifier {
 
     _isAnalyzing = true;
     final task = _analysisQueue.removeFirst();
-    _analyzingChapterIds.add(task.chapterId);
+    if (task.markChapterAnalyzing) {
+      _analyzingChapterIds.add(task.outputChapterId);
+    }
     notifyListeners();
 
     try {
       if (kDebugMode) {
         debugPrint(
-          '[ILLU][processQueue] start chapterId=${task.chapterId} maxScenes=${task.maxScenes} paragraphs=${task.paragraphs.length} local=${task.generateText != null}',
+          '[ILLU][processQueue] start taskId=${task.taskId} out=${task.outputChapterId} maxScenes=${task.maxScenes} paragraphs=${task.paragraphs.length} local=${task.generateText != null}',
         );
       }
       final liveCards = <SceneCard>[];
-      _cache[task.chapterId] = liveCards;
+      if (!task.mergeIntoExisting) {
+        _cache[task.outputChapterId] = liveCards;
+      }
       final cards = await _buildService().analyzeScenesFromParagraphs(
         paragraphs: task.paragraphs,
         chapterTitle: task.chapterTitle,
         maxScenes: task.maxScenes,
-        debugName: task.chapterId,
+        debugName: task.taskId,
         run: task.generateText,
         onProgress: (partial) {
+          if (task.mergeIntoExisting) {
+            _mergeIntoChapterCache(
+              chapterId: task.outputChapterId,
+              newCards: partial,
+              fixedParagraphIndex: task.fixedParagraphIndex,
+            );
+            notifyListeners();
+            return;
+          }
           liveCards
             ..clear()
             ..addAll(partial);
@@ -197,24 +253,70 @@ class IllustrationProvider extends ChangeNotifier {
       );
       if (kDebugMode) {
         debugPrint(
-          '[ILLU][processQueue] done chapterId=${task.chapterId} cards=${cards.length}',
+          '[ILLU][processQueue] done taskId=${task.taskId} out=${task.outputChapterId} cards=${cards.length}',
         );
       }
-      liveCards
-        ..clear()
-        ..addAll(cards);
-      task.completer.complete();
+      List<SceneCard> resultCards = cards;
+      if (task.fixedParagraphIndex != null) {
+        for (final c in resultCards) {
+          c.startParagraphIndex = task.fixedParagraphIndex;
+          c.endParagraphIndex = task.fixedParagraphIndex;
+        }
+      }
+      if (task.mergeIntoExisting) {
+        _mergeIntoChapterCache(
+          chapterId: task.outputChapterId,
+          newCards: resultCards,
+          fixedParagraphIndex: task.fixedParagraphIndex,
+        );
+      } else {
+        liveCards
+          ..clear()
+          ..addAll(resultCards);
+      }
+      task.completer.complete(resultCards);
       notifyListeners();
     } catch (e) {
       debugPrint('Process analysis queue failed: $e');
       task.completer.completeError(e);
     } finally {
-      _analysisInFlight.remove(task.chapterId);
-      _analyzingChapterIds.remove(task.chapterId);
+      _analysisInFlight.remove(task.taskId);
+      if (task.markChapterAnalyzing) {
+        _analyzingChapterIds.remove(task.outputChapterId);
+      }
       _isAnalyzing = false;
       notifyListeners();
       _processAnalysisQueue();
     }
+  }
+
+  void _mergeIntoChapterCache({
+    required String chapterId,
+    required List<SceneCard> newCards,
+    required int? fixedParagraphIndex,
+  }) {
+    final existing = _cache[chapterId] ?? <SceneCard>[];
+    final byId = <String, SceneCard>{};
+    for (final c in existing) {
+      byId[c.id] = c;
+    }
+    for (final c in newCards) {
+      if (fixedParagraphIndex != null) {
+        c.startParagraphIndex = fixedParagraphIndex;
+        c.endParagraphIndex = fixedParagraphIndex;
+      }
+      byId[c.id] = c;
+    }
+    final merged = byId.values.toList()
+      ..sort((a, b) {
+        final ai = a.endParagraphIndex ?? 999999;
+        final bi = b.endParagraphIndex ?? 999999;
+        if (ai != bi) return ai.compareTo(bi);
+        final at = a.createdAt?.millisecondsSinceEpoch ?? 0;
+        final bt = b.createdAt?.millisecondsSinceEpoch ?? 0;
+        return at.compareTo(bt);
+      });
+    _cache[chapterId] = merged;
   }
 
   /// 对指定卡片进行生图
@@ -288,19 +390,27 @@ class IllustrationProvider extends ChangeNotifier {
 }
 
 class _AnalysisTask {
-  final String chapterId;
+  final String taskId;
+  final String outputChapterId;
   final String chapterTitle;
   final List<String> paragraphs;
   final int maxScenes;
   final Future<String> Function(String prompt)? generateText;
-  final Completer<void> completer;
+  final int? fixedParagraphIndex;
+  final bool mergeIntoExisting;
+  final bool markChapterAnalyzing;
+  final Completer<List<SceneCard>> completer;
 
   _AnalysisTask({
-    required this.chapterId,
+    required this.taskId,
+    required this.outputChapterId,
     required this.chapterTitle,
     required this.paragraphs,
     required this.maxScenes,
     this.generateText,
+    required this.fixedParagraphIndex,
+    required this.mergeIntoExisting,
+    required this.markChapterAnalyzing,
     required this.completer,
   });
 }

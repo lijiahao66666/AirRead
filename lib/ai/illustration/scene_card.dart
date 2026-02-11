@@ -7,8 +7,8 @@ enum SceneCardStatus {
 
 class SceneCard {
   final String id;
-  final int? startParagraphIndex;
-  final int? endParagraphIndex;
+  int? startParagraphIndex;
+  int? endParagraphIndex;
   final String title;
   final String location;
   final String time;
