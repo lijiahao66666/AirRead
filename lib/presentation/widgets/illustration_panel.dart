@@ -467,6 +467,12 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                                 textColor: widget.textColor,
                                 canGenerate: canGenerateImage,
                                 imageAspectRatio: selectedAspectRatio,
+                                onEditPrompt: () => unawaited(
+                                  _editPromptDialog(
+                                    provider: provider,
+                                    card: visibleScenes[index],
+                                  ),
+                                ),
                                 onGenerate: () => unawaited(
                                   _generateWithPoints(
                                     provider: provider,
@@ -515,6 +521,51 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         );
       },
     );
+  }
+
+  Future<void> _editPromptDialog({
+    required IllustrationProvider provider,
+    required SceneCard card,
+  }) async {
+    final controller = TextEditingController(text: card.action);
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('编辑提示词'),
+            content: TextField(
+              controller: controller,
+              minLines: 4,
+              maxLines: 10,
+              decoration: const InputDecoration(
+                hintText: '输入用于生图的提示词',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () {
+                  provider.updateScenePrompt(
+                    chapterId: widget.chapterId,
+                    sceneId: card.id,
+                    prompt: controller.text,
+                  );
+                  Navigator.of(context).pop();
+                },
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
   }
 
   Widget _settingsRow({required String label, required Widget child}) {
@@ -582,6 +633,7 @@ class _SceneCardWidget extends StatelessWidget {
   final bool isDark;
   final Color textColor;
   final VoidCallback onGenerate;
+  final VoidCallback onEditPrompt;
   final double imageAspectRatio;
   final bool canGenerate;
 
@@ -590,6 +642,7 @@ class _SceneCardWidget extends StatelessWidget {
     required this.isDark,
     required this.textColor,
     required this.onGenerate,
+    required this.onEditPrompt,
     required this.imageAspectRatio,
     required this.canGenerate,
   });
@@ -668,6 +721,46 @@ class _SceneCardWidget extends StatelessWidget {
                         ),
                       ),
                   ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Text(
+                      '提示词',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: textColor.withOpacityCompat(0.7),
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: onEditPrompt,
+                      icon: Icon(
+                        Icons.edit_outlined,
+                        size: 18,
+                        color: textColor.withOpacityCompat(0.65),
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      tooltip: '编辑提示词',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: onEditPrompt,
+                  child: Text(
+                    card.action.trim().isEmpty ? '（暂无）' : card.action,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.35,
+                      color: textColor.withOpacityCompat(0.75),
+                    ),
+                    maxLines: 6,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ),

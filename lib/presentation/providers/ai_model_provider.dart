@@ -27,6 +27,10 @@ class AiModelProvider extends ChangeNotifier {
   static const String _kMaxIllustrationsPerChapter =
       'ai_max_illustrations_per_chapter';
   static const String _kIllustrationEnabled = 'ai_illustration_enabled';
+  static const String _kIllustrationAutoAnalyzeEnabled =
+      'ai_illustration_auto_analyze_enabled';
+  static const String _kIllustrationForceLocalAnalyze =
+      'ai_illustration_force_local_analyze';
 
   LlmClient? _llmClient;
   AiModelSource _source = AiModelSource.none;
@@ -35,6 +39,8 @@ class AiModelProvider extends ChangeNotifier {
   int? _debugPointsOverride;
   int _maxIllustrationsPerChapter = 3;
   bool _illustrationEnabled = false;
+  bool _illustrationAutoAnalyzeEnabled = false;
+  bool _illustrationForceLocalAnalyze = false;
 
   // 模型安装状态
   ModelInstallStatus _modelInstallStatus = ModelInstallStatus.notInstalled;
@@ -71,6 +77,36 @@ class AiModelProvider extends ChangeNotifier {
 
   bool get localTextInstalled => isModelInstalled;
   bool get localTextReady => loaded;
+  bool get localModelReadyForIllustrationAnalysis =>
+      localTextInstalled && localTextReady;
+  bool get illustrationAutoAnalyzeEnabled => _illustrationAutoAnalyzeEnabled;
+  bool get illustrationForceLocalAnalyze => _illustrationForceLocalAnalyze;
+
+  Future<void> setIllustrationAutoAnalyzeEnabled(bool value) async {
+    if (_illustrationAutoAnalyzeEnabled == value) return;
+    _illustrationAutoAnalyzeEnabled = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kIllustrationAutoAnalyzeEnabled, value);
+  }
+
+  Future<void> setIllustrationForceLocalAnalyze(bool value) async {
+    final next = value && localModelReadyForIllustrationAnalysis;
+    if (_illustrationForceLocalAnalyze == next) return;
+    _illustrationForceLocalAnalyze = next;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kIllustrationForceLocalAnalyze, next);
+  }
+
+  Future<void> _enforceForceLocalAnalyzeConstraint() async {
+    if (!_illustrationForceLocalAnalyze) return;
+    if (localModelReadyForIllustrationAnalysis) return;
+    _illustrationForceLocalAnalyze = false;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kIllustrationForceLocalAnalyze, false);
+  }
 
   Future<void> setSource(AiModelSource value) async {
     if (_source == value) return;
@@ -100,6 +136,7 @@ class AiModelProvider extends ChangeNotifier {
     if (_modelInstallStatus == ModelInstallStatus.installed) {
       await _initializeLlmClient();
     }
+    await _enforceForceLocalAnalyzeConstraint();
     notifyListeners();
   }
 
@@ -197,6 +234,10 @@ class AiModelProvider extends ChangeNotifier {
     _maxIllustrationsPerChapter =
         (prefs.getInt(_kMaxIllustrationsPerChapter) ?? 3).clamp(2, 20);
     _illustrationEnabled = prefs.getBool(_kIllustrationEnabled) ?? false;
+    _illustrationAutoAnalyzeEnabled =
+        prefs.getBool(_kIllustrationAutoAnalyzeEnabled) ?? false;
+    _illustrationForceLocalAnalyze =
+        prefs.getBool(_kIllustrationForceLocalAnalyze) ?? false;
 
     // 检查模型是否已安装
     await _checkModelInstallation();
@@ -206,6 +247,7 @@ class AiModelProvider extends ChangeNotifier {
     if (_modelInstallStatus == ModelInstallStatus.installed) {
       await _initializeLlmClient();
     }
+    await _enforceForceLocalAnalyzeConstraint();
 
     notifyListeners();
   }
@@ -268,6 +310,7 @@ class AiModelProvider extends ChangeNotifier {
     }
 
     notifyListeners();
+    await _enforceForceLocalAnalyzeConstraint();
   }
 
   /// 开始下载模型
@@ -377,6 +420,7 @@ class AiModelProvider extends ChangeNotifier {
     _modelInstallStatus = ModelInstallStatus.notInstalled;
     _downloadProgress = 0.0;
     notifyListeners();
+    await _enforceForceLocalAnalyzeConstraint();
   }
 
   /// 取消所有订阅
@@ -420,6 +464,7 @@ class AiModelProvider extends ChangeNotifier {
     _modelInstallStatus = ModelInstallStatus.notInstalled;
     _downloadProgress = 0.0;
     notifyListeners();
+    await _enforceForceLocalAnalyzeConstraint();
   }
 
 /*

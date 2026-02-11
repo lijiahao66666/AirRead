@@ -408,6 +408,7 @@ class _ReaderPageState extends State<ReaderPage>
   bool? _lastReadTranslationEnabled;
   int _readAloudTranslationRevision = -1;
   Offset? _readAloudFabOffset;
+  Offset? _illustrationFabOffset;
   double _readAloudBackSpinTurns = 0.0;
   double _readAloudForwardSpinTurns = 0.0;
   bool _readAloudFollow = true;
@@ -445,7 +446,6 @@ class _ReaderPageState extends State<ReaderPage>
   int _currentChapterIndex = 0;
   final Set<int> _expandedChapterIndices = {};
   final Set<int> _illustrationAutoAnalyzeRequested = {};
-  final Set<int> _illustrationPrefetchRequested = {};
 
   // Horizontal Mode State
   // We track the "Page" index within the current chapter.
@@ -521,6 +521,85 @@ class _ReaderPageState extends State<ReaderPage>
   VoidCallback? _illustrationListener;
   Set<String> _lastAnalyzingChapterIds = {};
   final Set<String> _pendingIllustrationCompletionChapterIds = {};
+  Timer? _floatingUiAutoHideTimer;
+  bool _readAloudFabCollapsed = false;
+  bool _illustrationFabCollapsed = false;
+
+  static const double _kFloatingCapsuleHeight = 52;
+  static const double _kFloatingHandleWidth = 22;
+  static const double _kReadAloudExpandedWidth = 190;
+  static const double _kIllustrationExpandedWidth = 150;
+
+  double _readAloudFabWidth(bool collapsed) {
+    return collapsed
+        ? _kFloatingHandleWidth
+        : (_kReadAloudExpandedWidth + _kFloatingHandleWidth);
+  }
+
+  double _illustrationFabWidth(bool collapsed) {
+    return collapsed
+        ? _kFloatingHandleWidth
+        : (_kIllustrationExpandedWidth + _kFloatingHandleWidth);
+  }
+
+  void _collapseFloatingUi() {
+    final readOldW = _readAloudFabWidth(_readAloudFabCollapsed);
+    final readNewW = _readAloudFabWidth(true);
+    final illuOldW = _illustrationFabWidth(_illustrationFabCollapsed);
+    final illuNewW = _illustrationFabWidth(true);
+    final readOffset = _readAloudFabOffset;
+    final illuOffset = _illustrationFabOffset;
+
+    setState(() {
+      if (!_readAloudFabCollapsed && readOffset != null) {
+        _readAloudFabOffset = readOffset.translate(readOldW - readNewW, 0);
+      }
+      if (!_illustrationFabCollapsed && illuOffset != null) {
+        _illustrationFabOffset = illuOffset.translate(illuOldW - illuNewW, 0);
+      }
+      _readAloudFabCollapsed = true;
+      _illustrationFabCollapsed = true;
+    });
+  }
+
+  void _setReadAloudFabCollapsed(bool value) {
+    if (_readAloudFabCollapsed == value) return;
+    final oldW = _readAloudFabWidth(_readAloudFabCollapsed);
+    final newW = _readAloudFabWidth(value);
+    final offset = _readAloudFabOffset;
+    setState(() {
+      _readAloudFabCollapsed = value;
+      if (offset != null) {
+        _readAloudFabOffset = offset.translate(oldW - newW, 0);
+      }
+    });
+  }
+
+  void _setIllustrationFabCollapsed(bool value) {
+    if (_illustrationFabCollapsed == value) return;
+    final oldW = _illustrationFabWidth(_illustrationFabCollapsed);
+    final newW = _illustrationFabWidth(value);
+    final offset = _illustrationFabOffset;
+    setState(() {
+      _illustrationFabCollapsed = value;
+      if (offset != null) {
+        _illustrationFabOffset = offset.translate(oldW - newW, 0);
+      }
+    });
+  }
+
+  void _armFloatingUiAutoHideIfNeeded() {
+    if (_floatingUiAutoHideTimer?.isActive ?? false) return;
+    _touchFloatingUi();
+  }
+
+  void _touchFloatingUi() {
+    _floatingUiAutoHideTimer?.cancel();
+    _floatingUiAutoHideTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted) return;
+      _collapseFloatingUi();
+    });
+  }
 
   void _showCenterToast(String msg) {
     if (!mounted) return;
@@ -931,6 +1010,7 @@ class _ReaderPageState extends State<ReaderPage>
     _saveSettings();
     _saveProgress();
     _progressSaveTimer?.cancel();
+    _floatingUiAutoHideTimer?.cancel();
     _localTtsSub?.cancel();
     unawaited(_webSpeechTts.stop());
     unawaited(_cleanupReadAloudTempFile());
@@ -1746,8 +1826,10 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   void _onReaderPointerDown(Offset pos) {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs <= _suppressReaderTapUntilMs) return;
     _tapDownPos = pos;
-    _tapDownMs = DateTime.now().millisecondsSinceEpoch;
+    _tapDownMs = nowMs;
     _tapMoved = false;
   }
 
@@ -3546,8 +3628,12 @@ class _ReaderPageState extends State<ReaderPage>
         : mq.viewPadding.bottom;
     final topInset = mq.viewPadding.top;
 
-    const double capsuleW = 164;
-    const double capsuleH = 52;
+    final bool collapsed = _readAloudFabCollapsed;
+    if (!collapsed) {
+      _armFloatingUiAutoHideIfNeeded();
+    }
+    final double capsuleW = _readAloudFabWidth(collapsed);
+    const double capsuleH = _kFloatingCapsuleHeight;
 
     final defaultX = size.width - 14 - capsuleW;
     final defaultY = size.height - bottomInset - 120 - capsuleH;
@@ -3578,6 +3664,7 @@ class _ReaderPageState extends State<ReaderPage>
       left: clamped.dx,
       top: clamped.dy,
       child: GestureDetector(
+        onPanStart: (_) => _touchFloatingUi(),
         onPanUpdate: (details) {
           final base = _readAloudFabOffset ?? Offset(defaultX, defaultY);
           final next = base + details.delta;
@@ -3608,83 +3695,369 @@ class _ReaderPageState extends State<ReaderPage>
               child: SizedBox(
                 width: capsuleW,
                 height: capsuleH,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _readAloudCapsuleButton(
-                        icon: Icons.replay_rounded,
-                        spinTurns: _readAloudBackSpinTurns,
-                        enabled: tp.aiReadAloudEnabled && !atBookStart,
-                        onTap: () {
-                          setState(() => _readAloudBackSpinTurns -= 1.0);
-                          unawaited(_handleReadAloudBackTap());
-                        },
-                      ),
-                      _readAloudCapsuleButton(
-                        icon: Icons.volume_up_rounded,
-                        highlight: readAloud.playing || readAloud.preparing,
-                        enabled: true,
-                        showProgress: readAloud.preparing,
-                        onTap: () {
-                          if (readAloud.bookId == widget.bookId &&
-                              (readAloud.playing || readAloud.preparing)) {
-                            unawaited(readAloud.pause());
-                            return;
-                          }
-                          if (readAloud.bookId == widget.bookId &&
-                              readAloud.paused) {
-                            unawaited(readAloud.resume());
-                            return;
-                          }
-                          unawaited(() async {
-                            final tp = context.read<TranslationProvider>();
-                            final rap = context.read<ReadAloudProvider>();
-                            if (!tp.aiReadAloudEnabled) return;
-                            final resume = rap.position;
-                            int targetChapter = _currentChapterIndex;
-                            int? startPara;
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 160),
+                        child: collapsed
+                            ? const SizedBox.shrink()
+                            : Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    _readAloudCapsuleButton(
+                                      icon: Icons.replay_rounded,
+                                      spinTurns: _readAloudBackSpinTurns,
+                                      enabled:
+                                          tp.aiReadAloudEnabled && !atBookStart,
+                                      onTap: () {
+                                        _touchFloatingUi();
+                                        setState(() =>
+                                            _readAloudBackSpinTurns -= 1.0);
+                                        unawaited(_handleReadAloudBackTap());
+                                      },
+                                    ),
+                                    _readAloudCapsuleButton(
+                                      icon: Icons.volume_up_rounded,
+                                      highlight: readAloud.playing ||
+                                          readAloud.preparing,
+                                      enabled: true,
+                                      showProgress: readAloud.preparing,
+                                      onTap: () {
+                                        _touchFloatingUi();
+                                        if (readAloud.bookId == widget.bookId &&
+                                            (readAloud.playing ||
+                                                readAloud.preparing)) {
+                                          unawaited(readAloud.pause());
+                                          return;
+                                        }
+                                        if (readAloud.bookId == widget.bookId &&
+                                            readAloud.paused) {
+                                          unawaited(readAloud.resume());
+                                          return;
+                                        }
+                                        unawaited(() async {
+                                          final tp = context
+                                              .read<TranslationProvider>();
+                                          final rap =
+                                              context.read<ReadAloudProvider>();
+                                          if (!tp.aiReadAloudEnabled) return;
+                                          final resume = rap.position;
+                                          int targetChapter =
+                                              _currentChapterIndex;
+                                          int? startPara;
 
-                            if (resume != null &&
-                                resume.bookId == widget.bookId) {
-                              targetChapter = resume.chapterIndex;
-                            } else {
-                              final visibleMap =
-                                  _paragraphsByIndexForPageOffsetForTranslation(
-                                      0, tp);
-                              if (visibleMap.isNotEmpty) {
-                                final sortedKeys = visibleMap.keys.toList()
-                                  ..sort();
-                                startPara = sortedKeys.first;
-                              }
-                            }
+                                          if (resume != null &&
+                                              resume.bookId == widget.bookId) {
+                                            targetChapter = resume.chapterIndex;
+                                          } else {
+                                            final visibleMap =
+                                                _paragraphsByIndexForPageOffsetForTranslation(
+                                                    0, tp);
+                                            if (visibleMap.isNotEmpty) {
+                                              final sortedKeys = visibleMap.keys
+                                                  .toList()
+                                                ..sort();
+                                              startPara = sortedKeys.first;
+                                            }
+                                          }
 
-                            final paras =
-                                await _paragraphsForChapter(targetChapter);
-                            if (!mounted) return;
-                            await rap.startOrResume(
-                              bookId: widget.bookId,
-                              chapterIndex: targetChapter,
-                              paragraphs: paras,
-                              startParagraphIndex: startPara,
-                            );
-                          }());
-                        },
+                                          final paras =
+                                              await _paragraphsForChapter(
+                                                  targetChapter);
+                                          if (!mounted) return;
+                                          await rap.startOrResume(
+                                            bookId: widget.bookId,
+                                            chapterIndex: targetChapter,
+                                            paragraphs: paras,
+                                            startParagraphIndex: startPara,
+                                          );
+                                        }());
+                                      },
+                                    ),
+                                    _readAloudCapsuleButton(
+                                      icon: Icons.replay_rounded,
+                                      spinTurns: _readAloudForwardSpinTurns,
+                                      mirrorX: true,
+                                      enabled:
+                                          tp.aiReadAloudEnabled && !atBookEnd,
+                                      onTap: () {
+                                        _touchFloatingUi();
+                                        setState(() =>
+                                            _readAloudForwardSpinTurns += 1.0);
+                                        unawaited(_handleReadAloudForwardTap());
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
                       ),
-                      _readAloudCapsuleButton(
-                        icon: Icons.replay_rounded,
-                        spinTurns: _readAloudForwardSpinTurns,
-                        mirrorX: true,
-                        enabled: tp.aiReadAloudEnabled && !atBookEnd,
-                        onTap: () {
-                          setState(() => _readAloudForwardSpinTurns += 1.0);
-                          unawaited(_handleReadAloudForwardTap());
-                        },
+                    ),
+                    SizedBox(
+                      width: _kFloatingHandleWidth,
+                      height: capsuleH,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(999),
+                          onTap: () {
+                            _touchFloatingUi();
+                            _setReadAloudFabCollapsed(!collapsed);
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: onSurface.withOpacityCompat(0.05),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Center(
+                              child: Icon(
+                                collapsed
+                                    ? Icons.chevron_left_rounded
+                                    : Icons.chevron_right_rounded,
+                                size: 22,
+                                color: AppColors.techBlue,
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIllustrationFloatingButton() {
+    if (_isLoading || _error != null) return const SizedBox.shrink();
+    final aiModel = context.watch<AiModelProvider>();
+    if (!aiModel.illustrationEnabled) return const SizedBox.shrink();
+    if (aiModel.source != AiModelSource.online) return const SizedBox.shrink();
+
+    final illuProvider = context.watch<IllustrationProvider>();
+    final String chapterId = '${widget.bookId}::$_currentChapterIndex';
+    final bool analyzing = illuProvider.isAnalyzing(chapterId);
+    final bool analyzingOrQueued = illuProvider.isAnalyzingOrQueued(chapterId);
+
+    final tp = context.read<TranslationProvider>();
+    final usingPersonal = tp.usingPersonalTencentKeys &&
+        getEmbeddedPublicHunyuanCredentials().isUsable;
+    final bool canUseOnline = usingPersonal || aiModel.pointsBalance > 0;
+    final bool canAnalyze = !analyzingOrQueued &&
+        (aiModel.illustrationForceLocalAnalyze
+            ? aiModel.localModelReadyForIllustrationAnalysis
+            : canUseOnline);
+
+    final Color surface = _panelBgColor;
+    final Color onSurface = _panelTextColor;
+
+    final mq = MediaQuery.of(context);
+    final size = mq.size;
+    const margin = 12.0;
+    final storedBottomInset = _contentBottomInset ?? 0.0;
+    final bottomInset = storedBottomInset > mq.viewPadding.bottom
+        ? storedBottomInset
+        : mq.viewPadding.bottom;
+    final topInset = mq.viewPadding.top;
+
+    final bool collapsed = _illustrationFabCollapsed;
+    if (!collapsed) {
+      _armFloatingUiAutoHideIfNeeded();
+    }
+    final double capsuleW = _illustrationFabWidth(collapsed);
+    const double capsuleH = _kFloatingCapsuleHeight;
+
+    final defaultX = size.width - 14 - capsuleW;
+    final defaultY = size.height - bottomInset - 120 - capsuleH - 64;
+    final current = _illustrationFabOffset ?? Offset(defaultX, defaultY);
+
+    final maxX = size.width - margin - capsuleW;
+    final maxY = size.height - bottomInset - 80 - capsuleH;
+    final clamped = Offset(
+      current.dx.clamp(margin, maxX),
+      current.dy.clamp(topInset + margin, maxY),
+    );
+
+    final isDarkBg = _bgColor.computeLuminance() < 0.5;
+    final shadow = <BoxShadow>[
+      BoxShadow(
+        color: Colors.black.withOpacityCompat(isDarkBg ? 0.55 : 0.22),
+        blurRadius: 18,
+        offset: const Offset(0, 10),
+      ),
+      BoxShadow(
+        color: Colors.white.withOpacityCompat(isDarkBg ? 0.06 : 0.75),
+        blurRadius: 10,
+        offset: const Offset(0, -4),
+      ),
+    ];
+
+    return Positioned(
+      left: clamped.dx,
+      top: clamped.dy,
+      child: GestureDetector(
+        onPanStart: (_) => _touchFloatingUi(),
+        onPanUpdate: (details) {
+          final base = _illustrationFabOffset ?? Offset(defaultX, defaultY);
+          final next = base + details.delta;
+          final nextClamped = Offset(
+            next.dx.clamp(margin, maxX),
+            next.dy.clamp(topInset + margin, maxY),
+          );
+          setState(() => _illustrationFabOffset = nextClamped);
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: shadow,
+          ),
+          child: GlassPanel(
+            borderRadius: BorderRadius.circular(999),
+            surfaceColor: surface,
+            opacity: 0.92,
+            blurSigma: 14,
+            border: Border.all(
+              color: onSurface.withOpacityCompat(0.08),
+              width: AppTokens.stroke,
+            ),
+            child: SizedBox(
+              width: capsuleW,
+              height: capsuleH,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 160),
+                      child: collapsed
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  _readAloudCapsuleButton(
+                                    icon: Icons.auto_awesome_rounded,
+                                    enabled: canAnalyze,
+                                    showProgress: analyzing,
+                                    highlight: analyzingOrQueued,
+                                    onTap: () {
+                                      _touchFloatingUi();
+                                      unawaited(() async {
+                                        final provider = context
+                                            .read<IllustrationProvider>();
+                                        final ai =
+                                            context.read<AiModelProvider>();
+                                        final chapterIndex =
+                                            _currentChapterIndex;
+                                        final chapter = _chapters[chapterIndex];
+                                        final chapterTitle =
+                                            (chapter.title ?? '正文').trim();
+                                        final plain = _getPlainTextForChapter(
+                                            chapterIndex);
+                                        if (plain.trim().isEmpty) {
+                                          unawaited(_ensureChapterContentCached(
+                                              chapterIndex));
+                                          _showTopError('章节内容为空');
+                                          return;
+                                        }
+
+                                        Future<String> Function(String prompt)?
+                                            run;
+                                        if (ai.illustrationForceLocalAnalyze) {
+                                          if (!ai
+                                              .localModelReadyForIllustrationAnalysis) {
+                                            _showTopError('本地模型未就绪，需下载模型');
+                                            return;
+                                          }
+                                          run = (prompt) => ai.generate(
+                                                prompt: prompt,
+                                                maxTokens: 1024,
+                                                temperature: 0.2,
+                                              );
+                                        }
+
+                                        final chapterId =
+                                            '${widget.bookId}::$chapterIndex';
+                                        provider.clearChapter(chapterId);
+                                        _illustrationAutoAnalyzeRequested
+                                            .remove(chapterIndex);
+                                        try {
+                                          await provider.analyzeChapter(
+                                            chapterId: chapterId,
+                                            chapterTitle: chapterTitle.isEmpty
+                                                ? '正文'
+                                                : chapterTitle,
+                                            content: plain,
+                                            maxScenes:
+                                                ai.maxIllustrationsPerChapter,
+                                            force: true,
+                                            pointsBalance: ai.pointsBalance,
+                                            generateText: run,
+                                          );
+                                        } catch (e) {
+                                          _showTopError(e.toString());
+                                        }
+                                      }());
+                                    },
+                                  ),
+                                  _readAloudCapsuleButton(
+                                    icon: Icons.collections_outlined,
+                                    enabled: true,
+                                    onTap: () {
+                                      _touchFloatingUi();
+                                      unawaited(
+                                        _openIllustrationPanelForChapter(
+                                          chapterIndex: _currentChapterIndex,
+                                          onlySceneId: null,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: _kFloatingHandleWidth,
+                    height: capsuleH,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(999),
+                        onTap: () {
+                          _touchFloatingUi();
+                          _setIllustrationFabCollapsed(!collapsed);
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: onSurface.withOpacityCompat(0.05),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Center(
+                            child: Icon(
+                              collapsed
+                                  ? Icons.chevron_left_rounded
+                                  : Icons.chevron_right_rounded,
+                              size: 22,
+                              color: AppColors.techBlue,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -4726,24 +5099,30 @@ class _ReaderPageState extends State<ReaderPage>
     if (_illustrationAutoAnalyzeRequested.contains(chapterIndex)) return;
     final aiModel = context.read<AiModelProvider>();
     if (!aiModel.illustrationEnabled) return;
+    if (!aiModel.illustrationAutoAnalyzeEnabled) return;
     if (aiModel.source == AiModelSource.none) return;
 
     final tp = context.read<TranslationProvider>();
     final usingPersonal = tp.usingPersonalTencentKeys &&
         getEmbeddedPublicHunyuanCredentials().isUsable;
 
-    if (aiModel.source == AiModelSource.online && !usingPersonal) {
-      if (aiModel.pointsBalance <= 0) return;
-    }
-
     Future<String> Function(String prompt)? generateText;
-    if (aiModel.source == AiModelSource.local) {
+    if (aiModel.illustrationForceLocalAnalyze) {
+      if (!aiModel.localModelReadyForIllustrationAnalysis) return;
+      generateText = (prompt) => aiModel.generate(
+            prompt: prompt,
+            maxTokens: 1024,
+            temperature: 0.2,
+          );
+    } else if (aiModel.source == AiModelSource.local) {
       if (!aiModel.loaded) return;
       generateText = (prompt) => aiModel.generate(
             prompt: prompt,
             maxTokens: 1024,
             temperature: 0.2,
           );
+    } else if (aiModel.source == AiModelSource.online && !usingPersonal) {
+      if (aiModel.pointsBalance <= 0) return;
     }
 
     final chapter = _chapters[chapterIndex];
@@ -5489,8 +5868,9 @@ class _ReaderPageState extends State<ReaderPage>
         )..layout(minWidth: 0, maxWidth: safeContentWidth);
         final double minLineHeight = probe.height;
         final double topExtra = snap((minLineHeight * 0.18).clamp(4.0, 10.0));
-        final bool needsExtraBottomPadding =
-            !kIsWeb && Platform.isIOS && safeBottom > 0.5;
+        final bool needsExtraBottomPadding = !kIsWeb &&
+            (Platform.isIOS || Platform.isAndroid) &&
+            safeBottom > 0.5;
 
         // Use standard padding for better screen utilization.
         // We will explicitly handle the footer position to avoid overlap.
@@ -5534,10 +5914,8 @@ class _ReaderPageState extends State<ReaderPage>
 
         // Safety buffer for pagination:
         // User feedback: "Last line slightly clipped."
-        // We restore the 8.0 pixel buffer. This slightly reduces the effective height used for
-        // pagination calculation, ensuring the last line fits completely within the rendered viewport
-        // without being clipped by the container bounds.
-        final double paginationViewportHeight = viewportHeight - 8.0;
+        // Reserve extra pixels so line glyphs never get clipped by the viewport bounds on some devices.
+        final double paginationViewportHeight = viewportHeight - 12.0;
 
         _lastPaginationViewportHeight = paginationViewportHeight;
         _lastPaginationContentWidth = safeContentWidth;
@@ -5564,9 +5942,12 @@ class _ReaderPageState extends State<ReaderPage>
         if (displayRanges == null || displayRanges.isEmpty) {
           final fallbackRanges = _chapterFallbackPageRanges[chapterIndex];
           final fallbackKey = _chapterFallbackPageRangeKeys[chapterIndex];
-          final expectedTextLength =
-              (displayEffectiveText ?? _getPlainTextForChapter(chapterIndex))
-                  .length;
+          final fallbackEffectiveText =
+              _chapterFallbackEffectiveText[chapterIndex];
+          final expectedTextLength = (fallbackEffectiveText != null &&
+                  fallbackEffectiveText.isNotEmpty)
+              ? fallbackEffectiveText.length
+              : _getPlainTextForChapter(chapterIndex).length;
           final expectedKey = _paginationKey(
             viewportHeight: paginationViewportHeight,
             contentWidth: safeContentWidth,
@@ -5576,7 +5957,7 @@ class _ReaderPageState extends State<ReaderPage>
               fallbackRanges.isNotEmpty &&
               fallbackKey == expectedKey) {
             displayRanges = fallbackRanges;
-            displayEffectiveText = _chapterFallbackEffectiveText[chapterIndex];
+            displayEffectiveText = fallbackEffectiveText;
           }
         }
         if (displayRanges == null || displayRanges.isEmpty) {
@@ -5824,7 +6205,6 @@ class _ReaderPageState extends State<ReaderPage>
             hintOffsets.addAll(rawHints);
           }
           TextSpan effectiveBodySpan = bodySpan;
-          final showChapterEndButton = isLastPage && scenes.isNotEmpty;
           if (kDebugMode) {
             final uiKey =
                 '$chapterId|cur=$isCurrentPage|last=$isLastPage|scenes=${scenes.length}|hints=${hintOffsets.length}';
@@ -5834,7 +6214,7 @@ class _ReaderPageState extends State<ReaderPage>
               debugPrint('[ILLU][ui] $uiKey range=${range.start}-${end}');
             }
           }
-          if (hintOffsets.isNotEmpty || showChapterEndButton) {
+          if (hintOffsets.isNotEmpty) {
             final pageText = effectiveText.substring(
                 range.start.clamp(0, effectiveText.length), end);
             final children = <InlineSpan>[];
@@ -5916,65 +6296,6 @@ class _ReaderPageState extends State<ReaderPage>
                   text: tail,
                   bodyStyle: bodyStyle,
                   highlightText: highlightText,
-                ),
-              );
-            }
-
-            if (showChapterEndButton) {
-              children.add(
-                WidgetSpan(
-                  alignment: PlaceholderAlignment.middle,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 6, 8, 6),
-                    child: Listener(
-                      behavior: HitTestBehavior.opaque,
-                      onPointerDown: (_) => _suppressReaderTap(),
-                      child: GestureDetector(
-                        onTapDown: (_) => _suppressReaderTap(),
-                        onTap: () {
-                          _suppressReaderTap();
-                          unawaited(
-                            _openIllustrationPanelForChapter(
-                              chapterIndex: chapterIndex,
-                              onlySceneId: null,
-                            ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppColors.techBlue.withOpacityCompat(0.12),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: AppColors.techBlue.withOpacityCompat(0.28),
-                              width: AppTokens.stroke,
-                            ),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.collections_outlined,
-                                size: 14,
-                                color: AppColors.techBlue,
-                              ),
-                              SizedBox(width: 6),
-                              Text(
-                                '查看本章插图',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.techBlue,
-                                  height: 1.0,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
                 ),
               );
             }
@@ -6834,30 +7155,11 @@ class _ReaderPageState extends State<ReaderPage>
     }
     if (!aiModel.illustrationEnabled) {
       _illustrationAutoAnalyzeRequested.clear();
-      _illustrationPrefetchRequested.clear();
     } else if (_chapters.isNotEmpty &&
         !_illustrationAutoAnalyzeRequested.contains(_currentChapterIndex)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         unawaited(_maybeAnalyzeIllustrationsForChapter(_currentChapterIndex));
-      });
-    }
-    final canIllustrationPrefetchNext = switch (aiModel.source) {
-      AiModelSource.none => false,
-      AiModelSource.local => true,
-      AiModelSource.online =>
-        canUseOnlineWithPersonalKeys || aiModel.pointsBalance > 0,
-    };
-    final nextIllChapterIndex = _currentChapterIndex + 1;
-    if (aiModel.illustrationEnabled &&
-        canIllustrationPrefetchNext &&
-        nextIllChapterIndex >= 0 &&
-        nextIllChapterIndex < _chapters.length &&
-        !_illustrationPrefetchRequested.contains(nextIllChapterIndex)) {
-      _illustrationPrefetchRequested.add(nextIllChapterIndex);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        unawaited(_ensureChapterContentCached(nextIllChapterIndex));
       });
     }
     _scheduleChapterTranslationPrefetch(
@@ -6923,6 +7225,11 @@ class _ReaderPageState extends State<ReaderPage>
           stableBottomCandidates.any((e) => e > 0.5);
       if (hasHomeIndicator && contentBottomInset < 34.0) {
         contentBottomInset = 34.0;
+      }
+    }
+    if (!kIsWeb && Platform.isAndroid) {
+      if (contentBottomInset < 16.0) {
+        contentBottomInset = 16.0;
       }
     }
     _contentBottomInset = contentBottomInset;
@@ -7041,9 +7348,15 @@ class _ReaderPageState extends State<ReaderPage>
                   },
                 ),
                 if (_centerToastText.trim().isNotEmpty)
-                  Positioned(
-                    top: overlayTop,
-                    right: 20,
+                  AnimatedBuilder(
+                    animation: _controlsController,
+                    builder: (context, child) {
+                      return Positioned(
+                        top: overlayTop + (48 * _controlsController.value),
+                        right: 16,
+                        child: child!,
+                      );
+                    },
                     child: IgnorePointer(
                       child: AnimatedOpacity(
                         opacity: _centerToastText.trim().isNotEmpty ? 1 : 0,
@@ -7185,6 +7498,7 @@ class _ReaderPageState extends State<ReaderPage>
                     ),
                   ),
                 ),
+                _buildIllustrationFloatingButton(),
                 _buildReadAloudFloatingButton(),
               ],
             ),

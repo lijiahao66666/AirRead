@@ -80,6 +80,19 @@ class IllustrationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateScenePrompt({
+    required String chapterId,
+    required String sceneId,
+    required String prompt,
+  }) {
+    final scenes = _cache[chapterId];
+    if (scenes == null || scenes.isEmpty) return;
+    final idx = scenes.indexWhere((e) => e.id == sceneId);
+    if (idx < 0) return;
+    scenes[idx].action = prompt.trim();
+    notifyListeners();
+  }
+
   List<String> _splitParagraphsForAnalysis(String content) {
     final normalized = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final parts = normalized.split(RegExp(r'\n{2,}'));
@@ -167,18 +180,29 @@ class IllustrationProvider extends ChangeNotifier {
           '[ILLU][processQueue] start chapterId=${task.chapterId} maxScenes=${task.maxScenes} paragraphs=${task.paragraphs.length} local=${task.generateText != null}',
         );
       }
+      final liveCards = <SceneCard>[];
+      _cache[task.chapterId] = liveCards;
       final cards = await _buildService().analyzeScenesFromParagraphs(
         paragraphs: task.paragraphs,
         chapterTitle: task.chapterTitle,
         maxScenes: task.maxScenes,
         debugName: task.chapterId,
+        run: task.generateText,
+        onProgress: (partial) {
+          liveCards
+            ..clear()
+            ..addAll(partial);
+          notifyListeners();
+        },
       );
       if (kDebugMode) {
         debugPrint(
           '[ILLU][processQueue] done chapterId=${task.chapterId} cards=${cards.length}',
         );
       }
-      _cache[task.chapterId] = cards;
+      liveCards
+        ..clear()
+        ..addAll(cards);
       task.completer.complete();
       notifyListeners();
     } catch (e) {

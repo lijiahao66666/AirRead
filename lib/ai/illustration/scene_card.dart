@@ -13,7 +13,7 @@ class SceneCard {
   final String location;
   final String time;
   final String characters;
-  final String action;
+  String action;
   final String mood;
   final String visualAnchors;
   final String lighting;

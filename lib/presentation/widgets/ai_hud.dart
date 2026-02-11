@@ -2451,6 +2451,96 @@ class _TencentHunyuanSettingsPanelState
                       Row(
                         children: [
                           Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '进入章节自动分析',
+                                  style: TextStyle(
+                                    color: widget.textColor,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.normal,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '开启后进入章节将自动分析插图场景',
+                                  style: TextStyle(
+                                    color: widget.textColor.withOpacityCompat(0.65),
+                                    fontSize: 12,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Transform.scale(
+                            scale: 0.85,
+                            child: Switch(
+                              value: aiModel.illustrationAutoAnalyzeEnabled,
+                              activeThumbColor: AppColors.techBlue,
+                              onChanged: aiModel.source == AiModelSource.online
+                                  ? (v) => unawaited(
+                                        aiModel.setIllustrationAutoAnalyzeEnabled(v),
+                                      )
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '强制本地模型分析',
+                                  style: TextStyle(
+                                    color: aiModel.localModelReadyForIllustrationAnalysis
+                                        ? widget.textColor
+                                        : widget.textColor.withOpacityCompat(0.5),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.normal,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  aiModel.localModelReadyForIllustrationAnalysis
+                                      ? '使用本地模型进行插图场景分析'
+                                      : '本地模型未就绪，需下载模型',
+                                  style: TextStyle(
+                                    color: widget.textColor.withOpacityCompat(0.65),
+                                    fontSize: 12,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Transform.scale(
+                            scale: 0.85,
+                            child: Switch(
+                              value: aiModel.localModelReadyForIllustrationAnalysis &&
+                                      aiModel.illustrationForceLocalAnalyze
+                                  ? true
+                                  : false,
+                              activeThumbColor: AppColors.techBlue,
+                              onChanged: aiModel.source == AiModelSource.online &&
+                                      aiModel.localModelReadyForIllustrationAnalysis
+                                  ? (v) => unawaited(
+                                        aiModel.setIllustrationForceLocalAnalyze(v),
+                                      )
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
                             child: Text(
                               '每章最大生图个数',
                               style: TextStyle(
@@ -2498,7 +2588,7 @@ class _TencentHunyuanSettingsPanelState
     final canDec = clamped > min;
     final canInc = clamped < max;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       decoration: BoxDecoration(
         color: widget.textColor.withOpacityCompat(0.06),
         borderRadius: BorderRadius.circular(999),
@@ -2514,34 +2604,34 @@ class _TencentHunyuanSettingsPanelState
             onTap: canDec ? () => onChanged(clamped - 1) : null,
             borderRadius: BorderRadius.circular(999),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               child: Icon(
                 Icons.remove,
-                size: 18,
+                size: 16,
                 color: canDec
                     ? widget.textColor.withOpacityCompat(0.9)
                     : widget.textColor.withOpacityCompat(0.25),
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           Text(
             '$clamped',
             style: TextStyle(
               color: widget.textColor,
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           InkWell(
             onTap: canInc ? () => onChanged(clamped + 1) : null,
             borderRadius: BorderRadius.circular(999),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               child: Icon(
                 Icons.add,
-                size: 18,
+                size: 16,
                 color: canInc
                     ? widget.textColor.withOpacityCompat(0.9)
                     : widget.textColor.withOpacityCompat(0.25),
