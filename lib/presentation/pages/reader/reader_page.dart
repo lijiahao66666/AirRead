@@ -3621,7 +3621,8 @@ class _ReaderPageState extends State<ReaderPage>
 
     final mq = MediaQuery.of(context);
     final size = mq.size;
-    const margin = 12.0;
+    const marginX = 0.0;
+    const marginY = 12.0;
     final storedBottomInset = _contentBottomInset ?? 0.0;
     final bottomInset = storedBottomInset > mq.viewPadding.bottom
         ? storedBottomInset
@@ -3635,15 +3636,15 @@ class _ReaderPageState extends State<ReaderPage>
     final double capsuleW = _readAloudFabWidth(collapsed);
     const double capsuleH = _kFloatingCapsuleHeight;
 
-    final defaultX = size.width - 14 - capsuleW;
+    final defaultX = size.width - marginX - capsuleW;
     final defaultY = size.height - bottomInset - 120 - capsuleH;
     final current = _readAloudFabOffset ?? Offset(defaultX, defaultY);
 
-    final maxX = size.width - margin - capsuleW;
+    final maxX = size.width - marginX - capsuleW;
     final maxY = size.height - bottomInset - 80 - capsuleH;
     final clamped = Offset(
-      current.dx.clamp(margin, maxX),
-      current.dy.clamp(topInset + margin, maxY),
+      current.dx.clamp(marginX, maxX),
+      current.dy.clamp(topInset + marginY, maxY),
     );
 
     final isDarkBg = _bgColor.computeLuminance() < 0.5;
@@ -3669,8 +3670,8 @@ class _ReaderPageState extends State<ReaderPage>
           final base = _readAloudFabOffset ?? Offset(defaultX, defaultY);
           final next = base + details.delta;
           final nextClamped = Offset(
-            next.dx.clamp(margin, maxX),
-            next.dy.clamp(topInset + margin, maxY),
+            next.dx.clamp(marginX, maxX),
+            next.dy.clamp(topInset + marginY, maxY),
           );
           setState(() => _readAloudFabOffset = nextClamped);
         },
@@ -3870,7 +3871,8 @@ class _ReaderPageState extends State<ReaderPage>
 
     final mq = MediaQuery.of(context);
     final size = mq.size;
-    const margin = 12.0;
+    const marginX = 0.0;
+    const marginY = 12.0;
     final storedBottomInset = _contentBottomInset ?? 0.0;
     final bottomInset = storedBottomInset > mq.viewPadding.bottom
         ? storedBottomInset
@@ -3884,15 +3886,15 @@ class _ReaderPageState extends State<ReaderPage>
     final double capsuleW = _illustrationFabWidth(collapsed);
     const double capsuleH = _kFloatingCapsuleHeight;
 
-    final defaultX = size.width - 14 - capsuleW;
+    final defaultX = size.width - marginX - capsuleW;
     final defaultY = size.height - bottomInset - 120 - capsuleH - 64;
     final current = _illustrationFabOffset ?? Offset(defaultX, defaultY);
 
-    final maxX = size.width - margin - capsuleW;
+    final maxX = size.width - marginX - capsuleW;
     final maxY = size.height - bottomInset - 80 - capsuleH;
     final clamped = Offset(
-      current.dx.clamp(margin, maxX),
-      current.dy.clamp(topInset + margin, maxY),
+      current.dx.clamp(marginX, maxX),
+      current.dy.clamp(topInset + marginY, maxY),
     );
 
     final isDarkBg = _bgColor.computeLuminance() < 0.5;
@@ -3918,8 +3920,8 @@ class _ReaderPageState extends State<ReaderPage>
           final base = _illustrationFabOffset ?? Offset(defaultX, defaultY);
           final next = base + details.delta;
           final nextClamped = Offset(
-            next.dx.clamp(margin, maxX),
-            next.dy.clamp(topInset + margin, maxY),
+            next.dx.clamp(marginX, maxX),
+            next.dy.clamp(topInset + marginY, maxY),
           );
           setState(() => _illustrationFabOffset = nextClamped);
         },
