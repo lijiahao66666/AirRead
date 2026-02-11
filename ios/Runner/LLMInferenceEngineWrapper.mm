@@ -346,21 +346,6 @@ private:
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         try {
             @try {
-                // 设置推理参数
-                std::string configStr = "{";
-                configStr += "\"max_new_tokens\": " + std::to_string(maxNewTokensForRun) + ",";
-                configStr += "\"max_input_tokens\": " + std::to_string(maxInputTokensForRun) + ",";
-                configStr += "\"temperature\": " + std::to_string(temperature) + ",";
-                configStr += "\"top_p\": " + std::to_string(topP) + ",";
-                configStr += "\"top_k\": " + std::to_string(topK) + ",";
-                configStr += "\"min_p\": " + std::to_string(minP) + ",";
-                configStr += "\"presence_penalty\": " + std::to_string(presencePenalty) + ",";
-                configStr += "\"repetition_penalty\": " + std::to_string(repetitionPenalty);
-                configStr += "}";
-                
-                bool inferConfigOk = blockSelf->_llm->set_config(configStr);
-                ARLog(@"[LLM] Config set: %s (set_config=%s)", configStr.c_str(), inferConfigOk ? "true" : "false");
-
                 blockSelf->_llm->reset();
 
                 // 使用UTF-8安全的流缓冲区

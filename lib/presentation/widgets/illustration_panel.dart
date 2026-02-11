@@ -202,7 +202,6 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       generateText = (prompt) => aiModel.generate(
             prompt: prompt,
             maxTokens: 1024,
-            temperature: 0.2,
           );
     }
 

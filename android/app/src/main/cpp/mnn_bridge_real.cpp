@@ -169,20 +169,6 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
         try {
             // 重置 KV 缓存，准备新一轮对话
             g_llm->reset();
-
-            // 设置配置（使用 JSON 格式）
-            std::string configStr = "{";
-            configStr += "\"max_new_tokens\": " + std::to_string(maxNewTokens) + ",";
-            configStr += "\"max_input_tokens\": " + std::to_string(maxInputTokens) + ",";
-            configStr += "\"temperature\": " + std::to_string(temperature) + ",";
-            configStr += "\"top_p\": " + std::to_string(topP) + ",";
-            configStr += "\"top_k\": " + std::to_string(topK) + ",";
-            configStr += "\"min_p\": " + std::to_string(minP) + ",";
-            configStr += "\"presence_penalty\": " + std::to_string(presencePenalty) + ",";
-            configStr += "\"repetition_penalty\": " + std::to_string(repetitionPenalty);
-            configStr += "}";
-            
-            g_llm->set_config(configStr);
             
             std::stringstream ss;
             MNN::Transformer::ChatMessages chat;
@@ -206,7 +192,6 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
                 if (!input_ids.empty()) {
                     std::stringstream ss2;
                     g_llm->reset();
-                    g_llm->set_config(configStr);
                     g_llm->response(input_ids, &ss2, nullptr, maxNewTokens);
                     response = ss2.str();
                 }
@@ -329,20 +314,6 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz
         try {
             // 重置 KV 缓存，准备新一轮对话
             g_llm->reset();
-
-            // 设置配置（使用 JSON 格式）
-            std::string configStr = "{";
-            configStr += "\"max_new_tokens\": " + std::to_string(maxNewTokens) + ",";
-            configStr += "\"max_input_tokens\": " + std::to_string(maxInputTokens) + ",";
-            configStr += "\"temperature\": " + std::to_string(temperature) + ",";
-            configStr += "\"top_p\": " + std::to_string(topP) + ",";
-            configStr += "\"top_k\": " + std::to_string(topK) + ",";
-            configStr += "\"min_p\": " + std::to_string(minP) + ",";
-            configStr += "\"presence_penalty\": " + std::to_string(presencePenalty) + ",";
-            configStr += "\"repetition_penalty\": " + std::to_string(repetitionPenalty);
-            configStr += "}";
-            
-            g_llm->set_config(configStr);
             
             // 使用自定义 streambuf 来捕获输出并支持取消
             ChunkStreamBuf customBuf([&streamCb](const std::string& chunk) {

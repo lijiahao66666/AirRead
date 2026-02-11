@@ -4037,7 +4037,6 @@ class _ReaderPageState extends State<ReaderPage>
                                             run = (prompt) => ai.generate(
                                                   prompt: prompt,
                                                   maxTokens: 1024,
-                                                  temperature: 0.2,
                                                 );
                                           }
 
@@ -5169,14 +5168,12 @@ class _ReaderPageState extends State<ReaderPage>
       generateText = (prompt) => aiModel.generate(
             prompt: prompt,
             maxTokens: 1024,
-            temperature: 0.2,
           );
     } else if (aiModel.source == AiModelSource.local) {
       if (!aiModel.loaded) return;
       generateText = (prompt) => aiModel.generate(
             prompt: prompt,
             maxTokens: 1024,
-            temperature: 0.2,
           );
     } else if (aiModel.source == AiModelSource.online && !usingPersonal) {
       if (aiModel.pointsBalance <= 0) return;
@@ -6519,7 +6516,6 @@ class _ReaderPageState extends State<ReaderPage>
                           generateText = (prompt) => aiModel.generate(
                                 prompt: prompt,
                                 maxTokens: 1024,
-                                temperature: 0.2,
                               );
                         } else if (aiModel.source == AiModelSource.local) {
                           if (!aiModel.loaded) {
@@ -6529,7 +6525,6 @@ class _ReaderPageState extends State<ReaderPage>
                           generateText = (prompt) => aiModel.generate(
                                 prompt: prompt,
                                 maxTokens: 1024,
-                                temperature: 0.2,
                               );
                         } else if (aiModel.source == AiModelSource.online &&
                             !personalUsable &&
