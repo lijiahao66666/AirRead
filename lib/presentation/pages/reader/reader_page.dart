@@ -7393,11 +7393,18 @@ class _ReaderPageState extends State<ReaderPage>
       }
     }
     if (!kIsWeb && Platform.isAndroid) {
-      if (contentBottomInset < 16.0) {
-        contentBottomInset = 16.0;
+      if (contentBottomInset < 24.0) {
+        contentBottomInset = 24.0;
       }
     }
     _contentBottomInset = contentBottomInset;
+
+    const double _kBottomMenuButtonSize = 48.0;
+    const double _kBottomMenuPaddingY = 10.0;
+    const double _kBottomMenuHeight =
+        _kBottomMenuButtonSize + _kBottomMenuPaddingY * 2;
+    final controlsT = _controlsController.value;
+    final bottomMenuReserve = controlsT <= 0.001 ? 0.0 : _kBottomMenuHeight;
 
     // Determine dynamic background for bars
     // Ensure fully opaque background as requested
@@ -7421,7 +7428,7 @@ class _ReaderPageState extends State<ReaderPage>
     readerContent = _buildHorizontalMode(
       EdgeInsets.only(
         top: contentTopInset,
-        bottom: contentBottomInset,
+        bottom: contentBottomInset + bottomMenuReserve,
       ),
     );
 
@@ -7596,7 +7603,7 @@ class _ReaderPageState extends State<ReaderPage>
                       return const SizedBox.shrink();
                     }
                     return Positioned(
-                      bottom: 0,
+                      bottom: contentBottomInset,
                       left: 0,
                       right: 0,
                       child: SlideTransition(
@@ -7606,11 +7613,10 @@ class _ReaderPageState extends State<ReaderPage>
                     );
                   },
                   child: Container(
-                    padding: EdgeInsets.only(
-                        bottom: contentBottomInset,
-                        top: 4,
-                        left: 24,
-                        right: 24),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: _kBottomMenuPaddingY,
+                    ),
                     color: barColor,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,

@@ -830,7 +830,7 @@ class _TencentHunyuanSettingsPanelState
                 height: 44,
                 child: Center(
                   child: Transform.scale(
-                    scale: 0.9,
+                    scale: 0.85,
                     child: Switch(
                       value: _userKeysEnabled,
                       activeThumbColor: AppColors.techBlue,
