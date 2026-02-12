@@ -69,7 +69,7 @@ String buildOnlineQaPrompt({
       prompt = '请总结以下内容，用清晰的要点列出：\n\n'
           '${content.isEmpty ? '（当前阅读内容为空）' : content}\n\n'
           '要求：仅基于内容总结，不要编造。\n'
-          '输出：先列提纲（不超过6条），再给出总结（260字以内）。';
+          '输出：先列提纲（不超过6条），再给出总结（150字以内）。';
       break;
     case QAType.keyPoints:
       final content = contextService.getCurrentChapterContent().trim();
