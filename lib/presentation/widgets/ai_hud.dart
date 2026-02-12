@@ -2408,6 +2408,33 @@ class _TencentHunyuanSettingsPanelState
                         ),
                       ),
                       const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 10,
+                        children: aiModel.availableLocalModels.map((spec) {
+                          return _chip(
+                            label: spec.displayName,
+                            active: aiModel.localModelId == spec.id,
+                            onTap: aiModel.isDownloading
+                                ? null
+                                : () =>
+                                    unawaited(aiModel.setLocalModelId(spec.id)),
+                            textColor: widget.textColor,
+                          );
+                        }).toList(),
+                      ),
+                      if (aiModel.localModelMemoryHint.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          aiModel.localModelMemoryHint,
+                          style: TextStyle(
+                            color: widget.textColor.withOpacityCompat(0.6),
+                            fontSize: 12,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
                       _localModelStatusRow(
                         aiModel,
                         // kindLabel: '文本模型', // Removed

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../ai/local_llm/llm_client.dart';
 import '../../ai/local_llm/model_manager.dart';
 import '../../ai/local_llm/mnn_model_downloader.dart';
+import '../../ai/local_llm/mnn_model_spec.dart';
 import '../../ai/tencentcloud/tencent_api_client.dart';
 
 enum AiModelSource {
@@ -34,7 +35,7 @@ class AiModelProvider extends ChangeNotifier {
 
   LlmClient? _llmClient;
   AiModelSource _source = AiModelSource.none;
-  String _localModelId = ModelManager.qwen3_0_6b;
+  String _localModelId = ModelManager.qwen2_5_1_5b;
   int _pointsBalance = 0;
   int? _debugPointsOverride;
   int _maxIllustrationsPerChapter = 3;
@@ -65,6 +66,9 @@ class AiModelProvider extends ChangeNotifier {
   String get localModelId => _localModelId;
   String get localModelName => ModelManager.displayNameFor(_localModelId);
   String get localModelSizeLabel => ModelManager.sizeLabelFor(_localModelId);
+  String get localModelMemoryHint =>
+      ModelManager.memoryHintFor(_localModelId).trim();
+  List<MnnModelSpec> get availableLocalModels => ModelManager.localModels;
 
   // 模型安装相关 getter
   ModelInstallStatus get modelInstallStatus => _modelInstallStatus;
@@ -212,12 +216,12 @@ class AiModelProvider extends ChangeNotifier {
     );
 
     final localModelRaw = prefs.getString(_kLocalModelId);
-    final candidate = localModelRaw != null && localModelRaw.trim().isNotEmpty
+    String candidate = localModelRaw != null && localModelRaw.trim().isNotEmpty
         ? localModelRaw.trim()
-        : ModelManager.qwen3_0_6b;
+        : ModelManager.qwen2_5_1_5b;
     final supported =
         ModelManager.localModels.any((spec) => spec.id == candidate);
-    _localModelId = supported ? candidate : ModelManager.qwen3_0_6b;
+    _localModelId = supported ? candidate : ModelManager.qwen2_5_1_5b;
     if (!supported) {
       await prefs.setString(_kLocalModelId, _localModelId);
     }
@@ -293,7 +297,7 @@ class AiModelProvider extends ChangeNotifier {
         model: _localModelId,
       )
           .timeout(
-        const Duration(seconds: 60), // 增加到60秒，Qwen3-0.6B需要更长时间
+        const Duration(seconds: 60), // 增加到60秒，本地模型需要更长时间
         onTimeout: () {
           debugPrint('[AiModelProvider] LLM initialization timed out');
           return false;

@@ -4,7 +4,41 @@ import 'mnn_model_spec.dart';
 /// 模型管理器
 /// 负责检查、下载和管理 MNN 模型
 class ModelManager {
+  static const String qwen2_5_1_5b = 'qwen2.5-1.5b-instruct-mnn';
   static const String qwen3_0_6b = 'qwen3-0.6b-mnn';
+
+  static const MnnModelSpec qwen2_5_1_5bSpec = MnnModelSpec(
+    id: qwen2_5_1_5b,
+    displayName: 'Qwen2.5-1.5B',
+    sizeLabel: '880M',
+    estimatedTotalSizeBytes: 885 * 1024 * 1024,
+    baseUrl:
+        'https://modelscope.cn/models/MNN/Qwen2.5-1.5B-Instruct-MNN/resolve/master/',
+    filesToDownload: [
+      'config.json',
+      'configuration.json',
+      'llm_config.json',
+      'llm.mnn',
+      'llm.mnn.json',
+      'llm.mnn.weight',
+      'tokenizer.txt',
+    ],
+    criticalFiles: [
+      'llm.mnn',
+      'llm.mnn.weight',
+      'tokenizer.txt',
+      'config.json',
+    ],
+    minExpectedBytesByFile: {
+      'llm.mnn.weight': 800 * 1024 * 1024,
+      'llm.mnn': 600 * 1024,
+      'llm.mnn.json': 2 * 1024 * 1024,
+      'tokenizer.txt': 512 * 1024,
+      'config.json': 100,
+      'configuration.json': 20,
+      'llm_config.json': 100,
+    },
+  );
 
   static const MnnModelSpec qwen3Spec = MnnModelSpec(
     id: qwen3_0_6b,
@@ -34,14 +68,24 @@ class ModelManager {
     },
   );
 
-  static const List<MnnModelSpec> localModels = [qwen3Spec];
+  static const List<MnnModelSpec> localModels = [qwen2_5_1_5bSpec, qwen3Spec];
 
   static MnnModelSpec specFor(String modelId) {
-    return localModels.firstWhere((e) => e.id == modelId, orElse: () => qwen3Spec);
+    return localModels.firstWhere(
+      (e) => e.id == modelId,
+      orElse: () => qwen2_5_1_5bSpec,
+    );
   }
 
   static String displayNameFor(String modelId) => specFor(modelId).displayName;
   static String sizeLabelFor(String modelId) => specFor(modelId).sizeLabel;
+  static String memoryHintFor(String modelId) {
+    return switch (modelId) {
+      qwen3_0_6b => '建议手机内存≥4G',
+      qwen2_5_1_5b => '建议手机内存≥6G',
+      _ => '',
+    };
+  }
 
   /// 检查模型是否已安装到文档目录
   static Future<bool> isModelInstalled(String modelId) async {
