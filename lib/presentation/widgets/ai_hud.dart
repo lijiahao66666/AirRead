@@ -896,7 +896,7 @@ class _TencentHunyuanSettingsPanelState
           ),
           if (_userKeysEnabled) ...[
             Text(
-              '可填写腾讯个人开发者的SecretId,SecretKey，会操作的看官自己操作，请放心，app内部不会盗用和泄露此信息，可自己通过控制台查看用量，需要开通混元大模型，机器翻译，语音合成完整使用AI伴读功能，无需购买积分。',
+              '可填写腾讯个人开发者的SecretId,SecretKey，会操作的看官自己操作，请放心，app内部不会盗用和泄露此信息，可自己通过控制台查看用量，需要开通混元大模型（文本和生图），机器翻译，语音合成完整使用AI伴读功能，无需购买积分。',
               style: TextStyle(
                 color: widget.textColor.withOpacityCompat(0.65),
                 fontSize: 13,
