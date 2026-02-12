@@ -35,7 +35,7 @@ class AiModelProvider extends ChangeNotifier {
 
   LlmClient? _llmClient;
   AiModelSource _source = AiModelSource.none;
-  String _localModelId = ModelManager.qwen2_5_1_5b;
+  String _localModelId = ModelManager.qwen3_1_7b;
   int _pointsBalance = 0;
   int? _debugPointsOverride;
   int _maxIllustrationsPerChapter = 3;
@@ -218,10 +218,13 @@ class AiModelProvider extends ChangeNotifier {
     final localModelRaw = prefs.getString(_kLocalModelId);
     String candidate = localModelRaw != null && localModelRaw.trim().isNotEmpty
         ? localModelRaw.trim()
-        : ModelManager.qwen2_5_1_5b;
+        : ModelManager.qwen3_1_7b;
+    if (candidate == 'qwen2.5-1.5b-instruct-mnn') {
+      candidate = ModelManager.qwen3_1_7b;
+    }
     final supported =
         ModelManager.localModels.any((spec) => spec.id == candidate);
-    _localModelId = supported ? candidate : ModelManager.qwen2_5_1_5b;
+    _localModelId = supported ? candidate : ModelManager.qwen3_1_7b;
     if (!supported) {
       await prefs.setString(_kLocalModelId, _localModelId);
     }

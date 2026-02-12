@@ -120,7 +120,7 @@ class LlmClientMnn implements LlmClient {
 
     final result = await _client.initialize(modelPath: modelPath);
     if (result) {
-      _currentModel = model ?? ModelManager.qwen2_5_1_5b;
+      _currentModel = model ?? ModelManager.qwen3_1_7b;
       debugPrint('[LlmClientMnn] Initialization successful');
     } else {
       debugPrint('[LlmClientMnn] Initialization failed');
@@ -129,7 +129,7 @@ class LlmClientMnn implements LlmClient {
   }
 
   Future<String?> _getDefaultModelPath() async {
-    final modelPath = await ModelManager.getModelPath(ModelManager.qwen2_5_1_5b);
+    final modelPath = await ModelManager.getModelPath(ModelManager.qwen3_1_7b);
     return modelPath;
   }
 
