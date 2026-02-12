@@ -166,12 +166,14 @@ class IllustrationService {
     buffer.writeln('1) 只允许基于原文信息提炼画面；禁止新增原文未出现的人物、地点、道具、服饰细节。');
     buffer.writeln('2) 如果片段平淡无奇、缺乏可视化动作/环境，只是对话或心理描写，请直接输出 null。');
     buffer.writeln('3) 若存在画面：只提取 1 个最关键场景。');
-    buffer.writeln('输出格式：仅输出一个 JSON 对象（或 null），不要输出数组，不要包含解释文字。');
+    buffer.writeln('4) prompt 必须是“用于生图的画面描述”，不得直接复制原文句子；禁止出现原文中连续 20 个以上的原句片段。');
+    buffer.writeln('输出格式：仅输出一个 JSON 对象（或 null），不要输出数组，不要包含解释文字/Markdown。');
     buffer.writeln('JSON 字段：');
     buffer.writeln('  - index (int)：场景对应的段落全局索引（必须严格对应下方每行开头的数字）。');
     buffer.writeln('  - title (string)：场景标题（简短）。');
     buffer.writeln(
         '  - prompt (string)：中文生图提示词（更细更具体），需包含：主体、动作、环境、时间/天气、镜头景别、光影、氛围、构图要点；长度 <= 280 字。');
+    buffer.writeln('示例：{"index": 12, "title": "雨夜追逐", "prompt": "雨夜街巷，披斗篷的年轻人奔跑回头张望，湿漉漉石板路反光，远处路灯光晕，低角度中景，冷色调，紧张氛围，动感构图"}');
 
     buffer.writeln();
     buffer.writeln('小说片段（行首数字为全局索引）：');
@@ -316,27 +318,28 @@ class IllustrationService {
     required String chapterTitle,
     required List<String> paragraphs,
   }) {
-    final start = raw.indexOf('[');
+    final cleanedRaw = _stripModelNoise(raw);
+    final start = cleanedRaw.indexOf('[');
     // If we can't find ']', we might be truncated.
     // Try to take everything from '[' to the end of string if ']' is missing
-    final lastBracket = raw.lastIndexOf(']');
+    final lastBracket = cleanedRaw.lastIndexOf(']');
     final end = (lastBracket != -1 && lastBracket > start)
         ? lastBracket
-        : raw.length - 1;
+        : cleanedRaw.length - 1;
 
     if (start == -1 || end <= start) {
       // New logic: Allow single object or null
-      final rawTrimmed = raw.trim();
+      final rawTrimmed = cleanedRaw.trim();
       if (rawTrimmed == 'null') {
         return (ok: true, cards: const <SceneCard>[], errorHint: '');
       }
 
       // Compatibility: Check if it's a single object (starts with {)
-      final startObj = raw.indexOf('{');
-      final endObj = raw.lastIndexOf('}');
+      final startObj = cleanedRaw.indexOf('{');
+      final endObj = cleanedRaw.lastIndexOf('}');
       if (startObj != -1 && endObj != -1 && endObj > startObj) {
         // It is a single object
-        final singleJson = raw.substring(startObj, endObj + 1);
+        final singleJson = cleanedRaw.substring(startObj, endObj + 1);
         try {
           final decodedSingle = jsonDecode(singleJson);
           return _parseDecodedList([decodedSingle], paragraphs);
@@ -352,7 +355,7 @@ class IllustrationService {
     }
 
     final maybeTruncatedJson =
-        raw.substring(start, lastBracket != -1 ? end + 1 : raw.length);
+        cleanedRaw.substring(start, lastBracket != -1 ? end + 1 : cleanedRaw.length);
     dynamic decoded;
     try {
       decoded = jsonDecode(maybeTruncatedJson);
@@ -457,6 +460,10 @@ class IllustrationService {
         errors.add('第${i + 1}项 prompt为空');
         continue;
       }
+      if (_looksLikeCopiedFromParagraph(scene, paragraphs[pIndex])) {
+        errors.add('第${i + 1}项 prompt疑似直接复制原文');
+        continue;
+      }
 
       out.add(SceneCard(
         id: const Uuid().v4(),
@@ -483,5 +490,41 @@ class IllustrationService {
       cards: out,
       errorHint: ok ? '' : (hint.isEmpty ? '未知错误' : hint)
     );
+  }
+
+  String _stripModelNoise(String raw) {
+    var s = raw;
+    s = s.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '');
+    s = s.replaceAll(RegExp(r'```[a-zA-Z]*'), '');
+    s = s.replaceAll('```', '');
+    return s.trim();
+  }
+
+  String _normalizeForCopyCheck(String s) {
+    var t = s.replaceAll('\u0000', '');
+    t = t.replaceAll(RegExp(r'[\r\n]+'), '');
+    t = t.replaceAll(
+      RegExp(r'[\s，。！？、；：,.!?\"\'（）()\[\]【】《》<>]'),
+      '',
+    );
+    return t;
+  }
+
+  bool _looksLikeCopiedFromParagraph(String prompt, String paragraph) {
+    final p = _normalizeForCopyCheck(paragraph);
+    final s = _normalizeForCopyCheck(prompt);
+    const minRun = 32;
+    if (p.length < minRun || s.length < minRun) return false;
+    final midStart = ((p.length - minRun) / 2).floor().clamp(0, p.length - minRun);
+    final samples = <String>[
+      p.substring(0, minRun),
+      p.substring(midStart, midStart + minRun),
+      p.substring(p.length - minRun),
+    ];
+    for (final sample in samples) {
+      if (sample.trim().isEmpty) continue;
+      if (s.contains(sample)) return true;
+    }
+    return false;
   }
 }

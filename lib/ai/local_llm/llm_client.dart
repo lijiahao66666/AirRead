@@ -37,6 +37,16 @@ class LlmClientMnn implements LlmClient {
   final MnnClient _client = MnnClient();
   String? _currentModel;
 
+  String _appendThinkIfNeeded(String prompt) {
+    final p = prompt.trimRight();
+    if (p.isEmpty) return '/think';
+    if (RegExp(r'(^|\s)/no_think\b').hasMatch(p) ||
+        RegExp(r'(^|\s)/think\b').hasMatch(p)) {
+      return p;
+    }
+    return '$p\n/think';
+  }
+
   @override
   bool get isAvailable => _client.isAvailable;
 
@@ -143,8 +153,9 @@ class LlmClientMnn implements LlmClient {
     double minP = 0.0,
     double repetitionPenalty = 1.1,
   }) async {
+    final effectivePrompt = _appendThinkIfNeeded(prompt);
     final result = await _client.generate(
-      prompt: prompt,
+      prompt: effectivePrompt,
       maxTokens: maxTokens,
       temperature: temperature,
       topP: topP,
@@ -170,8 +181,9 @@ class LlmClientMnn implements LlmClient {
     double minP = 0.0,
     double repetitionPenalty = 1.1,
   }) async* {
+    final effectivePrompt = _appendThinkIfNeeded(prompt);
     yield* _client.generateStream(
-      prompt: prompt,
+      prompt: effectivePrompt,
       maxTokens: maxTokens,
       temperature: temperature,
       topP: topP,
