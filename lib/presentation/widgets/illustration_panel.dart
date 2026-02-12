@@ -203,7 +203,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
 
     Future<String> Function(String prompt)? generateText;
     if (aiModel.source == AiModelSource.local) {
-      if (!aiModel.loaded) {
+      if (!aiModel.anyLocalTextInstalled || !aiModel.loaded) {
         _showToast('本地模型未就绪');
         return;
       }

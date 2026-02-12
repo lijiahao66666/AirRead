@@ -5171,7 +5171,7 @@ class _ReaderPageState extends State<ReaderPage>
             maxTokens: 1024,
           );
     } else if (aiModel.source == AiModelSource.local) {
-      if (!aiModel.loaded) return;
+      if (!aiModel.anyLocalTextInstalled || !aiModel.loaded) return;
       generateText = (prompt) => aiModel.generate(
             prompt: prompt,
             maxTokens: 1024,
@@ -6378,7 +6378,9 @@ class _ReaderPageState extends State<ReaderPage>
                       (tp.translationMode == TranslationMode.bigModel &&
                           (aiModel.pointsBalance > 0 || personalUsable)));
               final canExplain = text.isNotEmpty &&
-                  ((aiModel.source == AiModelSource.local && aiModel.loaded) ||
+                  ((aiModel.source == AiModelSource.local &&
+                          aiModel.anyLocalTextInstalled &&
+                          aiModel.loaded) ||
                       (aiModel.source == AiModelSource.online &&
                           (aiModel.pointsBalance > 0 || personalUsable)));
               final selectionIllustrationErr =
@@ -6387,6 +6389,7 @@ class _ReaderPageState extends State<ReaderPage>
                   ((aiModel.illustrationForceLocalAnalyze &&
                           aiModel.localModelReadyForIllustrationAnalysis) ||
                       (aiModel.source == AiModelSource.local &&
+                          aiModel.anyLocalTextInstalled &&
                           aiModel.loaded) ||
                       (aiModel.source == AiModelSource.online &&
                           (aiModel.pointsBalance > 0 || personalUsable)));
@@ -6520,7 +6523,8 @@ class _ReaderPageState extends State<ReaderPage>
                                 maxTokens: 1024,
                               );
                         } else if (aiModel.source == AiModelSource.local) {
-                          if (!aiModel.loaded) {
+                          if (!aiModel.anyLocalTextInstalled ||
+                              !aiModel.loaded) {
                             _showCenterToast('本地模型未就绪');
                             return;
                           }

@@ -42,6 +42,7 @@ class AiModelProvider extends ChangeNotifier {
   bool _illustrationEnabled = false;
   bool _illustrationAutoAnalyzeEnabled = false;
   bool _illustrationForceLocalAnalyze = false;
+  bool _anyLocalModelInstalled = false;
 
   // 模型安装状态
   ModelInstallStatus _modelInstallStatus = ModelInstallStatus.notInstalled;
@@ -80,9 +81,12 @@ class AiModelProvider extends ChangeNotifier {
       _modelInstallStatus == ModelInstallStatus.installing;
 
   bool get localTextInstalled => isModelInstalled;
+  bool get anyLocalTextInstalled => _anyLocalModelInstalled;
   bool get localTextReady => loaded;
   bool get localModelReadyForIllustrationAnalysis =>
       localTextInstalled && localTextReady;
+  bool get anyLocalModelReadyForIllustrationAnalysis =>
+      anyLocalTextInstalled && localTextReady;
   bool get illustrationAutoAnalyzeEnabled => _illustrationAutoAnalyzeEnabled;
   bool get illustrationForceLocalAnalyze => _illustrationForceLocalAnalyze;
 
@@ -95,6 +99,9 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   Future<void> setIllustrationForceLocalAnalyze(bool value) async {
+    if (value) {
+      await _ensureSelectedLocalModelInstalledIfAny();
+    }
     final next = value && localModelReadyForIllustrationAnalysis;
     if (_illustrationForceLocalAnalyze == next) return;
     _illustrationForceLocalAnalyze = next;
@@ -110,6 +117,51 @@ class AiModelProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kIllustrationForceLocalAnalyze, false);
+  }
+
+  Future<void> _checkAnyLocalModelInstallation() async {
+    final before = _anyLocalModelInstalled;
+    try {
+      for (final spec in ModelManager.localModels) {
+        final ok = await ModelManager.isModelInstalled(spec.id);
+        if (ok) {
+          _anyLocalModelInstalled = true;
+          if (before != _anyLocalModelInstalled) notifyListeners();
+          return;
+        }
+      }
+      _anyLocalModelInstalled = false;
+      if (before != _anyLocalModelInstalled) notifyListeners();
+    } catch (_) {
+      _anyLocalModelInstalled = false;
+      if (before != _anyLocalModelInstalled) notifyListeners();
+    }
+  }
+
+  Future<String?> _findInstalledLocalModelId() async {
+    if (await ModelManager.isModelInstalled(_localModelId)) {
+      return _localModelId;
+    }
+    final prefer = <String>[
+      ModelManager.qwen3_1_7b,
+      ModelManager.qwen3_0_6b,
+    ];
+    for (final id in prefer) {
+      if (await ModelManager.isModelInstalled(id)) return id;
+    }
+    for (final spec in ModelManager.localModels) {
+      if (await ModelManager.isModelInstalled(spec.id)) return spec.id;
+    }
+    return null;
+  }
+
+  Future<void> _ensureSelectedLocalModelInstalledIfAny() async {
+    await _checkAnyLocalModelInstallation();
+    if (!_anyLocalModelInstalled) return;
+    if (isModelInstalled) return;
+    final installedId = await _findInstalledLocalModelId();
+    if (installedId == null || installedId == _localModelId) return;
+    await setLocalModelId(installedId);
   }
 
   Future<void> setSource(AiModelSource value) async {
@@ -128,6 +180,9 @@ class AiModelProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kModelSource, value.name);
+    if (_source == AiModelSource.local) {
+      await _ensureSelectedLocalModelInstalledIfAny();
+    }
   }
 
   Future<void> setLocalModelId(String modelId) async {
@@ -137,6 +192,7 @@ class AiModelProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kLocalModelId, modelId);
     await _checkModelInstallation();
+    await _checkAnyLocalModelInstallation();
     if (_modelInstallStatus == ModelInstallStatus.installed) {
       await _initializeLlmClient();
     }
@@ -248,11 +304,15 @@ class AiModelProvider extends ChangeNotifier {
 
     // 检查模型是否已安装
     await _checkModelInstallation();
+    await _checkAnyLocalModelInstallation();
     // await _checkImageModelInstallation(); // Removed
 
     // 如果模型已安装，初始化 LLM 客户端
     if (_modelInstallStatus == ModelInstallStatus.installed) {
       await _initializeLlmClient();
+    }
+    if (_source == AiModelSource.local) {
+      await _ensureSelectedLocalModelInstalledIfAny();
     }
     await _enforceForceLocalAnalyzeConstraint();
 
@@ -343,12 +403,14 @@ class AiModelProvider extends ChangeNotifier {
         case ModelDownloadStatus.completed:
           _modelInstallStatus = ModelInstallStatus.installed;
           _initializeLlmClient();
+          unawaited(_checkAnyLocalModelInstallation());
           break;
         case ModelDownloadStatus.failed:
           _modelInstallStatus = ModelInstallStatus.failed;
           break;
         case ModelDownloadStatus.notDownloaded:
           _modelInstallStatus = ModelInstallStatus.notInstalled;
+          unawaited(_checkAnyLocalModelInstallation());
           break;
         case ModelDownloadStatus.downloading:
         case ModelDownloadStatus.extracting:

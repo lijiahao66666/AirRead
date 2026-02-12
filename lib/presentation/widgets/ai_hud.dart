@@ -2598,7 +2598,7 @@ class _TencentHunyuanSettingsPanelState
                                   '强制本地模型分析',
                                   style: TextStyle(
                                     color: aiModel
-                                            .localModelReadyForIllustrationAnalysis
+                                            .anyLocalModelReadyForIllustrationAnalysis
                                         ? widget.textColor
                                         : widget.textColor
                                             .withOpacityCompat(0.5),
@@ -2608,7 +2608,7 @@ class _TencentHunyuanSettingsPanelState
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  aiModel.localModelReadyForIllustrationAnalysis
+                                  aiModel.anyLocalModelReadyForIllustrationAnalysis
                                       ? '使用本地模型进行插图场景分析'
                                       : '本地模型未就绪，需下载模型',
                                   style: TextStyle(
@@ -2625,7 +2625,7 @@ class _TencentHunyuanSettingsPanelState
                             scale: 0.85,
                             child: Switch(
                               value:
-                                  aiModel.localModelReadyForIllustrationAnalysis &&
+                                  aiModel.anyLocalModelReadyForIllustrationAnalysis &&
                                           aiModel.illustrationForceLocalAnalyze
                                       ? true
                                       : false,
@@ -2633,7 +2633,7 @@ class _TencentHunyuanSettingsPanelState
                               onChanged: aiModel.source ==
                                           AiModelSource.online &&
                                       aiModel
-                                          .localModelReadyForIllustrationAnalysis
+                                          .anyLocalModelReadyForIllustrationAnalysis
                                   ? (v) => unawaited(
                                         aiModel
                                             .setIllustrationForceLocalAnalyze(
@@ -2938,11 +2938,12 @@ class _MainPanel extends StatelessWidget {
       AiModelSource.none => false,
       AiModelSource.online =>
         onlineEntitled || (usingPersonalKeys && personalKeysUsable),
-      AiModelSource.local => aiModel.loaded,
+      AiModelSource.local => aiModel.anyLocalTextInstalled && aiModel.loaded,
     };
 
     final String localQaSubtitle = switch (source) {
-      AiModelSource.local when !aiModel.isModelInstalled => '本地模型未下载，下载后可用',
+      AiModelSource.local when !aiModel.anyLocalTextInstalled =>
+        '本地模型未下载，下载后可用',
       AiModelSource.local when !aiModel.loaded => '本地模型未就绪，初始化后可用',
       _ => '',
     };
