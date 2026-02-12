@@ -33,6 +33,12 @@ static std::string arTrimAscii(const std::string& s) {
     return s.substr(start, end - start + 1);
 }
 
+static std::string arTail(const std::string& s, size_t maxLen) {
+    if (maxLen == 0) return "";
+    if (s.size() <= maxLen) return s;
+    return s.substr(s.size() - maxLen);
+}
+
 static bool arLooksMeaningfulUtf8(const std::string& s) {
     const std::string t = arTrimAscii(s);
     if (t.empty()) return false;
@@ -309,15 +315,6 @@ private:
 }
 
 - (void)processInput:(NSString *)input
-        maxNewTokens:(NSInteger)maxNewTokens
-      maxInputTokens:(NSInteger)maxInputTokens
-         temperature:(double)temperature
-                topP:(double)topP
-                topK:(NSInteger)topK
-                minP:(double)minP
-     presencePenalty:(double)presencePenalty
-   repetitionPenalty:(double)repetitionPenalty
-      enableThinking:(BOOL)enableThinking
    withStreamHandler:(StreamOutputHandler)handler {
     if (!_llm) {
         if (handler) {
@@ -340,8 +337,29 @@ private:
     
     // Store reference for block execution
     LLMInferenceEngineWrapper *blockSelf = self;
-    NSInteger maxNewTokensForRun = maxNewTokens;
-    NSInteger maxInputTokensForRun = maxInputTokens;
+    int maxNewTokensForRun = -1;
+    @try {
+        std::string dumped = blockSelf->_llm ? blockSelf->_llm->dump_config() : std::string();
+        const std::string key = "\"max_new_tokens\"";
+        size_t pos = dumped.find(key);
+        if (pos != std::string::npos) {
+            pos = dumped.find(':', pos + key.size());
+            if (pos != std::string::npos) {
+                pos++;
+                while (pos < dumped.size() && (dumped[pos] == ' ' || dumped[pos] == '\t')) pos++;
+                int v = 0;
+                bool has = false;
+                while (pos < dumped.size() && dumped[pos] >= '0' && dumped[pos] <= '9') {
+                    has = true;
+                    v = v * 10 + (dumped[pos] - '0');
+                    pos++;
+                }
+                if (has) maxNewTokensForRun = v;
+            }
+        }
+    } @catch (NSException *exception) {
+        maxNewTokensForRun = -1;
+    }
     
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         try {
@@ -354,7 +372,7 @@ private:
                 // 获取 atomic 指针以避免 lambda 中的 ivar 访问权限问题
                 std::atomic<bool>* shouldStopPtr = &blockSelf->_shouldStop;
                 
-                Utf8SafeStreamBuffer::CallBack callback = [handler, &accumulatedOutput, shouldStopPtr, enableThinking](const char* str, size_t len) {
+                Utf8SafeStreamBuffer::CallBack callback = [handler, &accumulatedOutput, shouldStopPtr](const char* str, size_t len) {
                     // Check for cancellation
                     if (shouldStopPtr->load()) {
                         return;
@@ -387,6 +405,11 @@ private:
                 
                 // 将输入转换为 std::string
                 std::string userInput = [input UTF8String];
+                const std::string trimmedInput = arTrimAscii(userInput);
+                ARLog(@"[LLM] Input meta: model=%@ len=%zu tail=%s",
+                      blockSelf->_modelPath,
+                      trimmedInput.size(),
+                      arTail(trimmedInput, 120).c_str());
                 
                 // Start inference
                 ARLog(@"[LLM] Starting inference...");
@@ -395,7 +418,7 @@ private:
                     "system",
                     "You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user."));
                 chat.emplace_back(ChatMessage("user", userInput));
-                blockSelf->_llm->response(chat, &os, nullptr, (int)maxNewTokensForRun);
+                blockSelf->_llm->response(chat, &os, nullptr, maxNewTokensForRun);
                 
                 if (!arLooksMeaningfulUtf8(accumulatedOutput)) {
                     std::string fullPrompt = userInput;
@@ -414,7 +437,7 @@ private:
                     if (!inputIds.empty()) {
                         accumulatedOutput.clear();
                         blockSelf->_llm->reset();
-                        blockSelf->_llm->response(inputIds, &os, nullptr, (int)maxNewTokensForRun);
+                        blockSelf->_llm->response(inputIds, &os, nullptr, maxNewTokensForRun);
                     }
                 }
                 
@@ -466,6 +489,7 @@ private:
                 }
                 
                 ARLog(@"[LLM] Inference completed. Total output length: %zu bytes", accumulatedOutput.length());
+                ARLog(@"[LLM] Output tail (up to 200 chars):\n%.200s", arTail(accumulatedOutput, 200).c_str());
                 
             } @catch (NSException *exception) {
                 NSLog(@"[LLMInferenceEngineWrapper] ObjC Exception during inference: %@", exception.reason);

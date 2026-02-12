@@ -35,7 +35,7 @@ class AiModelProvider extends ChangeNotifier {
 
   LlmClient? _llmClient;
   AiModelSource _source = AiModelSource.none;
-  String _localModelId = ModelManager.qwen3_1_7b;
+  String _localModelId = ModelManager.hunyuan_1_8b;
   int _pointsBalance = 0;
   int? _debugPointsOverride;
   int _maxIllustrationsPerChapter = 3;
@@ -143,7 +143,8 @@ class AiModelProvider extends ChangeNotifier {
       return _localModelId;
     }
     final prefer = <String>[
-      ModelManager.qwen3_1_7b,
+      ModelManager.hunyuan_1_8b,
+      ModelManager.hunyuan_0_5b,
       ModelManager.qwen3_0_6b,
     ];
     for (final id in prefer) {
@@ -274,13 +275,14 @@ class AiModelProvider extends ChangeNotifier {
     final localModelRaw = prefs.getString(_kLocalModelId);
     String candidate = localModelRaw != null && localModelRaw.trim().isNotEmpty
         ? localModelRaw.trim()
-        : ModelManager.qwen3_1_7b;
-    if (candidate == 'qwen2.5-1.5b-instruct-mnn') {
-      candidate = ModelManager.qwen3_1_7b;
+        : ModelManager.hunyuan_1_8b;
+    if (candidate == 'qwen2.5-1.5b-instruct-mnn' ||
+        candidate == 'qwen3-1.7b-mnn') {
+      candidate = ModelManager.hunyuan_1_8b;
     }
     final supported =
         ModelManager.localModels.any((spec) => spec.id == candidate);
-    _localModelId = supported ? candidate : ModelManager.qwen3_1_7b;
+    _localModelId = supported ? candidate : ModelManager.hunyuan_1_8b;
     if (!supported) {
       await prefs.setString(_kLocalModelId, _localModelId);
     }
@@ -552,7 +554,6 @@ class AiModelProvider extends ChangeNotifier {
   Future<String> generate({
     required String prompt,
     int maxTokens = 512,
-    double temperature = 0.7,
   }) async {
     if (_llmClient == null) {
       throw Exception('LLM client not initialized');
@@ -561,7 +562,6 @@ class AiModelProvider extends ChangeNotifier {
     final response = await _llmClient!.generate(
       prompt: prompt,
       maxTokens: maxTokens,
-      temperature: temperature,
     );
 
     return response;
@@ -570,7 +570,6 @@ class AiModelProvider extends ChangeNotifier {
   Stream<String> generateStream({
     required String prompt,
     int maxTokens = 512,
-    double temperature = 0.7,
   }) async* {
     if (_llmClient == null) {
       throw Exception('LLM client not initialized');
@@ -579,7 +578,6 @@ class AiModelProvider extends ChangeNotifier {
     yield* _llmClient!.generateStream(
       prompt: prompt,
       maxTokens: maxTokens,
-      temperature: temperature,
     );
   }
 

@@ -359,28 +359,10 @@ class MainActivity: FlutterActivity() {
     external fun nativeInit(modelPath: String)
     external fun nativeDumpConfig(): String
     external fun nativeChat(
-        prompt: String,
-        maxNewTokens: Int,
-        maxInputTokens: Int,
-        temperature: Double,
-        topP: Double,
-        topK: Int,
-        minP: Double,
-        presencePenalty: Double,
-        repetitionPenalty: Double,
-        enableThinking: Int
+        prompt: String
     ): ByteArray?
     external fun nativeChatStream(
         prompt: String,
-        maxNewTokens: Int,
-        maxInputTokens: Int,
-        temperature: Double,
-        topP: Double,
-        topK: Int,
-        minP: Double,
-        presencePenalty: Double,
-        repetitionPenalty: Double,
-        enableThinking: Int,
         callback: Any
     )
 
@@ -548,29 +530,11 @@ class MainActivity: FlutterActivity() {
                     }
                     val userText = call.argument<String>("userText")
                     if (userText != null) {
-                        val maxNewTokens = call.argument<Number>("maxNewTokens")?.toInt() ?: 128
-                        val maxInputTokens = call.argument<Number>("maxInputTokens")?.toInt() ?: 512
-                        val temperature = call.argument<Number>("temperature")?.toDouble() ?: 0.7
-                        val topP = call.argument<Number>("topP")?.toDouble() ?: 0.9
-                        val topK = call.argument<Number>("topK")?.toInt() ?: 40
-                        val minP = call.argument<Number>("minP")?.toDouble() ?: 0.05
-                        val presencePenalty = call.argument<Number>("presencePenalty")?.toDouble() ?: 0.0
-                        val repetitionPenalty = call.argument<Number>("repetitionPenalty")?.toDouble() ?: 1.1
-                        val enableThinking = if (call.argument<Boolean>("enableThinking") == true) 1 else 0
                         llmExecutor.execute {
                             try {
                                 Log.i("MainActivity", "Calling nativeChat...")
                                 val responseBytes = nativeChat(
-                                    userText,
-                                    maxNewTokens,
-                                    maxInputTokens,
-                                    temperature,
-                                    topP,
-                                    topK,
-                                    minP,
-                                    presencePenalty,
-                                    repetitionPenalty,
-                                    enableThinking
+                                    userText
                                 )
                                 Log.i("MainActivity", "nativeChat returned, bytes length: ${responseBytes?.size ?: 0}")
                                 val response = responseBytes?.let { String(it, Charsets.UTF_8) }
@@ -604,30 +568,12 @@ class MainActivity: FlutterActivity() {
                         result.error("INVALID_ARG", "User text is null", null)
                         return@setMethodCallHandler
                     }
-                    val maxNewTokens = call.argument<Number>("maxNewTokens")?.toInt() ?: 128
-                    val maxInputTokens = call.argument<Number>("maxInputTokens")?.toInt() ?: 512
-                    val temperature = call.argument<Number>("temperature")?.toDouble() ?: 0.7
-                    val topP = call.argument<Number>("topP")?.toDouble() ?: 0.9
-                    val topK = call.argument<Number>("topK")?.toInt() ?: 40
-                    val minP = call.argument<Number>("minP")?.toDouble() ?: 0.05
-                    val presencePenalty = call.argument<Number>("presencePenalty")?.toDouble() ?: 0.0
-                    val repetitionPenalty = call.argument<Number>("repetitionPenalty")?.toDouble() ?: 1.1
-                    val enableThinking = if (call.argument<Boolean>("enableThinking") == true) 1 else 0
                     streamCancelled = false
                     val callback = LocalLlmStreamCallback()
                     llmExecutor.execute {
                         try {
                             nativeChatStream(
                                 userText,
-                                maxNewTokens,
-                                maxInputTokens,
-                                temperature,
-                                topP,
-                                topK,
-                                minP,
-                                presencePenalty,
-                                repetitionPenalty,
-                                enableThinking,
                                 callback
                             )
                         } catch (e: UnsatisfiedLinkError) {

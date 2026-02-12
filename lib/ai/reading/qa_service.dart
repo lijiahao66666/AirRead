@@ -160,7 +160,7 @@ String buildLocalQaPrompt({
       );
       break;
   }
-  return 'You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user.\n$userPrompt /think';
+  return 'You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user.\n$userPrompt';
 
   // 关键修正：确保换行符是 \n 而不是 \r\n，且不要有多余的空格干扰 Native 的检测
   // return '<|im_start|>system\nYou are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user.\n<|im_end|>\n<|im_start|>user\n$userPrompt<|im_end|>\n<|im_start|>assistant\n';
@@ -177,7 +177,7 @@ class QAService {
   QAService({
     required this.contextService,
     required this.credentials,
-    this.localModelId = 'qwen3-0.6b-mnn',
+    this.localModelId = 'hunyuan-1.8b-mnn',
   });
 
   Stream<QAStreamChunk> askQuestion({
@@ -260,11 +260,6 @@ class QAService {
     await for (final delta in client.generateStream(
       prompt: prompt,
       maxTokens: caps.maxNewTokens,
-      temperature: 0.6,
-      topP: 0.95,
-      topK: 20,
-      minP: 0.0,
-      repetitionPenalty: 1.1,
     )) {
       if (delta.isEmpty) continue;
       yield QAStreamChunk(content: delta);

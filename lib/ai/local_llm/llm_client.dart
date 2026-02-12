@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
@@ -37,14 +38,38 @@ class LlmClientMnn implements LlmClient {
   final MnnClient _client = MnnClient();
   String? _currentModel;
 
+  void _debugLogPrompt(
+    String where,
+    String prompt, {
+    required int maxTokens,
+  }) {
+    if (!kDebugMode) return;
+    final trimmed = prompt.trimRight();
+    const tailLen = 160;
+    final tail = trimmed.length <= tailLen
+        ? trimmed
+        : trimmed.substring(trimmed.length - tailLen);
+    debugPrint(
+      '[LlmClientMnn][$where] model=$_currentModel inLen=${trimmed.length} inTail=${jsonEncode(tail)}',
+    );
+  }
+
+  void _debugLogOutput(String where, String output) {
+    if (!kDebugMode) return;
+    final trimmed = output.trimRight();
+    const headLen = 80;
+    const tailLen = 160;
+    final head = trimmed.length <= headLen ? trimmed : trimmed.substring(0, headLen);
+    final tail = trimmed.length <= tailLen
+        ? trimmed
+        : trimmed.substring(trimmed.length - tailLen);
+    debugPrint(
+      '[LlmClientMnn][$where] outLen=${trimmed.length} outHead=${jsonEncode(head)} outTail=${jsonEncode(tail)}',
+    );
+  }
+
   String _appendThinkIfNeeded(String prompt) {
-    final p = prompt.trimRight();
-    if (p.isEmpty) return '/think';
-    if (RegExp(r'(^|\s)/no_think\b').hasMatch(p) ||
-        RegExp(r'(^|\s)/think\b').hasMatch(p)) {
-      return p;
-    }
-    return '$p\n/think';
+    return prompt.trimRight();
   }
 
   @override
@@ -107,8 +132,11 @@ class LlmClientMnn implements LlmClient {
         }
         */
 
-        // Check specific required files
-        final requiredFiles = ['config.json', 'llm.mnn', 'tokenizer.txt'];
+        final String? modelId =
+            model != null && !p.isAbsolute(model) ? model : null;
+        final requiredFiles = modelId != null
+            ? ModelManager.specFor(modelId).criticalFiles
+            : const ['config.json', 'llm.mnn', 'llm.mnn.weight', 'tokenizer.txt'];
         for (var f in requiredFiles) {
           final file = File('${dir.path}/$f');
           if (!await file.exists()) {
@@ -130,7 +158,7 @@ class LlmClientMnn implements LlmClient {
 
     final result = await _client.initialize(modelPath: modelPath);
     if (result) {
-      _currentModel = model ?? ModelManager.qwen3_1_7b;
+      _currentModel = model ?? ModelManager.hunyuan_1_8b;
       debugPrint('[LlmClientMnn] Initialization successful');
     } else {
       debugPrint('[LlmClientMnn] Initialization failed');
@@ -139,7 +167,8 @@ class LlmClientMnn implements LlmClient {
   }
 
   Future<String?> _getDefaultModelPath() async {
-    final modelPath = await ModelManager.getModelPath(ModelManager.qwen3_1_7b);
+    final modelPath =
+        await ModelManager.getModelPath(ModelManager.hunyuan_1_8b);
     return modelPath;
   }
 
@@ -157,17 +186,18 @@ class LlmClientMnn implements LlmClient {
     final result = await _client.generate(
       prompt: effectivePrompt,
       maxTokens: maxTokens,
-      temperature: temperature,
-      topP: topP,
-      topK: topK,
-      minP: minP,
-      repetitionPenalty: repetitionPenalty,
     );
 
     if (result == null) {
       throw Exception('MNN generation returned null');
     }
 
+    _debugLogPrompt(
+      'generate',
+      effectivePrompt,
+      maxTokens: maxTokens,
+    );
+    _debugLogOutput('generate', result);
     return result;
   }
 
@@ -182,15 +212,31 @@ class LlmClientMnn implements LlmClient {
     double repetitionPenalty = 1.1,
   }) async* {
     final effectivePrompt = _appendThinkIfNeeded(prompt);
-    yield* _client.generateStream(
+    _debugLogPrompt(
+      'generateStream',
+      effectivePrompt,
+      maxTokens: maxTokens,
+    );
+    var outLen = 0;
+    var outTail = '';
+    await for (final delta in _client.generateStream(
       prompt: effectivePrompt,
       maxTokens: maxTokens,
-      temperature: temperature,
-      topP: topP,
-      topK: topK,
-      minP: minP,
-      repetitionPenalty: repetitionPenalty,
-    );
+    )) {
+      if (kDebugMode && delta.isNotEmpty) {
+        outLen += delta.length;
+        outTail += delta;
+        if (outTail.length > 160) {
+          outTail = outTail.substring(outTail.length - 160);
+        }
+      }
+      yield delta;
+    }
+    if (kDebugMode) {
+      debugPrint(
+        '[LlmClientMnn][generateStream] outLen=$outLen outTail=${jsonEncode(outTail)}',
+      );
+    }
   }
 
   @override

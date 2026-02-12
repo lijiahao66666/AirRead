@@ -15,27 +15,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)initialize:(NSString *)modelPath completion:(void (^)(BOOL success))completion;
 
-- (nullable NSString *)chatOnce:(NSString *)userText
-                   maxNewTokens:(NSInteger)maxNewTokens
-                  maxInputTokens:(NSInteger)maxInputTokens
-                    temperature:(double)temperature
-                           topP:(double)topP
-                          topK:(NSInteger)topK
-                          minP:(double)minP
-                 presencePenalty:(double)presencePenalty
-               repetitionPenalty:(double)repetitionPenalty
-                  enableThinking:(BOOL)enableThinking;
+- (nullable NSString *)chatOnce:(NSString *)userText;
 
 - (void)chatStream:(NSString *)userText
-      maxNewTokens:(NSInteger)maxNewTokens
-     maxInputTokens:(NSInteger)maxInputTokens
-       temperature:(double)temperature
-              topP:(double)topP
-             topK:(NSInteger)topK
-             minP:(double)minP
-    presencePenalty:(double)presencePenalty
-  repetitionPenalty:(double)repetitionPenalty
-     enableThinking:(BOOL)enableThinking
            onChunk:(void (^)(NSString *chunk))onChunk
             onDone:(void (^)(NSError * _Nullable error))onDone;
 

@@ -264,28 +264,9 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           return
         }
 
-        let maxNewTokens = (args["maxNewTokens"] as? NSNumber)?.intValue ?? 512
-        let maxInputTokens = (args["maxInputTokens"] as? NSNumber)?.intValue ?? 2048
-        let temperature = (args["temperature"] as? NSNumber)?.doubleValue ?? 0.7
-        let topP = (args["topP"] as? NSNumber)?.doubleValue ?? 0.9
-        let topK = (args["topK"] as? NSNumber)?.intValue ?? 40
-        let minP = (args["minP"] as? NSNumber)?.doubleValue ?? 0.05
-        let presencePenalty = (args["presencePenalty"] as? NSNumber)?.doubleValue ?? 0.0
-        let repetitionPenalty = (args["repetitionPenalty"] as? NSNumber)?.doubleValue ?? 1.0
-        let enableThinking = (args["enableThinking"] as? NSNumber)?.boolValue ?? false
-        
         DispatchQueue.global(qos: .userInitiated).async {
           let response = self.mnnLlmBridge?.chatOnce(
-            userText,
-            maxNewTokens: Int(maxNewTokens),
-            maxInputTokens: Int(maxInputTokens),
-            temperature: temperature,
-            topP: topP,
-            topK: Int(topK),
-            minP: minP,
-            presencePenalty: presencePenalty,
-            repetitionPenalty: repetitionPenalty,
-            enableThinking: enableThinking
+            userText
           )
           
           DispatchQueue.main.async {
@@ -304,28 +285,10 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           return
         }
 
-        let maxNewTokens = (args["maxNewTokens"] as? NSNumber)?.intValue ?? 512
-        let maxInputTokens = (args["maxInputTokens"] as? NSNumber)?.intValue ?? 2048
-        let temperature = (args["temperature"] as? NSNumber)?.doubleValue ?? 0.7
-        let topP = (args["topP"] as? NSNumber)?.doubleValue ?? 0.9
-        let topK = (args["topK"] as? NSNumber)?.intValue ?? 40
-        let minP = (args["minP"] as? NSNumber)?.doubleValue ?? 0.05
-        let presencePenalty = (args["presencePenalty"] as? NSNumber)?.doubleValue ?? 0.0
-        let repetitionPenalty = (args["repetitionPenalty"] as? NSNumber)?.doubleValue ?? 1.0
-        let enableThinking = (args["enableThinking"] as? NSNumber)?.boolValue ?? false
 
         // 开始流式生成
         self.mnnLlmBridge?.chatStream(
           userText,
-          maxNewTokens: Int(maxNewTokens),
-          maxInputTokens: Int(maxInputTokens),
-          temperature: temperature,
-          topP: topP,
-          topK: Int(topK),
-          minP: minP,
-          presencePenalty: presencePenalty,
-          repetitionPenalty: repetitionPenalty,
-          enableThinking: enableThinking,
           onChunk: { chunk in
             localLlmStreamHandler.sendChunk(chunk)
           },

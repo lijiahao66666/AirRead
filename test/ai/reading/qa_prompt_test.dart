@@ -40,7 +40,7 @@ void main() {
       qaType: QAType.general,
       history: '',
     );
-    expect(p1.contains('/think'), true);
+    expect(p1.contains('/think'), false);
     expect(p1.contains('你是阅读助手'), true);
     expect(p1.contains('【当前阅读内容】'), true);
   });

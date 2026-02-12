@@ -38,6 +38,7 @@ public:
 static std::unique_ptr<MNN::Transformer::Llm> g_llm;
 static std::mutex g_mutex;
 static bool g_initialized = false;
+static std::string g_model_config_path_for_log;
 
 static std::string arTrimAscii(const std::string& s) {
     if (s.empty()) return s;
@@ -46,6 +47,30 @@ static std::string arTrimAscii(const std::string& s) {
     if (start == std::string::npos) return "";
     const auto end = s.find_last_not_of(ws);
     return s.substr(start, end - start + 1);
+}
+
+static std::string arTail(const std::string& s, size_t maxLen) {
+    if (maxLen == 0) return "";
+    if (s.size() <= maxLen) return s;
+    return s.substr(s.size() - maxLen);
+}
+
+static int arExtractMaxNewTokensFromDump(const std::string& dumped) {
+    const std::string key = "\"max_new_tokens\"";
+    size_t pos = dumped.find(key);
+    if (pos == std::string::npos) return -1;
+    pos = dumped.find(':', pos + key.size());
+    if (pos == std::string::npos) return -1;
+    pos++;
+    while (pos < dumped.size() && (dumped[pos] == ' ' || dumped[pos] == '\t')) pos++;
+    int v = 0;
+    bool has = false;
+    while (pos < dumped.size() && dumped[pos] >= '0' && dumped[pos] <= '9') {
+        has = true;
+        v = v * 10 + (dumped[pos] - '0');
+        pos++;
+    }
+    return has ? v : -1;
 }
 
 static bool arLooksMeaningfulUtf8(const std::string& s) {
@@ -97,6 +122,7 @@ Java_com_airread_airread_MainActivity_nativeInit(JNIEnv *env, jobject thiz, jstr
     } else {
         LOGI("config.json not found, using directory path: %s", pathStr.c_str());
     }
+    g_model_config_path_for_log = pathStr;
 
     try {
         if (g_llm != nullptr) {
@@ -137,22 +163,18 @@ Java_com_airread_airread_MainActivity_nativeInit(JNIEnv *env, jobject thiz, jstr
 
 JNIEXPORT jbyteArray JNICALL
 Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
-                                                  jstring prompt,
-                                                  jint maxNewTokens,
-                                                  jint maxInputTokens,
-                                                  jdouble temperature,
-                                                  jdouble topP,
-                                                  jint topK,
-                                                  jdouble minP,
-                                                  jdouble presencePenalty,
-                                                  jdouble repetitionPenalty,
-                                                  jint enableThinking) {
+                                                  jstring prompt) {
     const char *promptStr = env->GetStringUTFChars(prompt, nullptr);
     // LOGI("nativeChat called with prompt: %s", promptStr); // Avoid logging full prompt
     
     std::string response;
     std::ostringstream oss;
     std::string userContent = promptStr;
+    const std::string trimmed = arTrimAscii(userContent);
+    LOGI("nativeChat input meta: model=%s len=%zu tail=%s",
+         g_model_config_path_for_log.c_str(),
+         trimmed.size(),
+         arTail(trimmed, 120).c_str());
     
     {
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -176,7 +198,8 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
                 "system",
                 "You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user."));
             chat.emplace_back(MNN::Transformer::ChatMessage("user", userContent));
-            g_llm->response(chat, &ss, nullptr, maxNewTokens);
+            int maxNewTokensForRun = arExtractMaxNewTokensFromDump(g_llm->dump_config());
+            g_llm->response(chat, &ss, nullptr, maxNewTokensForRun);
             response = ss.str();
 
             if (!arLooksMeaningfulUtf8(response)) {
@@ -192,7 +215,8 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
                 if (!input_ids.empty()) {
                     std::stringstream ss2;
                     g_llm->reset();
-                    g_llm->response(input_ids, &ss2, nullptr, maxNewTokens);
+                    int maxNewTokensForRun = arExtractMaxNewTokensFromDump(g_llm->dump_config());
+                    g_llm->response(input_ids, &ss2, nullptr, maxNewTokensForRun);
                     response = ss2.str();
                 }
             }
@@ -210,6 +234,8 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
     env->ReleaseStringUTFChars(prompt, promptStr);
     
     LOGI("nativeChat returning response bytes of length %zu", response.length());
+    const std::string outTrimmed = arTrimAscii(response);
+    LOGI("nativeChat output tail: %s", arTail(outTrimmed, 160).c_str());
     jbyteArray array = env->NewByteArray(response.length());
     if (array == nullptr) {
         LOGE("Failed to create jbyteArray from response");
@@ -285,19 +311,15 @@ public:
 JNIEXPORT void JNICALL
 Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz,
                                                         jstring prompt,
-                                                        jint maxNewTokens,
-                                                        jint maxInputTokens,
-                                                        jdouble temperature,
-                                                        jdouble topP,
-                                                        jint topK,
-                                                        jdouble minP,
-                                                        jdouble presencePenalty,
-                                                        jdouble repetitionPenalty,
-                                                        jint enableThinking,
                                                         jobject callback) {
     const char *promptStr = env->GetStringUTFChars(prompt, nullptr);
     // LOGI("nativeChatStream called with prompt: %s", promptStr); // Avoid logging full prompt
     std::string userContent = promptStr;
+    const std::string trimmed = arTrimAscii(userContent);
+    LOGI("nativeChatStream input meta: model=%s len=%zu tail=%s",
+         g_model_config_path_for_log.c_str(),
+         trimmed.size(),
+         arTail(trimmed, 120).c_str());
     
     // 创建回调包装器
     StreamCallback streamCb(env, callback);
@@ -331,7 +353,8 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz
                     "system",
                     "You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user."));
                 chat.emplace_back(MNN::Transformer::ChatMessage("user", userContent));
-                g_llm->response(chat, &customOs, nullptr, maxNewTokens);
+                int maxNewTokensForRun = arExtractMaxNewTokensFromDump(g_llm->dump_config());
+                g_llm->response(chat, &customOs, nullptr, maxNewTokensForRun);
             } catch (const std::runtime_error& e) {
                 if (std::string(e.what()) == "Generation cancelled by user") {
                     LOGI("Generation cancelled by user (caught in response wrapper)");

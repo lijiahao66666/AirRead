@@ -66,16 +66,7 @@
 #endif
 }
 
-- (nullable NSString *)chatOnce:(NSString *)userText
-                   maxNewTokens:(NSInteger)maxNewTokens
-                  maxInputTokens:(NSInteger)maxInputTokens
-                    temperature:(double)temperature
-                           topP:(double)topP
-                          topK:(NSInteger)topK
-                          minP:(double)minP
-                 presencePenalty:(double)presencePenalty
-               repetitionPenalty:(double)repetitionPenalty
-                  enableThinking:(BOOL)enableThinking {
+- (nullable NSString *)chatOnce:(NSString *)userText {
 #if MNN_NOT_AVAILABLE
     return nil;
 #else
@@ -88,15 +79,6 @@
         dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
         
         [_engine processInput:userText
-                 maxNewTokens:maxNewTokens
-               maxInputTokens:maxInputTokens
-                  temperature:temperature
-                         topP:topP
-                         topK:topK
-                         minP:minP
-              presencePenalty:presencePenalty
-            repetitionPenalty:repetitionPenalty
-               enableThinking:enableThinking
             withStreamHandler:^(NSString * _Nonnull output) {
             if ([output isEqualToString:@"<eop>"]) {
                 dispatch_semaphore_signal(semaphore);
@@ -117,15 +99,6 @@
 }
 
 - (void)chatStream:(NSString *)userText
-      maxNewTokens:(NSInteger)maxNewTokens
-     maxInputTokens:(NSInteger)maxInputTokens
-       temperature:(double)temperature
-              topP:(double)topP
-             topK:(NSInteger)topK
-             minP:(double)minP
-    presencePenalty:(double)presencePenalty
-  repetitionPenalty:(double)repetitionPenalty
-     enableThinking:(BOOL)enableThinking
            onChunk:(void (^)(NSString *chunk))onChunk
             onDone:(void (^)(NSError * _Nullable error))onDone {
 #if MNN_NOT_AVAILABLE
@@ -150,15 +123,6 @@
             }
             
             [self->_engine processInput:userText
-                           maxNewTokens:maxNewTokens
-                         maxInputTokens:maxInputTokens
-                            temperature:temperature
-                                   topP:topP
-                                   topK:topK
-                                   minP:minP
-                        presencePenalty:presencePenalty
-                      repetitionPenalty:repetitionPenalty
-                         enableThinking:enableThinking
                       withStreamHandler:^(NSString * _Nonnull output) {
                 if ([output isEqualToString:@"<eop>"]) {
                     dispatch_async(dispatch_get_main_queue(), ^{

@@ -321,6 +321,19 @@ class IllustrationService {
     required List<String> paragraphs,
   }) {
     final cleanedRaw = _stripModelNoise(raw);
+    final rawTrimmed = cleanedRaw.trim();
+    if (rawTrimmed.isEmpty) {
+      return (ok: true, cards: const <SceneCard>[], errorHint: '');
+    }
+    final nullish = rawTrimmed
+        .replaceAll(RegExp("^['\\\"]+"), '')
+        .replaceAll(RegExp("['\\\"]+\$"), '')
+        .replaceAll(RegExp(r'[,，。．、;；:：]+$'), '')
+        .trim()
+        .toLowerCase();
+    if (nullish == 'null') {
+      return (ok: true, cards: const <SceneCard>[], errorHint: '');
+    }
     final start = cleanedRaw.indexOf('[');
     // If we can't find ']', we might be truncated.
     // Try to take everything from '[' to the end of string if ']' is missing
@@ -331,11 +344,6 @@ class IllustrationService {
 
     if (start == -1 || end <= start) {
       // New logic: Allow single object or null
-      final rawTrimmed = cleanedRaw.trim();
-      if (rawTrimmed == 'null') {
-        return (ok: true, cards: const <SceneCard>[], errorHint: '');
-      }
-
       // Compatibility: Check if it's a single object (starts with {)
       final startObj = cleanedRaw.indexOf('{');
       final endObj = cleanedRaw.lastIndexOf('}');
@@ -415,6 +423,35 @@ class IllustrationService {
     if (decodedList is! List)
       return (ok: false, cards: const <SceneCard>[], errorHint: '无效数据');
 
+    bool isNullishValue(dynamic v) {
+      if (v == null) return true;
+      final s = v.toString().trim();
+      if (s.isEmpty) return true;
+      if (s.toLowerCase() == 'null') return true;
+      return false;
+    }
+
+    if (decodedList.length == 1 && decodedList.first is Map) {
+      final map = (decodedList.first as Map).cast<String, dynamic>();
+      final indexRaw = map['index'];
+      final titleRaw = map['title'];
+      dynamic promptRaw;
+      if (map.containsKey('prompt')) {
+        promptRaw = map['prompt'];
+      } else if (map.containsKey('scene')) {
+        promptRaw = map['scene'];
+      }
+      if (isNullishValue(indexRaw) ||
+          isNullishValue(titleRaw) ||
+          isNullishValue(promptRaw)) {
+        return (ok: true, cards: const <SceneCard>[], errorHint: '');
+      }
+      final normalizedPrompt = _normalizeModelPrompt(promptRaw.toString());
+      if (normalizedPrompt.isEmpty) {
+        return (ok: true, cards: const <SceneCard>[], errorHint: '');
+      }
+    }
+
     final List<SceneCard> out = [];
     final List<String> errors = [];
 
@@ -440,8 +477,10 @@ class IllustrationService {
 
       if (!map.containsKey('index') ||
           !map.containsKey('title') ||
-          promptVal == null) {
-        errors.add('第${i + 1}项 缺少必要字段(index/title/prompt)');
+          promptVal == null ||
+          isNullishValue(map['index']) ||
+          isNullishValue(map['title']) ||
+          isNullishValue(promptVal)) {
         continue;
       }
 
@@ -459,7 +498,6 @@ class IllustrationService {
       final String scene = _normalizeModelPrompt(promptVal ?? '');
 
       if (scene.isEmpty) {
-        errors.add('第${i + 1}项 prompt为空');
         continue;
       }
       if (_looksLikeCopiedFromParagraph(scene, paragraphs[pIndex])) {

@@ -4,19 +4,56 @@ import 'mnn_model_spec.dart';
 /// 模型管理器
 /// 负责检查、下载和管理 MNN 模型
 class ModelManager {
-  static const String qwen3_1_7b = 'qwen3-1.7b-mnn';
+  static const String hunyuan_1_8b = 'hunyuan-1.8b-mnn';
+  static const String hunyuan_0_5b = 'hunyuan-0.5b-mnn';
   static const String qwen3_0_6b = 'qwen3-0.6b-mnn';
 
-  static const MnnModelSpec qwen3_1_7bSpec = MnnModelSpec(
-    id: qwen3_1_7b,
-    displayName: 'Qwen3-1.7B',
-    sizeLabel: '1.2G',
+  static const MnnModelSpec hunyuan_1_8bSpec = MnnModelSpec(
+    id: hunyuan_1_8b,
+    displayName: 'Hunyuan-1.8B',
+    sizeLabel: '1.25G',
     estimatedTotalSizeBytes: 1250 * 1024 * 1024,
-    baseUrl: 'https://modelscope.cn/models/MNN/Qwen3-1.7B-MNN/resolve/master/',
+    baseUrl:
+        'https://modelscope.cn/models/MNN/Hunyuan-1.8B-Instruct-MNN/resolve/master/',
     filesToDownload: [
       'config.json',
+      'configuration.json',
+      'llm.mnn',
+      'llm.mnn.json',
+      'llm.mnn.weight',
+      'llm_config.json',
+      'tokenizer.txt',
+    ],
+    criticalFiles: [
+      'llm.mnn',
+      'llm.mnn.weight',
+      'tokenizer.txt',
+      'config.json',
+    ],
+    minExpectedBytesByFile: {
+      'llm.mnn.weight': 600 * 1024 * 1024,
+      'llm.mnn': 200 * 1024,
+      'llm.mnn.json': 50 * 1024,
+      'tokenizer.txt': 256 * 1024,
+      'config.json': 200,
+      'configuration.json': 40,
+      'llm_config.json': 200,
+    },
+  );
+
+  static const MnnModelSpec hunyuan_0_5bSpec = MnnModelSpec(
+    id: hunyuan_0_5b,
+    displayName: 'Hunyuan-0.5B',
+    sizeLabel: '402M',
+    estimatedTotalSizeBytes: 402 * 1024 * 1024,
+    baseUrl:
+        'https://modelscope.cn/models/MNN/Hunyuan-0.5B-Instruct-MNN/resolve/master/',
+    filesToDownload: [
+      'config.json',
+      'configuration.json',
       'llm_config.json',
       'llm.mnn',
+      'llm.mnn.json',
       'llm.mnn.weight',
       'tokenizer.txt',
     ],
@@ -29,9 +66,11 @@ class ModelManager {
     minExpectedBytesByFile: {
       'llm.mnn.weight': 200 * 1024 * 1024,
       'llm.mnn': 200 * 1024,
-      'tokenizer.txt': 4 * 1024,
+      'llm.mnn.json': 50 * 1024,
+      'tokenizer.txt': 256 * 1024,
       'config.json': 200,
       'llm_config.json': 200,
+      'configuration.json': 40,
     },
   );
 
@@ -63,12 +102,16 @@ class ModelManager {
     },
   );
 
-  static const List<MnnModelSpec> localModels = [qwen3Spec, qwen3_1_7bSpec];
+  static const List<MnnModelSpec> localModels = [
+    hunyuan_1_8bSpec,
+    hunyuan_0_5bSpec,
+    qwen3Spec,
+  ];
 
   static MnnModelSpec specFor(String modelId) {
     return localModels.firstWhere(
       (e) => e.id == modelId,
-      orElse: () => qwen3_1_7bSpec,
+      orElse: () => hunyuan_1_8bSpec,
     );
   }
 
@@ -76,8 +119,9 @@ class ModelManager {
   static String sizeLabelFor(String modelId) => specFor(modelId).sizeLabel;
   static String memoryHintFor(String modelId) {
     return switch (modelId) {
+      hunyuan_1_8b => '建议手机内存≥6G',
+      hunyuan_0_5b => '建议手机内存≥4G',
       qwen3_0_6b => '建议手机内存≥4G',
-      qwen3_1_7b => '建议手机内存≥6G',
       _ => '',
     };
   }
