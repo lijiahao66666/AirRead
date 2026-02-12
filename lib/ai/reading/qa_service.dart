@@ -132,11 +132,10 @@ String buildLocalQaPrompt({
   required QAType qaType,
   String? history,
 }) {
-  final content = contextService.getCurrentChapterContent();
-
   String userPrompt;
   switch (qaType) {
     case QAType.summary:
+      final content = contextService.getCurrentChapterContent();
       final cleanedContent = _tailText(
           _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600);
       userPrompt = '请总结以下内容，用清晰的要点列出：\n\n'
@@ -145,6 +144,7 @@ String buildLocalQaPrompt({
           '输出：先列提纲（不超过6条），再给出总结（260字以内）。';
       break;
     case QAType.keyPoints:
+      final content = contextService.getCurrentChapterContent();
       final cleanedContent = _tailText(
           _squashSpaces(content.isEmpty ? '（当前阅读内容为空）' : content), 1600);
       userPrompt = '请从以下内容中提取关键要点，控制在5条以内：\n\n'
@@ -153,7 +153,7 @@ String buildLocalQaPrompt({
           '输出：不超过5条，每条一句话。';
       break;
     case QAType.general:
-      userPrompt = _buildGeneralQaPrompt(
+      userPrompt = _buildGeneralQaPromptLocal(
         question,
         contextService,
         history: history,
@@ -166,12 +166,58 @@ String buildLocalQaPrompt({
   // return '<|im_start|>system\nYou are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user.\n<|im_end|>\n<|im_start|>user\n$userPrompt<|im_end|>\n<|im_start|>assistant\n';
 }
 
+String _buildGeneralQaPromptLocal(
+  String userQuestion,
+  ReadingContextService contextService, {
+  String? history,
+}) {
+  final contentText = _squashSpaces(contextService.getCurrentChapterContent());
+  final historyText = _squashSpaces((history ?? '').trim());
+
+  final clippedHistory = historyText.isEmpty ? '' : _tailText(historyText, 900);
+  const totalBudget = 3000;
+  final reservedForMeta = 400;
+  final available = (totalBudget - reservedForMeta - clippedHistory.length)
+      .clamp(800, 2400);
+  final clippedContent = _tailText(
+    contentText.isEmpty ? '（当前阅读内容为空）' : contentText,
+    available,
+  );
+
+  final buffer = StringBuffer()
+    ..writeln('你是阅读助手。请仅基于【当前阅读内容】与【历史问答】作答。')
+    ..writeln('要求：')
+    ..writeln('1) 优先在内容中定位答案并直接回答。')
+    ..writeln('2) 必要时引用原文短句作为依据（可简短摘录）。')
+    ..writeln('3) 不要编造；只有确实找不到再说“文中未提及/需要更多上下文”。')
+    ..writeln('4) 【历史问答】可能包含错误或过时信息：仅用于理解代词指代、上下文与用户偏好；一旦与【当前阅读内容】冲突，以【当前阅读内容】为准，并忽略历史中的矛盾结论。')
+    ..writeln()
+    ..writeln('【当前阅读内容（已截断）】')
+    ..writeln(clippedContent)
+    ..writeln();
+
+  if (clippedHistory.isNotEmpty) {
+    buffer
+      ..writeln('【历史问答（已截断）】')
+      ..writeln(clippedHistory)
+      ..writeln();
+  }
+
+  buffer
+    ..writeln('【用户问题】')
+    ..writeln(userQuestion)
+    ..writeln()
+    ..writeln('请给出清晰、准确的回答。');
+
+  return buffer.toString().trim();
+}
+
 class QAService {
   final ReadingContextService contextService;
   final TencentCredentials credentials;
   final String localModelId;
-  static const int _localQaHardMaxNewTokens = 2048; // Increased from 1536
-  static const int _localQaHardMaxInputTokens = 6144;
+  static const int _localQaHardMaxNewTokens = 1024;
+  static const int _localQaHardMaxInputTokens = 4096;
   static const int _localQaContextReserveTokens = 512;
 
   QAService({

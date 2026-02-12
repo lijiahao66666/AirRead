@@ -55,23 +55,8 @@ static std::string arTail(const std::string& s, size_t maxLen) {
     return s.substr(s.size() - maxLen);
 }
 
-static int arExtractMaxNewTokensFromDump(const std::string& dumped) {
-    const std::string key = "\"max_new_tokens\"";
-    size_t pos = dumped.find(key);
-    if (pos == std::string::npos) return -1;
-    pos = dumped.find(':', pos + key.size());
-    if (pos == std::string::npos) return -1;
-    pos++;
-    while (pos < dumped.size() && (dumped[pos] == ' ' || dumped[pos] == '\t')) pos++;
-    int v = 0;
-    bool has = false;
-    while (pos < dumped.size() && dumped[pos] >= '0' && dumped[pos] <= '9') {
-        has = true;
-        v = v * 10 + (dumped[pos] - '0');
-        pos++;
-    }
-    return has ? v : -1;
-}
+static const int kMaxInputTokens = 4096;
+static const int kMaxNewTokens = 1024;
 
 static bool arLooksMeaningfulUtf8(const std::string& s) {
     const std::string t = arTrimAscii(s);
@@ -138,6 +123,16 @@ Java_com_airread_airread_MainActivity_nativeInit(JNIEnv *env, jobject thiz, jstr
             env->ReleaseStringUTFChars(modelPath, path);
             return;
         }
+
+        const std::string cfg = "{"
+            "\"max_input_tokens\":" + std::to_string(kMaxInputTokens) + ","
+            "\"max_new_tokens\":" + std::to_string(kMaxNewTokens) +
+            "}";
+        bool setCfgOk = g_llm->set_config(cfg);
+        LOGI("set_config(max_input_tokens=%d, max_new_tokens=%d)=%s",
+             kMaxInputTokens,
+             kMaxNewTokens,
+             setCfgOk ? "true" : "false");
         
         // 加载模型
         LOGI("Loading LLM model...");
@@ -171,9 +166,11 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
     std::ostringstream oss;
     std::string userContent = promptStr;
     const std::string trimmed = arTrimAscii(userContent);
-    LOGI("nativeChat input meta: model=%s len=%zu tail=%s",
+    LOGI("nativeChat input meta: model=%s len=%zu max_input_tokens=%d max_new_tokens=%d tail=%s",
          g_model_config_path_for_log.c_str(),
          trimmed.size(),
+         kMaxInputTokens,
+         kMaxNewTokens,
          arTail(trimmed, 120).c_str());
     
     {
@@ -198,8 +195,7 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
                 "system",
                 "You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user."));
             chat.emplace_back(MNN::Transformer::ChatMessage("user", userContent));
-            int maxNewTokensForRun = arExtractMaxNewTokensFromDump(g_llm->dump_config());
-            g_llm->response(chat, &ss, nullptr, maxNewTokensForRun);
+            g_llm->response(chat, &ss, nullptr, kMaxNewTokens);
             response = ss.str();
 
             if (!arLooksMeaningfulUtf8(response)) {
@@ -215,8 +211,7 @@ Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
                 if (!input_ids.empty()) {
                     std::stringstream ss2;
                     g_llm->reset();
-                    int maxNewTokensForRun = arExtractMaxNewTokensFromDump(g_llm->dump_config());
-                    g_llm->response(input_ids, &ss2, nullptr, maxNewTokensForRun);
+                    g_llm->response(input_ids, &ss2, nullptr, kMaxNewTokens);
                     response = ss2.str();
                 }
             }
@@ -316,9 +311,11 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz
     // LOGI("nativeChatStream called with prompt: %s", promptStr); // Avoid logging full prompt
     std::string userContent = promptStr;
     const std::string trimmed = arTrimAscii(userContent);
-    LOGI("nativeChatStream input meta: model=%s len=%zu tail=%s",
+    LOGI("nativeChatStream input meta: model=%s len=%zu max_input_tokens=%d max_new_tokens=%d tail=%s",
          g_model_config_path_for_log.c_str(),
          trimmed.size(),
+         kMaxInputTokens,
+         kMaxNewTokens,
          arTail(trimmed, 120).c_str());
     
     // 创建回调包装器
@@ -353,8 +350,7 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz
                     "system",
                     "You are a helpful assistant.\nUse the language requested by the user. If unspecified, reply in the same language as the user."));
                 chat.emplace_back(MNN::Transformer::ChatMessage("user", userContent));
-                int maxNewTokensForRun = arExtractMaxNewTokensFromDump(g_llm->dump_config());
-                g_llm->response(chat, &customOs, nullptr, maxNewTokensForRun);
+                g_llm->response(chat, &customOs, nullptr, kMaxNewTokens);
             } catch (const std::runtime_error& e) {
                 if (std::string(e.what()) == "Generation cancelled by user") {
                     LOGI("Generation cancelled by user (caught in response wrapper)");
@@ -375,15 +371,27 @@ Java_com_airread_airread_MainActivity_nativeChatStream(JNIEnv *env, jobject thiz
 JNIEXPORT jstring JNICALL
 Java_com_airread_airread_MainActivity_nativeDumpConfig(JNIEnv *env, jobject thiz) {
     LOGI("nativeDumpConfig called");
-    
-    std::string config = "{";
-    config += "\"backend\": \"MNN\",";
-    config += "\"available\": " + std::string(g_initialized ? "true" : "false") + ",";
-    config += "\"model\": \"qwen3-0.6b-mnn\",";
-    config += "\"initialized\": " + std::string(g_initialized ? "true" : "false");
-    config += "}";
-    
-    return env->NewStringUTF(config.c_str());
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_initialized || g_llm == nullptr) {
+        std::string config = "{";
+        config += "\"backend\":\"MNN\",";
+        config += "\"available\":" + std::string(g_initialized ? "true" : "false") + ",";
+        config += "\"initialized\":" + std::string(g_initialized ? "true" : "false");
+        config += "}";
+        return env->NewStringUTF(config.c_str());
+    }
+
+    std::string dumped;
+    try {
+        dumped = g_llm->dump_config();
+    } catch (...) {
+        dumped = "{}";
+    }
+
+    const size_t kMaxReturn = 6000;
+    if (dumped.size() > kMaxReturn) dumped = dumped.substr(0, kMaxReturn);
+    return env->NewStringUTF(dumped.c_str());
 }
 
 } // extern "C"

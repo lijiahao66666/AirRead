@@ -6,7 +6,6 @@ import 'mnn_model_spec.dart';
 class ModelManager {
   static const String hunyuan_1_8b = 'hunyuan-1.8b-mnn';
   static const String hunyuan_0_5b = 'hunyuan-0.5b-mnn';
-  static const String qwen3_0_6b = 'qwen3-0.6b-mnn';
 
   static const MnnModelSpec hunyuan_1_8bSpec = MnnModelSpec(
     id: hunyuan_1_8b,
@@ -74,38 +73,9 @@ class ModelManager {
     },
   );
 
-  static const MnnModelSpec qwen3Spec = MnnModelSpec(
-    id: qwen3_0_6b,
-    displayName: 'Qwen3-0.6B',
-    sizeLabel: '450M',
-    estimatedTotalSizeBytes: 455 * 1024 * 1024,
-    baseUrl: 'https://modelscope.cn/models/MNN/Qwen3-0.6B-MNN/resolve/master/',
-    filesToDownload: [
-      'config.json',
-      'llm_config.json',
-      'llm.mnn',
-      'llm.mnn.weight',
-      'tokenizer.txt',
-    ],
-    criticalFiles: [
-      'llm.mnn',
-      'llm.mnn.weight',
-      'tokenizer.txt',
-      'config.json',
-    ],
-    minExpectedBytesByFile: {
-      'llm.mnn.weight': 100 * 1024 * 1024,
-      'llm.mnn': 200 * 1024,
-      'tokenizer.txt': 4 * 1024,
-      'config.json': 200,
-      'llm_config.json': 200,
-    },
-  );
-
   static const List<MnnModelSpec> localModels = [
     hunyuan_1_8bSpec,
     hunyuan_0_5bSpec,
-    qwen3Spec,
   ];
 
   static MnnModelSpec specFor(String modelId) {
@@ -121,7 +91,6 @@ class ModelManager {
     return switch (modelId) {
       hunyuan_1_8b => '建议手机内存≥6G',
       hunyuan_0_5b => '建议手机内存≥4G',
-      qwen3_0_6b => '建议手机内存≥4G',
       _ => '',
     };
   }

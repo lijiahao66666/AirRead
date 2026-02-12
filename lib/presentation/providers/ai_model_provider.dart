@@ -145,7 +145,6 @@ class AiModelProvider extends ChangeNotifier {
     final prefer = <String>[
       ModelManager.hunyuan_1_8b,
       ModelManager.hunyuan_0_5b,
-      ModelManager.qwen3_0_6b,
     ];
     for (final id in prefer) {
       if (await ModelManager.isModelInstalled(id)) return id;
@@ -276,10 +275,6 @@ class AiModelProvider extends ChangeNotifier {
     String candidate = localModelRaw != null && localModelRaw.trim().isNotEmpty
         ? localModelRaw.trim()
         : ModelManager.hunyuan_1_8b;
-    if (candidate == 'qwen2.5-1.5b-instruct-mnn' ||
-        candidate == 'qwen3-1.7b-mnn') {
-      candidate = ModelManager.hunyuan_1_8b;
-    }
     final supported =
         ModelManager.localModels.any((spec) => spec.id == candidate);
     _localModelId = supported ? candidate : ModelManager.hunyuan_1_8b;

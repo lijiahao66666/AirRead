@@ -280,6 +280,8 @@ private:
             std::string configStr = "{"
                 "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
                 "\"use_mmap\":false,"
+                "\"max_input_tokens\":4096,"
+                "\"max_new_tokens\":1024,"
                 "\"backend_type\":\"cpu\""
                 "}";
             bool loadConfigOk = _llm->set_config(configStr);
@@ -337,29 +339,7 @@ private:
     
     // Store reference for block execution
     LLMInferenceEngineWrapper *blockSelf = self;
-    int maxNewTokensForRun = -1;
-    @try {
-        std::string dumped = blockSelf->_llm ? blockSelf->_llm->dump_config() : std::string();
-        const std::string key = "\"max_new_tokens\"";
-        size_t pos = dumped.find(key);
-        if (pos != std::string::npos) {
-            pos = dumped.find(':', pos + key.size());
-            if (pos != std::string::npos) {
-                pos++;
-                while (pos < dumped.size() && (dumped[pos] == ' ' || dumped[pos] == '\t')) pos++;
-                int v = 0;
-                bool has = false;
-                while (pos < dumped.size() && dumped[pos] >= '0' && dumped[pos] <= '9') {
-                    has = true;
-                    v = v * 10 + (dumped[pos] - '0');
-                    pos++;
-                }
-                if (has) maxNewTokensForRun = v;
-            }
-        }
-    } @catch (NSException *exception) {
-        maxNewTokensForRun = -1;
-    }
+    const int maxNewTokensForRun = 1024;
     
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         try {
