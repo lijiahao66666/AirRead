@@ -17,7 +17,7 @@ import 'presentation/providers/books_provider.dart';
 import 'presentation/providers/read_aloud_provider.dart';
 import 'presentation/providers/translation_provider.dart';
 import 'presentation/providers/qa_stream_provider.dart';
-import 'presentation/providers/illustration_provider.dart';
+import 'presentation/providers/manga_provider.dart';
 
 import 'package:flutter/services.dart';
 
@@ -89,7 +89,7 @@ Future<void> main() async {
             return p;
           },
         ),
-        ChangeNotifierProvider(create: (_) => IllustrationProvider()),
+        ChangeNotifierProvider(create: (_) => MangaProvider()),
         ChangeNotifierProxyProvider<TranslationProvider, ReadAloudProvider>(
           create: (_) => ReadAloudProvider(),
           update: (_, tp, provider) {

@@ -36,6 +36,7 @@ class HunyuanTextClient {
   Future<String> chatOnce({
     required String userText,
     String model = 'hunyuan-a13b',
+    bool? enableThinking,
   }) async {
     final resp = await _api.postJson(
       host: _host,
@@ -52,6 +53,7 @@ class HunyuanTextClient {
         'Messages': [
           {'Role': 'user', 'Content': userText},
         ],
+        if (enableThinking != null) 'EnableThinking': enableThinking,
         'EnableEnhancement': true,
         'ForceSearchEnhancement': true,
       },
@@ -74,6 +76,7 @@ class HunyuanTextClient {
     required String userText,
     String model = 'hunyuan-a13b',
     List<Map<String, String>>? messages,
+    bool? enableThinking,
   }) async* {
     final stream = _api.postStream(
       host: _host,
@@ -92,6 +95,7 @@ class HunyuanTextClient {
             [
               {'Role': 'user', 'Content': userText},
             ],
+        if (enableThinking != null) 'EnableThinking': enableThinking,
         'EnableEnhancement': true,
         'ForceSearchEnhancement': true,
       },

@@ -14,10 +14,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../../widgets/ai_hud.dart';
 import '../../widgets/glass_panel.dart';
-import '../../widgets/illustration_panel.dart';
 import '../../providers/books_provider.dart';
 import '../../providers/ai_model_provider.dart';
-import '../../providers/illustration_provider.dart';
 import '../../providers/read_aloud_provider.dart';
 import '../../providers/translation_provider.dart';
 import '../../../data/services/book_parser.dart';
@@ -408,7 +406,6 @@ class _ReaderPageState extends State<ReaderPage>
   bool? _lastReadTranslationEnabled;
   int _readAloudTranslationRevision = -1;
   Offset? _readAloudFabOffset;
-  Offset? _illustrationFabOffset;
   double _readAloudBackSpinTurns = 0.0;
   double _readAloudForwardSpinTurns = 0.0;
   bool _readAloudFollow = true;
@@ -445,7 +442,6 @@ class _ReaderPageState extends State<ReaderPage>
   List<_ReaderChapter> _chapters = [];
   int _currentChapterIndex = 0;
   final Set<int> _expandedChapterIndices = {};
-  final Set<int> _illustrationAutoAnalyzeRequested = {};
 
   // Horizontal Mode State
   // We track the "Page" index within the current chapter.
@@ -513,23 +509,15 @@ class _ReaderPageState extends State<ReaderPage>
   int _suppressReaderTapUntilMs = 0;
   AiModelProvider? _aiModel;
   VoidCallback? _aiModelListener;
-  bool _lastIllustrationEnabled = false;
   int _lastAiPointsBalance = 0;
   bool _lastAiLoaded = false;
-  AiModelSource _lastAiSource = AiModelSource.none;
-  String? _lastIllustrationUiLogKey;
-  VoidCallback? _illustrationListener;
-  Set<String> _lastAnalyzingChapterIds = {};
-  final Set<String> _pendingIllustrationCompletionChapterIds = {};
   bool _lastAiReadAloudEnabled = false;
   Timer? _floatingUiAutoHideTimer;
   bool _readAloudFabCollapsed = false;
-  bool _illustrationFabCollapsed = false;
 
   static const double _kFloatingCapsuleHeight = 52;
   static const double _kFloatingHandleWidth = 22;
   static const double _kReadAloudExpandedWidth = 150;
-  static const double _kIllustrationExpandedWidth = 110;
 
   double _readAloudFabWidth(bool collapsed) {
     return collapsed
@@ -537,29 +525,16 @@ class _ReaderPageState extends State<ReaderPage>
         : (_kReadAloudExpandedWidth + _kFloatingHandleWidth);
   }
 
-  double _illustrationFabWidth(bool collapsed) {
-    return collapsed
-        ? _kFloatingHandleWidth
-        : (_kIllustrationExpandedWidth + _kFloatingHandleWidth);
-  }
-
   void _collapseFloatingUi() {
     final readOldW = _readAloudFabWidth(_readAloudFabCollapsed);
     final readNewW = _readAloudFabWidth(true);
-    final illuOldW = _illustrationFabWidth(_illustrationFabCollapsed);
-    final illuNewW = _illustrationFabWidth(true);
     final readOffset = _readAloudFabOffset;
-    final illuOffset = _illustrationFabOffset;
 
     setState(() {
       if (!_readAloudFabCollapsed && readOffset != null) {
         _readAloudFabOffset = readOffset.translate(readOldW - readNewW, 0);
       }
-      if (!_illustrationFabCollapsed && illuOffset != null) {
-        _illustrationFabOffset = illuOffset.translate(illuOldW - illuNewW, 0);
-      }
       _readAloudFabCollapsed = true;
-      _illustrationFabCollapsed = true;
     });
   }
 
@@ -576,18 +551,7 @@ class _ReaderPageState extends State<ReaderPage>
     });
   }
 
-  void _setIllustrationFabCollapsed(bool value) {
-    if (_illustrationFabCollapsed == value) return;
-    final oldW = _illustrationFabWidth(_illustrationFabCollapsed);
-    final newW = _illustrationFabWidth(value);
-    final offset = _illustrationFabOffset;
-    setState(() {
-      _illustrationFabCollapsed = value;
-      if (offset != null) {
-        _illustrationFabOffset = offset.translate(oldW - newW, 0);
-      }
-    });
-  }
+  
 
   void _armFloatingUiAutoHideIfNeeded() {
     if (_floatingUiAutoHideTimer?.isActive ?? false) return;
@@ -649,50 +613,10 @@ class _ReaderPageState extends State<ReaderPage>
     return snap((minLineHeight * 0.18).clamp(4.0, 10.0));
   }
 
-  void _consumePendingIllustrationCompletionToastForCurrentChapter() {
-    final chapterId = '${widget.bookId}::$_currentChapterIndex';
-    if (!_pendingIllustrationCompletionChapterIds.remove(chapterId)) return;
-    final p = context.read<IllustrationProvider>();
-    final analyzed = p.hasChapter(chapterId);
-    if (!analyzed) {
-      _showCenterToast('插图分析失败');
-      return;
-    }
-    final scenes = p.getScenes(chapterId);
-    _showCenterToast(scenes.isNotEmpty ? '插图分析完成' : '无适合插画的场景');
-  }
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-
-    // Setup IllustrationProvider listener
-    final illuProvider = context.read<IllustrationProvider>();
-    _lastAnalyzingChapterIds = illuProvider.analyzingChapterIds.toSet();
-    _illustrationListener = () {
-      if (!mounted) return;
-      final p = context.read<IllustrationProvider>();
-      final nowAnalyzing = p.analyzingChapterIds.toSet();
-      final finished = _lastAnalyzingChapterIds.difference(nowAnalyzing);
-      if (finished.isNotEmpty) {
-        final currentChapterId = '${widget.bookId}::$_currentChapterIndex';
-        for (final chapterId in finished) {
-          final analyzed = p.hasChapter(chapterId);
-          final scenes = p.getScenes(chapterId);
-          final msg = !analyzed
-              ? '插图分析失败'
-              : (scenes.isNotEmpty ? '插图分析完成' : '无适合插画的场景');
-          if (chapterId == currentChapterId) {
-            _showCenterToast(msg);
-          } else {
-            _pendingIllustrationCompletionChapterIds.add(chapterId);
-          }
-        }
-      }
-      _lastAnalyzingChapterIds = nowAnalyzing;
-    };
-    illuProvider.addListener(_illustrationListener!);
 
     // Setup TranslationProvider error handler
     final transProvider = context.read<TranslationProvider>();
@@ -705,40 +629,16 @@ class _ReaderPageState extends State<ReaderPage>
 
     final aiModel = context.read<AiModelProvider>();
     _aiModel = aiModel;
-    _lastIllustrationEnabled = aiModel.illustrationEnabled;
     _lastAiPointsBalance = aiModel.pointsBalance;
     _lastAiLoaded = aiModel.loaded;
-    _lastAiSource = aiModel.source;
     _aiModelListener = () {
       if (!mounted) return;
       final m = _aiModel;
       if (m == null) return;
-      final nowIllustrationEnabled = m.illustrationEnabled;
       final nowPoints = m.pointsBalance;
       final nowLoaded = m.loaded;
-      final nowSource = m.source;
-
-      final shouldRetryAnalyze = nowIllustrationEnabled &&
-          (!_lastIllustrationEnabled ||
-              (nowPoints > 0 && _lastAiPointsBalance <= 0) ||
-              (nowLoaded && !_lastAiLoaded) ||
-              (nowSource != _lastAiSource));
-
-      if (nowIllustrationEnabled && !_lastIllustrationEnabled) {
-        _setIllustrationFabCollapsed(false);
-        _touchFloatingUi();
-      }
-
-      _lastIllustrationEnabled = nowIllustrationEnabled;
       _lastAiPointsBalance = nowPoints;
       _lastAiLoaded = nowLoaded;
-      _lastAiSource = nowSource;
-
-      if (!shouldRetryAnalyze) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        unawaited(_maybeAnalyzeIllustrationsForChapter(_currentChapterIndex));
-      });
     };
     aiModel.addListener(_aiModelListener!);
 
@@ -998,13 +898,6 @@ class _ReaderPageState extends State<ReaderPage>
 
   @override
   void dispose() {
-    try {
-      if (_illustrationListener != null) {
-        context
-            .read<IllustrationProvider>()
-            .removeListener(_illustrationListener!);
-      }
-    } catch (_) {}
     try {
       context.read<TranslationProvider>().onError = null;
     } catch (_) {}
@@ -2338,16 +2231,6 @@ class _ReaderPageState extends State<ReaderPage>
     });
   }
 
-  String? _validateSelectionForIllustration(String text) {
-    final clean = text.trim();
-    if (clean.isEmpty) return '未选中文本';
-    if (clean.length < 12) return '选中内容太短，无法描述画面';
-    if (clean.length > 300) return '选中内容过长，建议精简到 300 字以内';
-    final hasContent = RegExp(r'[\u4e00-\u9fa5a-zA-Z0-9]').hasMatch(clean);
-    if (!hasContent) return '选中内容无效';
-    return null;
-  }
-
   int? _paragraphIndexAtOffset({
     required String effectiveText,
     required int absoluteOffset,
@@ -2380,99 +2263,6 @@ class _ReaderPageState extends State<ReaderPage>
       }
     }
     return null;
-  }
-
-  Future<void> _openIllustrationFromSelection({
-    required int chapterIndex,
-    required String selectionText,
-  }) async {
-    _hideControls();
-    final chapter = _chapters[chapterIndex];
-    final chapterTitle = (chapter.title ?? '正文').trim();
-    final chapterId = '${widget.bookId}::$chapterIndex';
-    final plain = _getPlainTextForChapter(chapterIndex);
-
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) {
-        final media = MediaQuery.of(context);
-        final panelText = _panelTextColor;
-        final panelBg = _panelBgColor;
-        final aiModel = context.watch<AiModelProvider>();
-        final usingPersonal = usingPersonalTencentKeys();
-        return GlassPanel.sheet(
-          surfaceColor: panelBg,
-          opacity: AppTokens.glassOpacityDense,
-          child: SafeArea(
-            top: false,
-            child: SizedBox(
-              height:
-                  (media.size.height * 0.78).clamp(360.0, media.size.height),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.image_outlined,
-                            color: AppColors.techBlue),
-                        const SizedBox(width: 8),
-                        Text(
-                          '插图',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: panelText,
-                          ),
-                        ),
-                        if (!usingPersonal)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 10),
-                            child: Text(
-                              '剩余积分：${aiModel.pointsBalance}（生图2万/张）',
-                              style: TextStyle(
-                                color: panelBg.computeLuminance() < 0.5
-                                    ? const Color(0xFFE6A23C)
-                                    : const Color(0xFFF57C00),
-                                fontSize: 12,
-                                height: 1.0,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        const Spacer(),
-                        IconButton(
-                          icon: Icon(Icons.close,
-                              color: panelText.withOpacityCompat(0.7)),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: IllustrationPanel(
-                        isDark: panelBg.computeLuminance() < 0.5,
-                        bgColor: panelBg,
-                        textColor: panelText,
-                        bookId: widget.bookId,
-                        chapterId: chapterId,
-                        chapterTitle: chapterTitle,
-                        chapterContent: plain,
-                        initialSelectionText: selectionText,
-                        autoGenerateFromSelection: true,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
   }
 
   int _effectiveOffsetForReadAloudPosition({
@@ -3887,242 +3677,6 @@ class _ReaderPageState extends State<ReaderPage>
     );
   }
 
-  Widget _buildIllustrationFloatingButton() {
-    if (_isLoading || _error != null) return const SizedBox.shrink();
-    final aiModel = context.watch<AiModelProvider>();
-    if (!aiModel.illustrationEnabled) return const SizedBox.shrink();
-    if (aiModel.source != AiModelSource.online) return const SizedBox.shrink();
-
-    final String chapterId = '${widget.bookId}::$_currentChapterIndex';
-    final bool analyzing = context
-        .select<IllustrationProvider, bool>((p) => p.isAnalyzing(chapterId));
-    final bool analyzingOrQueued = context.select<IllustrationProvider, bool>(
-        (p) => p.isAnalyzingOrQueued(chapterId));
-
-    final tp = context.read<TranslationProvider>();
-    final usingPersonal = tp.usingPersonalTencentKeys &&
-        getEmbeddedPublicHunyuanCredentials().isUsable;
-    final bool canUseOnline = usingPersonal || aiModel.pointsBalance > 0;
-    final bool canAnalyze = !analyzingOrQueued &&
-        (aiModel.illustrationForceLocalAnalyze
-            ? aiModel.localModelReadyForIllustrationAnalysis
-            : canUseOnline);
-
-    final Color surface = _panelBgColor;
-    final Color onSurface = _panelTextColor;
-
-    final mq = MediaQuery.of(context);
-    final size = mq.size;
-    const marginX = 0.0;
-    const marginY = 12.0;
-    final storedBottomInset = _contentBottomInset ?? 0.0;
-    final bottomInset = storedBottomInset > mq.viewPadding.bottom
-        ? storedBottomInset
-        : mq.viewPadding.bottom;
-    final topInset = mq.viewPadding.top;
-
-    final bool collapsed = _illustrationFabCollapsed;
-    if (!collapsed) {
-      _armFloatingUiAutoHideIfNeeded();
-    }
-    final double capsuleW = _illustrationFabWidth(collapsed);
-    const double capsuleH = _kFloatingCapsuleHeight;
-
-    final defaultX = size.width - marginX - capsuleW;
-    final defaultY = size.height - bottomInset - 120 - capsuleH - 64;
-    final current = _illustrationFabOffset ?? Offset(defaultX, defaultY);
-
-    final maxX = size.width - marginX - capsuleW;
-    final maxY = size.height - bottomInset - 80 - capsuleH;
-    final clamped = Offset(
-      current.dx.clamp(marginX, maxX),
-      current.dy.clamp(topInset + marginY, maxY),
-    );
-
-    final isDarkBg = _bgColor.computeLuminance() < 0.5;
-    final shadow = <BoxShadow>[
-      BoxShadow(
-        color: Colors.black.withOpacityCompat(isDarkBg ? 0.55 : 0.22),
-        blurRadius: 18,
-        offset: const Offset(0, 10),
-      ),
-      BoxShadow(
-        color: Colors.white.withOpacityCompat(isDarkBg ? 0.06 : 0.75),
-        blurRadius: 10,
-        offset: const Offset(0, -4),
-      ),
-    ];
-
-    return Positioned(
-      left: clamped.dx,
-      top: clamped.dy,
-      child: GestureDetector(
-        onPanStart: (_) => _touchFloatingUi(),
-        onPanUpdate: (details) {
-          final base = _illustrationFabOffset ?? Offset(defaultX, defaultY);
-          final next = base + details.delta;
-          final nextClamped = Offset(
-            next.dx.clamp(marginX, maxX),
-            next.dy.clamp(topInset + marginY, maxY),
-          );
-          setState(() => _illustrationFabOffset = nextClamped);
-        },
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: shadow,
-          ),
-          child: GlassPanel(
-            borderRadius: BorderRadius.circular(999),
-            surfaceColor: surface,
-            opacity: 0.92,
-            blurSigma: 14,
-            border: Border.all(
-              color: onSurface.withOpacityCompat(0.08),
-              width: AppTokens.stroke,
-            ),
-            child: SizedBox(
-              width: capsuleW,
-              height: capsuleH,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 160),
-                      child: collapsed
-                          ? const SizedBox.shrink()
-                          : Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 6),
-                              child: Center(
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _readAloudCapsuleButton(
-                                      icon: Icons.auto_awesome_rounded,
-                                      enabled: canAnalyze,
-                                      showProgress: analyzing,
-                                      highlight: analyzingOrQueued,
-                                      onTap: () {
-                                        _touchFloatingUi();
-                                        unawaited(() async {
-                                          final provider = context
-                                              .read<IllustrationProvider>();
-                                          final ai =
-                                              context.read<AiModelProvider>();
-                                          final chapterIndex =
-                                              _currentChapterIndex;
-                                          final chapter =
-                                              _chapters[chapterIndex];
-                                          final chapterTitle =
-                                              (chapter.title ?? '正文').trim();
-                                          final plain = _getPlainTextForChapter(
-                                              chapterIndex);
-                                          if (plain.trim().isEmpty) {
-                                            unawaited(
-                                                _ensureChapterContentCached(
-                                                    chapterIndex));
-                                            _showTopError('章节内容为空');
-                                            return;
-                                          }
-
-                                          Future<String> Function(
-                                              String prompt)? run;
-                                          if (ai
-                                              .illustrationForceLocalAnalyze) {
-                                            if (!ai
-                                                .localModelReadyForIllustrationAnalysis) {
-                                              _showTopError('本地模型未就绪，需下载模型');
-                                              return;
-                                            }
-                                            run = (prompt) => ai.generate(
-                                                  prompt: prompt,
-                                                  maxTokens: 1024,
-                                                );
-                                          }
-
-                                          final chapterId =
-                                              '${widget.bookId}::$chapterIndex';
-                                          provider.clearChapter(chapterId);
-                                          _illustrationAutoAnalyzeRequested
-                                              .remove(chapterIndex);
-                                          try {
-                                            await provider.analyzeChapter(
-                                              chapterId: chapterId,
-                                              chapterTitle: chapterTitle.isEmpty
-                                                  ? '正文'
-                                                  : chapterTitle,
-                                              content: plain,
-                                              maxScenes:
-                                                  ai.maxIllustrationsPerChapter,
-                                              force: true,
-                                              pointsBalance: ai.pointsBalance,
-                                              generateText: run,
-                                            );
-                                          } catch (e) {
-                                            _showTopError(e.toString());
-                                          }
-                                        }());
-                                      },
-                                    ),
-                                    const SizedBox(width: 6),
-                                    _readAloudCapsuleButton(
-                                      icon: Icons.collections_outlined,
-                                      enabled: true,
-                                      onTap: () {
-                                        _touchFloatingUi();
-                                        unawaited(
-                                          _openIllustrationPanelForChapter(
-                                            chapterIndex: _currentChapterIndex,
-                                            onlySceneId: null,
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: _kFloatingHandleWidth,
-                    height: capsuleH,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(999),
-                        onTap: () {
-                          _touchFloatingUi();
-                          _setIllustrationFabCollapsed(!collapsed);
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: onSurface.withOpacityCompat(0.05),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Center(
-                            child: Icon(
-                              collapsed
-                                  ? Icons.chevron_left_rounded
-                                  : Icons.chevron_right_rounded,
-                              size: 22,
-                              color: AppColors.techBlue,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _readAloudCapsuleButton({
     required IconData icon,
     required bool enabled,
@@ -5150,72 +4704,6 @@ class _ReaderPageState extends State<ReaderPage>
     });
   }
 
-  Future<void> _maybeAnalyzeIllustrationsForChapter(int chapterIndex) async {
-    if (!mounted) return;
-    if (chapterIndex < 0 || chapterIndex >= _chapters.length) return;
-    if (_illustrationAutoAnalyzeRequested.contains(chapterIndex)) return;
-    final aiModel = context.read<AiModelProvider>();
-    if (!aiModel.illustrationEnabled) return;
-    if (!aiModel.illustrationAutoAnalyzeEnabled) return;
-    if (aiModel.source == AiModelSource.none) return;
-
-    final tp = context.read<TranslationProvider>();
-    final usingPersonal = tp.usingPersonalTencentKeys &&
-        getEmbeddedPublicHunyuanCredentials().isUsable;
-
-    Future<String> Function(String prompt)? generateText;
-    if (aiModel.illustrationForceLocalAnalyze) {
-      if (!aiModel.localModelReadyForIllustrationAnalysis) return;
-      generateText = (prompt) => aiModel.generate(
-            prompt: prompt,
-            maxTokens: 1024,
-          );
-    } else if (aiModel.source == AiModelSource.local) {
-      if (!aiModel.anyLocalTextInstalled || !aiModel.loaded) return;
-      generateText = (prompt) => aiModel.generate(
-            prompt: prompt,
-            maxTokens: 1024,
-          );
-    } else if (aiModel.source == AiModelSource.online && !usingPersonal) {
-      if (aiModel.pointsBalance <= 0) return;
-    }
-
-    final chapter = _chapters[chapterIndex];
-    final chapterTitle = (chapter.title ?? '正文').trim();
-    final chapterContent = _getPlainTextForChapter(chapterIndex);
-    if (chapterContent.trim().isEmpty) {
-      unawaited(_ensureChapterContentCached(chapterIndex));
-      return;
-    }
-
-    _illustrationAutoAnalyzeRequested.add(chapterIndex);
-    debugPrint(
-      '[ILLU][autoAnalyze] start bookId=${widget.bookId} chapterIndex=$chapterIndex source=${aiModel.source.name} points=${aiModel.pointsBalance} contentLen=${chapterContent.length}',
-    );
-    try {
-      await context.read<IllustrationProvider>().analyzeChapter(
-            chapterId: '${widget.bookId}::$chapterIndex',
-            chapterTitle: chapterTitle.isEmpty ? '正文' : chapterTitle,
-            content: chapterContent,
-            maxScenes: aiModel.maxIllustrationsPerChapter,
-            pointsBalance: aiModel.pointsBalance,
-            generateText: generateText,
-          );
-      final chapterId = '${widget.bookId}::$chapterIndex';
-      final scenes = context.read<IllustrationProvider>().getScenes(chapterId);
-      debugPrint(
-        '[ILLU][autoAnalyze] done chapterId=$chapterId scenes=${scenes.length}',
-      );
-    } catch (e) {
-      _illustrationAutoAnalyzeRequested.remove(chapterIndex);
-      _showTopError(e.toString());
-      debugPrint(
-        '[ILLU][autoAnalyze] failed bookId=${widget.bookId} chapterIndex=$chapterIndex err=$e',
-      );
-      return;
-    }
-  }
-
   Future<void> _ensureChapterContentCached(int chapterIndex) async {
     if (chapterIndex < 0 || chapterIndex >= _chapters.length) return;
     if (_chapterContentCache[chapterIndex] != null ||
@@ -5239,7 +4727,6 @@ class _ReaderPageState extends State<ReaderPage>
           _chapterTitleLength[chapterIndex] = (t.isEmpty ? '正文' : t).length;
           _chapterParagraphsCache.remove(chapterIndex);
         });
-        unawaited(_maybeAnalyzeIllustrationsForChapter(chapterIndex));
       } finally {
         if (identical(_chapterPlainLoading[chapterIndex], chapter)) {
           _chapterPlainLoading.remove(chapterIndex);
@@ -5264,7 +4751,6 @@ class _ReaderPageState extends State<ReaderPage>
       setState(() {
         _chapterContentCache[chapterIndex] = value;
       });
-      unawaited(_maybeAnalyzeIllustrationsForChapter(chapterIndex));
     } finally {
       if (identical(_chapterHtmlLoading[chapterIndex], chapter)) {
         _chapterHtmlLoading.remove(chapterIndex);
@@ -5771,10 +5257,6 @@ class _ReaderPageState extends State<ReaderPage>
             });
             _saveProgressDebounced();
             _scheduleUpdateReadAloudFollowFromCurrentView();
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              _consumePendingIllustrationCompletionToastForCurrentChapter();
-            });
 
             final translationProvider =
                 Provider.of<TranslationProvider>(context, listen: false);
@@ -6213,151 +5695,7 @@ class _ReaderPageState extends State<ReaderPage>
       child: Builder(
         builder: (context) {
           String selectedText = '';
-          final chapterId = '${widget.bookId}::$chapterIndex';
-          final scenes =
-              context.watch<IllustrationProvider>().getScenes(chapterId);
-          final List<({int offset, String sceneId})> hintOffsets = [];
-          if (scenes.isNotEmpty) {
-            final Map<int, int> paraEndOffset = {};
-            final matches =
-                RegExp(r'\n{2,}').allMatches(effectiveText).toList();
-            int startPos = 0;
-            int paraIndex = 0;
-            for (final m in matches) {
-              final endPos = m.start;
-              final raw = effectiveText.substring(startPos, endPos);
-              final cleaned = raw
-                  .replaceAll(RegExp(r'^\n+'), '')
-                  .replaceAll(RegExp(r'\n+$'), '')
-                  .replaceAll(RegExp(r'^[ \t\u3000]+'), '');
-              if (cleaned.trim().isNotEmpty) {
-                paraEndOffset[paraIndex] = endPos;
-                paraIndex++;
-              }
-              startPos = m.end;
-            }
-            if (startPos < effectiveText.length) {
-              final raw = effectiveText.substring(startPos);
-              final cleaned = raw
-                  .replaceAll(RegExp(r'^\n+'), '')
-                  .replaceAll(RegExp(r'\n+$'), '')
-                  .replaceAll(RegExp(r'^[ \t\u3000]+'), '');
-              if (cleaned.trim().isNotEmpty) {
-                paraEndOffset[paraIndex] = effectiveText.length;
-              }
-            }
-            final List<({int offset, String sceneId})> rawHints = [];
-            for (final s in scenes) {
-              final endIdx = s.endParagraphIndex;
-              if (endIdx == null) continue;
-              final absoluteEnd = paraEndOffset[endIdx];
-              if (absoluteEnd == null) continue;
-              if (absoluteEnd <= range.start || absoluteEnd > end) continue;
-              final rel =
-                  (absoluteEnd - range.start).clamp(0, end - range.start);
-              rawHints.add((offset: rel, sceneId: s.id));
-            }
-            rawHints.sort((a, b) => a.offset.compareTo(b.offset));
-            hintOffsets.addAll(rawHints);
-          }
           TextSpan effectiveBodySpan = bodySpan;
-          if (kDebugMode) {
-            final uiKey =
-                '$chapterId|cur=$isCurrentPage|last=$isLastPage|scenes=${scenes.length}|hints=${hintOffsets.length}';
-            if (uiKey != _lastIllustrationUiLogKey &&
-                (isCurrentPage || isLastPage)) {
-              _lastIllustrationUiLogKey = uiKey;
-              debugPrint('[ILLU][ui] $uiKey range=${range.start}-${end}');
-            }
-          }
-          if (hintOffsets.isNotEmpty) {
-            final pageText = effectiveText.substring(
-                range.start.clamp(0, effectiveText.length), end);
-            final children = <InlineSpan>[];
-            int cursor = 0;
-            for (final h in hintOffsets) {
-              if (h.offset < cursor || h.offset > pageText.length) continue;
-              final seg = pageText.substring(cursor, h.offset);
-              if (seg.isNotEmpty) {
-                children.add(
-                  _buildReaderSpan(
-                    text: seg,
-                    bodyStyle: bodyStyle,
-                    highlightText: highlightText,
-                  ),
-                );
-              }
-              children.add(
-                WidgetSpan(
-                  alignment: PlaceholderAlignment.middle,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Listener(
-                      behavior: HitTestBehavior.opaque,
-                      onPointerDown: (_) => _suppressReaderTap(),
-                      child: GestureDetector(
-                        onTapDown: (_) => _suppressReaderTap(),
-                        onTap: () {
-                          _suppressReaderTap();
-                          unawaited(
-                            _openIllustrationPanelForChapter(
-                              chapterIndex: chapterIndex,
-                              onlySceneId: h.sceneId,
-                            ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.techBlue.withOpacityCompat(0.12),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: AppColors.techBlue.withOpacityCompat(0.28),
-                              width: AppTokens.stroke,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.image_outlined,
-                                size: 14,
-                                color: AppColors.techBlue,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '查看插图',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.techBlue,
-                                  height: 1.0,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-              cursor = h.offset;
-            }
-            final tail = pageText.substring(cursor);
-            if (tail.isNotEmpty) {
-              children.add(
-                _buildReaderSpan(
-                  text: tail,
-                  bodyStyle: bodyStyle,
-                  highlightText: highlightText,
-                ),
-              );
-            }
-
-            effectiveBodySpan = TextSpan(style: bodyStyle, children: children);
-          }
           return SelectionArea(
             key: ValueKey(
                 'sel_${chapterIndex}_${range.start}_$_selectionAreaResetToken'),
@@ -6378,21 +5716,9 @@ class _ReaderPageState extends State<ReaderPage>
                       (tp.translationMode == TranslationMode.bigModel &&
                           (aiModel.pointsBalance > 0 || personalUsable)));
               final canExplain = text.isNotEmpty &&
-                  ((aiModel.source == AiModelSource.local &&
-                          aiModel.anyLocalTextInstalled &&
-                          aiModel.loaded) ||
-                      (aiModel.source == AiModelSource.online &&
-                          (aiModel.pointsBalance > 0 || personalUsable)));
-              final selectionIllustrationErr =
-                  _validateSelectionForIllustration(text);
-              final canIllustrate = text.isNotEmpty &&
-                  ((aiModel.illustrationForceLocalAnalyze &&
-                          aiModel.localModelReadyForIllustrationAnalysis) ||
-                      (aiModel.source == AiModelSource.local &&
-                          aiModel.anyLocalTextInstalled &&
-                          aiModel.loaded) ||
-                      (aiModel.source == AiModelSource.online &&
-                          (aiModel.pointsBalance > 0 || personalUsable)));
+                  (aiModel.anyLocalTextInstalled ||
+                      aiModel.pointsBalance > 0 ||
+                      personalUsable);
               final isDarkBg = _bgColor.computeLuminance() < 0.5;
               final toolbarBg = isDarkBg
                   ? Colors.white.withOpacityCompat(0.94)
@@ -6468,100 +5794,6 @@ class _ReaderPageState extends State<ReaderPage>
                     type: ContextMenuButtonType.custom,
                     label: '解释',
                   ),
-                if (canIllustrate)
-                  ContextMenuButtonItem(
-                    onPressed: () {
-                      ContextMenuController.removeAny();
-                      selectableRegionState.hideToolbar();
-                      if (mounted) {
-                        setState(() {
-                          _selectionAreaResetToken++;
-                        });
-                      }
-                      unawaited(() async {
-                        final err = selectionIllustrationErr;
-                        if (err != null) {
-                          _showCenterToast(err);
-                          return;
-                        }
-                        final pageText = effectiveText.substring(
-                          range.start.clamp(0, effectiveText.length),
-                          end,
-                        );
-                        int rel = pageText.indexOf(text);
-                        int abs = -1;
-                        if (rel >= 0) {
-                          abs = range.start + rel;
-                        } else {
-                          abs = effectiveText.indexOf(text);
-                        }
-                        if (abs < 0) {
-                          _showCenterToast('无法定位段落');
-                          return;
-                        }
-                        final paraIndex = _paragraphIndexAtOffset(
-                          effectiveText: effectiveText,
-                          absoluteOffset: abs,
-                        );
-                        if (paraIndex == null) {
-                          _showCenterToast('无法定位段落');
-                          return;
-                        }
-
-                        final chapter = _chapters[chapterIndex];
-                        final chapterTitle = (chapter.title ?? '正文').trim();
-                        final chapterId = '${widget.bookId}::$chapterIndex';
-
-                        Future<String> Function(String prompt)? generateText;
-                        if (aiModel.illustrationForceLocalAnalyze) {
-                          if (!aiModel.localModelReadyForIllustrationAnalysis) {
-                            _showCenterToast('本地模型未就绪，需下载模型');
-                            return;
-                          }
-                          generateText = (prompt) => aiModel.generate(
-                                prompt: prompt,
-                                maxTokens: 1024,
-                              );
-                        } else if (aiModel.source == AiModelSource.local) {
-                          if (!aiModel.anyLocalTextInstalled ||
-                              !aiModel.loaded) {
-                            _showCenterToast('本地模型未就绪');
-                            return;
-                          }
-                          generateText = (prompt) => aiModel.generate(
-                                prompt: prompt,
-                                maxTokens: 1024,
-                              );
-                        } else if (aiModel.source == AiModelSource.online &&
-                            !personalUsable &&
-                            aiModel.pointsBalance <= 0) {
-                          _showCenterToast('积分不足，无法插图分析');
-                          return;
-                        }
-
-                        try {
-                          final cards = await context
-                              .read<IllustrationProvider>()
-                              .analyzeSelectionForChapter(
-                                chapterId: chapterId,
-                                chapterTitle:
-                                    chapterTitle.isEmpty ? '正文' : chapterTitle,
-                                selectionText: text,
-                                paragraphIndex: paraIndex,
-                                pointsBalance: aiModel.pointsBalance,
-                                generateText: generateText,
-                              );
-                          _showCenterToast(
-                            cards.isNotEmpty ? '插图分析完成' : '无适合插画的场景',
-                          );
-                        } catch (e) {
-                          _showCenterToast(e.toString());
-                        }
-                      }());
-                    },
-                    type: ContextMenuButtonType.custom,
-                    label: '插图',
-                  ),
               ];
               final ContextMenuButtonItem? copyItem = selectableRegionState
                   .contextMenuButtonItems
@@ -6622,106 +5854,6 @@ class _ReaderPageState extends State<ReaderPage>
           );
         },
       ),
-    );
-  }
-
-  Future<void> _openIllustrationPanelForChapter({
-    required int chapterIndex,
-    required String? onlySceneId,
-  }) async {
-    _hideControls();
-    final chapter = _chapters[chapterIndex];
-    final chapterTitle = (chapter.title ?? '正文').trim();
-    final chapterId = '${widget.bookId}::$chapterIndex';
-    final plain = _getPlainTextForChapter(chapterIndex);
-    final panelTitle = onlySceneId == null ? '本章插图' : '插图';
-    if (kDebugMode) {
-      final scenes = context.read<IllustrationProvider>().getScenes(chapterId);
-      debugPrint(
-        '[ILLU][openPanel] chapterId=$chapterId onlySceneId=$onlySceneId scenes=${scenes.length} plainLen=${plain.length}',
-      );
-    }
-
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) {
-        final media = MediaQuery.of(context);
-        final panelText = _panelTextColor;
-        final panelBg = _panelBgColor;
-        final aiModel = context.watch<AiModelProvider>();
-        final usingPersonal = usingPersonalTencentKeys();
-        return GlassPanel.sheet(
-          surfaceColor: panelBg,
-          opacity: AppTokens.glassOpacityDense,
-          child: SafeArea(
-            top: false,
-            child: SizedBox(
-              height:
-                  (media.size.height * 0.78).clamp(360.0, media.size.height),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.image_outlined,
-                            color: AppColors.techBlue),
-                        const SizedBox(width: 8),
-                        Text(
-                          panelTitle,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: panelText,
-                          ),
-                        ),
-                        if (!usingPersonal)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 10),
-                            child: Text(
-                              '剩余积分：${aiModel.pointsBalance}（生图2万/张）',
-                              style: TextStyle(
-                                color: panelBg.computeLuminance() < 0.5
-                                    ? const Color(0xFFE6A23C)
-                                    : const Color(0xFFF57C00),
-                                fontSize: 12,
-                                height: 1.0,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        const Spacer(),
-                        IconButton(
-                          icon: Icon(Icons.close,
-                              color: panelText.withOpacityCompat(0.7)),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: IllustrationPanel(
-                        isDark: panelBg.computeLuminance() < 0.5,
-                        bgColor: panelBg,
-                        textColor: panelText,
-                        bookId: widget.bookId,
-                        chapterId: chapterId,
-                        chapterTitle: chapterTitle,
-                        chapterContent: plain,
-                        autoGenerateFromSelection: false,
-                        onlySceneId: onlySceneId,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -7299,7 +6431,6 @@ class _ReaderPageState extends State<ReaderPage>
   @override
   Widget build(BuildContext context) {
     final tp = context.watch<TranslationProvider>();
-    final aiModel = context.watch<AiModelProvider>();
     final readAloud = context.watch<ReadAloudProvider>();
 
     if (tp.aiReadAloudEnabled && !_lastAiReadAloudEnabled) {
@@ -7312,27 +6443,6 @@ class _ReaderPageState extends State<ReaderPage>
     _lastAiReadAloudEnabled = tp.aiReadAloudEnabled;
 
     final pos = readAloud.position;
-    final canUseOnlineWithPersonalKeys = tp.usingPersonalTencentKeys &&
-        getEmbeddedPublicHunyuanCredentials().isUsable;
-    if (aiModel.illustrationEnabled &&
-        aiModel.source == AiModelSource.online &&
-        !canUseOnlineWithPersonalKeys &&
-        aiModel.pointsBalance <= 0) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _showCenterToast('积分不足，暂停插图生成');
-        unawaited(aiModel.setIllustrationEnabled(false));
-      });
-    }
-    if (!aiModel.illustrationEnabled) {
-      _illustrationAutoAnalyzeRequested.clear();
-    } else if (_chapters.isNotEmpty &&
-        !_illustrationAutoAnalyzeRequested.contains(_currentChapterIndex)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        unawaited(_maybeAnalyzeIllustrationsForChapter(_currentChapterIndex));
-      });
-    }
     _scheduleChapterTranslationPrefetch(
       tp: tp,
       chapterIndex: _currentChapterIndex + 1,
@@ -7468,62 +6578,6 @@ class _ReaderPageState extends State<ReaderPage>
                           style: const TextStyle(color: Colors.red)))
                 else
                   readerContent,
-                // Illustration analyzing status
-                Consumer<IllustrationProvider>(
-                  builder: (context, illuProvider, _) {
-                    final chapterId = '${widget.bookId}::$_currentChapterIndex';
-                    final isAnalyzing = illuProvider.isAnalyzing(chapterId);
-
-                    // Prevent overlapping with toast: only show analyzing if no toast is visible
-                    if (!isAnalyzing || _centerToastText.trim().isNotEmpty) {
-                      return const SizedBox.shrink();
-                    }
-
-                    return AnimatedBuilder(
-                      animation: _controlsController,
-                      builder: (context, child) {
-                        return Positioned(
-                          top: overlayTop + (48 * _controlsController.value),
-                          right: 16,
-                          child: child!,
-                        );
-                      },
-                      child: IgnorePointer(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacityCompat(0.72),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              SizedBox(
-                                width: 12,
-                                height: 12,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              SizedBox(width: 8),
-                              Text(
-                                "正在分析插图...",
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  height: 1.1,
-                                  decoration: TextDecoration.none,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
                 if (_centerToastText.trim().isNotEmpty)
                   AnimatedBuilder(
                     animation: _controlsController,
@@ -7674,7 +6728,6 @@ class _ReaderPageState extends State<ReaderPage>
                     ),
                   ),
                 ),
-                _buildIllustrationFloatingButton(),
                 _buildReadAloudFloatingButton(),
               ],
             ),

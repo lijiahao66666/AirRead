@@ -7,12 +7,6 @@ import '../../ai/local_llm/mnn_model_downloader.dart';
 import '../../ai/local_llm/mnn_model_spec.dart';
 import '../../ai/tencentcloud/tencent_api_client.dart';
 
-enum AiModelSource {
-  none,
-  local,
-  online,
-}
-
 enum ModelInstallStatus {
   notInstalled,
   installing,
@@ -21,33 +15,26 @@ enum ModelInstallStatus {
 }
 
 class AiModelProvider extends ChangeNotifier {
-  static const String _kModelSource = 'ai_model_source';
-  static const String _kLocalModelId = 'ai_local_model_id';
   static const String _kPointsBalance = 'points_balance';
   static const String _kDebugPointsOverride = 'debug_points_override';
-  static const String _kMaxIllustrationsPerChapter =
-      'ai_max_illustrations_per_chapter';
-  static const String _kIllustrationEnabled = 'ai_illustration_enabled';
-  static const String _kIllustrationAutoAnalyzeEnabled =
-      'ai_illustration_auto_analyze_enabled';
-  static const String _kIllustrationForceLocalAnalyze =
-      'ai_illustration_force_local_analyze';
+  static const String _kMangaPanelCount = 'ai_manga_panel_count';
+  static const String _kMangaAutoRenderCount = 'ai_manga_auto_render_count';
+  static const String _kLastLocalModelId = 'ai_last_local_model_id';
 
   LlmClient? _llmClient;
-  AiModelSource _source = AiModelSource.none;
-  String _localModelId = ModelManager.hunyuan_1_8b;
+  String _activeLocalModelId = ModelManager.hunyuan_1_8b;
   int _pointsBalance = 0;
   int? _debugPointsOverride;
-  int _maxIllustrationsPerChapter = 3;
-  bool _illustrationEnabled = false;
-  bool _illustrationAutoAnalyzeEnabled = false;
-  bool _illustrationForceLocalAnalyze = false;
+  int _mangaPanelCount = 8;
+  int _mangaAutoRenderCount = 2;
   bool _anyLocalModelInstalled = false;
+  Timer? _localIdleUnloadTimer;
+  DateTime? _lastLocalInferenceAt;
 
-  // 模型安装状态
-  ModelInstallStatus _modelInstallStatus = ModelInstallStatus.notInstalled;
-  double _downloadProgress = 0.0;
-  String _currentDownloadFile = '';
+  final Map<String, ModelInstallStatus> _installStatusByModelId = {};
+  final Map<String, double> _downloadProgressByModelId = {};
+  final Map<String, String> _currentDownloadFileByModelId = {};
+  String? _downloadingModelId;
   MnnModelDownloader? _downloader;
   StreamSubscription? _statusSubscription;
   StreamSubscription? _progressSubscription;
@@ -62,61 +49,32 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   bool get loaded => _llmClient != null && _llmClient!.isAvailable;
-  AiModelSource get source => _source;
-  bool get isModelEnabled => _source != AiModelSource.none;
-  String get localModelId => _localModelId;
-  String get localModelName => ModelManager.displayNameFor(_localModelId);
-  String get localModelSizeLabel => ModelManager.sizeLabelFor(_localModelId);
-  String get localModelMemoryHint =>
-      ModelManager.memoryHintFor(_localModelId).trim();
+  String get activeLocalModelId => _activeLocalModelId;
   List<MnnModelSpec> get availableLocalModels => ModelManager.localModels;
 
-  // 模型安装相关 getter
-  ModelInstallStatus get modelInstallStatus => _modelInstallStatus;
-  double get downloadProgress => _downloadProgress;
-  String get currentDownloadFile => _currentDownloadFile;
-  bool get isModelInstalled =>
-      _modelInstallStatus == ModelInstallStatus.installed;
-  bool get isDownloading =>
-      _modelInstallStatus == ModelInstallStatus.installing;
-
-  bool get localTextInstalled => isModelInstalled;
   bool get anyLocalTextInstalled => _anyLocalModelInstalled;
   bool get localTextReady => loaded;
-  bool get localModelReadyForIllustrationAnalysis =>
-      localTextInstalled && localTextReady;
-  bool get anyLocalModelReadyForIllustrationAnalysis =>
-      anyLocalTextInstalled && localTextReady;
-  bool get illustrationAutoAnalyzeEnabled => _illustrationAutoAnalyzeEnabled;
-  bool get illustrationForceLocalAnalyze => _illustrationForceLocalAnalyze;
 
-  Future<void> setIllustrationAutoAnalyzeEnabled(bool value) async {
-    if (_illustrationAutoAnalyzeEnabled == value) return;
-    _illustrationAutoAnalyzeEnabled = value;
+  int get mangaPanelCount => _mangaPanelCount;
+  int get mangaAutoRenderCount => _mangaAutoRenderCount;
+
+  Future<void> setMangaPanelCount(int value) async {
+    final allowed = <int>{6, 8, 9};
+    final next = allowed.contains(value) ? value : 8;
+    if (_mangaPanelCount == next) return;
+    _mangaPanelCount = next;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kIllustrationAutoAnalyzeEnabled, value);
+    await prefs.setInt(_kMangaPanelCount, next);
   }
 
-  Future<void> setIllustrationForceLocalAnalyze(bool value) async {
-    if (value) {
-      await _ensureSelectedLocalModelInstalledIfAny();
-    }
-    final next = value && localModelReadyForIllustrationAnalysis;
-    if (_illustrationForceLocalAnalyze == next) return;
-    _illustrationForceLocalAnalyze = next;
+  Future<void> setMangaAutoRenderCount(int value) async {
+    final next = value.clamp(0, 2);
+    if (_mangaAutoRenderCount == next) return;
+    _mangaAutoRenderCount = next;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kIllustrationForceLocalAnalyze, next);
-  }
-
-  Future<void> _enforceForceLocalAnalyzeConstraint() async {
-    if (!_illustrationForceLocalAnalyze) return;
-    if (localModelReadyForIllustrationAnalysis) return;
-    _illustrationForceLocalAnalyze = false;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kIllustrationForceLocalAnalyze, false);
+    await prefs.setInt(_kMangaAutoRenderCount, next);
   }
 
   Future<void> _checkAnyLocalModelInstallation() async {
@@ -139,8 +97,8 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   Future<String?> _findInstalledLocalModelId() async {
-    if (await ModelManager.isModelInstalled(_localModelId)) {
-      return _localModelId;
+    if (await ModelManager.isModelInstalled(_activeLocalModelId)) {
+      return _activeLocalModelId;
     }
     final prefer = <String>[
       ModelManager.hunyuan_1_8b,
@@ -158,75 +116,15 @@ class AiModelProvider extends ChangeNotifier {
   Future<void> _ensureSelectedLocalModelInstalledIfAny() async {
     await _checkAnyLocalModelInstallation();
     if (!_anyLocalModelInstalled) return;
-    if (isModelInstalled) return;
     final installedId = await _findInstalledLocalModelId();
-    if (installedId == null || installedId == _localModelId) return;
-    await setLocalModelId(installedId);
-  }
-
-  Future<void> setSource(AiModelSource value) async {
-    if (_source == value) return;
-    _source = value;
-
-    // 如果切换到本地模式，强制关闭插图功能
-    if (_source == AiModelSource.local) {
-      if (_illustrationEnabled) {
-        _illustrationEnabled = false;
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(_kIllustrationEnabled, false);
-      }
-    }
-
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kModelSource, value.name);
-    if (_source == AiModelSource.local) {
-      await _ensureSelectedLocalModelInstalledIfAny();
-    }
-  }
-
-  Future<void> setLocalModelId(String modelId) async {
-    if (_localModelId == modelId) return;
-    _localModelId = modelId;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kLocalModelId, modelId);
-    await _checkModelInstallation();
-    await _checkAnyLocalModelInstallation();
-    if (_modelInstallStatus == ModelInstallStatus.installed) {
-      await _initializeLlmClient();
-    }
-    await _enforceForceLocalAnalyzeConstraint();
+    if (installedId == null) return;
+    _activeLocalModelId = installedId;
     notifyListeners();
   }
 
   int get pointsBalance =>
       kDebugMode ? (_debugPointsOverride ?? _pointsBalance) : _pointsBalance;
   int? get debugPointsOverride => kDebugMode ? _debugPointsOverride : null;
-  int get maxIllustrationsPerChapter => _maxIllustrationsPerChapter;
-  bool get illustrationEnabled => _illustrationEnabled;
-
-  Future<void> setMaxIllustrationsPerChapter(int value) async {
-    final v = value.clamp(2, 20);
-    if (_maxIllustrationsPerChapter == v) return;
-    _maxIllustrationsPerChapter = v;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_kMaxIllustrationsPerChapter, v);
-  }
-
-  Future<void> setIllustrationEnabled(bool value) async {
-    if (_illustrationEnabled == value) return;
-    _illustrationEnabled = value;
-    if (kDebugMode) {
-      debugPrint(
-        '[ILLU][setIllustrationEnabled] enabled=$_illustrationEnabled source=${_source.name} localTextInstalled=$localTextInstalled localTextReady=$localTextReady points=$pointsBalance',
-      );
-    }
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kIllustrationEnabled, value);
-  }
 
   Future<void> setPointsBalance(int value) async {
     final v = value < 0 ? 0 : value;
@@ -265,21 +163,13 @@ class AiModelProvider extends ChangeNotifier {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_kModelSource);
-    _source = AiModelSource.values.firstWhere(
-      (e) => e.name == raw,
-      orElse: () => AiModelSource.none,
-    );
-
-    final localModelRaw = prefs.getString(_kLocalModelId);
-    String candidate = localModelRaw != null && localModelRaw.trim().isNotEmpty
-        ? localModelRaw.trim()
-        : ModelManager.hunyuan_1_8b;
+    final localModelRaw = (prefs.getString(_kLastLocalModelId) ?? '').trim();
     final supported =
-        ModelManager.localModels.any((spec) => spec.id == candidate);
-    _localModelId = supported ? candidate : ModelManager.hunyuan_1_8b;
-    if (!supported) {
-      await prefs.setString(_kLocalModelId, _localModelId);
+        ModelManager.localModels.any((spec) => spec.id == localModelRaw);
+    _activeLocalModelId =
+        supported ? localModelRaw : ModelManager.hunyuan_1_8b;
+    if (!supported && localModelRaw.isNotEmpty) {
+      await prefs.setString(_kLastLocalModelId, _activeLocalModelId);
     }
 
     _pointsBalance = prefs.getInt(_kPointsBalance) ?? 0;
@@ -291,44 +181,19 @@ class AiModelProvider extends ChangeNotifier {
         await prefs.setInt(_kDebugPointsOverride, 1000);
       }
     }
-    _maxIllustrationsPerChapter =
-        (prefs.getInt(_kMaxIllustrationsPerChapter) ?? 3).clamp(2, 20);
-    _illustrationEnabled = prefs.getBool(_kIllustrationEnabled) ?? false;
-    _illustrationAutoAnalyzeEnabled =
-        prefs.getBool(_kIllustrationAutoAnalyzeEnabled) ?? false;
-    _illustrationForceLocalAnalyze =
-        prefs.getBool(_kIllustrationForceLocalAnalyze) ?? false;
+    final allowedPanels = <int>{6, 8, 9};
+    final rawPanels = prefs.getInt(_kMangaPanelCount) ?? 8;
+    _mangaPanelCount = allowedPanels.contains(rawPanels) ? rawPanels : 8;
+    if (_mangaPanelCount != rawPanels) {
+      await prefs.setInt(_kMangaPanelCount, _mangaPanelCount);
+    }
+    _mangaAutoRenderCount =
+        (prefs.getInt(_kMangaAutoRenderCount) ?? 2).clamp(0, 2);
 
-    // 检查模型是否已安装
-    await _checkModelInstallation();
+    await _refreshAllInstallStates();
     await _checkAnyLocalModelInstallation();
-    // await _checkImageModelInstallation(); // Removed
-
-    // 如果模型已安装，初始化 LLM 客户端
-    if (_modelInstallStatus == ModelInstallStatus.installed) {
-      await _initializeLlmClient();
-    }
-    if (_source == AiModelSource.local) {
-      await _ensureSelectedLocalModelInstalledIfAny();
-    }
-    await _enforceForceLocalAnalyzeConstraint();
 
     notifyListeners();
-  }
-
-  /// 检查模型安装状态
-  Future<void> _checkModelInstallation() async {
-    try {
-      final isInstalled = await ModelManager.isModelInstalled(_localModelId);
-      if (isInstalled) {
-        _modelInstallStatus = ModelInstallStatus.installed;
-      } else {
-        _modelInstallStatus = ModelInstallStatus.notInstalled;
-      }
-    } catch (e) {
-      debugPrint('[AiModelProvider] _checkModelInstallation failed: $e');
-      _modelInstallStatus = ModelInstallStatus.notInstalled;
-    }
   }
 
   /*
@@ -346,150 +211,164 @@ class AiModelProvider extends ChangeNotifier {
   }
   */
 
-  /// 初始化 LLM 客户端
-  Future<void> _initializeLlmClient() async {
-    // 使用适合平台的本地 LLM 客户端
-    _llmClient = createLocalLlmClient();
+  ModelInstallStatus installStatusFor(String modelId) {
+    return _installStatusByModelId[modelId] ?? ModelInstallStatus.notInstalled;
+  }
+
+  double downloadProgressFor(String modelId) {
+    return _downloadProgressByModelId[modelId] ?? 0.0;
+  }
+
+  String currentDownloadFileFor(String modelId) {
+    return _currentDownloadFileByModelId[modelId] ?? '';
+  }
+
+  bool isDownloadingModel(String modelId) {
+    return _downloadingModelId == modelId &&
+        installStatusFor(modelId) == ModelInstallStatus.installing;
+  }
+
+  Future<bool> isLocalModelInstalled(String modelId) async {
+    try {
+      return await ModelManager.isModelInstalled(modelId);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _refreshAllInstallStates() async {
+    for (final spec in ModelManager.localModels) {
+      try {
+        final ok = await ModelManager.isModelInstalled(spec.id);
+        _installStatusByModelId[spec.id] =
+            ok ? ModelInstallStatus.installed : ModelInstallStatus.notInstalled;
+      } catch (_) {
+        _installStatusByModelId[spec.id] = ModelInstallStatus.notInstalled;
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> ensureLocalModelReady(String modelId) async {
+    final supported =
+        ModelManager.localModels.any((spec) => spec.id == modelId);
+    if (!supported) {
+      throw StateError('不支持的本地模型：$modelId');
+    }
+    final installed = await isLocalModelInstalled(modelId);
+    if (!installed) {
+      throw StateError('本地模型未下载：${ModelManager.displayNameFor(modelId)}');
+    }
+    await _initializeLlmClientFor(modelId);
+  }
+
+  void _markLocalInferenceUsed() {
+    _lastLocalInferenceAt = DateTime.now();
+    _localIdleUnloadTimer?.cancel();
+    _localIdleUnloadTimer = Timer(const Duration(minutes: 10), () {
+      final last = _lastLocalInferenceAt;
+      if (last == null) return;
+      final idleFor = DateTime.now().difference(last);
+      if (idleFor < const Duration(minutes: 10)) return;
+      _llmClient?.dispose();
+      _llmClient = null;
+      notifyListeners();
+    });
+  }
+
+  Future<void> _initializeLlmClientFor(String modelId) async {
+    if (_llmClient != null && _activeLocalModelId != modelId) {
+      _llmClient!.dispose();
+      _llmClient = null;
+    }
+    _llmClient ??= createLocalLlmClient();
+    _activeLocalModelId = modelId;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kLastLocalModelId, modelId);
+    notifyListeners();
 
     try {
-      final success = await _llmClient!
-          .initialize(
-        model: _localModelId,
-      )
-          .timeout(
-        const Duration(seconds: 60), // 增加到60秒，本地模型需要更长时间
-        onTimeout: () {
-          debugPrint('[AiModelProvider] LLM initialization timed out');
-          return false;
-        },
-      );
-
-      if (success) {
-        debugPrint('[AiModelProvider] LLM initialized successfully');
-      } else {
-        debugPrint('[AiModelProvider] LLM initialization failed');
-      }
-    } catch (e) {
-      debugPrint('[AiModelProvider] Failed to initialize LLM: $e');
-    }
-
+      await _llmClient!
+          .initialize(model: modelId)
+          .timeout(const Duration(seconds: 60), onTimeout: () => false);
+    } catch (_) {}
     notifyListeners();
-    await _enforceForceLocalAnalyzeConstraint();
   }
 
-  /// 开始下载模型
-  Future<void> startModelDownload() async {
-    if (_modelInstallStatus == ModelInstallStatus.installing) {
-      return;
+  Future<void> startModelDownload(String modelId) async {
+    if (_downloadingModelId != null && _downloadingModelId != modelId) {
+      await cancelModelDownload();
     }
+    if (installStatusFor(modelId) == ModelInstallStatus.installing) return;
 
-    _modelInstallStatus = ModelInstallStatus.installing;
-    _downloadProgress = 0.0;
-    _currentDownloadFile = '';
+    _downloadingModelId = modelId;
+    _installStatusByModelId[modelId] = ModelInstallStatus.installing;
+    _downloadProgressByModelId[modelId] = 0.0;
+    _currentDownloadFileByModelId[modelId] = '';
     notifyListeners();
 
-    // 取消之前的订阅
     await _cancelSubscriptions();
+    _downloader?.dispose();
+    _downloader = null;
 
-    // 创建新的下载器
-    _downloader = ModelManager.installModel(_localModelId);
+    _downloader = ModelManager.installModel(modelId);
 
-    // 监听下载状态
     _statusSubscription = _downloader!.statusStream.listen((status) {
+      final id = _downloadingModelId;
+      if (id == null) return;
       switch (status) {
         case ModelDownloadStatus.completed:
-          _modelInstallStatus = ModelInstallStatus.installed;
-          _initializeLlmClient();
+          _installStatusByModelId[id] = ModelInstallStatus.installed;
+          _downloadingModelId = null;
           unawaited(_checkAnyLocalModelInstallation());
           break;
         case ModelDownloadStatus.failed:
-          _modelInstallStatus = ModelInstallStatus.failed;
+          _installStatusByModelId[id] = ModelInstallStatus.failed;
+          _downloadingModelId = null;
           break;
         case ModelDownloadStatus.notDownloaded:
-          _modelInstallStatus = ModelInstallStatus.notInstalled;
+          _installStatusByModelId[id] = ModelInstallStatus.notInstalled;
+          _downloadingModelId = null;
           unawaited(_checkAnyLocalModelInstallation());
           break;
         case ModelDownloadStatus.downloading:
         case ModelDownloadStatus.extracting:
-          // 下载和解压中状态，保持安装中
-          _modelInstallStatus = ModelInstallStatus.installing;
+          _installStatusByModelId[id] = ModelInstallStatus.installing;
           break;
       }
       notifyListeners();
     });
 
-    // 监听下载进度
     _progressSubscription = _downloader!.progressStream.listen((progress) {
-      _downloadProgress = progress;
+      final id = _downloadingModelId;
+      if (id == null) return;
+      _downloadProgressByModelId[id] = progress;
       notifyListeners();
     });
 
-    // 监听当前下载文件
     _fileSubscription = _downloader!.currentFileStream.listen((fileName) {
-      _currentDownloadFile = fileName;
+      final id = _downloadingModelId;
+      if (id == null) return;
+      _currentDownloadFileByModelId[id] = fileName;
       notifyListeners();
     });
   }
 
-/*
-  Future<void> startImageModelDownload() async {
-    if (_imageModelInstallStatus == ModelInstallStatus.installing) {
-      return;
-    }
-
-    _imageModelInstallStatus = ModelInstallStatus.installing;
-    _imageDownloadProgress = 0.0;
-    _imageCurrentDownloadFile = '';
-    notifyListeners();
-
-    await _cancelImageSubscriptions();
-
-    _imageDownloader = ModelManager.installModel(ModelManager.sd_v1_5);
-
-    _imageStatusSubscription = _imageDownloader!.statusStream.listen((status) {
-      switch (status) {
-        case ModelDownloadStatus.completed:
-          _imageModelInstallStatus = ModelInstallStatus.installed;
-          break;
-        case ModelDownloadStatus.failed:
-          _imageModelInstallStatus = ModelInstallStatus.failed;
-          break;
-        case ModelDownloadStatus.notDownloaded:
-          _imageModelInstallStatus = ModelInstallStatus.notInstalled;
-          break;
-        case ModelDownloadStatus.downloading:
-        case ModelDownloadStatus.extracting:
-          _imageModelInstallStatus = ModelInstallStatus.installing;
-          break;
-      }
-      notifyListeners();
-    });
-
-    _imageProgressSubscription =
-        _imageDownloader!.progressStream.listen((progress) {
-      _imageDownloadProgress = progress;
-      notifyListeners();
-    });
-
-    _imageFileSubscription =
-        _imageDownloader!.currentFileStream.listen((fileName) {
-      _imageCurrentDownloadFile = fileName;
-      notifyListeners();
-    });
-  }
-*/
-
-  /// 取消下载
   Future<void> cancelModelDownload() async {
     _downloader?.cancel();
     await _cancelSubscriptions();
-    _modelInstallStatus = ModelInstallStatus.notInstalled;
-    _downloadProgress = 0.0;
+    final id = _downloadingModelId;
+    _downloadingModelId = null;
+    if (id != null) {
+      if (installStatusFor(id) == ModelInstallStatus.installing) {
+        _installStatusByModelId[id] = ModelInstallStatus.notInstalled;
+        _downloadProgressByModelId[id] = 0.0;
+      }
+    }
     notifyListeners();
-    await _enforceForceLocalAnalyzeConstraint();
+    await _checkAnyLocalModelInstallation();
   }
 
-  /// 取消所有订阅
   Future<void> _cancelSubscriptions() async {
     await _statusSubscription?.cancel();
     await _progressSubscription?.cancel();
@@ -499,61 +378,36 @@ class AiModelProvider extends ChangeNotifier {
     _fileSubscription = null;
   }
 
-/*
-  Future<void> cancelImageModelDownload() async {
-    _imageDownloader?.cancel();
-    await _cancelImageSubscriptions();
-    _imageModelInstallStatus = ModelInstallStatus.notInstalled;
-    _imageDownloadProgress = 0.0;
+  Future<void> deleteModel(String modelId) async {
+    if (_downloadingModelId == modelId) {
+      await cancelModelDownload();
+    }
+    await ModelManager.deleteModel(modelId);
+    _installStatusByModelId[modelId] = ModelInstallStatus.notInstalled;
+    _downloadProgressByModelId.remove(modelId);
+    _currentDownloadFileByModelId.remove(modelId);
+    if (_activeLocalModelId == modelId) {
+      _llmClient?.dispose();
+      _llmClient = null;
+    }
+    await _checkAnyLocalModelInstallation();
     notifyListeners();
   }
-
-  Future<void> _cancelImageSubscriptions() async {
-    await _imageStatusSubscription?.cancel();
-    await _imageProgressSubscription?.cancel();
-    await _imageFileSubscription?.cancel();
-    _imageStatusSubscription = null;
-    _imageProgressSubscription = null;
-    _imageFileSubscription = null;
-  }
-*/
-
-  /// 删除已下载的模型
-  Future<void> deleteModel() async {
-    await _cancelSubscriptions();
-    _downloader?.dispose();
-    _downloader = null;
-
-    await ModelManager.deleteModel(_localModelId);
-    _llmClient?.dispose();
-    _llmClient = null;
-    _modelInstallStatus = ModelInstallStatus.notInstalled;
-    _downloadProgress = 0.0;
-    notifyListeners();
-    await _enforceForceLocalAnalyzeConstraint();
-  }
-
-/*
-  Future<void> deleteImageModel() async {
-    await _cancelImageSubscriptions();
-    _imageDownloader?.dispose();
-    _imageDownloader = null;
-
-    await ModelManager.deleteModel(ModelManager.sd_v1_5);
-    _imageModelInstallStatus = ModelInstallStatus.notInstalled;
-    _imageDownloadProgress = 0.0;
-    notifyListeners();
-  }
-*/
 
   Future<String> generate({
     required String prompt,
+    String? modelId,
     int maxTokens = 512,
   }) async {
-    if (_llmClient == null) {
-      throw Exception('LLM client not initialized');
+    if (modelId != null) {
+      await ensureLocalModelReady(modelId);
+      _markLocalInferenceUsed();
+    } else {
+      if (_llmClient == null) {
+        throw Exception('LLM client not initialized');
+      }
+      _markLocalInferenceUsed();
     }
-
     final response = await _llmClient!.generate(
       prompt: prompt,
       maxTokens: maxTokens,
@@ -564,24 +418,34 @@ class AiModelProvider extends ChangeNotifier {
 
   Stream<String> generateStream({
     required String prompt,
+    String? modelId,
     int maxTokens = 512,
   }) async* {
-    if (_llmClient == null) {
-      throw Exception('LLM client not initialized');
+    if (modelId != null) {
+      await ensureLocalModelReady(modelId);
+      _markLocalInferenceUsed();
+    } else {
+      if (_llmClient == null) {
+        throw Exception('LLM client not initialized');
+      }
+      _markLocalInferenceUsed();
     }
 
-    yield* _llmClient!.generateStream(
+    yield* _llmClient!
+        .generateStream(
       prompt: prompt,
       maxTokens: maxTokens,
-    );
+    ).map((chunk) {
+      _markLocalInferenceUsed();
+      return chunk;
+    });
   }
 
   @override
   void dispose() {
+    _localIdleUnloadTimer?.cancel();
     _cancelSubscriptions();
     _downloader?.dispose();
-    // _cancelImageSubscriptions();
-    // _imageDownloader?.dispose();
     _llmClient?.dispose();
     super.dispose();
   }

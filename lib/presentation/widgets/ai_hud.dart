@@ -13,7 +13,8 @@ import 'package:uuid/uuid.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../ai/licensing/license_codec.dart';
-// import '../../ai/local_llm/model_manager.dart'; // Unused
+import '../../ai/local_llm/mnn_model_spec.dart';
+import '../../ai/local_llm/model_manager.dart';
 import '../../ai/reading/qa_service.dart';
 export '../../ai/reading/qa_service.dart' show QAStreamChunk, QAType;
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
@@ -22,10 +23,14 @@ import '../../ai/tencentcloud/tencent_credentials.dart';
 import '../../ai/translation/translation_types.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
+import '../models/ai_chat_model_choice.dart';
 import '../providers/ai_model_provider.dart';
 import '../providers/translation_provider.dart';
 import '../providers/qa_stream_provider.dart';
 import 'glass_panel.dart';
+import 'manga_storyboard_panel.dart';
+import 'points_wallet.dart';
+import 'ai_inference_top_row.dart';
 
 // Re-export ModelInstallStatus for use in this file
 export '../providers/ai_model_provider.dart' show ModelInstallStatus;
@@ -33,6 +38,7 @@ export '../providers/ai_model_provider.dart' show ModelInstallStatus;
 enum AiHudRoute {
   main,
   qa,
+  comic,
   tencentSettings,
 }
 
@@ -151,9 +157,10 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
 
           final bool reduceMotion =
               (media.disableAnimations) || media.accessibleNavigation;
-          final bool isQa = _route == AiHudRoute.qa;
+          final bool isFullHeight =
+              _route == AiHudRoute.qa || _route == AiHudRoute.comic;
 
-          // QA keeps the existing fixed tier: ~72% of screen height with clamp.
+          // QA/漫画 use a fixed tier: ~90% of available height.
           final qaMinHeight = availableH * 0.9;
           final qaHeight = qaMinHeight;
 
@@ -201,12 +208,13 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
                 child: Column(
-                  mainAxisSize: isQa ? MainAxisSize.max : MainAxisSize.min,
+                  mainAxisSize:
+                      isFullHeight ? MainAxisSize.max : MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _header(),
                     const SizedBox(height: 2),
-                    if (isQa)
+                    if (isFullHeight)
                       Expanded(child: body)
                     else
                       Flexible(
@@ -219,7 +227,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
             ),
           );
 
-          final sizedPanel = isQa
+          final sizedPanel = isFullHeight
               ? ConstrainedBox(
                   constraints: BoxConstraints(
                     minHeight: qaMinHeight,
@@ -264,14 +272,19 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
     final title = switch (_route) {
       AiHudRoute.main => 'AI伴读',
       AiHudRoute.qa => '问答',
+      AiHudRoute.comic => '漫画',
       AiHudRoute.tencentSettings => 'AI设置',
     };
 
     final bool isQa = _route == AiHudRoute.qa;
-    if (isQa) {
+    final bool isComic = _route == AiHudRoute.comic;
+    if (isQa || isComic) {
       return Row(
         children: [
-          const Icon(Icons.question_answer_outlined, color: AppColors.techBlue),
+          Icon(
+            isQa ? Icons.question_answer_outlined : Icons.view_carousel_outlined,
+            color: AppColors.techBlue,
+          ),
           const SizedBox(width: 8),
           Text(
             title,
@@ -339,6 +352,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           readAloudEnabled: widget.readAloudEnabled,
           onReadAloudChanged: widget.onReadAloudChanged,
           onOpenQa: () => _push(AiHudRoute.qa),
+          onOpenComic: () => _push(AiHudRoute.comic),
           onShowTopMessage: widget.onShowTopMessage,
           chapterTextCache: widget.chapterTextCache,
           currentChapterIndex: widget.currentChapterIndex,
@@ -362,6 +376,16 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           currentChapterIndex: widget.currentChapterIndex,
           currentPageInChapter: widget.currentPageInChapter,
           chapterPageRanges: widget.chapterPageRanges,
+          onShowTopMessage: widget.onShowTopMessage,
+        ),
+      AiHudRoute.comic => _ComicPanel(
+          key: const ValueKey('comic'),
+          isDark: isDark,
+          bgColor: widget.bgColor,
+          textColor: widget.textColor,
+          bookId: widget.bookId,
+          chapterTextCache: widget.chapterTextCache,
+          currentChapterIndex: widget.currentChapterIndex,
           onShowTopMessage: widget.onShowTopMessage,
         ),
       AiHudRoute.tencentSettings => _TencentHunyuanSettingsPanel(
@@ -550,7 +574,7 @@ class _TencentHunyuanSettingsPanelState
           const SizedBox(height: 10),
           _readAloudSettings(cardBg: cardBg),
           const SizedBox(height: 10),
-          _qaContentScopeSettings(cardBg: cardBg),
+          _localModelsSettings(cardBg: cardBg),
           const SizedBox(height: 10),
           _userTencentCredentialsSettings(cardBg: cardBg),
         ],
@@ -2286,12 +2310,11 @@ class _TencentHunyuanSettingsPanelState
     );
   }
 
-  Widget _qaContentScopeSettings({
+  Widget _localModelsSettings({
     required Color cardBg,
   }) {
     return Consumer<AiModelProvider>(
       builder: (context, aiModel, child) {
-        final tp = context.watch<TranslationProvider>();
         return Container(
           width: double.infinity,
           decoration: BoxDecoration(
@@ -2306,7 +2329,7 @@ class _TencentHunyuanSettingsPanelState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '插图/问答设置',
+                '本地模型（问答/漫画推理）',
                 style: TextStyle(
                   color: widget.textColor,
                   fontWeight: FontWeight.w900,
@@ -2319,365 +2342,21 @@ class _TencentHunyuanSettingsPanelState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '推理模型',
+                      '本地模型可离线免费使用，但效果不如在线大模型。问答/漫画面板内可单独选择在线或本地模型。',
                       style: TextStyle(
-                        color: widget.textColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.normal,
+                        color: widget.textColor.withOpacityCompat(0.65),
+                        fontSize: 12,
+                        height: 1.35,
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 10,
-                      children: [
-                        _chip(
-                          label: '本地',
-                          active: aiModel.source == AiModelSource.local,
-                          onTap: kIsWeb
-                              ? null
-                              : () async {
-                                  final next =
-                                      aiModel.source == AiModelSource.local
-                                          ? AiModelSource.none
-                                          : AiModelSource.local;
-                                  await aiModel.setSource(next);
-                                },
-                          textColor: widget.textColor,
-                        ),
-                        _chip(
-                          label: '在线',
-                          active: aiModel.source == AiModelSource.online,
-                          onTap: () {
-                            final next = aiModel.source == AiModelSource.online
-                                ? AiModelSource.none
-                                : AiModelSource.online;
-                            unawaited(aiModel.setSource(next));
-                          },
-                          textColor: widget.textColor,
-                        ),
-                      ],
-                    ),
-                    // 在线模型提示
-                    if (aiModel.source == AiModelSource.online) ...[
-                      const SizedBox(height: 12),
-                      if (tp.usingPersonalTencentKeys) ...[
-                        Text(
-                          '使用腾讯混元大模型（个人密钥）',
-                          style: TextStyle(
-                            color: widget.textColor.withOpacityCompat(0.65),
-                            fontSize: 13,
-                            height: 1.35,
-                          ),
-                        ),
-                      ] else ...[
-                        Text(
-                          '使用腾讯混元大模型'
-                          '${aiModel.pointsBalance > 0 ? '' : '，需要购买积分后使用'}',
-                          style: TextStyle(
-                            color: widget.textColor.withOpacityCompat(0.65),
-                            fontSize: 13,
-                            height: 1.35,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '生图会使用大模型先对章节进行生图分析；打开插图开关后就会消耗积分。若确定生成插图，将基于提示词生成一张插图，需消耗2万积分（不生图则不消耗），请按需使用。',
-                          style: TextStyle(
-                            color: widget.isDark
-                                ? const Color(0xFFE6A23C)
-                                : const Color(0xFFF57C00),
-                            fontSize: 12,
-                            height: 1.35,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        _redeemRow(aiModel, cardBg: cardBg),
-                      ],
-                    ],
-                    // 本地模型提示（与本地按钮左对齐）
-                    if (aiModel.source == AiModelSource.local) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        '本地模型可离线免费使用，但效果不如在线大模型。只能使用问答，需下载模型文件，插图功能需要使用在线模型。',
-                        style: TextStyle(
-                          color: widget.textColor.withOpacityCompat(0.65),
-                          fontSize: 12,
-                          height: 1.35,
-                        ),
-                      ),
+                    const SizedBox(height: 12),
+                    for (final spec in aiModel.availableLocalModels) ...[
+                      _localModelDownloadRow(aiModel, spec),
                       const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 10,
-                        children: aiModel.availableLocalModels.map((spec) {
-                          return _chip(
-                            label: spec.displayName,
-                            active: aiModel.localModelId == spec.id,
-                            onTap: aiModel.isDownloading
-                                ? null
-                                : () =>
-                                    unawaited(aiModel.setLocalModelId(spec.id)),
-                            textColor: widget.textColor,
-                          );
-                        }).toList(),
-                      ),
-                      if (aiModel.localModelMemoryHint.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          aiModel.localModelMemoryHint,
-                          style: TextStyle(
-                            color: widget.textColor.withOpacityCompat(0.6),
-                            fontSize: 12,
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 10),
-                      _localModelStatusRow(
-                        aiModel,
-                        // kindLabel: '文本模型', // Removed
-                        title: aiModel.localModelName,
-                        sizeText: aiModel.localModelSizeLabel,
-                        isImageModel: false,
-                      ),
                     ],
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
-
-              /*
-              // 插图设置（如果本地模式则禁用）
-              Builder(builder: (context) {
-                final bool isLocal = aiModel.source == AiModelSource.local;
-                final bool isIllustrationDisabled = isLocal;
-                
-                return _itemBox(
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '智能插图',
-                                  style: TextStyle(
-                                    color: isIllustrationDisabled
-                                        ? widget.textColor.withOpacityCompat(0.5)
-                                        : widget.textColor,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.normal,
-                                  ),
-                                ),
-                                if (isLocal)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      '本地模型不支持插图功能',
-                                      style: TextStyle(
-                                        color: widget.textColor.withOpacityCompat(0.65),
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          Switch(
-                            value: !isIllustrationDisabled && aiModel.illustrationEnabled,
-                            onChanged: isIllustrationDisabled
-                                ? null
-                                : (v) => unawaited(aiModel.setIllustrationEnabled(v)),
-                            activeColor: AppColors.techBlue,
-                          ),
-                        ],
-                      ),
-                      
-                      if (!isIllustrationDisabled && aiModel.illustrationEnabled) ...[
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '每章最大生图个数',
-                                style: TextStyle(
-                                  color: widget.textColor,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.normal,
-                                ),
-                              ),
-                            ),
-                            _countStepper(
-                              value: aiModel.maxIllustrationsPerChapter,
-                              min: 2,
-                              max: 20,
-                              onChanged: (v) => unawaited(
-                                  aiModel.setMaxIllustrationsPerChapter(v)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'AI会根据每章内容给出0-${aiModel.maxIllustrationsPerChapter}个插图建议；该数量为上限，实际数量由AI决定，可根据情况选择是否生图。',
-                          style: TextStyle(
-                            color: widget.textColor.withOpacityCompat(0.65),
-                            fontSize: 12,
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                );
-              }),
-              */
-
-              // 恢复每章最大生图个数设置（独立显示）
-              if (aiModel.source != AiModelSource.local)
-                _itemBox(
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '进入章节自动分析',
-                                  style: TextStyle(
-                                    color: widget.textColor,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.normal,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '开启后进入章节将自动分析插图场景',
-                                  style: TextStyle(
-                                    color: widget.textColor
-                                        .withOpacityCompat(0.65),
-                                    fontSize: 12,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Transform.scale(
-                            scale: 0.85,
-                            child: Switch(
-                              value: aiModel.illustrationAutoAnalyzeEnabled,
-                              activeThumbColor: AppColors.techBlue,
-                              onChanged: aiModel.source == AiModelSource.online
-                                  ? (v) => unawaited(
-                                        aiModel
-                                            .setIllustrationAutoAnalyzeEnabled(
-                                                v),
-                                      )
-                                  : null,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '强制本地模型分析',
-                                  style: TextStyle(
-                                    color: aiModel
-                                            .anyLocalModelReadyForIllustrationAnalysis
-                                        ? widget.textColor
-                                        : widget.textColor
-                                            .withOpacityCompat(0.5),
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.normal,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  aiModel.anyLocalModelReadyForIllustrationAnalysis
-                                      ? '使用本地模型进行插图场景分析'
-                                      : '本地模型未就绪，需下载模型',
-                                  style: TextStyle(
-                                    color: widget.textColor
-                                        .withOpacityCompat(0.65),
-                                    fontSize: 12,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Transform.scale(
-                            scale: 0.85,
-                            child: Switch(
-                              value:
-                                  aiModel.anyLocalModelReadyForIllustrationAnalysis &&
-                                          aiModel.illustrationForceLocalAnalyze
-                                      ? true
-                                      : false,
-                              activeThumbColor: AppColors.techBlue,
-                              onChanged: aiModel.source ==
-                                          AiModelSource.online &&
-                                      aiModel
-                                          .anyLocalModelReadyForIllustrationAnalysis
-                                  ? (v) => unawaited(
-                                        aiModel
-                                            .setIllustrationForceLocalAnalyze(
-                                                v),
-                                      )
-                                  : null,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '每章最大生图个数',
-                              style: TextStyle(
-                                color: widget.textColor,
-                                fontSize: 13,
-                                fontWeight: FontWeight.normal,
-                              ),
-                            ),
-                          ),
-                          _countStepper(
-                            value: aiModel.maxIllustrationsPerChapter,
-                            min: 2,
-                            max: 20,
-                            onChanged: (v) => unawaited(
-                                aiModel.setMaxIllustrationsPerChapter(v)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'AI会根据每章内容给出0-${aiModel.maxIllustrationsPerChapter}个插图建议；该数量为上限，实际数量由AI决定，可根据情况选择是否生图。',
-                        style: TextStyle(
-                          color: widget.textColor.withOpacityCompat(0.65),
-                          fontSize: 12,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
             ],
           ),
         );
@@ -2685,119 +2364,57 @@ class _TencentHunyuanSettingsPanelState
     );
   }
 
-  Widget _countStepper({
-    required int value,
-    required int min,
-    required int max,
-    required ValueChanged<int> onChanged,
-  }) {
-    final clamped = value.clamp(min, max);
-    final canDec = clamped > min;
-    final canInc = clamped < max;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      decoration: BoxDecoration(
-        color: widget.textColor.withOpacityCompat(0.06),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: widget.textColor.withOpacityCompat(0.08),
-          width: AppTokens.stroke,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          InkWell(
-            onTap: canDec ? () => onChanged(clamped - 1) : null,
-            borderRadius: BorderRadius.circular(999),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              child: Icon(
-                Icons.remove,
-                size: 16,
-                color: canDec
-                    ? widget.textColor.withOpacityCompat(0.9)
-                    : widget.textColor.withOpacityCompat(0.25),
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            '$clamped',
-            style: TextStyle(
-              color: widget.textColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(width: 6),
-          InkWell(
-            onTap: canInc ? () => onChanged(clamped + 1) : null,
-            borderRadius: BorderRadius.circular(999),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              child: Icon(
-                Icons.add,
-                size: 16,
-                color: canInc
-                    ? widget.textColor.withOpacityCompat(0.9)
-                    : widget.textColor.withOpacityCompat(0.25),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _localModelDownloadRow(AiModelProvider aiModel, MnnModelSpec spec) {
+    final titleText = '${spec.displayName} (${spec.sizeLabel})';
+    final hint = ModelManager.memoryHintFor(spec.id).trim();
+    final status = aiModel.installStatusFor(spec.id);
+    final file = aiModel.currentDownloadFileFor(spec.id).trim();
+    final progress = aiModel.downloadProgressFor(spec.id);
+    final showProgress = status == ModelInstallStatus.installing;
 
-  Widget _localModelStatusRow(
-    AiModelProvider aiModel, {
-    // required String kindLabel, // Removed
-    required String title,
-    required String sizeText,
-    required bool isImageModel,
-  }) {
-    // 隐藏本地生图模型行
-    if (isImageModel) return const SizedBox.shrink();
-
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        /*
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: widget.textColor.withOpacityCompat(0.06),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: widget.textColor.withOpacityCompat(0.08),
-              width: AppTokens.stroke,
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                titleText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: widget.textColor.withOpacityCompat(0.9),
+                  fontSize: 13,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-          ),
-          child: Text(
-            kindLabel,
-            style: TextStyle(
-              color: widget.textColor.withOpacityCompat(0.8),
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              height: 1.0,
-            ),
-          ),
+            _buildModelActionButton(aiModel, modelId: spec.id),
+          ],
         ),
-        const SizedBox(width: 10),
-        */
-        Expanded(
-          child: Text(
-            '$title ($sizeText)',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+        if (hint.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            hint,
             style: TextStyle(
-              color: widget.textColor.withOpacityCompat(0.65),
-              fontSize: 13,
+              color: widget.textColor.withOpacityCompat(0.6),
+              fontSize: 12,
               height: 1.35,
             ),
           ),
-        ),
-        _buildModelActionButton(aiModel, isImageModel: isImageModel),
+        ],
+        if (showProgress && file.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            progress > 0 ? '下载中：$file（${(progress * 100).round()}%）' : '下载中：$file',
+            style: TextStyle(
+              color: widget.textColor.withOpacityCompat(0.55),
+              fontSize: 12,
+              height: 1.35,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -2805,13 +2422,11 @@ class _TencentHunyuanSettingsPanelState
   /// 构建模型操作按钮（下载/安装中/已安装）
   Widget _buildModelActionButton(
     AiModelProvider aiModel, {
-    required bool isImageModel,
+    required String modelId,
   }) {
-    if (isImageModel) return const SizedBox.shrink(); // Hide for image model
-
-    final installStatus = aiModel.modelInstallStatus;
-    final progress = aiModel.downloadProgress;
-    final onStart = aiModel.startModelDownload;
+    final installStatus = aiModel.installStatusFor(modelId);
+    final progress = aiModel.downloadProgressFor(modelId);
+    final onStart = () => aiModel.startModelDownload(modelId);
     final onCancel = aiModel.cancelModelDownload;
 
     // 根据安装状态显示不同按钮
@@ -2878,7 +2493,7 @@ class _TencentHunyuanSettingsPanelState
             ),
             SizedBox(width: 4),
             Text(
-              '已就绪',
+              '已下载',
               style: TextStyle(
                 color: Colors.green,
                 fontSize: 13,
@@ -2904,6 +2519,7 @@ class _MainPanel extends StatelessWidget {
   final ValueChanged<bool>? onReadAloudChanged;
 
   final VoidCallback onOpenQa;
+  final VoidCallback onOpenComic;
   final void Function(String, {bool isError})? onShowTopMessage;
   final Map<int, String> chapterTextCache;
   final int currentChapterIndex;
@@ -2919,6 +2535,7 @@ class _MainPanel extends StatelessWidget {
     required this.readAloudEnabled,
     required this.onReadAloudChanged,
     required this.onOpenQa,
+    required this.onOpenComic,
     this.onShowTopMessage,
     required this.chapterTextCache,
     required this.currentChapterIndex,
@@ -2928,25 +2545,10 @@ class _MainPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final aiModel = context.watch<AiModelProvider>();
     final translationProvider = context.watch<TranslationProvider>();
-    final source = aiModel.source;
     final onlineEntitled = aiModel.pointsBalance > 0;
     final usingPersonalKeys = translationProvider.usingPersonalTencentKeys;
     final personalKeysUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
     final personalKeysMissing = usingPersonalKeys && !personalKeysUsable;
-
-    final bool qaReady = switch (source) {
-      AiModelSource.none => false,
-      AiModelSource.online =>
-        onlineEntitled || (usingPersonalKeys && personalKeysUsable),
-      AiModelSource.local => aiModel.anyLocalTextInstalled && aiModel.loaded,
-    };
-
-    final String localQaSubtitle = switch (source) {
-      AiModelSource.local when !aiModel.anyLocalTextInstalled =>
-        '本地模型未下载，下载后可用',
-      AiModelSource.local when !aiModel.loaded => '本地模型未就绪，初始化后可用',
-      _ => '',
-    };
 
     final bool translationBlockedByKeys = personalKeysMissing;
     final bool translationBlockedByEntitlement =
@@ -2993,41 +2595,6 @@ class _MainPanel extends StatelessWidget {
     final bool readAloudValue =
         localReadAloudBlocked ? false : readAloudEnabled;
 
-    final bool illustrationBlockedByKeys = personalKeysMissing;
-    final bool illustrationBlockedByModel = source == AiModelSource.none;
-    final bool illustrationBlockedByLocal = source == AiModelSource.local;
-    final bool illustrationBlockedByEntitlement =
-        source == AiModelSource.online && !onlineEntitled && !usingPersonalKeys;
-    final bool illustrationBlocked = illustrationBlockedByKeys ||
-        illustrationBlockedByModel ||
-        illustrationBlockedByLocal ||
-        illustrationBlockedByEntitlement;
-    final bool illustrationValue =
-        illustrationBlocked ? false : aiModel.illustrationEnabled;
-    final ValueChanged<bool>? illustrationOnChanged = illustrationBlocked
-        ? null
-        : (v) => unawaited(aiModel.setIllustrationEnabled(v));
-
-    String illustrationSubtitle;
-    if (illustrationBlockedByModel) {
-      illustrationSubtitle = '需要先在设置中选择在线大模型';
-    } else if (illustrationBlockedByLocal) {
-      illustrationSubtitle = '本地模型不支持插图功能';
-    } else if (illustrationBlockedByKeys) {
-      illustrationSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
-    } else if (illustrationBlockedByEntitlement) {
-      illustrationSubtitle = '在线大模型需要购买积分后使用';
-    } else if (!illustrationValue) {
-      illustrationSubtitle = '开启后，可使用页面内容生成插图';
-    } else {
-      illustrationSubtitle = '已开启，点击页面胶囊按钮分析生成插图';
-    }
-    if (source == AiModelSource.none && aiModel.illustrationEnabled) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(aiModel.setIllustrationEnabled(false));
-      });
-    }
-
     return SingleChildScrollView(
       key: const PageStorageKey('ai_hud_main_scroll'),
       padding: const EdgeInsets.only(bottom: 6),
@@ -3052,29 +2619,16 @@ class _MainPanel extends StatelessWidget {
             onChanged: readAloudBlocked ? null : onReadAloudChanged,
           ),
           const SizedBox(height: 10),
-          _featureRow(
-            context,
-            icon: Icons.image_outlined,
-            title: '插图',
-            subtitle: illustrationSubtitle,
-            value: illustrationValue,
-            onChanged: illustrationOnChanged,
-          ),
-          const SizedBox(height: 14),
           _qaEntry(
-            enabled: qaReady,
-            subtitle: source == AiModelSource.none
-                ? '需要先在设置中选择大模型'
-                : (source == AiModelSource.local && !qaReady)
-                    ? localQaSubtitle
-                    : (source == AiModelSource.online && personalKeysMissing)
-                        ? '已开启使用个人密钥，但未正确设置个人密钥'
-                        : (source == AiModelSource.online &&
-                                !onlineEntitled &&
-                                !usingPersonalKeys)
-                            ? '在线大模型需要购买积分后使用'
-                            : '支持问答/总结/提取要点',
+            enabled: true,
+            subtitle: '支持问答/总结/提取要点',
             onTap: onOpenQa,
+          ),
+          const SizedBox(height: 10),
+          _comicEntry(
+            enabled: true,
+            subtitle: '章节分镜 + 关键格出图',
+            onTap: onOpenComic,
           ),
         ],
       ),
@@ -3212,7 +2766,7 @@ class _MainPanel extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                Icons.question_answer,
+                Icons.question_answer_outlined,
                 color: enabled
                     ? AppColors.techBlue
                     : textColor.withOpacityCompat(0.7),
@@ -3234,6 +2788,75 @@ class _MainPanel extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: textColor.withOpacityCompat(0.65),
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: textColor.withOpacityCompat(0.6)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _comicEntry({
+    required bool enabled,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final Color cardBg =
+        isDark ? Colors.white.withOpacityCompat(0.07) : AppColors.mistWhite;
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+      child: Container(
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+          border: Border.all(
+              color: textColor.withOpacityCompat(0.08),
+              width: AppTokens.stroke),
+        ),
+        padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: enabled
+                    ? AppColors.techBlue.withOpacityCompat(0.12)
+                    : textColor.withOpacityCompat(0.06),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.view_carousel_outlined,
+                color: enabled
+                    ? AppColors.techBlue
+                    : textColor.withOpacityCompat(0.7),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '漫画',
+                    style: TextStyle(
+                      color: textColor,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -3336,6 +2959,8 @@ class _QaPanel extends StatefulWidget {
 class _QaPanelState extends State<_QaPanel> {
   static const String _kWelcomeMessage =
       '你好，我是Air！你的AI伴读助手。\n我可以帮你总结章节要点、解释复杂概念，或者回答任何关于这本书的问题。\n快来问我吧！';
+  static const String _kQaModelChoice = 'qa_model_choice_v1';
+  static const String _kQaThinkingEnabled = 'qa_thinking_enabled_v1';
   final TextEditingController _inputCtl = TextEditingController();
   final ScrollController _scrollCtl = ScrollController();
   final List<_QaMsg> _messages = [];
@@ -3343,6 +2968,8 @@ class _QaPanelState extends State<_QaPanel> {
   int? _activeReplyIndex;
   _MessageState _messageState = _MessageState.idle;
   bool _initialQaHandled = false;
+  AiChatModelChoice _modelChoice = AiChatModelChoice.onlineHunyuan;
+  bool _thinkingEnabled = true;
 
   // Throttling for web setState
   Timer? _updateTimer;
@@ -3371,10 +2998,62 @@ class _QaPanelState extends State<_QaPanel> {
       _qaStreamListener = _onQaStreamUpdated;
       _qaStream?.addListener(_qaStreamListener!);
 
+      await _loadQaSettings();
+      if (!mounted) return;
       await _loadHistory();
       if (!mounted) return;
       _attachActiveStreamIfAny();
     });
+  }
+
+  Future<void> _loadQaSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = (prefs.getString(_kQaModelChoice) ?? '').trim();
+    final choice = AiChatModelChoice.values.cast<AiChatModelChoice?>().firstWhere(
+          (e) => e?.name == raw,
+          orElse: () => null,
+        );
+    final thinking = prefs.getBool(_kQaThinkingEnabled);
+    if (!mounted) return;
+    setState(() {
+      _modelChoice = choice ?? AiChatModelChoice.onlineHunyuan;
+      _thinkingEnabled = thinking ?? true;
+    });
+  }
+
+  Future<void> _setQaModelChoice(AiChatModelChoice value) async {
+    if (_modelChoice == value) return;
+    final aiModel = context.read<AiModelProvider>();
+    if (value.isLocal) {
+      final localModelId = value == AiChatModelChoice.localHunyuan05b
+          ? ModelManager.hunyuan_0_5b
+          : ModelManager.hunyuan_1_8b;
+      final installed =
+          aiModel.installStatusFor(localModelId) == ModelInstallStatus.installed;
+      if (!installed) {
+        _showQaToast('本地模型未下载，请先在 AI 设置中下载');
+        return;
+      }
+      setState(() => _modelChoice = value);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kQaModelChoice, value.name);
+      try {
+        await aiModel.ensureLocalModelReady(localModelId);
+      } catch (e) {
+        _showQaToast(e.toString());
+      }
+      return;
+    }
+    setState(() => _modelChoice = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kQaModelChoice, value.name);
+  }
+
+  Future<void> _setQaThinkingEnabled(bool value) async {
+    if (_thinkingEnabled == value) return;
+    setState(() => _thinkingEnabled = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kQaThinkingEnabled, value);
   }
 
   void _applyInitialQaIfNeeded() {
@@ -3779,6 +3458,8 @@ class _QaPanelState extends State<_QaPanel> {
       qaType: qaType,
       aiModel: aiModel,
       contextService: contextService,
+      modelChoice: _modelChoice,
+      thinkingEnabled: _thinkingEnabled,
       history: history,
     );
     _activeStreamId = streamId;
@@ -3787,9 +3468,18 @@ class _QaPanelState extends State<_QaPanel> {
 
   bool _checkChapterPointsEnoughForQa() {
     final aiModel = context.read<AiModelProvider>();
-    if (aiModel.source != AiModelSource.online) return true;
     final tp = context.read<TranslationProvider>();
     final personalUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
+    if (_modelChoice.isLocal) {
+      final localModelId = _modelChoice == AiChatModelChoice.localHunyuan05b
+          ? ModelManager.hunyuan_0_5b
+          : ModelManager.hunyuan_1_8b;
+      final installed =
+          aiModel.installStatusFor(localModelId) == ModelInstallStatus.installed;
+      if (installed) return true;
+      _showQaToast('本地模型未下载，请先在 AI 设置中下载');
+      return false;
+    }
     if (tp.usingPersonalTencentKeys && personalUsable) return true;
     if (tp.usingPersonalTencentKeys && !personalUsable) {
       _showQaToast('已开启使用个人密钥，但未正确设置个人密钥');
@@ -3954,19 +3644,30 @@ class _QaPanelState extends State<_QaPanel> {
     final aiModel = context.watch<AiModelProvider>();
     final tp = context.watch<TranslationProvider>();
     final personalUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
+    final local05Installed = aiModel.installStatusFor(ModelManager.hunyuan_0_5b) ==
+        ModelInstallStatus.installed;
+    final local18Installed = aiModel.installStatusFor(ModelManager.hunyuan_1_8b) ==
+        ModelInstallStatus.installed;
+    final localModelId = _modelChoice == AiChatModelChoice.localHunyuan05b
+        ? ModelManager.hunyuan_0_5b
+        : ModelManager.hunyuan_1_8b;
+    final localInstalled =
+        aiModel.installStatusFor(localModelId) == ModelInstallStatus.installed;
     final bool qaBlockedByPersonalKeys =
-        aiModel.source == AiModelSource.online &&
-            tp.usingPersonalTencentKeys &&
-            !personalUsable;
-    final bool qaBlockedByPoints = aiModel.source == AiModelSource.online &&
+        _modelChoice.isOnline && tp.usingPersonalTencentKeys && !personalUsable;
+    final bool qaBlockedByPoints = _modelChoice.isOnline &&
         !tp.usingPersonalTencentKeys &&
         aiModel.pointsBalance <= 0;
-    final bool qaBlocked = qaBlockedByPersonalKeys || qaBlockedByPoints;
+    final bool qaBlockedByLocal = _modelChoice.isLocal && !localInstalled;
+    final bool qaBlocked =
+        qaBlockedByPersonalKeys || qaBlockedByPoints || qaBlockedByLocal;
     if (qaBlocked && !_qaBlockedByEntitlement) {
       _qaBlockedByEntitlement = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _showQaToast(qaBlockedByPersonalKeys ? '个人密钥不可用' : '积分不足，暂停问答');
+        _showQaToast(qaBlockedByLocal
+            ? '本地模型未下载'
+            : (qaBlockedByPersonalKeys ? '个人密钥不可用' : '积分不足，暂停问答'));
       });
     } else if (!qaBlocked && _qaBlockedByEntitlement) {
       _qaBlockedByEntitlement = false;
@@ -4025,12 +3726,32 @@ class _QaPanelState extends State<_QaPanel> {
               color: widget.textColor.withOpacityCompat(0.08),
               width: AppTokens.stroke),
         ),
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         child: Stack(
           children: [
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                AiInferenceTopRow(
+                  isDark: widget.isDark,
+                  textColor: widget.textColor,
+                  modelChoice: _modelChoice,
+                  local05Installed: local05Installed,
+                  local18Installed: local18Installed,
+                  onModelChoiceChanged: _setQaModelChoice,
+                  thinkingEnabled: _thinkingEnabled,
+                  onThinkingChanged: _setQaThinkingEnabled,
+                ),
+                const SizedBox(height: 12),
+                PointsWallet(
+                  isDark: widget.isDark,
+                  textColor: widget.textColor,
+                  cardBg: widget.isDark
+                      ? Colors.white.withOpacityCompat(0.06)
+                      : Colors.white,
+                  hintText: '在线模型需要积分或个人密钥；本地模型免费，但效果不如在线',
+                ),
+                const SizedBox(height: 12),
                 Expanded(
                   child: ListView.builder(
                     key: const PageStorageKey('ai_hud_qa_list'),
@@ -4522,6 +4243,45 @@ class _QaPanelState extends State<_QaPanel> {
         behavior: HitTestBehavior.translucent,
         child: panelContent,
       ),
+    );
+  }
+}
+
+class _ComicPanel extends StatefulWidget {
+  final bool isDark;
+  final Color bgColor;
+  final Color textColor;
+  final String bookId;
+  final Map<int, String> chapterTextCache;
+  final int currentChapterIndex;
+  final void Function(String, {bool isError})? onShowTopMessage;
+
+  const _ComicPanel({
+    super.key,
+    required this.isDark,
+    required this.bgColor,
+    required this.textColor,
+    required this.bookId,
+    required this.chapterTextCache,
+    required this.currentChapterIndex,
+    this.onShowTopMessage,
+  });
+
+  @override
+  State<_ComicPanel> createState() => _ComicPanelState();
+}
+
+class _ComicPanelState extends State<_ComicPanel> {
+  @override
+  Widget build(BuildContext context) {
+    return MangaStoryboardPanel(
+      isDark: widget.isDark,
+      bgColor: widget.bgColor,
+      textColor: widget.textColor,
+      bookId: widget.bookId,
+      chapterTextCache: widget.chapterTextCache,
+      currentChapterIndex: widget.currentChapterIndex,
+      onShowTopMessage: widget.onShowTopMessage,
     );
   }
 }

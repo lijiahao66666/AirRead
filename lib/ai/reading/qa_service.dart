@@ -141,7 +141,7 @@ String buildLocalQaPrompt({
       userPrompt = '请总结以下内容，用清晰的要点列出：\n\n'
           '$cleanedContent\n\n'
           '要求：仅基于内容总结，不要编造。\n'
-          '输出：先列提纲（不超过6条），再给出总结（260字以内）。';
+          '输出：先列提纲（不超过6条），再给出总结（150字以内）。';
       break;
     case QAType.keyPoints:
       final content = contextService.getCurrentChapterContent();

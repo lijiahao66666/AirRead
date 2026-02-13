@@ -4,6 +4,9 @@ import '../../ai/reading/qa_service.dart';
 // import '../../ai/reading/reading_context_service.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import 'ai_model_provider.dart';
+import '../models/ai_chat_model_choice.dart';
+import '../../ai/hunyuan/hunyuan_text_client.dart';
+import '../../ai/local_llm/model_manager.dart';
 
 import 'package:flutter/foundation.dart';
 
@@ -56,30 +59,21 @@ class QaStreamProvider extends ChangeNotifier {
     required QAType qaType,
     required AiModelProvider aiModel,
     required ReadingContextService contextService,
+    required AiChatModelChoice modelChoice,
+    required bool thinkingEnabled,
     String history = '',
   }) async {
     await cancel(bookId);
 
     final streamId = _nextStreamId++;
-    final isLocalModel = aiModel.source == AiModelSource.local;
+    final isLocalModel = modelChoice.isLocal;
+    final localModelId = switch (modelChoice) {
+      AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
+      AiChatModelChoice.localHunyuan18b => ModelManager.hunyuan_1_8b,
+      _ => ModelManager.hunyuan_1_8b,
+    };
 
-    if (aiModel.source == AiModelSource.none) {
-      _stateByBookId[bookId] = QaStreamState(
-        streamId: streamId,
-        bookId: bookId,
-        question: question,
-        qaType: qaType,
-        isLocalModel: isLocalModel,
-        isStreaming: false,
-        answer: '',
-        think: '',
-        error: '请先选择本地模型或在线大模型',
-      );
-      notifyListeners();
-      return streamId;
-    }
-
-    if (aiModel.source == AiModelSource.online &&
+    if (modelChoice.isOnline &&
         usingPersonalTencentKeys() &&
         !getEmbeddedPublicHunyuanCredentials().isUsable) {
       _stateByBookId[bookId] = QaStreamState(
@@ -97,7 +91,7 @@ class QaStreamProvider extends ChangeNotifier {
       return streamId;
     }
 
-    if (aiModel.source == AiModelSource.online &&
+    if (modelChoice.isOnline &&
         !usingPersonalTencentKeys() &&
         aiModel.pointsBalance <= 0) {
       _stateByBookId[bookId] = QaStreamState(
@@ -115,7 +109,7 @@ class QaStreamProvider extends ChangeNotifier {
       return streamId;
     }
 
-    if (aiModel.source == AiModelSource.online && !usingPersonalTencentKeys()) {
+    if (modelChoice.isOnline && !usingPersonalTencentKeys()) {
       final cost = question.trim().length;
       unawaited(_consumeDebugPoints(aiModel, cost));
     }
@@ -137,18 +131,45 @@ class QaStreamProvider extends ChangeNotifier {
     );
     notifyListeners();
 
-    final qaService = QAService(
-      contextService: contextService,
-      credentials: getEmbeddedPublicHunyuanCredentials(),
-      localModelId: aiModel.localModelId,
-    );
-
-    final stream = qaService.askQuestion(
-      question: question,
-      isLocalModel: isLocalModel,
-      qaType: qaType,
-      history: history,
-    );
+    Stream<QAStreamChunk> stream;
+    if (isLocalModel) {
+      final basePrompt = buildLocalQaPrompt(
+        contextService: contextService,
+        question: question,
+        qaType: qaType,
+        history: history,
+      );
+      final prompt = thinkingEnabled ? basePrompt : '/no_think\n$basePrompt';
+      stream = aiModel
+          .generateStream(
+            prompt: prompt,
+            maxTokens: 1024,
+            modelId: localModelId,
+          )
+          .map((e) => QAStreamChunk(content: e));
+    } else {
+      final prompt = buildOnlineQaPrompt(
+        contextService: contextService,
+        question: question,
+        qaType: qaType,
+        history: history,
+      );
+      final client = HunyuanTextClient(credentials: getEmbeddedPublicHunyuanCredentials());
+      stream = client
+          .chatStream(
+            userText: prompt,
+            model: 'hunyuan-a13b',
+            enableThinking: thinkingEnabled ? null : false,
+          )
+          .map(
+            (c) => QAStreamChunk(
+              content: c.content,
+              reasoningContent: c.reasoningContent,
+              isReasoning: c.isReasoning,
+              isComplete: c.isComplete,
+            ),
+          );
+    }
 
     _subByBookId[bookId] = stream.listen(
       (chunk) {

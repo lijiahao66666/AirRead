@@ -116,7 +116,7 @@ Future<void> _seedTestBook() async {
   await prefs.setString('tr_cfg_to', 'en');
   await prefs.setString('tr_cfg_mode', 'translationOnly');
   await prefs.setBool('tr_ai_translate_enabled', false);
-  await prefs.setString('ai_model_source', 'local');
+  await prefs.remove('ai_model_source');
 
   final docDir = await getApplicationDocumentsDirectory();
   final booksDir = Directory(p.join(docDir.path, 'books'));
@@ -246,15 +246,8 @@ Future<void> _assertLocalTranslationWorks(WidgetTester tester) async {
   final aiModel = element.read<AiModelProvider>();
   final tp = element.read<TranslationProvider>();
 
-  debugPrint(
-      '[integration_test] aiModel.loaded=${aiModel.loaded} source=${aiModel.source.name}');
-  debugPrint(
-      '[integration_test] modelInstalled=${aiModel.isModelInstalled} loaded=${aiModel.loaded}');
-
-  if (aiModel.source != AiModelSource.local) {
-    throw TestFailure('expected local model source, got ${aiModel.source}');
-  }
-  if (!aiModel.isModelInstalled) {
+  debugPrint('[integration_test] localInstalled=${aiModel.anyLocalTextInstalled} loaded=${aiModel.loaded}');
+  if (!aiModel.anyLocalTextInstalled) {
     throw TestFailure('local model not installed');
   }
   if (!aiModel.loaded) {
@@ -316,9 +309,7 @@ void main() {
     await _pumpUntil(tester, () {
       final element = tester.element(find.byType(MaterialApp));
       final aiModel = element.read<AiModelProvider>();
-      return aiModel.source == AiModelSource.local &&
-          aiModel.isModelInstalled &&
-          aiModel.loaded;
+      return aiModel.anyLocalTextInstalled && aiModel.loaded;
     },
         onTimeout: 'Local model not ready',
         timeout: const Duration(minutes: 3));
