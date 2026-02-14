@@ -356,6 +356,178 @@ class _SelectionIllustrationLink {
   });
 }
 
+class _ReaderSelectionControls extends MaterialTextSelectionControls {
+  final bool isDarkBg;
+  final VoidCallback onResetSelection;
+  final VoidCallback onSuppressReaderTap;
+  final Future<void> Function(String text) onReadCurrent;
+  final Future<void> Function(String text) onTranslate;
+  final Future<void> Function(String text) onExplain;
+  final Future<void> Function(String text, String suffix) onIllustration;
+
+  _ReaderSelectionControls({
+    required this.isDarkBg,
+    required this.onResetSelection,
+    required this.onSuppressReaderTap,
+    required this.onReadCurrent,
+    required this.onTranslate,
+    required this.onExplain,
+    required this.onIllustration,
+  });
+
+  @override
+  Size getHandleSize(double textLineHeight) {
+    final base = super.getHandleSize(textLineHeight);
+    final w = base.width < 34 ? 34.0 : base.width;
+    final h = base.height < 34 ? 34.0 : base.height;
+    return Size(w, h);
+  }
+
+  String _selectedText(TextSelectionDelegate delegate) {
+    try {
+      final value = delegate.textEditingValue;
+      final sel = value.selection;
+      if (!sel.isValid || sel.isCollapsed) return '';
+      final start = sel.start < sel.end ? sel.start : sel.end;
+      final end = sel.start < sel.end ? sel.end : sel.start;
+      if (start < 0 || end > value.text.length) return '';
+      return value.text.substring(start, end).trim();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  void _dismissToolbar(TextSelectionDelegate delegate) {
+    onSuppressReaderTap();
+    ContextMenuController.removeAny();
+    try {
+      delegate.hideToolbar();
+    } catch (_) {}
+    onResetSelection();
+  }
+
+  @override
+  Widget buildToolbar(
+    BuildContext context,
+    Rect globalEditableRegion,
+    double textLineHeight,
+    Offset position,
+    List<TextSelectionPoint> endpoints,
+    TextSelectionDelegate delegate,
+    ValueListenable<ClipboardStatus>? clipboardStatus,
+    Offset? lastSecondaryTapDownPosition,
+  ) {
+    final text = _selectedText(delegate);
+    if (text.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final tp = context.read<TranslationProvider>();
+    final readAloud = context.read<ReadAloudProvider>();
+    final aiModel = context.read<AiModelProvider>();
+    final personalUsable = tp.usingPersonalTencentKeys &&
+        getEmbeddedPublicHunyuanCredentials().isUsable;
+    final canReadCurrent = tp.aiReadAloudEnabled && text.isNotEmpty;
+    final canTranslate = text.isNotEmpty &&
+        (tp.translationMode == TranslationMode.machine ||
+            (tp.translationMode == TranslationMode.bigModel &&
+                (aiModel.pointsBalance > 0 || personalUsable)));
+    final canExplain = text.isNotEmpty &&
+        (aiModel.anyLocalTextInstalled || aiModel.pointsBalance > 0 || personalUsable);
+
+    final toolbarBg = isDarkBg
+        ? Colors.white.withOpacityCompat(0.94)
+        : AppColors.deepSpace.withOpacityCompat(0.92);
+    final toolbarFg = isDarkBg ? AppColors.deepSpace : Colors.white;
+    final disabledFg = toolbarFg.withOpacityCompat(0.38);
+    final baseTheme = Theme.of(context);
+    final themed = baseTheme.copyWith(
+      colorScheme: baseTheme.colorScheme.copyWith(
+        surface: toolbarBg,
+        onSurface: toolbarFg,
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: toolbarFg,
+          disabledForegroundColor: disabledFg,
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+
+    final items = <ContextMenuButtonItem>[
+      if (canReadCurrent)
+        ContextMenuButtonItem(
+          onPressed: () {
+            _dismissToolbar(delegate);
+            unawaited(() async {
+              await readAloud.stop(keepResume: true);
+              await onReadCurrent(text);
+            }());
+          },
+          type: ContextMenuButtonType.custom,
+          label: '读当前',
+        ),
+      if (canTranslate)
+        ContextMenuButtonItem(
+          onPressed: () {
+            _dismissToolbar(delegate);
+            unawaited(onTranslate(text));
+          },
+          type: ContextMenuButtonType.custom,
+          label: '翻译',
+        ),
+      if (canExplain)
+        ContextMenuButtonItem(
+          onPressed: () {
+            _dismissToolbar(delegate);
+            unawaited(onExplain(text));
+          },
+          type: ContextMenuButtonType.custom,
+          label: '解释',
+        ),
+      ContextMenuButtonItem(
+        onPressed: () {
+          final suffix = 'sel_${text.hashCode.toUnsigned(32).toRadixString(16)}';
+          _dismissToolbar(delegate);
+          unawaited(onIllustration(text, suffix));
+        },
+        type: ContextMenuButtonType.custom,
+        label: '插画',
+      ),
+      ContextMenuButtonItem(
+        onPressed: () {
+          try {
+            delegate.copySelection(SelectionChangedCause.toolbar);
+          } catch (_) {}
+          _dismissToolbar(delegate);
+        },
+        type: ContextMenuButtonType.copy,
+        label: '复制',
+      ),
+      ContextMenuButtonItem(
+        onPressed: () {
+          try {
+            delegate.selectAll(SelectionChangedCause.toolbar);
+          } catch (_) {}
+        },
+        type: ContextMenuButtonType.selectAll,
+        label: '全选',
+      ),
+    ];
+
+    final anchors =
+        TextSelectionToolbarAnchors(primaryAnchor: position, secondaryAnchor: position);
+    return Theme(
+      data: themed,
+      child: AdaptiveTextSelectionToolbar.buttonItems(
+        anchors: anchors,
+        buttonItems: items,
+      ),
+    );
+  }
+}
+
 class ReaderPage extends StatefulWidget {
   final String bookId;
 
@@ -5865,6 +6037,46 @@ class _ReaderPageState extends State<ReaderPage>
           bool hasSelection = false;
           final showChapterIllustrationsButton = isLastPage &&
               _chaptersWithChapterIllustrations.contains(chapterIndex);
+          final selectionControls = _ReaderSelectionControls(
+            isDarkBg: _bgColor.computeLuminance() < 0.5,
+            onSuppressReaderTap: _suppressReaderTap,
+            onResetSelection: () {
+              if (!mounted) return;
+              setState(() {
+                _selectionAreaResetToken++;
+              });
+            },
+            onReadCurrent: (text) async {
+              if (!mounted) return;
+              await _startReadAloudFromSelection(text);
+            },
+            onTranslate: (text) async {
+              await _showSelectionTranslation(text);
+            },
+            onExplain: (text) async {
+              if (!mounted) return;
+              await _openAiHud(
+                initialRoute: AiHudRoute.qa,
+                initialQaText: text,
+                autoSendInitialQa: true,
+              );
+            },
+            onIllustration: (text, suffix) async {
+              if (!mounted) return;
+              setState(() {
+                _rememberSelectionIllustration(
+                  chapterIndex: chapterIndex,
+                  text: text,
+                  suffix: suffix,
+                );
+              });
+              await _openAiHud(
+                initialRoute: AiHudRoute.illustration,
+                illustrationOverrideText: text,
+                illustrationChapterIdSuffix: suffix,
+              );
+            },
+          );
           return Listener(
             behavior: HitTestBehavior.translucent,
             onPointerDown: (_) {
@@ -5877,6 +6089,7 @@ class _ReaderPageState extends State<ReaderPage>
               if (hasSelection) _suppressReaderTap();
             },
             child: SelectionArea(
+              selectionControls: selectionControls,
               key: ValueKey(
                   'sel_${chapterIndex}_${range.start}_$_selectionAreaResetToken'),
               onSelectionChanged: (value) {
