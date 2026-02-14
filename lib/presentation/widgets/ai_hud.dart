@@ -28,7 +28,7 @@ import '../providers/ai_model_provider.dart';
 import '../providers/translation_provider.dart';
 import '../providers/qa_stream_provider.dart';
 import 'glass_panel.dart';
-import 'manga_storyboard_panel.dart';
+import 'illustration_panel.dart';
 import 'points_wallet.dart';
 import 'ai_inference_top_row.dart';
 
@@ -38,7 +38,7 @@ export '../providers/ai_model_provider.dart' show ModelInstallStatus;
 enum AiHudRoute {
   main,
   qa,
-  comic,
+  illustration,
   tencentSettings,
 }
 
@@ -80,6 +80,7 @@ class AiHud extends StatefulWidget {
   final int currentChapterIndex;
   final int currentPageInChapter;
   final Map<int, List<TextRange>> chapterPageRanges;
+  final String? illustrationChapterIdSuffix;
 
   final void Function(String, {bool isError})? onShowTopMessage;
 
@@ -100,6 +101,7 @@ class AiHud extends StatefulWidget {
     required this.currentChapterIndex,
     required this.currentPageInChapter,
     required this.chapterPageRanges,
+    this.illustrationChapterIdSuffix,
     this.onShowTopMessage,
   });
 
@@ -158,9 +160,9 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           final bool reduceMotion =
               (media.disableAnimations) || media.accessibleNavigation;
           final bool isFullHeight =
-              _route == AiHudRoute.qa || _route == AiHudRoute.comic;
+              _route == AiHudRoute.qa || _route == AiHudRoute.illustration;
 
-          // QA/绘本 use a fixed tier: ~90% of available height.
+          // QA/插画 use a fixed tier: ~90% of available height.
           final qaMinHeight = availableH * 0.9;
           final qaHeight = qaMinHeight;
 
@@ -272,17 +274,17 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
     final title = switch (_route) {
       AiHudRoute.main => 'AI伴读',
       AiHudRoute.qa => '问答',
-      AiHudRoute.comic => '绘本',
+      AiHudRoute.illustration => '插画',
       AiHudRoute.tencentSettings => 'AI设置',
     };
 
     final bool isQa = _route == AiHudRoute.qa;
-    final bool isComic = _route == AiHudRoute.comic;
-    if (isQa || isComic) {
+    final bool isIllustration = _route == AiHudRoute.illustration;
+    if (isQa || isIllustration) {
       return Row(
         children: [
           Icon(
-            isQa ? Icons.question_answer_outlined : Icons.view_carousel_outlined,
+            isQa ? Icons.question_answer_outlined : Icons.image_outlined,
             color: AppColors.techBlue,
           ),
           const SizedBox(width: 8),
@@ -352,7 +354,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           readAloudEnabled: widget.readAloudEnabled,
           onReadAloudChanged: widget.onReadAloudChanged,
           onOpenQa: () => _push(AiHudRoute.qa),
-          onOpenComic: () => _push(AiHudRoute.comic),
+          onOpenIllustration: () => _push(AiHudRoute.illustration),
           onShowTopMessage: widget.onShowTopMessage,
           chapterTextCache: widget.chapterTextCache,
           currentChapterIndex: widget.currentChapterIndex,
@@ -378,14 +380,15 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           chapterPageRanges: widget.chapterPageRanges,
           onShowTopMessage: widget.onShowTopMessage,
         ),
-      AiHudRoute.comic => _ComicPanel(
-          key: const ValueKey('comic'),
+      AiHudRoute.illustration => _IllustrationPanel(
+          key: const ValueKey('illustration'),
           isDark: isDark,
           bgColor: widget.bgColor,
           textColor: widget.textColor,
           bookId: widget.bookId,
           chapterTextCache: widget.chapterTextCache,
           currentChapterIndex: widget.currentChapterIndex,
+          chapterIdSuffix: widget.illustrationChapterIdSuffix,
           onShowTopMessage: widget.onShowTopMessage,
         ),
       AiHudRoute.tencentSettings => _TencentHunyuanSettingsPanel(
@@ -2329,7 +2332,7 @@ class _TencentHunyuanSettingsPanelState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '本地模型（问答/绘本推理）',
+                '本地模型（问答/插画推理）',
                 style: TextStyle(
                   color: widget.textColor,
                   fontWeight: FontWeight.w900,
@@ -2342,7 +2345,7 @@ class _TencentHunyuanSettingsPanelState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '本地模型可离线免费使用，但效果不如在线大模型。问答/绘本面板内可单独选择在线或本地模型。',
+                      '本地模型可离线免费使用，但效果不如在线大模型。问答/插画面板内可单独选择在线或本地模型。',
                       style: TextStyle(
                         color: widget.textColor.withOpacityCompat(0.65),
                         fontSize: 12,
@@ -2519,7 +2522,7 @@ class _MainPanel extends StatelessWidget {
   final ValueChanged<bool>? onReadAloudChanged;
 
   final VoidCallback onOpenQa;
-  final VoidCallback onOpenComic;
+  final VoidCallback onOpenIllustration;
   final void Function(String, {bool isError})? onShowTopMessage;
   final Map<int, String> chapterTextCache;
   final int currentChapterIndex;
@@ -2535,7 +2538,7 @@ class _MainPanel extends StatelessWidget {
     required this.readAloudEnabled,
     required this.onReadAloudChanged,
     required this.onOpenQa,
-    required this.onOpenComic,
+    required this.onOpenIllustration,
     this.onShowTopMessage,
     required this.chapterTextCache,
     required this.currentChapterIndex,
@@ -2625,10 +2628,10 @@ class _MainPanel extends StatelessWidget {
             onTap: onOpenQa,
           ),
           const SizedBox(height: 10),
-          _comicEntry(
+          _illustrationEntry(
             enabled: true,
-            subtitle: '章节分镜 + 关键格出图',
-            onTap: onOpenComic,
+            subtitle: '生成章节插画提示词，按需出图',
+            onTap: onOpenIllustration,
           ),
         ],
       ),
@@ -2808,7 +2811,7 @@ class _MainPanel extends StatelessWidget {
     );
   }
 
-  Widget _comicEntry({
+  Widget _illustrationEntry({
     required bool enabled,
     required String subtitle,
     required VoidCallback onTap,
@@ -2839,7 +2842,7 @@ class _MainPanel extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                Icons.view_carousel_outlined,
+                Icons.image_outlined,
                 color: enabled
                     ? AppColors.techBlue
                     : textColor.withOpacityCompat(0.7),
@@ -2852,7 +2855,7 @@ class _MainPanel extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '绘本',
+                    '插画',
                     style: TextStyle(
                       color: textColor,
                       fontWeight: FontWeight.w700,
@@ -4247,16 +4250,17 @@ class _QaPanelState extends State<_QaPanel> {
   }
 }
 
-class _ComicPanel extends StatefulWidget {
+class _IllustrationPanel extends StatefulWidget {
   final bool isDark;
   final Color bgColor;
   final Color textColor;
   final String bookId;
   final Map<int, String> chapterTextCache;
   final int currentChapterIndex;
+  final String? chapterIdSuffix;
   final void Function(String, {bool isError})? onShowTopMessage;
 
-  const _ComicPanel({
+  const _IllustrationPanel({
     super.key,
     required this.isDark,
     required this.bgColor,
@@ -4264,23 +4268,25 @@ class _ComicPanel extends StatefulWidget {
     required this.bookId,
     required this.chapterTextCache,
     required this.currentChapterIndex,
+    this.chapterIdSuffix,
     this.onShowTopMessage,
   });
 
   @override
-  State<_ComicPanel> createState() => _ComicPanelState();
+  State<_IllustrationPanel> createState() => _IllustrationPanelState();
 }
 
-class _ComicPanelState extends State<_ComicPanel> {
+class _IllustrationPanelState extends State<_IllustrationPanel> {
   @override
   Widget build(BuildContext context) {
-    return MangaStoryboardPanel(
+    return IllustrationPanel(
       isDark: widget.isDark,
       bgColor: widget.bgColor,
       textColor: widget.textColor,
       bookId: widget.bookId,
       chapterTextCache: widget.chapterTextCache,
       currentChapterIndex: widget.currentChapterIndex,
+      chapterIdSuffix: widget.chapterIdSuffix,
       onShowTopMessage: widget.onShowTopMessage,
     );
   }

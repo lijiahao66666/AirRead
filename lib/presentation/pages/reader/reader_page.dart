@@ -346,6 +346,16 @@ class _TranslationPageSlice {
   });
 }
 
+class _SelectionIllustrationLink {
+  final String text;
+  final String suffix;
+
+  const _SelectionIllustrationLink({
+    required this.text,
+    required this.suffix,
+  });
+}
+
 class ReaderPage extends StatefulWidget {
   final String bookId;
 
@@ -507,6 +517,7 @@ class _ReaderPageState extends State<ReaderPage>
   int? _tapDownMs;
   bool _tapMoved = false;
   int _suppressReaderTapUntilMs = 0;
+  final Map<int, List<_SelectionIllustrationLink>> _selectionIllustrations = {};
   AiModelProvider? _aiModel;
   VoidCallback? _aiModelListener;
   int _lastAiPointsBalance = 0;
@@ -1795,10 +1806,133 @@ class _ReaderPageState extends State<ReaderPage>
     _suppressReaderTapUntilMs = DateTime.now().millisecondsSinceEpoch + 800;
   }
 
+  void _rememberSelectionIllustration({
+    required int chapterIndex,
+    required String text,
+    required String suffix,
+  }) {
+    final t = text.trim();
+    if (t.isEmpty) return;
+    final s = suffix.trim();
+    if (s.isEmpty) return;
+    final list = _selectionIllustrations.putIfAbsent(
+      chapterIndex,
+      () => <_SelectionIllustrationLink>[],
+    );
+    list.removeWhere((e) => e.suffix == s);
+    list.insert(0, _SelectionIllustrationLink(text: t, suffix: s));
+    if (list.length > 8) {
+      list.removeRange(8, list.length);
+    }
+  }
+
+  InlineSpan _buildInlineIllustrationButton({
+    required _SelectionIllustrationLink link,
+  }) {
+    return WidgetSpan(
+      alignment: PlaceholderAlignment.middle,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => _suppressReaderTap(),
+        onTap: () {
+          unawaited(_openAiHud(
+            initialRoute: AiHudRoute.illustration,
+            illustrationOverrideText: link.text,
+            illustrationChapterIdSuffix: link.suffix,
+          ));
+        },
+        child: Container(
+          margin: const EdgeInsets.only(left: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.techBlue.withOpacityCompat(0.12),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: AppColors.techBlue.withOpacityCompat(0.22),
+              width: AppTokens.stroke,
+            ),
+          ),
+          child: const Text(
+            '查看插画',
+            style: TextStyle(
+              fontSize: 11,
+              height: 1.0,
+              fontWeight: FontWeight.w700,
+              color: AppColors.techBlue,
+              decoration: TextDecoration.none,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  TextSpan _buildReaderSpanWithSelectionIllustrations({
+    required int chapterIndex,
+    required String text,
+    required TextStyle bodyStyle,
+    String? highlightText,
+  }) {
+    final links = _selectionIllustrations[chapterIndex];
+    if (links == null || links.isEmpty) {
+      return _buildReaderSpan(
+        text: text,
+        bodyStyle: bodyStyle,
+        highlightText: highlightText,
+      );
+    }
+
+    final insertions = <({int index, _SelectionIllustrationLink link})>[];
+    for (final link in links) {
+      final idx = text.indexOf(link.text);
+      if (idx < 0) continue;
+      insertions.add((index: idx + link.text.length, link: link));
+    }
+    if (insertions.isEmpty) {
+      return _buildReaderSpan(
+        text: text,
+        bodyStyle: bodyStyle,
+        highlightText: highlightText,
+      );
+    }
+    insertions.sort((a, b) => a.index.compareTo(b.index));
+
+    final children = <InlineSpan>[];
+    int cursor = 0;
+    for (final ins in insertions) {
+      final at = ins.index.clamp(0, text.length);
+      if (at < cursor) continue;
+      final seg = text.substring(cursor, at);
+      if (seg.isNotEmpty) {
+        children.add(
+          _buildReaderSpan(
+            text: seg,
+            bodyStyle: bodyStyle,
+            highlightText: highlightText,
+          ),
+        );
+      }
+      children.add(_buildInlineIllustrationButton(link: ins.link));
+      cursor = at;
+    }
+    if (cursor < text.length) {
+      children.add(
+        _buildReaderSpan(
+          text: text.substring(cursor),
+          bodyStyle: bodyStyle,
+          highlightText: highlightText,
+        ),
+      );
+    }
+    return TextSpan(children: children, style: bodyStyle);
+  }
+
   Future<void> _openAiHud({
     AiHudRoute initialRoute = AiHudRoute.main,
     String? initialQaText,
     bool autoSendInitialQa = false,
+    String? illustrationOverrideText,
+    String? illustrationChapterIdSuffix,
   }) async {
     await showModalBottomSheet(
       context: context,
@@ -1833,6 +1967,10 @@ class _ReaderPageState extends State<ReaderPage>
             final qaTextCache = Map<int, String>.from(_chapterPlainText);
             qaTextCache[_currentChapterIndex] =
                 _getPlainTextForChapter(_currentChapterIndex);
+            final overrideText = (illustrationOverrideText ?? '').trim();
+            if (overrideText.isNotEmpty) {
+              qaTextCache[_currentChapterIndex] = overrideText;
+            }
 
             return AiHud(
               bgColor: _panelBgColor,
@@ -1862,6 +2000,7 @@ class _ReaderPageState extends State<ReaderPage>
               chapterPageRanges: _chapterPlainPageRanges.isNotEmpty
                   ? _chapterPlainPageRanges
                   : _chapterPageRanges,
+              illustrationChapterIdSuffix: illustrationChapterIdSuffix,
               onShowTopMessage: _showTopError,
             );
           },
@@ -5603,7 +5742,8 @@ class _ReaderPageState extends State<ReaderPage>
                 rap.position?.chapterIndex == chapterIndex)
             ? rap.highlightText
             : null;
-        final TextSpan span = _buildReaderSpan(
+        final TextSpan span = _buildReaderSpanWithSelectionIllustrations(
+          chapterIndex: chapterIndex,
           text: pageText,
           bodyStyle: effectiveTextStyle,
           highlightText: highlightText,
@@ -5793,6 +5933,36 @@ class _ReaderPageState extends State<ReaderPage>
                     },
                     type: ContextMenuButtonType.custom,
                     label: '解释',
+                  ),
+                if (text.isNotEmpty)
+                  ContextMenuButtonItem(
+                    onPressed: () {
+                      ContextMenuController.removeAny();
+                      selectableRegionState.hideToolbar();
+                      if (mounted) {
+                        setState(() {
+                          _selectionAreaResetToken++;
+                        });
+                      }
+                      final suffix =
+                          'sel_${text.hashCode.toUnsigned(32).toRadixString(16)}';
+                      if (mounted) {
+                        setState(() {
+                          _rememberSelectionIllustration(
+                            chapterIndex: chapterIndex,
+                            text: text,
+                            suffix: suffix,
+                          );
+                        });
+                      }
+                      unawaited(_openAiHud(
+                        initialRoute: AiHudRoute.illustration,
+                        illustrationOverrideText: text,
+                        illustrationChapterIdSuffix: suffix,
+                      ));
+                    },
+                    type: ContextMenuButtonType.custom,
+                    label: '插画',
                   ),
               ];
               final ContextMenuButtonItem? copyItem = selectableRegionState

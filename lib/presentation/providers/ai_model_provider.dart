@@ -17,14 +17,15 @@ enum ModelInstallStatus {
 class AiModelProvider extends ChangeNotifier {
   static const String _kPointsBalance = 'points_balance';
   static const String _kDebugPointsOverride = 'debug_points_override';
-  static const String _kStorybookPageCount = 'ai_storybook_page_count';
+  static const String _kIllustrationCount = 'ai_illustration_count';
+  static const String _kLegacyIllustrationCount = 'ai_storybook_page_count';
   static const String _kLastLocalModelId = 'ai_last_local_model_id';
 
   LlmClient? _llmClient;
   String _activeLocalModelId = ModelManager.hunyuan_1_8b;
   int _pointsBalance = 0;
   int? _debugPointsOverride;
-  int _storybookPageCount = 0; // 0 = Auto
+  int _illustrationCount = 0; // 0 = Auto
   bool _anyLocalModelInstalled = false;
   Timer? _localIdleUnloadTimer;
   DateTime? _lastLocalInferenceAt;
@@ -53,16 +54,19 @@ class AiModelProvider extends ChangeNotifier {
   bool get anyLocalTextInstalled => _anyLocalModelInstalled;
   bool get localTextReady => loaded;
 
-  int get storybookPageCount => _storybookPageCount;
+  int get illustrationCount => _illustrationCount;
 
-  Future<void> setStorybookPageCount(int value) async {
+  Future<void> setIllustrationCount(int value) async {
     final allowed = <int>{0, 4, 8, 12};
     final next = allowed.contains(value) ? value : 0;
-    if (_storybookPageCount == next) return;
-    _storybookPageCount = next;
+    if (_illustrationCount == next) return;
+    _illustrationCount = next;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_kStorybookPageCount, next);
+    await prefs.setInt(_kIllustrationCount, next);
+    if (prefs.containsKey(_kLegacyIllustrationCount)) {
+      await prefs.remove(_kLegacyIllustrationCount);
+    }
   }
 
   Future<void> _checkAnyLocalModelInstallation() async {
@@ -170,10 +174,17 @@ class AiModelProvider extends ChangeNotifier {
       }
     }
     final allowedPages = <int>{0, 4, 8, 12};
-    final rawPages = prefs.getInt(_kStorybookPageCount) ?? 0;
-    _storybookPageCount = allowedPages.contains(rawPages) ? rawPages : 0;
-    if (_storybookPageCount != rawPages) {
-      await prefs.setInt(_kStorybookPageCount, _storybookPageCount);
+    int rawPages = prefs.getInt(_kIllustrationCount) ?? 0;
+    if (rawPages == 0 && !prefs.containsKey(_kIllustrationCount)) {
+      rawPages = prefs.getInt(_kLegacyIllustrationCount) ?? 0;
+      if (prefs.containsKey(_kLegacyIllustrationCount)) {
+        await prefs.setInt(_kIllustrationCount, rawPages);
+        await prefs.remove(_kLegacyIllustrationCount);
+      }
+    }
+    _illustrationCount = allowedPages.contains(rawPages) ? rawPages : 0;
+    if (_illustrationCount != rawPages) {
+      await prefs.setInt(_kIllustrationCount, _illustrationCount);
     }
 
     await _refreshAllInstallStates();

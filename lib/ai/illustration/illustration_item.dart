@@ -1,4 +1,4 @@
-enum MangaPanelStatus {
+enum IllustrationStatus {
   draft,
   promptReady,
   generating,
@@ -6,11 +6,11 @@ enum MangaPanelStatus {
   failed,
 }
 
-class MangaPanel {
+class IllustrationItem {
   final String id;
   final int anchorStart;
   final int anchorEnd;
-  final String narrativeRole;
+  final String role;
   final String title;
   final String subject;
   final String action;
@@ -24,18 +24,18 @@ class MangaPanel {
   final String composition;
   final String? caption;
 
-  String? expandedPrompt;
-  MangaPanelStatus status;
+  String? prompt;
+  IllustrationStatus status;
   String? jobId;
   String? localImagePath;
   String? errorMsg;
   DateTime? createdAt;
 
-  MangaPanel({
+  IllustrationItem({
     required this.id,
     required this.anchorStart,
     required this.anchorEnd,
-    required this.narrativeRole,
+    required this.role,
     required this.title,
     required this.subject,
     required this.action,
@@ -48,8 +48,8 @@ class MangaPanel {
     required this.mood,
     required this.composition,
     this.caption,
-    this.expandedPrompt,
-    this.status = MangaPanelStatus.draft,
+    this.prompt,
+    this.status = IllustrationStatus.draft,
     this.jobId,
     this.localImagePath,
     this.errorMsg,
@@ -61,7 +61,7 @@ class MangaPanel {
       'id': id,
       'anchorStart': anchorStart,
       'anchorEnd': anchorEnd,
-      'narrativeRole': narrativeRole,
+      'role': role,
       'title': title,
       'subject': subject,
       'action': action,
@@ -74,7 +74,7 @@ class MangaPanel {
       'mood': mood,
       'composition': composition,
       'caption': caption,
-      'expandedPrompt': expandedPrompt,
+      'prompt': prompt,
       'status': status.index,
       'jobId': jobId,
       'localImagePath': localImagePath,
@@ -83,18 +83,17 @@ class MangaPanel {
     };
   }
 
-  factory MangaPanel.fromJson(Map<String, dynamic> json) {
+  factory IllustrationItem.fromJson(Map<String, dynamic> json) {
     final start = json['anchorStart'];
     final end = json['anchorEnd'];
     final statusRaw = json['status'];
-    final statusIndex = statusRaw is int
-        ? statusRaw
-        : int.tryParse(statusRaw?.toString() ?? '') ?? 0;
-    return MangaPanel(
+    final statusIndex =
+        statusRaw is int ? statusRaw : int.tryParse(statusRaw?.toString() ?? '') ?? 0;
+    return IllustrationItem(
       id: (json['id'] ?? '').toString(),
       anchorStart: start is int ? start : int.tryParse(start?.toString() ?? '') ?? 0,
       anchorEnd: end is int ? end : int.tryParse(end?.toString() ?? '') ?? 0,
-      narrativeRole: (json['narrativeRole'] ?? '').toString(),
+      role: (json['role'] ?? '').toString(),
       title: (json['title'] ?? '').toString(),
       subject: (json['subject'] ?? '').toString(),
       action: (json['action'] ?? '').toString(),
@@ -107,14 +106,14 @@ class MangaPanel {
       mood: (json['mood'] ?? '').toString(),
       composition: (json['composition'] ?? '').toString(),
       caption: json['caption']?.toString(),
-      expandedPrompt: json['expandedPrompt']?.toString(),
-      status: MangaPanelStatus.values[statusIndex.clamp(0, MangaPanelStatus.values.length - 1)],
+      prompt: json['prompt']?.toString(),
+      status:
+          IllustrationStatus.values[statusIndex.clamp(0, IllustrationStatus.values.length - 1)],
       jobId: json['jobId']?.toString(),
       localImagePath: json['localImagePath']?.toString(),
       errorMsg: json['errorMsg']?.toString(),
-      createdAt: json['createdAt'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(json['createdAt'])
-          : null,
+      createdAt:
+          json['createdAt'] != null ? DateTime.fromMillisecondsSinceEpoch(json['createdAt']) : null,
     );
   }
 }
