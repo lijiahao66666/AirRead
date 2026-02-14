@@ -41,7 +41,11 @@ class _PurchaseSku {
 }
 
 class _PointsWalletState extends State<PointsWallet> {
-  static const String _scfUrl = 'https://service-b1w9wds0-1254378248.gz.apigw.tencentcs.com/release/airread_license_redeem';
+  static const String _scfUrl =
+      String.fromEnvironment('AIRREAD_TENCENT_SCF_URL', defaultValue: '');
+  static const String _scfToken =
+      String.fromEnvironment('AIRREAD_TENCENT_SCF_TOKEN', defaultValue: '');
+  static const Duration _redeemTimeout = Duration(seconds: 20);
   static const String _kRedeemDeviceFingerprint = 'redeem_device_fingerprint_v1';
   static const String _kRedeemedPayloadV2 = 'redeemed_code_payload_v2';
   static const String _kRedeemedCodeHashes = 'redeemed_code_hashes';
@@ -122,6 +126,33 @@ class _PointsWalletState extends State<PointsWallet> {
     return Uri.parse(raw);
   }
 
+  Uri _fallbackRedeemScfUri(Uri primary) {
+    final host = primary.host.trim();
+    if (host.endsWith('.apigw.tencentcs.com')) {
+      final nextHost =
+          host.replaceFirst('.apigw.tencentcs.com', '.apigateway.myqcloud.com');
+      return primary.replace(host: nextHost);
+    }
+    return primary;
+  }
+
+  bool _looksLikeDnsFailure(Object e) {
+    final s = e.toString();
+    return s.contains('Failed host lookup') ||
+        s.contains('nodename nor servname provided') ||
+        s.contains('No address associated with hostname');
+  }
+
+  Future<http.Response> _postRedeem(
+    Uri uri, {
+    required Map<String, String> headers,
+    required String body,
+  }) async {
+    return http
+        .post(uri, headers: headers, body: body)
+        .timeout(_redeemTimeout);
+  }
+
   Future<String?> _redeemOnCloud({
     required String licenseCode,
     required String deviceId,
@@ -131,18 +162,39 @@ class _PointsWalletState extends State<PointsWallet> {
       'Content-Type': 'application/json; charset=utf-8',
     };
     final prefs = await SharedPreferences.getInstance();
-    final token = (prefs.getString('tencent_scf_jwt') ?? '').trim();
+    final token = _scfToken.trim().isNotEmpty
+        ? _scfToken.trim()
+        : (prefs.getString('tencent_scf_jwt') ?? '').trim();
     if (token.isNotEmpty) {
       headers['X-Airread-Token'] = token;
     }
-    final resp = await http.post(
-      uri,
-      headers: headers,
-      body: jsonEncode(<String, dynamic>{
-        'license_code': licenseCode,
-        'device_id': deviceId,
-      }),
-    );
+    final body = jsonEncode(<String, dynamic>{
+      'license_code': licenseCode,
+      'device_id': deviceId,
+    });
+    late http.Response resp;
+    try {
+      resp = await _postRedeem(uri, headers: headers, body: body);
+    } on TimeoutException {
+      throw const LicenseException('网络超时，请稍后重试');
+    } catch (e) {
+      final fallback = _fallbackRedeemScfUri(uri);
+      if (fallback != uri && _looksLikeDnsFailure(e)) {
+        try {
+          resp = await _postRedeem(fallback, headers: headers, body: body);
+        } on TimeoutException {
+          throw const LicenseException('网络超时，请稍后重试');
+        } catch (e2) {
+          throw LicenseException(_looksLikeDnsFailure(e2)
+              ? '兑换服务域名解析失败，请切换网络后重试'
+              : '兑换服务连接失败：${e2.toString()}');
+        }
+      } else {
+        throw LicenseException(_looksLikeDnsFailure(e)
+            ? '兑换服务域名解析失败，请切换网络后重试'
+            : '兑换服务连接失败：${e.toString()}');
+      }
+    }
     if (resp.statusCode == 409) {
       throw const LicenseException('重复兑换');
     }
@@ -234,7 +286,6 @@ class _PointsWalletState extends State<PointsWallet> {
 
   Future<void> _showPurchaseDialog({List<_PurchaseSku>? skus}) async {
     final dialogBg = widget.isDark ? const Color(0xFF262626) : Colors.white;
-    final listBg = widget.isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF4F4F4);
     final items = skus ?? _purchaseSkus;
     await showDialog<void>(
       context: context,
@@ -242,47 +293,27 @@ class _PointsWalletState extends State<PointsWallet> {
         return AlertDialog(
           backgroundColor: dialogBg,
           surfaceTintColor: Colors.transparent,
-          title: Text('购买积分', style: TextStyle(color: widget.textColor, fontSize: 14)),
+          title:
+              Text('购买积分', style: TextStyle(color: widget.textColor, fontSize: 14)),
           content: SizedBox(
             width: 320,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+            child: ListView(
+              shrinkWrap: true,
               children: [
                 for (final sku in items)
-                  InkWell(
+                  ListTile(
+                    dense: true,
+                    textColor: widget.textColor,
+                    iconColor: widget.textColor.withOpacityCompat(0.75),
+                    title: Text(
+                      sku.label,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    trailing: const Icon(Icons.open_in_new_rounded, size: 18),
                     onTap: () async {
                       Navigator.of(ctx).pop();
                       await _openExternalUrl(sku.url);
                     },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 10),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: listBg,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: widget.textColor.withOpacityCompat(0.08),
-                          width: AppTokens.stroke,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              sku.label,
-                              style: TextStyle(
-                                color: widget.textColor.withOpacityCompat(0.9),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          Icon(Icons.open_in_new, size: 16, color: widget.textColor.withOpacityCompat(0.6)),
-                        ],
-                      ),
-                    ),
                   ),
               ],
             ),
@@ -290,7 +321,10 @@ class _PointsWalletState extends State<PointsWallet> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: Text('取消', style: TextStyle(color: widget.textColor)),
+              style: TextButton.styleFrom(
+                foregroundColor: widget.textColor.withOpacityCompat(0.75),
+              ),
+              child: const Text('关闭'),
             ),
           ],
         );

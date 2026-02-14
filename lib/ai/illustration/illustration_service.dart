@@ -504,23 +504,26 @@ class IllustrationService {
     String prompt, {
     bool? enableThinking,
   }) async {
-    final sw = Stopwatch()..start();
-    final stream = _textClient.chatStream(
-      userText: prompt,
-      model: 'hunyuan-a13b',
-      enableThinking: enableThinking,
-    );
-    final buffer = StringBuffer();
-    await for (final chunk in stream) {
-      if (chunk.isReasoning) continue;
-      buffer.write(chunk.content);
-    }
-    final out = buffer.toString();
-    if (kDebugMode) {
-      debugPrint(
-        '[ILLUSTRATION] online_text.done thinking=$enableThinking ms=${sw.elapsedMilliseconds} outLen=${out.length}',
+    final out = await (() async {
+      final sw = Stopwatch()..start();
+      final stream = _textClient.chatStream(
+        userText: prompt,
+        model: 'hunyuan-a13b',
+        enableThinking: enableThinking,
       );
-    }
+      final buffer = StringBuffer();
+      await for (final chunk in stream) {
+        if (chunk.isReasoning) continue;
+        buffer.write(chunk.content);
+      }
+      final out = buffer.toString();
+      if (kDebugMode) {
+        debugPrint(
+          '[ILLUSTRATION] online_text.done thinking=$enableThinking ms=${sw.elapsedMilliseconds} outLen=${out.length}',
+        );
+      }
+      return out;
+    }()).timeout(const Duration(seconds: 45));
     return out;
   }
 

@@ -455,6 +455,7 @@ class _TencentHunyuanSettingsPanelState
       TextEditingController();
   final FocusNode _userSecretIdFocus = FocusNode();
   final FocusNode _userSecretKeyFocus = FocusNode();
+  final GlobalKey _userSecretIdFieldKey = GlobalKey();
   final GlobalKey _userSecretKeyFieldKey = GlobalKey();
   bool _userKeysEnabled = false;
   bool _redeemBusy = false;
@@ -532,7 +533,7 @@ class _TencentHunyuanSettingsPanelState
   void _onUserSecretIdFocusChanged() {
     if (!_userSecretIdFocus.hasFocus) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final ctx = _userSecretKeyFieldKey.currentContext;
+      final ctx = _userSecretIdFieldKey.currentContext;
       if (ctx == null) return;
       Scrollable.ensureVisible(
         ctx,
@@ -942,9 +943,11 @@ class _TencentHunyuanSettingsPanelState
             const SizedBox(height: 12),
             TextField(
               controller: _userSecretIdController,
+              key: _userSecretIdFieldKey,
               focusNode: _userSecretIdFocus,
               textInputAction: TextInputAction.next,
-              scrollPadding: const EdgeInsets.only(bottom: 24),
+              scrollPadding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 24),
               onSubmitted: (_) {
                 FocusScope.of(context).requestFocus(_userSecretKeyFocus);
               },
@@ -986,7 +989,8 @@ class _TencentHunyuanSettingsPanelState
               focusNode: _userSecretKeyFocus,
               obscureText: true,
               textInputAction: TextInputAction.done,
-              scrollPadding: const EdgeInsets.only(bottom: 24),
+              scrollPadding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 24),
               onSubmitted: (_) {
                 FocusScope.of(context).unfocus();
               },
@@ -4097,7 +4101,12 @@ class _QaPanelState extends State<_QaPanel> {
                   duration: const Duration(milliseconds: 200),
                   curve: Curves.easeOutCubic,
                   padding: EdgeInsets.only(
-                      bottom: MediaQuery.of(context).viewInsets.bottom),
+                    bottom: (() {
+                      final media = MediaQuery.of(context);
+                      final v = media.viewInsets.bottom - media.padding.bottom - 18;
+                      return v <= 0 ? 0.0 : v.toDouble();
+                    })(),
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

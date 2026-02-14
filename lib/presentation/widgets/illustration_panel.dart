@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../ai/illustration/illustration_item.dart' as ill;
+import '../../ai/tencentcloud/tencent_cloud_exception.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/local_llm/model_manager.dart';
 import '../../core/theme/app_colors.dart';
@@ -152,6 +153,32 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     });
   }
 
+  String _friendlyErrorMessage(Object e) {
+    if (e is TimeoutException) {
+      return '生成提示词超时，请检查网络后重试';
+    }
+    if (e is TencentCloudException) {
+      if (e.code == 'NoScfUrl') {
+        return '在线提示词服务未配置，请在 AI 设置中填写个人密钥，或配置服务端地址';
+      }
+      if (e.code == 'MissingCredentials') {
+        return '已开启个人密钥，但未填写 SecretId/SecretKey';
+      }
+      if (e.code == 'HttpError') {
+        final m = e.message;
+        if (m.contains('HTTP 401') || m.contains('HTTP 403')) {
+          return '鉴权失败，请检查积分状态或个人密钥是否正确';
+        }
+        if (m.contains('HTTP 429')) {
+          return '请求过于频繁，请稍后重试';
+        }
+        return '在线服务异常：${e.message}';
+      }
+      return '${e.code}：${e.message}';
+    }
+    return e.toString();
+  }
+
   double _ratioKeyToAspect(String k) {
     return switch (k) {
       '1:1' => 1.0,
@@ -267,7 +294,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         widget.onChapterIllustrationsGenerated?.call(widget.currentChapterIndex);
       }
     } catch (e) {
-      _showToast(e.toString());
+      _showToast(_friendlyErrorMessage(e));
     }
   }
 

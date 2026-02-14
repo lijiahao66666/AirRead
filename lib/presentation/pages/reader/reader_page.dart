@@ -2009,7 +2009,7 @@ class _ReaderPageState extends State<ReaderPage>
           },
           child: Container(
             margin: const EdgeInsets.only(left: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: AppColors.techBlue.withOpacityCompat(0.12),
               borderRadius: BorderRadius.circular(999),
@@ -2021,7 +2021,7 @@ class _ReaderPageState extends State<ReaderPage>
             child: const Text(
               '查看插画',
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 12,
                 height: 1.0,
                 fontWeight: FontWeight.w700,
                 color: AppColors.techBlue,
@@ -6307,7 +6307,7 @@ class _ReaderPageState extends State<ReaderPage>
                               child: const Text(
                                 '查看章节插画',
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   height: 1.0,
                                   fontWeight: FontWeight.w700,
                                   color: AppColors.techBlue,
