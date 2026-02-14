@@ -358,6 +358,7 @@ class _SelectionIllustrationLink {
 
 class _ReaderSelectionControls extends MaterialTextSelectionControls {
   final bool isDarkBg;
+  final String Function() getSelectedText;
   final VoidCallback onResetSelection;
   final VoidCallback onSuppressReaderTap;
   final Future<void> Function(String text) onReadCurrent;
@@ -367,6 +368,7 @@ class _ReaderSelectionControls extends MaterialTextSelectionControls {
 
   _ReaderSelectionControls({
     required this.isDarkBg,
+    required this.getSelectedText,
     required this.onResetSelection,
     required this.onSuppressReaderTap,
     required this.onReadCurrent,
@@ -381,20 +383,6 @@ class _ReaderSelectionControls extends MaterialTextSelectionControls {
     final w = base.width < 34 ? 34.0 : base.width;
     final h = base.height < 34 ? 34.0 : base.height;
     return Size(w, h);
-  }
-
-  String _selectedText(TextSelectionDelegate delegate) {
-    try {
-      final value = delegate.textEditingValue;
-      final sel = value.selection;
-      if (!sel.isValid || sel.isCollapsed) return '';
-      final start = sel.start < sel.end ? sel.start : sel.end;
-      final end = sel.start < sel.end ? sel.end : sel.start;
-      if (start < 0 || end > value.text.length) return '';
-      return value.text.substring(start, end).trim();
-    } catch (_) {
-      return '';
-    }
   }
 
   void _dismissToolbar(TextSelectionDelegate delegate) {
@@ -417,7 +405,7 @@ class _ReaderSelectionControls extends MaterialTextSelectionControls {
     ValueListenable<ClipboardStatus>? clipboardStatus,
     Offset? lastSecondaryTapDownPosition,
   ) {
-    final text = _selectedText(delegate);
+    final text = getSelectedText().trim();
     if (text.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -6039,6 +6027,7 @@ class _ReaderPageState extends State<ReaderPage>
               _chaptersWithChapterIllustrations.contains(chapterIndex);
           final selectionControls = _ReaderSelectionControls(
             isDarkBg: _bgColor.computeLuminance() < 0.5,
+            getSelectedText: () => selectedText,
             onSuppressReaderTap: _suppressReaderTap,
             onResetSelection: () {
               if (!mounted) return;

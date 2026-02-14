@@ -826,30 +826,36 @@ class _IllustrationCard extends StatelessWidget {
     final saved = await showDialog<String>(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            minLines: 1,
-            maxLines: 4,
-            keyboardType: TextInputType.multiline,
-            textAlignVertical: TextAlignVertical.top,
-            decoration: const InputDecoration(
-              hintText: '输入插画提示词（用于文生图）',
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(vertical: 10),
+        final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+        return AnimatedPadding(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          padding: EdgeInsets.only(bottom: bottomInset),
+          child: AlertDialog(
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              minLines: 1,
+              maxLines: 4,
+              keyboardType: TextInputType.multiline,
+              textAlignVertical: TextAlignVertical.top,
+              decoration: const InputDecoration(
+                hintText: '输入插画提示词（用于文生图）',
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 10),
+              ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, controller.text.trim()),
+                child: const Text('保存'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: const Text('保存'),
-            ),
-          ],
         );
       },
     );

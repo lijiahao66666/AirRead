@@ -254,7 +254,12 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
                   ? Duration.zero
                   : const Duration(milliseconds: 200),
               curve: Curves.easeOutCubic,
-              padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+              padding: EdgeInsets.only(
+                  bottom: _route == AiHudRoute.qa ||
+                          _route == AiHudRoute.illustration ||
+                          _route == AiHudRoute.tencentSettings
+                      ? 0
+                      : media.viewInsets.bottom),
               child: ClipRect(
                 child: AnimatedSize(
                   duration: reduceMotion
@@ -569,10 +574,11 @@ class _TencentHunyuanSettingsPanelState
     final Color cardBg = widget.isDark
         ? Colors.white.withOpacityCompat(0.07)
         : AppColors.mistWhite;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return SingleChildScrollView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: EdgeInsets.only(bottom: bottomInset + 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4087,122 +4093,136 @@ class _QaPanelState extends State<_QaPanel> {
                               fontSize: 15)),
                     ),
                   ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    actionChip(
-                      label: '新话题',
-                      onTap: qaBlocked || _messageState != _MessageState.idle
-                          ? null
-                          : _startNewTopic,
-                    ),
-                    actionChip(
-                      label: '总结本章',
-                      onTap: qaBlocked || _messageState != _MessageState.idle
-                          ? null
-                          : () => _sendQuickAction(QAType.summary),
-                    ),
-                    actionChip(
-                      label: '提取要点',
-                      onTap: qaBlocked || _messageState != _MessageState.idle
-                          ? null
-                          : () => _sendQuickAction(QAType.keyPoints),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Focus(
-                        onKeyEvent: (node, event) {
-                          if (event is KeyDownEvent &&
-                              event.logicalKey == LogicalKeyboardKey.enter &&
-                              !ServicesBinding
-                                  .instance.keyboard.logicalKeysPressed
-                                  .contains(LogicalKeyboardKey.shiftLeft) &&
-                              !ServicesBinding
-                                  .instance.keyboard.logicalKeysPressed
-                                  .contains(LogicalKeyboardKey.shiftRight)) {
-                            if (!qaBlocked &&
-                                _messageState == _MessageState.idle) {
-                              _send();
-                            }
-                            return KeyEventResult.handled;
-                          }
-                          return KeyEventResult.ignored;
-                        },
-                        child: TextField(
-                          controller: _inputCtl,
-                          enabled: !qaBlocked,
-                          minLines: 1,
-                          maxLines: 4,
-                          textInputAction: TextInputAction.send,
-                          style: const TextStyle(fontSize: 14),
-                          decoration: InputDecoration(
-                            isDense: true,
-                            filled: true,
-                            fillColor: Colors.white,
-                            hintText: '输入你的问题…',
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 12),
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12)),
+                AnimatedPadding(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(context).viewInsets.bottom),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          actionChip(
+                            label: '新话题',
+                            onTap: qaBlocked || _messageState != _MessageState.idle
+                                ? null
+                                : _startNewTopic,
                           ),
-                          contextMenuBuilder: (context, editableTextState) {
-                            final List<ContextMenuButtonItem> buttonItems =
-                                editableTextState.contextMenuButtonItems;
-                            // 仅保留基础编辑功能 (复制/粘贴/剪切/全选)，确保双端一致且清爽
-                            buttonItems.removeWhere(
-                                (ContextMenuButtonItem buttonItem) {
-                              return buttonItem.type !=
-                                      ContextMenuButtonType.cut &&
-                                  buttonItem.type !=
-                                      ContextMenuButtonType.copy &&
-                                  buttonItem.type !=
-                                      ContextMenuButtonType.paste &&
-                                  buttonItem.type !=
-                                      ContextMenuButtonType.selectAll;
-                            });
-                            return AdaptiveTextSelectionToolbar.buttonItems(
-                              anchors: editableTextState.contextMenuAnchors,
-                              buttonItems: buttonItems,
-                            );
-                          },
-                          onSubmitted: (_) {
-                            if (!qaBlocked &&
-                                _messageState == _MessageState.idle) {
-                              _send();
-                            }
-                          },
-                        ),
+                          actionChip(
+                            label: '总结本章',
+                            onTap: qaBlocked || _messageState != _MessageState.idle
+                                ? null
+                                : () => _sendQuickAction(QAType.summary),
+                          ),
+                          actionChip(
+                            label: '提取要点',
+                            onTap: qaBlocked || _messageState != _MessageState.idle
+                                ? null
+                                : () => _sendQuickAction(QAType.keyPoints),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    ElevatedButton(
-                      onPressed:
-                          (!qaBlocked && _messageState == _MessageState.idle)
-                              ? _send
-                              : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.techBlue,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        disabledBackgroundColor:
-                            AppColors.techBlue.withOpacityCompat(0.45),
-                        disabledForegroundColor:
-                            Colors.white.withOpacityCompat(0.75),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Focus(
+                              onKeyEvent: (node, event) {
+                                if (event is KeyDownEvent &&
+                                    event.logicalKey ==
+                                        LogicalKeyboardKey.enter &&
+                                    !ServicesBinding
+                                        .instance.keyboard.logicalKeysPressed
+                                        .contains(LogicalKeyboardKey.shiftLeft) &&
+                                    !ServicesBinding
+                                        .instance.keyboard.logicalKeysPressed
+                                        .contains(LogicalKeyboardKey.shiftRight)) {
+                                  if (!qaBlocked &&
+                                      _messageState == _MessageState.idle) {
+                                    _send();
+                                  }
+                                  return KeyEventResult.handled;
+                                }
+                                return KeyEventResult.ignored;
+                              },
+                              child: TextField(
+                                controller: _inputCtl,
+                                enabled: !qaBlocked,
+                                minLines: 1,
+                                maxLines: 4,
+                                textInputAction: TextInputAction.send,
+                                style: const TextStyle(fontSize: 14),
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  hintText: '输入你的问题…',
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 12),
+                                  border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12)),
+                                ),
+                                contextMenuBuilder:
+                                    (context, editableTextState) {
+                                  final List<ContextMenuButtonItem> buttonItems =
+                                      editableTextState.contextMenuButtonItems;
+                                  // 仅保留基础编辑功能 (复制/粘贴/剪切/全选)，确保双端一致且清爽
+                                  buttonItems.removeWhere(
+                                      (ContextMenuButtonItem buttonItem) {
+                                    return buttonItem.type !=
+                                            ContextMenuButtonType.cut &&
+                                        buttonItem.type !=
+                                            ContextMenuButtonType.copy &&
+                                        buttonItem.type !=
+                                            ContextMenuButtonType.paste &&
+                                        buttonItem.type !=
+                                            ContextMenuButtonType.selectAll;
+                                  });
+                                  return AdaptiveTextSelectionToolbar.buttonItems(
+                                    anchors:
+                                        editableTextState.contextMenuAnchors,
+                                    buttonItems: buttonItems,
+                                  );
+                                },
+                                onSubmitted: (_) {
+                                  if (!qaBlocked &&
+                                      _messageState == _MessageState.idle) {
+                                    _send();
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          ElevatedButton(
+                            onPressed: (!qaBlocked &&
+                                    _messageState == _MessageState.idle)
+                                ? _send
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.techBlue,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              disabledBackgroundColor:
+                                  AppColors.techBlue.withOpacityCompat(0.45),
+                              disabledForegroundColor:
+                                  Colors.white.withOpacityCompat(0.75),
+                            ),
+                            child: const Text('发送'),
+                          ),
+                        ],
                       ),
-                      child: const Text('发送'),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -4238,17 +4258,13 @@ class _QaPanelState extends State<_QaPanel> {
       ),
     );
 
-    return Padding(
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: GestureDetector(
-        onTap: () {
-          FocusScope.of(context).unfocus();
-          _hideBubbleActions();
-        },
-        behavior: HitTestBehavior.translucent,
-        child: panelContent,
-      ),
+    return GestureDetector(
+      onTap: () {
+        FocusScope.of(context).unfocus();
+        _hideBubbleActions();
+      },
+      behavior: HitTestBehavior.translucent,
+      child: panelContent,
     );
   }
 }
