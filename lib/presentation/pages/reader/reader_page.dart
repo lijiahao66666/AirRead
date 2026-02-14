@@ -1831,35 +1831,40 @@ class _ReaderPageState extends State<ReaderPage>
   }) {
     return WidgetSpan(
       alignment: PlaceholderAlignment.middle,
-      child: GestureDetector(
+      child: Listener(
         behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => _suppressReaderTap(),
-        onTap: () {
-          unawaited(_openAiHud(
-            initialRoute: AiHudRoute.illustration,
-            illustrationOverrideText: link.text,
-            illustrationChapterIdSuffix: link.suffix,
-          ));
-        },
-        child: Container(
-          margin: const EdgeInsets.only(left: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: AppColors.techBlue.withOpacityCompat(0.12),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: AppColors.techBlue.withOpacityCompat(0.22),
-              width: AppTokens.stroke,
+        onPointerDown: (_) => _suppressReaderTap(),
+        onPointerUp: (_) => _suppressReaderTap(),
+        onPointerCancel: (_) => _suppressReaderTap(),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            unawaited(_openAiHud(
+              initialRoute: AiHudRoute.illustration,
+              illustrationOverrideText: link.text,
+              illustrationChapterIdSuffix: link.suffix,
+            ));
+          },
+          child: Container(
+            margin: const EdgeInsets.only(left: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.techBlue.withOpacityCompat(0.12),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: AppColors.techBlue.withOpacityCompat(0.22),
+                width: AppTokens.stroke,
+              ),
             ),
-          ),
-          child: const Text(
-            '查看插画',
-            style: TextStyle(
-              fontSize: 11,
-              height: 1.0,
-              fontWeight: FontWeight.w700,
-              color: AppColors.techBlue,
-              decoration: TextDecoration.none,
+            child: const Text(
+              '查看插画',
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.0,
+                fontWeight: FontWeight.w700,
+                color: AppColors.techBlue,
+                decoration: TextDecoration.none,
+              ),
             ),
           ),
         ),
