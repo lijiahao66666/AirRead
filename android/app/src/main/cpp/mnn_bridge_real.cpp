@@ -156,6 +156,16 @@ Java_com_airread_airread_MainActivity_nativeInit(JNIEnv *env, jobject thiz, jstr
     env->ReleaseStringUTFChars(modelPath, path);
 }
 
+JNIEXPORT void JNICALL
+Java_com_airread_airread_MainActivity_nativeDispose(JNIEnv *env, jobject thiz) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_initialized = false;
+    g_model_config_path_for_log.clear();
+    if (g_llm != nullptr) {
+        g_llm.reset();
+    }
+}
+
 JNIEXPORT jbyteArray JNICALL
 Java_com_airread_airread_MainActivity_nativeChat(JNIEnv *env, jobject thiz,
                                                   jstring prompt) {

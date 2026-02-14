@@ -439,16 +439,33 @@ async function tryMarkImageChargedOnce({ bucket, region, deviceId, jobId, creden
   const id = String(jobId || '').trim();
   if (!id) return false;
   const key = `image_charged/${deviceId}/${id}.ok`;
-  const status = await cosPutObject({
-    bucket,
-    region,
-    key,
-    headers: { 'If-None-Match': '*' },
-    credentials,
-  });
-  if (status >= 200 && status < 300) return true;
-  if (status === 412 || status === 409) return false;
-  throw new Error(`COS Put ChargeMarker Error: ${status}`);
+  try {
+    const status = await cosPutObject({
+      bucket,
+      region,
+      key,
+      headers: { 'If-None-Match': '*' },
+      credentials,
+    });
+    if (status >= 200 && status < 300) return true;
+    if (status === 412 || status === 409) return false;
+    if (status === 400 || status === 403 || status === 501) {
+      // fallthrough to HEAD+PUT fallback
+    } else {
+      throw new Error(`COS Put ChargeMarker Error: ${status}`);
+    }
+  } catch (_) {
+  }
+
+  const head = await cosHeadObject({ bucket, region, key, credentials });
+  if (head >= 200 && head < 300) return false;
+  if (head !== 404 && head !== 403 && head !== 0) {
+    throw new Error(`COS Head ChargeMarker Error: ${head}`);
+  }
+  const put = await cosPutObject({ bucket, region, key, headers: {}, credentials });
+  if (put >= 200 && put < 300) return true;
+  if (put === 409 || put === 412) return false;
+  throw new Error(`COS Put ChargeMarker Error: ${put}`);
 }
 
 // --- Helper: HTTP Utils ---

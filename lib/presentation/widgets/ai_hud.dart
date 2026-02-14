@@ -3560,7 +3560,7 @@ class _QaPanelState extends State<_QaPanel> {
     setState(() {
       _qaToastText = t;
     });
-    _qaToastTimer = Timer(const Duration(milliseconds: 2400), () {
+    _qaToastTimer = Timer(const Duration(milliseconds: 2500), () {
       if (!mounted) return;
       setState(() {
         _qaToastText = '';
@@ -4276,27 +4276,34 @@ class _QaPanelState extends State<_QaPanel> {
               ],
             ),
             if (_qaToastText.trim().isNotEmpty)
-              Center(
+              Positioned.fill(
                 child: IgnorePointer(
-                  child: AnimatedOpacity(
-                    opacity: _qaToastText.trim().isNotEmpty ? 1 : 0,
-                    duration: const Duration(milliseconds: 160),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacityCompat(0.72),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        _qaToastText,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          height: 1.1,
-                          decoration: TextDecoration.none,
+                  child: Center(
+                    child: AnimatedOpacity(
+                      opacity: _qaToastText.trim().isNotEmpty ? 1 : 0,
+                      duration: const Duration(milliseconds: 160),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.sizeOf(context).width * 0.7,
                         ),
-                        textAlign: TextAlign.center,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacityCompat(0.72),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            _qaToastText,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              height: 1.1,
+                              decoration: TextDecoration.none,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
                       ),
                     ),
                   ),

@@ -357,6 +357,7 @@ class MainActivity: FlutterActivity() {
 
     external fun nativeIsAvailable(): Boolean
     external fun nativeInit(modelPath: String)
+    external fun nativeDispose()
     external fun nativeDumpConfig(): String
     external fun nativeChat(
         prompt: String
@@ -505,6 +506,7 @@ class MainActivity: FlutterActivity() {
                     val modelPath = call.argument<String>("modelPath")
                     if (modelPath != null) {
                         try {
+                            try { nativeDispose() } catch (_: UnsatisfiedLinkError) {}
                             nativeInit(modelPath)
                             result.success(true)
                         } catch (e: UnsatisfiedLinkError) {
@@ -512,6 +514,18 @@ class MainActivity: FlutterActivity() {
                         }
                     } else {
                         result.error("INVALID_ARG", "Model path is null", null)
+                    }
+                }
+                "dispose" -> {
+                    if (!nativeLibLoaded) {
+                        result.success(null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        try { nativeDispose() } catch (_: UnsatisfiedLinkError) {}
+                        result.success(null)
+                    } catch (e: Exception) {
+                        result.success(null)
                     }
                 }
                 "chatOnce" -> {

@@ -62,6 +62,9 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
   bool _toastIsError = true;
   Timer? _toastTimer;
 
+  String _panelPopupText = '';
+  Timer? _panelPopupTimer;
+
   static const Map<String, String> _stylePrompts = {
     '国风': '国风插画，细腻画风，电影感光影，无文字无水印',
     '水墨': '水墨国风插画，留白，柔和光影，无文字无水印',
@@ -154,6 +157,18 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     _toastTimer = Timer(const Duration(milliseconds: 2400), () {
       if (!mounted) return;
       setState(() => _toastText = '');
+    });
+  }
+
+  void _showPanelPopup(String msg) {
+    final t = msg.trim();
+    if (t.isEmpty) return;
+    if (!mounted) return;
+    _panelPopupTimer?.cancel();
+    setState(() => _panelPopupText = t);
+    _panelPopupTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (!mounted) return;
+      setState(() => _panelPopupText = '');
     });
   }
 
@@ -336,7 +351,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     if (item.status == ill.IllustrationStatus.generating) return;
     if (_pendingGenerateIds.contains(item.id)) return;
     if (provider.isAnyGenerating) {
-      _showToast('正在出图，请等待上一张完成');
+      _showPanelPopup('正在出图，请等待上一张完成');
       return;
     }
     _pendingGenerateIds.add(item.id);
@@ -365,6 +380,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
   @override
   void dispose() {
     _toastTimer?.cancel();
+    _panelPopupTimer?.cancel();
     super.dispose();
   }
 
@@ -407,209 +423,249 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
             ModelInstallStatus.installed);
     final aspect = _ratioKeyToAspect(_ratioKey);
 
-    return SingleChildScrollView(
-      key: const PageStorageKey('ai_hud_illustration_scroll'),
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: widget.textColor.withOpacityCompat(0.08),
-                width: AppTokens.stroke,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                AiInferenceTopRow(
-                  isDark: widget.isDark,
-                  textColor: widget.textColor,
-                  modelChoice: _modelChoice,
-                  local05Installed:
-                      aiModel.installStatusFor(ModelManager.hunyuan_0_5b) ==
-                          ModelInstallStatus.installed,
-                  local18Installed:
-                      aiModel.installStatusFor(ModelManager.hunyuan_1_8b) ==
-                          ModelInstallStatus.installed,
-                  onModelChoiceChanged: (choice) async {
-                    final prev = _modelChoice;
-                    if (prev == choice) return;
-                    if (choice.isLocal) {
-                      final localModelId =
-                          choice == AiChatModelChoice.localHunyuan05b
-                              ? ModelManager.hunyuan_0_5b
-                              : ModelManager.hunyuan_1_8b;
-                      final installed =
-                          aiModel.installStatusFor(localModelId) ==
-                              ModelInstallStatus.installed;
-                      if (!installed) {
-                        _showToast('本地模型未下载，请先在 AI 设置中下载');
-                        return;
-                      }
-                      await _setModelChoice(choice);
-                      try {
-                        await aiModel.ensureLocalModelReady(localModelId);
-                      } catch (e) {
-                        _showToast(e.toString());
-                      }
-                      return;
-                    }
-                    await _setModelChoice(choice);
-                  },
-                  thinkingEnabled: _thinkingEnabled,
-                  onThinkingChanged: _setThinkingEnabled,
-                ),
-                const SizedBox(height: 12),
-                PointsWallet(
-                  isDark: widget.isDark,
-                  textColor: widget.textColor,
-                  cardBg: widget.isDark
-                      ? Colors.white.withOpacityCompat(0.06)
-                      : Colors.white,
-                  hintText: '选择的模型用于生成插画提示词；生图固定使用在线生图（2万积分/张）',
-                ),
-                const SizedBox(height: 12),
-                _settingsArea(
-                  cardBg: widget.isDark
-                      ? Colors.white.withOpacityCompat(0.06)
-                      : Colors.white,
-                  aiModel: aiModel,
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: analyzing || !canGenerateScript
-                        ? null
-                        : () async {
-                            final hasItems = items.isNotEmpty;
-                            if (hasItems) {
-                              final ok = await _confirmRegenerate();
-                              if (!ok) return;
-                              provider.clearChapter(_chapterId());
-                              if (!mounted) return;
-                            }
-                            await _generateScript(
-                              provider: provider,
-                              aiModel: aiModel,
-                              tp: tp,
-                              force: hasItems,
-                            );
-                          },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.techBlue,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      disabledBackgroundColor:
-                          AppColors.techBlue.withOpacityCompat(0.45),
-                      disabledForegroundColor:
-                          Colors.white.withOpacityCompat(0.75),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (analyzing)
-                          SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white.withOpacityCompat(0.92),
-                            ),
-                          )
-                        else
-                          const Icon(Icons.auto_awesome_rounded, size: 18),
-                        const SizedBox(width: 8),
-                        Text(
-                          analyzing
-                              ? '提示词生成中...'
-                              : (isSelectionMode ? '生成选中文本插画提示词' : '生成章节插画提示词'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (items.isEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(2, 8, 2, 0),
-              child: Text(
-                isSelectionMode
-                    ? '点击“生成选中文本插画提示词”生成画面描述，然后点选卡片出图。'
-                    : '点击“生成插画提示词”提取画面场景，然后点选卡片出图。',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: widget.textColor.withOpacityCompat(0.7),
-                ),
-              ),
-            )
-          else
-            _IllustrationList(
-              items: items,
-              cardBg: cardBg,
-              canGenerate: canGenerate,
-              aspect: aspect,
-              onGenerate: (item) => _generateImageWithPoints(
-                provider: provider,
-                aiModel: aiModel,
-                tp: tp,
-                cacheKey: cacheKey,
-                item: item,
-              ),
-              onUpdatePrompt: (item, prompt) async {
-                provider.updatePrompt(
-                  cacheKey: cacheKey,
-                  itemId: item.id,
-                  prompt: prompt,
-                );
-              },
-            ),
-          if (_toastText.trim().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(2, 10, 2, 0),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    return Stack(
+      children: [
+        SingleChildScrollView(
+          key: const PageStorageKey('ai_hud_illustration_scroll'),
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                 decoration: BoxDecoration(
-                  color: widget.isDark
-                      ? Colors.white.withOpacityCompat(0.06)
-                      : Colors.black.withOpacityCompat(0.04),
-                  borderRadius: BorderRadius.circular(12),
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(
                     color: widget.textColor.withOpacityCompat(0.08),
                     width: AppTokens.stroke,
                   ),
                 ),
-                child: Text(
-                  _toastText,
-                  style: TextStyle(
-                    fontSize: 12,
-                    height: 1.25,
-                    color: _toastIsError
-                        ? Colors.red
-                            .withOpacityCompat(widget.isDark ? 0.9 : 0.8)
-                        : widget.textColor.withOpacityCompat(0.78),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AiInferenceTopRow(
+                      isDark: widget.isDark,
+                      textColor: widget.textColor,
+                      modelChoice: _modelChoice,
+                      local05Installed:
+                          aiModel.installStatusFor(ModelManager.hunyuan_0_5b) ==
+                              ModelInstallStatus.installed,
+                      local18Installed:
+                          aiModel.installStatusFor(ModelManager.hunyuan_1_8b) ==
+                              ModelInstallStatus.installed,
+                      onModelChoiceChanged: (choice) async {
+                        final prev = _modelChoice;
+                        if (prev == choice) return;
+                        if (choice.isLocal) {
+                          final localModelId =
+                              choice == AiChatModelChoice.localHunyuan05b
+                                  ? ModelManager.hunyuan_0_5b
+                                  : ModelManager.hunyuan_1_8b;
+                          final installed =
+                              aiModel.installStatusFor(localModelId) ==
+                                  ModelInstallStatus.installed;
+                          if (!installed) {
+                            _showToast('本地模型未下载，请先在 AI 设置中下载');
+                            return;
+                          }
+                          await _setModelChoice(choice);
+                          try {
+                            await aiModel.ensureLocalModelReady(localModelId);
+                          } catch (e) {
+                            _showToast(e.toString());
+                          }
+                          return;
+                        }
+                        await _setModelChoice(choice);
+                      },
+                      thinkingEnabled: _thinkingEnabled,
+                      onThinkingChanged: _setThinkingEnabled,
+                    ),
+                    const SizedBox(height: 12),
+                    PointsWallet(
+                      isDark: widget.isDark,
+                      textColor: widget.textColor,
+                      cardBg: widget.isDark
+                          ? Colors.white.withOpacityCompat(0.06)
+                          : Colors.white,
+                      hintText: '选择的模型用于生成插画提示词；生图固定使用在线生图（2万积分/张）',
+                    ),
+                    const SizedBox(height: 12),
+                    _settingsArea(
+                      cardBg: widget.isDark
+                          ? Colors.white.withOpacityCompat(0.06)
+                          : Colors.white,
+                      aiModel: aiModel,
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: analyzing || !canGenerateScript
+                            ? null
+                            : () async {
+                                final hasItems = items.isNotEmpty;
+                                if (hasItems) {
+                                  final ok = await _confirmRegenerate();
+                                  if (!ok) return;
+                                  provider.clearChapter(_chapterId());
+                                  if (!mounted) return;
+                                }
+                                await _generateScript(
+                                  provider: provider,
+                                  aiModel: aiModel,
+                                  tp: tp,
+                                  force: hasItems,
+                                );
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.techBlue,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          disabledBackgroundColor:
+                              AppColors.techBlue.withOpacityCompat(0.45),
+                          disabledForegroundColor:
+                              Colors.white.withOpacityCompat(0.75),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (analyzing)
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white.withOpacityCompat(0.92),
+                                ),
+                              )
+                            else
+                              const Icon(Icons.auto_awesome_rounded, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              analyzing
+                                  ? '提示词生成中...'
+                                  : (isSelectionMode
+                                      ? '生成选中文本插画提示词'
+                                      : '生成章节插画提示词'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (items.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(2, 8, 2, 0),
+                  child: Text(
+                    isSelectionMode
+                        ? '点击“生成选中文本插画提示词”生成画面描述，然后点选卡片出图。'
+                        : '点击“生成插画提示词”提取画面场景，然后点选卡片出图。',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: widget.textColor.withOpacityCompat(0.7),
+                    ),
+                  ),
+                )
+              else
+                _IllustrationList(
+                  items: items,
+                  cardBg: cardBg,
+                  canGenerate: canGenerate,
+                  aspect: aspect,
+                  onGenerate: (item) => _generateImageWithPoints(
+                    provider: provider,
+                    aiModel: aiModel,
+                    tp: tp,
+                    cacheKey: cacheKey,
+                    item: item,
+                  ),
+                  onUpdatePrompt: (item, prompt) async {
+                    provider.updatePrompt(
+                      cacheKey: cacheKey,
+                      itemId: item.id,
+                      prompt: prompt,
+                    );
+                  },
+                ),
+              if (_toastText.trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(2, 10, 2, 0),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: widget.isDark
+                          ? Colors.white.withOpacityCompat(0.06)
+                          : Colors.black.withOpacityCompat(0.04),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: widget.textColor.withOpacityCompat(0.08),
+                        width: AppTokens.stroke,
+                      ),
+                    ),
+                    child: Text(
+                      _toastText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.25,
+                        color: _toastIsError
+                            ? Colors.red
+                                .withOpacityCompat(widget.isDark ? 0.9 : 0.8)
+                            : widget.textColor.withOpacityCompat(0.78),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (_panelPopupText.trim().isNotEmpty)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Center(
+                child: AnimatedOpacity(
+                  opacity: _panelPopupText.trim().isNotEmpty ? 1 : 0,
+                  duration: const Duration(milliseconds: 160),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.sizeOf(context).width * 0.7,
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacityCompat(0.72),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _panelPopupText,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          height: 1.1,
+                          decoration: TextDecoration.none,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 

@@ -216,6 +216,12 @@ class MnnClient {
   }
 
   Future<void> dispose() async {
+    try {
+      await cancel();
+    } catch (_) {}
+    try {
+      await _channel.invokeMethod('dispose');
+    } catch (_) {}
     _isInitialized = false;
     _modelPath = null;
   }

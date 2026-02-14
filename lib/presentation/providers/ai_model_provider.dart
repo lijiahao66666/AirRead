@@ -158,8 +158,7 @@ class AiModelProvider extends ChangeNotifier {
     final localModelRaw = (prefs.getString(_kLastLocalModelId) ?? '').trim();
     final supported =
         ModelManager.localModels.any((spec) => spec.id == localModelRaw);
-    _activeLocalModelId =
-        supported ? localModelRaw : ModelManager.hunyuan_1_8b;
+    _activeLocalModelId = supported ? localModelRaw : ModelManager.hunyuan_1_8b;
     if (!supported && localModelRaw.isNotEmpty) {
       await prefs.setString(_kLastLocalModelId, _activeLocalModelId);
     }
@@ -267,7 +266,10 @@ class AiModelProvider extends ChangeNotifier {
       if (last == null) return;
       final idleFor = DateTime.now().difference(last);
       if (idleFor < const Duration(minutes: 10)) return;
-      _llmClient?.dispose();
+      final c = _llmClient;
+      if (c != null) {
+        unawaited(c.dispose());
+      }
       _llmClient = null;
       notifyListeners();
     });
@@ -275,7 +277,7 @@ class AiModelProvider extends ChangeNotifier {
 
   Future<void> _initializeLlmClientFor(String modelId) async {
     if (_llmClient != null && _activeLocalModelId != modelId) {
-      _llmClient!.dispose();
+      await _llmClient!.dispose();
       _llmClient = null;
     }
     _llmClient ??= createLocalLlmClient();
@@ -432,7 +434,8 @@ class AiModelProvider extends ChangeNotifier {
         .generateStream(
       prompt: prompt,
       maxTokens: maxTokens,
-    ).map((chunk) {
+    )
+        .map((chunk) {
       _markLocalInferenceUsed();
       return chunk;
     });
