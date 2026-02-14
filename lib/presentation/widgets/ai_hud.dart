@@ -160,7 +160,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           final bool isFullHeight =
               _route == AiHudRoute.qa || _route == AiHudRoute.comic;
 
-          // QA/漫画 use a fixed tier: ~90% of available height.
+          // QA/绘本 use a fixed tier: ~90% of available height.
           final qaMinHeight = availableH * 0.9;
           final qaHeight = qaMinHeight;
 
@@ -272,7 +272,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
     final title = switch (_route) {
       AiHudRoute.main => 'AI伴读',
       AiHudRoute.qa => '问答',
-      AiHudRoute.comic => '漫画',
+      AiHudRoute.comic => '绘本',
       AiHudRoute.tencentSettings => 'AI设置',
     };
 
@@ -2329,7 +2329,7 @@ class _TencentHunyuanSettingsPanelState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '本地模型（问答/漫画推理）',
+                '本地模型（问答/绘本推理）',
                 style: TextStyle(
                   color: widget.textColor,
                   fontWeight: FontWeight.w900,
@@ -2342,7 +2342,7 @@ class _TencentHunyuanSettingsPanelState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '本地模型可离线免费使用，但效果不如在线大模型。问答/漫画面板内可单独选择在线或本地模型。',
+                      '本地模型可离线免费使用，但效果不如在线大模型。问答/绘本面板内可单独选择在线或本地模型。',
                       style: TextStyle(
                         color: widget.textColor.withOpacityCompat(0.65),
                         fontSize: 12,
@@ -2852,7 +2852,7 @@ class _MainPanel extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '漫画',
+                    '绘本',
                     style: TextStyle(
                       color: textColor,
                       fontWeight: FontWeight.w700,

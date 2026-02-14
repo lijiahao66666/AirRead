@@ -17,16 +17,14 @@ enum ModelInstallStatus {
 class AiModelProvider extends ChangeNotifier {
   static const String _kPointsBalance = 'points_balance';
   static const String _kDebugPointsOverride = 'debug_points_override';
-  static const String _kMangaPanelCount = 'ai_manga_panel_count';
-  static const String _kMangaAutoRenderCount = 'ai_manga_auto_render_count';
+  static const String _kStorybookPageCount = 'ai_storybook_page_count';
   static const String _kLastLocalModelId = 'ai_last_local_model_id';
 
   LlmClient? _llmClient;
   String _activeLocalModelId = ModelManager.hunyuan_1_8b;
   int _pointsBalance = 0;
   int? _debugPointsOverride;
-  int _mangaPanelCount = 8;
-  int _mangaAutoRenderCount = 2;
+  int _storybookPageCount = 0; // 0 = Auto
   bool _anyLocalModelInstalled = false;
   Timer? _localIdleUnloadTimer;
   DateTime? _lastLocalInferenceAt;
@@ -55,26 +53,16 @@ class AiModelProvider extends ChangeNotifier {
   bool get anyLocalTextInstalled => _anyLocalModelInstalled;
   bool get localTextReady => loaded;
 
-  int get mangaPanelCount => _mangaPanelCount;
-  int get mangaAutoRenderCount => _mangaAutoRenderCount;
+  int get storybookPageCount => _storybookPageCount;
 
-  Future<void> setMangaPanelCount(int value) async {
-    final allowed = <int>{6, 8, 9};
-    final next = allowed.contains(value) ? value : 8;
-    if (_mangaPanelCount == next) return;
-    _mangaPanelCount = next;
+  Future<void> setStorybookPageCount(int value) async {
+    final allowed = <int>{0, 4, 8, 12};
+    final next = allowed.contains(value) ? value : 0;
+    if (_storybookPageCount == next) return;
+    _storybookPageCount = next;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_kMangaPanelCount, next);
-  }
-
-  Future<void> setMangaAutoRenderCount(int value) async {
-    final next = value.clamp(0, 2);
-    if (_mangaAutoRenderCount == next) return;
-    _mangaAutoRenderCount = next;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_kMangaAutoRenderCount, next);
+    await prefs.setInt(_kStorybookPageCount, next);
   }
 
   Future<void> _checkAnyLocalModelInstallation() async {
@@ -181,14 +169,12 @@ class AiModelProvider extends ChangeNotifier {
         await prefs.setInt(_kDebugPointsOverride, 1000);
       }
     }
-    final allowedPanels = <int>{6, 8, 9};
-    final rawPanels = prefs.getInt(_kMangaPanelCount) ?? 8;
-    _mangaPanelCount = allowedPanels.contains(rawPanels) ? rawPanels : 8;
-    if (_mangaPanelCount != rawPanels) {
-      await prefs.setInt(_kMangaPanelCount, _mangaPanelCount);
+    final allowedPages = <int>{0, 4, 8, 12};
+    final rawPages = prefs.getInt(_kStorybookPageCount) ?? 0;
+    _storybookPageCount = allowedPages.contains(rawPages) ? rawPages : 0;
+    if (_storybookPageCount != rawPages) {
+      await prefs.setInt(_kStorybookPageCount, _storybookPageCount);
     }
-    _mangaAutoRenderCount =
-        (prefs.getInt(_kMangaAutoRenderCount) ?? 2).clamp(0, 2);
 
     await _refreshAllInstallStates();
     await _checkAnyLocalModelInstallation();

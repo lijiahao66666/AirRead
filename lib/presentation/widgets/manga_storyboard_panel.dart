@@ -45,11 +45,11 @@ class _MangaStoryboardPanelState extends State<MangaStoryboardPanel> {
   static const String _kMangaThinkingEnabled = 'manga_thinking_enabled_v1';
 
   static const Map<String, String> _stylePrompts = {
-    '国风': '国风漫画分镜，细腻画风，电影感光影，无文字无水印',
-    '水墨': '水墨国风漫画分镜，留白，柔和光影，无文字无水印',
-    '厚涂': '厚涂漫画分镜，电影感光影，高细节，无文字无水印',
-    '日漫': '日系漫画分镜，线条清晰，柔和光影，无文字无水印',
-    '写实': '写实风格漫画分镜，电影级光影，高细节，无文字无水印',
+    '国风': '国风绘本插画，细腻画风，电影感光影，无文字无水印',
+    '水墨': '水墨国风插画，留白，柔和光影，无文字无水印',
+    '厚涂': '厚涂插画，电影感光影，高细节，无文字无水印',
+    '日漫': '日系插画，线条清晰，柔和光影，无文字无水印',
+    '写实': '写实风格插画，电影级光影，高细节，无文字无水印',
   };
 
   static const Map<String, String> _ratioToResolution = {
@@ -141,8 +141,8 @@ class _MangaStoryboardPanelState extends State<MangaStoryboardPanel> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('重新分析当前章节？'),
-          content: const Text('将覆盖当前分镜与已生成图片。'),
+          title: const Text('重新生成绘本脚本？'),
+          content: const Text('将覆盖当前脚本与已生成图片。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -150,7 +150,7 @@ class _MangaStoryboardPanelState extends State<MangaStoryboardPanel> {
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('重新分析'),
+              child: const Text('重新生成'),
             ),
           ],
         );
@@ -214,12 +214,12 @@ class _MangaStoryboardPanelState extends State<MangaStoryboardPanel> {
         content: content,
         modelKey: modelKey,
         thinkingEnabled: _thinkingEnabled,
-        panelCount: aiModel.mangaPanelCount,
-        autoRenderCount: aiModel.mangaAutoRenderCount,
+        panelCount: aiModel.storybookPageCount, // Updated
         styleKey: _styleKey,
         ratioKey: _ratioKey,
         stylePrefix: stylePrefix,
         resolution: resolution,
+        useLocalModel: _modelChoice.isLocal, // Added
         generateText: generateText,
         enableThinkingForOnline: enableThinkingForOnline,
         force: force,
@@ -255,26 +255,10 @@ class _MangaStoryboardPanelState extends State<MangaStoryboardPanel> {
 
     Future<String> Function(String prompt)? generateText;
     bool? enableThinkingForOnline;
-    final localModelId = switch (_modelChoice) {
-      AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
-      AiChatModelChoice.localHunyuan18b => ModelManager.hunyuan_1_8b,
-      _ => ModelManager.hunyuan_1_8b,
-    };
-    if (_modelChoice.isLocal) {
-      final installed =
-          aiModel.installStatusFor(localModelId) == ModelInstallStatus.installed;
-      if (!installed) {
-        if (deducted) await aiModel.addPoints(_imageCostPoints);
-        _pendingGeneratePanelIds.remove(panel.id);
-        _showToast('本地模型未下载，无法扩写提示词');
-        return;
-      }
-      generateText = (prompt) => aiModel.generate(
-            prompt: _thinkingEnabled ? prompt : '/no_think\n$prompt',
-            maxTokens: 1536,
-            modelId: localModelId,
-          );
-    } else {
+    // Note: Storybook mode doesn't need text generation during image gen phase,
+    // but we pass params just in case provider needs context.
+    
+    if (!_modelChoice.isLocal) {
       enableThinkingForOnline = _thinkingEnabled ? null : false;
     }
 
@@ -312,8 +296,7 @@ class _MangaStoryboardPanelState extends State<MangaStoryboardPanel> {
       chapterId: _chapterId(),
       modelKey: cacheModelKey,
       thinkingEnabled: _thinkingEnabled,
-      panelCount: aiModel.mangaPanelCount,
-      autoRenderCount: aiModel.mangaAutoRenderCount,
+      panelCount: aiModel.storybookPageCount,
       styleKey: _styleKey,
       ratioKey: _ratioKey,
     );
@@ -396,7 +379,7 @@ class _MangaStoryboardPanelState extends State<MangaStoryboardPanel> {
                   cardBg: widget.isDark
                       ? Colors.white.withOpacityCompat(0.06)
                       : Colors.white,
-                  hintText: '选择的模型仅影响分析；生图固定使用在线生图（2万积分/张）',
+                  hintText: '选择的模型用于生成绘本脚本；生图固定使用在线生图（2万积分/张）',
                 ),
                 const SizedBox(height: 12),
                 _settingsArea(
@@ -457,7 +440,7 @@ class _MangaStoryboardPanelState extends State<MangaStoryboardPanel> {
                         else
                           const Icon(Icons.auto_awesome_rounded, size: 18),
                         const SizedBox(width: 8),
-                        Text(analyzing ? '分析中...' : '分析当前章节'),
+                        Text(analyzing ? '脚本生成中...' : '生成绘本脚本'),
                       ],
                     ),
                   ),
@@ -470,7 +453,7 @@ class _MangaStoryboardPanelState extends State<MangaStoryboardPanel> {
             Padding(
               padding: const EdgeInsets.fromLTRB(2, 8, 2, 0),
               child: Text(
-                '点击“分析当前章节”生成分镜网格，点选任意格可继续出图。',
+                '点击“生成绘本脚本”提取画面场景，然后点选卡片出图。',
                 style: TextStyle(
                   fontSize: 13,
                   color: widget.textColor.withOpacityCompat(0.7),
@@ -518,40 +501,22 @@ class _MangaStoryboardPanelState extends State<MangaStoryboardPanel> {
         children: [
           Builder(
             builder: (context) {
-              const allowed = [6, 8, 9];
-              final idx = allowed.indexOf(aiModel.mangaPanelCount);
-              final safeIdx = idx < 0 ? 1 : idx;
-              final value = allowed[safeIdx];
-              return _stepperRow(
-                title: '分镜格数',
-                subtitle: '格数越多更连贯，但更慢。',
-                valueText: '$value',
-                canDecrement: safeIdx > 0,
-                canIncrement: safeIdx < allowed.length - 1,
-                onDecrement: () =>
-                    aiModel.setMangaPanelCount(allowed[safeIdx - 1]),
-                onIncrement: () =>
-                    aiModel.setMangaPanelCount(allowed[safeIdx + 1]),
-              );
-            },
-          ),
-          const SizedBox(height: 10),
-          Builder(
-            builder: (context) {
-              const allowed = [0, 1, 2];
-              final idx = allowed.indexOf(aiModel.mangaAutoRenderCount);
+              const allowed = [0, 4, 8, 12];
+              final idx = allowed.indexOf(aiModel.storybookPageCount);
               final safeIdx = idx < 0 ? 0 : idx;
               final value = allowed[safeIdx];
+              final valueStr = value == 0 ? '自动' : '$value页';
+              
               return _stepperRow(
-                title: '自动出图数',
-                subtitle: '0 仅脚本；>0 自动出图扣积分。',
-                valueText: '$value',
+                title: '绘本页数',
+                subtitle: '自动推荐或固定页数',
+                valueText: valueStr,
                 canDecrement: safeIdx > 0,
                 canIncrement: safeIdx < allowed.length - 1,
                 onDecrement: () =>
-                    aiModel.setMangaAutoRenderCount(allowed[safeIdx - 1]),
+                    aiModel.setStorybookPageCount(allowed[safeIdx - 1]),
                 onIncrement: () =>
-                    aiModel.setMangaAutoRenderCount(allowed[safeIdx + 1]),
+                    aiModel.setStorybookPageCount(allowed[safeIdx + 1]),
               );
             },
           ),
@@ -640,7 +605,7 @@ class _MangaStoryboardPanelState extends State<MangaStoryboardPanel> {
                     constraints: const BoxConstraints(minWidth: 34),
                   ),
                   SizedBox(
-                    width: 34,
+                    width: 50,
                     child: Text(
                       valueText,
                       textAlign: TextAlign.center,
@@ -806,6 +771,8 @@ class _PanelCard extends StatelessWidget {
       width: AppTokens.stroke,
     );
 
+    final bool isCompleted = panel.status == manga.MangaPanelStatus.completed;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
@@ -822,7 +789,7 @@ class _PanelCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    panel.title.trim().isEmpty ? '分镜' : panel.title,
+                    panel.title,
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
@@ -856,59 +823,58 @@ class _PanelCard extends StatelessWidget {
                   ),
                   child: Text(
                     switch (panel.status) {
-                      manga.MangaPanelStatus.completed => '再出一张',
+                      manga.MangaPanelStatus.completed => '重新生成',
                       manga.MangaPanelStatus.generating => '生成中',
-                      _ => '出图',
+                      _ => '生成图片',
                     },
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 10),
+            
+            // Content Area: Image or Text
             ClipRRect(
               borderRadius: BorderRadius.circular(14),
-              child: AspectRatio(
-                aspectRatio: aspect,
-                child: _media(panel: panel, textColor: textColor),
-              ),
+              child: isCompleted
+                ? AspectRatio(
+                    aspectRatio: aspect,
+                    child: _media(panel: panel, textColor: textColor),
+                  )
+                : Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: textColor.withOpacityCompat(0.03),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                         if (panel.status == manga.MangaPanelStatus.generating)
+                           Center(
+                             child: Padding(
+                               padding: const EdgeInsets.only(bottom: 12),
+                               child: CircularProgressIndicator(
+                                  strokeWidth: 2, 
+                                  color: AppColors.techBlue
+                               ),
+                             )
+                           ),
+                         Text(
+                           panel.expandedPrompt ?? '...',
+                           style: TextStyle(
+                             fontSize: 15,
+                             height: 1.6,
+                             color: textColor.withOpacityCompat(0.85),
+                           ),
+                         ),
+                      ],
+                    ),
+                  ),
             ),
-            const SizedBox(height: 10),
-            Text(
-              '镜头：${panel.shot}；${panel.camera}',
-              style: TextStyle(
-                fontSize: 12,
-                color: textColor.withOpacityCompat(0.72),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '光影：${panel.lighting}；氛围：${panel.mood}',
-              style: TextStyle(
-                fontSize: 12,
-                color: textColor.withOpacityCompat(0.72),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '构图：${panel.composition}',
-              style: TextStyle(
-                fontSize: 12,
-                color: textColor.withOpacityCompat(0.72),
-              ),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-            if ((panel.caption ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                panel.caption!,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: textColor.withOpacityCompat(0.62),
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ],
+
             if (panel.status == manga.MangaPanelStatus.failed &&
                 (panel.errorMsg ?? '').trim().isNotEmpty) ...[
               const SizedBox(height: 8),
@@ -930,57 +896,14 @@ class _PanelCard extends StatelessWidget {
 
   Widget _media({required manga.MangaPanel panel, required Color textColor}) {
     switch (panel.status) {
-      case manga.MangaPanelStatus.generating:
-        return Container(
-          color: textColor.withOpacityCompat(0.03),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: AppColors.techBlue,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'AI 正在绘图...',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: textColor.withOpacityCompat(0.6),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
       case manga.MangaPanelStatus.completed:
         final path = panel.localImagePath;
         if (path != null && path.trim().isNotEmpty) {
           return buildSceneImage(path, fit: BoxFit.cover);
         }
         return const Center(child: Icon(Icons.broken_image));
-      case manga.MangaPanelStatus.failed:
-        return Container(
-          color: Colors.red.withOpacityCompat(0.05),
-          child: const Center(
-            child: Icon(Icons.error_outline, color: Colors.red),
-          ),
-        );
       default:
-        return Container(
-          color: textColor.withOpacityCompat(0.03),
-          child: Center(
-            child: Icon(
-              Icons.image_outlined,
-              size: 44,
-              color: textColor.withOpacityCompat(0.12),
-            ),
-          ),
-        );
+        return const SizedBox.shrink();
     }
   }
 

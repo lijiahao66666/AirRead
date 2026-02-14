@@ -58,11 +58,10 @@ class MangaProvider extends ChangeNotifier {
     required String modelKey,
     required bool thinkingEnabled,
     required int panelCount,
-    required int autoRenderCount,
     required String styleKey,
     required String ratioKey,
   }) {
-    return '$chapterId::m$modelKey::t${thinkingEnabled ? 1 : 0}::p$panelCount::a$autoRenderCount::s$styleKey::r$ratioKey';
+    return '$chapterId::m$modelKey::t${thinkingEnabled ? 1 : 0}::p$panelCount::s$styleKey::r$ratioKey';
   }
 
   bool isAnalyzing(String cacheKey) => _analyzingKeys.contains(cacheKey);
@@ -105,11 +104,11 @@ class MangaProvider extends ChangeNotifier {
     required String modelKey,
     required bool thinkingEnabled,
     required int panelCount,
-    required int autoRenderCount,
     required String styleKey,
     required String ratioKey,
     required String stylePrefix,
     required String resolution,
+    required bool useLocalModel,
     Future<String> Function(String prompt)? generateText,
     bool? enableThinkingForOnline,
     bool force = false,
@@ -120,7 +119,6 @@ class MangaProvider extends ChangeNotifier {
       modelKey: modelKey,
       thinkingEnabled: thinkingEnabled,
       panelCount: panelCount,
-      autoRenderCount: autoRenderCount,
       styleKey: styleKey,
       ratioKey: ratioKey,
     );
@@ -138,10 +136,11 @@ class MangaProvider extends ChangeNotifier {
 
     try {
       final paragraphs = _splitParagraphsForAnalysis(content);
-      final panels = await _buildService().generateStoryboard(
+      final panels = await _buildService().generateStorybook(
         paragraphs: paragraphs,
         chapterTitle: chapterTitle,
-        panelCount: panelCount,
+        pageCount: panelCount,
+        useLocalModel: useLocalModel,
         run: generateText,
         enableThinking: enableThinkingForOnline,
         debugName: cacheKey,
@@ -155,7 +154,6 @@ class MangaProvider extends ChangeNotifier {
         modelKey: modelKey,
         thinkingEnabled: thinkingEnabled,
         panelCount: panelCount,
-        autoRenderCount: autoRenderCount,
         stylePrefix: stylePrefix,
         resolution: resolution,
       );
@@ -165,14 +163,6 @@ class MangaProvider extends ChangeNotifier {
       _analyzingKeys.remove(cacheKey);
       notifyListeners();
 
-      final autoN = autoRenderCount.clamp(0, panels.length);
-      if (autoN > 0) {
-        unawaited(_autoRender(
-          cacheKey: cacheKey,
-          count: autoN,
-          generateText: generateText,
-        ));
-      }
       return panels;
     } catch (e) {
       _analysisInFlight.remove(cacheKey);
@@ -182,25 +172,6 @@ class MangaProvider extends ChangeNotifier {
       }
       notifyListeners();
       rethrow;
-    }
-  }
-
-  Future<void> _autoRender({
-    required String cacheKey,
-    required int count,
-    Future<String> Function(String prompt)? generateText,
-  }) async {
-    final entry = _cache[cacheKey];
-    if (entry == null) return;
-    final panels = entry.panels;
-    for (int i = 0; i < count && i < panels.length; i++) {
-      final p = panels[i];
-      if (p.status == MangaPanelStatus.completed) continue;
-      await generateImage(
-        cacheKey: cacheKey,
-        panelId: p.id,
-        generateText: generateText,
-      );
     }
   }
 
@@ -221,25 +192,19 @@ class MangaProvider extends ChangeNotifier {
 
     try {
       panel.errorMsg = null;
+      // For Storybook, expandedPrompt is ready after analysis.
       if ((panel.expandedPrompt ?? '').trim().isEmpty) {
-        final prompt = await _buildService().expandPanelPrompt(
-          panel: panel,
-          paragraphs: entry.paragraphs,
-          chapterTitle: entry.chapterTitle,
-          stylePrefix: entry.stylePrefix,
-          run: generateText,
-          enableThinking: enableThinkingForOnline,
-        );
-        panel.expandedPrompt = prompt;
-        panel.status = MangaPanelStatus.promptReady;
-        notifyListeners();
+        throw StateError('画面描述为空，无法生成图片');
       }
 
       panel.status = MangaPanelStatus.generating;
       notifyListeners();
 
+      // Combine style prefix with prompt
+      final fullPrompt = '${entry.stylePrefix}, ${panel.expandedPrompt}';
+
       final jobId = await _buildService().submitGeneration(
-        prompt: panel.expandedPrompt ?? '',
+        prompt: fullPrompt,
         resolution: entry.resolution,
       );
       panel.jobId = jobId;
@@ -267,7 +232,6 @@ class _MangaCacheEntry {
   final String modelKey;
   final bool thinkingEnabled;
   final int panelCount;
-  final int autoRenderCount;
   final String stylePrefix;
   final String resolution;
 
@@ -279,7 +243,6 @@ class _MangaCacheEntry {
     required this.modelKey,
     required this.thinkingEnabled,
     required this.panelCount,
-    required this.autoRenderCount,
     required this.stylePrefix,
     required this.resolution,
   });

@@ -11,6 +11,11 @@ import '../hunyuan/hunyuan_text_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
 import 'manga_panel.dart';
 
+typedef _AnchorRange = ({
+  int anchorStart,
+  int anchorEnd,
+});
+
 class MangaService {
   final HunyuanImageClient _imageClient;
   final HunyuanTextClient _textClient;
@@ -26,98 +31,228 @@ class MangaService {
         _textClient = HunyuanTextClient(credentials: credentials),
         _baseStoragePath = baseStoragePath;
 
-  Future<List<MangaPanel>> generateStoryboard({
+  String _snippet(String text, {int max = 900}) {
+    final t = text.trim();
+    if (t.isEmpty) return '';
+    if (t.length <= max) return t;
+    return '${t.substring(0, max)}…';
+  }
+
+  /// Generate Storybook (AI 绘本)
+  /// 
+  /// [pageCount] 0 means Auto.
+  Future<List<MangaPanel>> generateStorybook({
     required List<String> paragraphs,
     required String chapterTitle,
-    required int panelCount,
+    required int pageCount,
+    required bool useLocalModel,
     Future<String> Function(String prompt)? run,
     bool? enableThinking,
     String? debugName,
   }) async {
-    final cap = panelCount.clamp(1, 12);
     if (paragraphs.isEmpty) return const <MangaPanel>[];
+
+    // 1. Determine effective page count
+    int effectivePageCount = pageCount;
+    if (effectivePageCount <= 0) {
+      // Auto: ~500-800 chars per image? Or just 4-8 images.
+      // Let's default to 4 for short, 8 for long.
+      effectivePageCount = paragraphs.length > 50 ? 8 : 4;
+    }
+    effectivePageCount = effectivePageCount.clamp(1, 12);
+
     final runFn = run ?? ((p) => _runOnlineTextModel(p, enableThinking: enableThinking));
 
-    final prompt = _buildStoryboardPrompt(
-      chapterTitle: chapterTitle,
-      paragraphs: paragraphs,
-      panelCount: cap,
-    );
-    final response = await runFn(prompt);
-    var parsed = _parseAndValidateStoryboard(
-      response,
-      paragraphs: paragraphs,
-      expectedCount: cap,
-    );
-    if (!parsed.ok) {
-      final repairPrompt = _buildStoryboardRepairPrompt(
-        chapterTitle: chapterTitle,
+    if (useLocalModel) {
+      return _generateStorybookLocal(
         paragraphs: paragraphs,
-        panelCount: cap,
-        rawOutput: response,
-        errorHint: parsed.errorHint,
+        pageCount: effectivePageCount,
+        runFn: runFn,
+        debugName: debugName,
       );
-      final repaired = await runFn(repairPrompt);
-      parsed = _parseAndValidateStoryboard(
-        repaired,
+    } else {
+      return _generateStorybookOnline(
         paragraphs: paragraphs,
-        expectedCount: cap,
+        pageCount: effectivePageCount,
+        runFn: runFn,
+        debugName: debugName,
       );
     }
-
-    if (kDebugMode) {
-      debugPrint(
-        '[MANGA] storyboard debugName=$debugName ok=${parsed.ok} panels=${parsed.panels.length} hint=${parsed.errorHint}',
-      );
-    }
-
-    return parsed.panels;
   }
 
-  Future<String> expandPanelPrompt({
-    required MangaPanel panel,
+  Future<List<MangaPanel>> _generateStorybookLocal({
     required List<String> paragraphs,
-    required String chapterTitle,
-    required String stylePrefix,
-    Future<String> Function(String prompt)? run,
-    bool? enableThinking,
+    required int pageCount,
+    required Future<String> Function(String prompt) runFn,
+    String? debugName,
   }) async {
-    final runFn = run ?? ((p) => _runOnlineTextModel(p, enableThinking: enableThinking));
-    final start = panel.anchorStart.clamp(0, paragraphs.length - 1);
-    final end = panel.anchorEnd.clamp(start, paragraphs.length - 1);
-    final anchorText = paragraphs.sublist(start, end + 1).join('\n\n');
+    // Strategy: Rule-based slicing + Translation Prompt
+    // Use weighted length to slice paragraphs evenly by content volume
+    final anchors = _buildAnchorsByWeightedLength(
+      paragraphs: paragraphs,
+      count: pageCount,
+    );
 
-    final prompt = _buildExpandPrompt(
-      chapterTitle: chapterTitle,
-      panel: panel,
-      anchorText: anchorText,
-      stylePrefix: stylePrefix,
-    );
-    final response = await runFn(prompt);
-    final parsed = _parseExpandedPrompt(
-      response,
-      anchorParagraphs: paragraphs.sublist(start, end + 1),
-    );
-    if (!parsed.ok) {
-      final repair = _buildExpandRepairPrompt(
-        chapterTitle: chapterTitle,
-        panel: panel,
-        anchorText: anchorText,
-        stylePrefix: stylePrefix,
-        rawOutput: response,
-        errorHint: parsed.errorHint,
-      );
-      final repaired = await runFn(repair);
-      final parsed2 = _parseExpandedPrompt(
-        repaired,
-        anchorParagraphs: paragraphs.sublist(start, end + 1),
-      );
-      if (!parsed2.ok) {
-        throw StateError(parsed2.errorHint.isEmpty ? '提示词扩写失败' : parsed2.errorHint);
+    final panels = <MangaPanel>[];
+
+    for (int i = 0; i < anchors.length; i++) {
+      final anchor = anchors[i];
+      final text = paragraphs
+          .sublist(anchor.anchorStart, anchor.anchorEnd + 1)
+          .map((p) => p.trim())
+          .join('\n');
+      // Truncate if too long for local model
+      final truncatedText = _normalizeForPrompt(text, maxLen: 600);
+
+      final prompt = '请阅读这段文字，用一句话描述一个画面。要求：\n1. 描述主体、动作和环境。\n2. 不要出现人名，用男孩/女孩/男人/女人代替。\n3. 30字以内。\n4. 直接输出内容，不要罗嗦，不要解释。\n\n文字：\n$truncatedText';
+
+      if (kDebugMode) {
+        debugPrint('[MANGA] Local Prompt [$i]: $prompt');
       }
-      return parsed2.prompt;
+
+      String desc = await runFn(prompt);
+      desc = _stripModelNoise(desc).trim();
+      // Remove quotes if any
+      desc = desc.replaceAll(RegExp(r'^["“]|["”]$'), '');
+      
+      if (desc.isEmpty) desc = '无画面描述';
+
+      panels.add(MangaPanel(
+        id: const Uuid().v4(),
+        anchorStart: anchor.anchorStart,
+        anchorEnd: anchor.anchorEnd,
+        narrativeRole: '绘本',
+        title: '第${i + 1}页',
+        subject: '', action: '', setting: '', time: '', weather: '',
+        shot: '', camera: '', lighting: '', mood: '', composition: '',
+        expandedPrompt: desc,
+        status: MangaPanelStatus.promptReady,
+        createdAt: DateTime.now(),
+      ));
     }
-    return parsed.prompt;
+    return panels;
+  }
+
+  Future<List<MangaPanel>> _generateStorybookOnline({
+    required List<String> paragraphs,
+    required int pageCount,
+    required Future<String> Function(String prompt) runFn,
+    String? debugName,
+  }) async {
+    // Strategy: Intelligent Extraction.
+    // If pageCount > 6, split into chunks to maintain quality.
+    int chunks = 1;
+    if (pageCount > 6) chunks = 2;
+
+    // Use weighted length to split chunks evenly
+    final chunkAnchors = _buildAnchorsByWeightedLength(
+      paragraphs: paragraphs,
+      count: chunks,
+    );
+
+    final panels = <MangaPanel>[];
+    int globalIndex = 0;
+
+    for (int i = 0; i < chunks; i++) {
+      final anchor = chunkAnchors[i];
+      final chunkText = paragraphs
+          .sublist(anchor.anchorStart, anchor.anchorEnd + 1)
+          .map((p) => p.trim())
+          .join('\n');
+      final truncatedText = _normalizeForPrompt(chunkText, maxLen: 2000);
+
+      // Distribute page count
+      final subCount = (pageCount / chunks).ceil(); 
+      // (Simple distribution, might result in slightly more panels, we can trim later)
+
+      final prompt = _buildOnlineSceneExtractionPrompt(truncatedText, subCount);
+      
+      if (kDebugMode) {
+        debugPrint('[MANGA] Online Prompt [$i]: $prompt');
+      }
+
+      final response = await runFn(prompt);
+      final scenes = _parseSceneExtraction(response);
+
+      // Create panels for this chunk
+      // We map scenes to sub-anchors within this chunk
+      final sceneAnchors = _buildAnchorsByParagraphCount(
+        paragraphCount: anchor.anchorEnd - anchor.anchorStart + 1,
+        count: scenes.length,
+      );
+
+      for (int k = 0; k < scenes.length; k++) {
+        final subAnchor = sceneAnchors[k];
+        // Offset anchors by chunk start
+        final realStart = anchor.anchorStart + subAnchor.anchorStart;
+        final realEnd = anchor.anchorStart + subAnchor.anchorEnd;
+
+        globalIndex++;
+        panels.add(MangaPanel(
+          id: const Uuid().v4(),
+          anchorStart: realStart,
+          anchorEnd: realEnd,
+          narrativeRole: '绘本',
+          title: '第$globalIndex页',
+          subject: '', action: '', setting: '', time: '', weather: '',
+          shot: '', camera: '', lighting: '', mood: '', composition: '',
+          expandedPrompt: scenes[k],
+          status: MangaPanelStatus.promptReady,
+          createdAt: DateTime.now(),
+        ));
+      }
+    }
+
+    // Trim if we generated too many (due to ceil)
+    if (panels.length > pageCount) {
+      return panels.sublist(0, pageCount);
+    }
+    return panels;
+  }
+
+  String _buildOnlineSceneExtractionPrompt(String text, int count) {
+    return '''你是绘本导演。请阅读以下小说片段，提取最具画面感的 $count 个关键场景。
+
+要求：
+1. 提取 $count 个场景，按故事发展顺序排列。
+2. 每个场景用一段话描述（100字以内），包含主体、动作、环境、光影、氛围。
+3. 描写要像“文生图提示词”一样具体，不要出现人名（用外貌特征代替）。
+4. 严格按格式输出，每行一个场景，以序号开头。
+
+格式示例：
+1. 一个穿着白衬衫的短发少年站在屋顶，背景是燃烧的夕阳，逆光，氛围悲伤。
+2. 黑暗的地下室，只有一盏摇摇欲坠的吊灯，地面上有积水，反射着冷光。
+
+小说片段：
+$text
+
+请输出 $count 个场景：''';
+  }
+
+  List<String> _parseSceneExtraction(String raw) {
+    final clean = _stripModelNoise(raw);
+    final lines = clean.split('\n');
+    final out = <String>[];
+    final re = RegExp(r'^\d+[\.、\s]\s*(.*)');
+    
+    for (final line in lines) {
+      final t = line.trim();
+      if (t.isEmpty) continue;
+      final m = re.firstMatch(t);
+      if (m != null) {
+        final content = m.group(1)?.trim() ?? '';
+        if (content.isNotEmpty) out.add(content);
+      }
+    }
+    
+    // Fallback: if regex failed (model didn't output numbers), just take non-empty lines
+    if (out.isEmpty && clean.isNotEmpty) {
+      for (final line in lines) {
+         final t = line.trim();
+         if (t.length > 10) out.add(t);
+      }
+    }
+    return out;
   }
 
   Future<String> submitGeneration({
@@ -182,6 +317,7 @@ class MangaService {
     String prompt, {
     bool? enableThinking,
   }) async {
+    final sw = Stopwatch()..start();
     final stream = _textClient.chatStream(
       userText: prompt,
       model: 'hunyuan-a13b',
@@ -192,264 +328,102 @@ class MangaService {
       if (chunk.isReasoning) continue;
       buffer.write(chunk.content);
     }
-    return buffer.toString();
-  }
-
-  String _buildStoryboardPrompt({
-    required String chapterTitle,
-    required List<String> paragraphs,
-    required int panelCount,
-  }) {
-    final buffer = StringBuffer();
-    buffer.writeln('你是漫画导演。');
-    buffer.writeln('章节标题：$chapterTitle');
-    buffer.writeln('任务：把章节改编为“章节分镜脚本”，输出固定数量的分镜格子。');
-    buffer.writeln('硬性规则：');
-    buffer.writeln('1) 严禁新增剧情事实；严禁新增原文未出现的人物/地点/组织/道具。');
-    buffer.writeln('2) 允许补充导演信息：景别/机位/镜头运动、光影、氛围、构图、速度线等。');
-    buffer.writeln('3) 每格必须锚定原文段落索引范围 anchorStart/anchorEnd（闭区间）。');
-    buffer.writeln('4) 每格必须包含：narrativeRole、subject、action、setting、time、weather、shot、camera、lighting、mood、composition。');
-    buffer.writeln('5) 输出仅 JSON 数组，不要解释/Markdown。长度=$panelCount。');
-    buffer.writeln('字段说明（每格对象）：');
-    buffer.writeln(
-        'anchorStart(int), anchorEnd(int), narrativeRole("铺垫"/"升级"/"高潮"/"收束"), title(string), subject(string), action(string), setting(string), time(string), weather(string), shot(string), camera(string), lighting(string), mood(string), composition(string), caption(string 可选)');
-    buffer.writeln();
-    buffer.writeln('原文段落（行首数字为全局段落索引）：');
-    for (int i = 0; i < paragraphs.length; i++) {
-      final normalized = _normalizeForPrompt(paragraphs[i], maxLen: 260);
-      buffer.writeln('$i: $normalized');
-    }
-    return buffer.toString();
-  }
-
-  String _buildStoryboardRepairPrompt({
-    required String chapterTitle,
-    required List<String> paragraphs,
-    required int panelCount,
-    required String rawOutput,
-    required String errorHint,
-  }) {
-    final buffer = StringBuffer();
-    buffer.writeln('你是漫画导演。你上一次输出的 JSON 不符合要求，需要修正。');
-    buffer.writeln('章节标题：$chapterTitle');
-    buffer.writeln('修正要求：输出仅 JSON 数组，长度=$panelCount，且每项字段齐全；anchorStart/anchorEnd 必须在合法范围内。');
-    if (errorHint.trim().isNotEmpty) {
-      buffer.writeln('已发现的问题：$errorHint');
-    }
-    buffer.writeln('上次输出（仅供参考，可能包含错误）：');
-    buffer.writeln(rawOutput);
-    buffer.writeln();
-    buffer.writeln('原文段落（行首数字为全局段落索引）：');
-    for (int i = 0; i < paragraphs.length; i++) {
-      final normalized = _normalizeForPrompt(paragraphs[i], maxLen: 220);
-      buffer.writeln('$i: $normalized');
-    }
-    buffer.writeln('现在输出最终 JSON 数组，不要解释。');
-    return buffer.toString();
-  }
-
-  ({bool ok, List<MangaPanel> panels, String errorHint}) _parseAndValidateStoryboard(
-    String raw, {
-    required List<String> paragraphs,
-    required int expectedCount,
-  }) {
-    final cleaned = _stripModelNoise(raw);
-    final start = cleaned.indexOf('[');
-    final end = cleaned.lastIndexOf(']');
-    if (start == -1 || end == -1 || end <= start) {
-      return (ok: false, panels: const <MangaPanel>[], errorHint: '未找到JSON数组');
-    }
-    dynamic decoded;
-    try {
-      decoded = jsonDecode(cleaned.substring(start, end + 1));
-    } catch (_) {
-      return (ok: false, panels: const <MangaPanel>[], errorHint: 'JSON解析失败');
-    }
-    if (decoded is! List) {
-      return (ok: false, panels: const <MangaPanel>[], errorHint: 'JSON不是数组');
-    }
-    final out = <MangaPanel>[];
-    final errors = <String>[];
-
-    String s(dynamic v) => _normalizeModelPrompt(v?.toString() ?? '');
-
-    int? toInt(dynamic v) {
-      if (v is int) return v;
-      if (v is String) return int.tryParse(v);
-      return int.tryParse(v?.toString() ?? '');
-    }
-
-    bool hasAllRequired(Map m) {
-      const keys = [
-        'anchorStart',
-        'anchorEnd',
-        'narrativeRole',
-        'title',
-        'subject',
-        'action',
-        'setting',
-        'time',
-        'weather',
-        'shot',
-        'camera',
-        'lighting',
-        'mood',
-        'composition',
-      ];
-      for (final k in keys) {
-        if (!m.containsKey(k)) return false;
-        final val = s(m[k]);
-        if (val.isEmpty) return false;
-      }
-      return true;
-    }
-
-    for (int i = 0; i < decoded.length; i++) {
-      final item = decoded[i];
-      if (item is! Map) {
-        errors.add('第${i + 1}项不是对象');
-        continue;
-      }
-      if (!hasAllRequired(item)) {
-        errors.add('第${i + 1}项字段缺失');
-        continue;
-      }
-      final startIdx = toInt(item['anchorStart']);
-      final endIdx = toInt(item['anchorEnd']);
-      if (startIdx == null || endIdx == null) {
-        errors.add('第${i + 1}项 anchor 无效');
-        continue;
-      }
-      if (startIdx < 0 || endIdx < startIdx || endIdx >= paragraphs.length) {
-        errors.add('第${i + 1}项 anchor 越界');
-        continue;
-      }
-      final role = s(item['narrativeRole']);
-      final title = s(item['title']);
-      final subject = s(item['subject']);
-      final action = s(item['action']);
-      final setting = s(item['setting']);
-      final time = s(item['time']);
-      final weather = s(item['weather']);
-      final shot = s(item['shot']);
-      final camera = s(item['camera']);
-      final lighting = s(item['lighting']);
-      final mood = s(item['mood']);
-      final composition = s(item['composition']);
-      final caption = _normalizeModelPrompt(item['caption']?.toString() ?? '');
-
-      out.add(
-        MangaPanel(
-          id: const Uuid().v4(),
-          anchorStart: startIdx,
-          anchorEnd: endIdx,
-          narrativeRole: role,
-          title: title,
-          subject: subject,
-          action: action,
-          setting: setting,
-          time: time,
-          weather: weather,
-          shot: shot,
-          camera: camera,
-          lighting: lighting,
-          mood: mood,
-          composition: composition,
-          caption: caption.isEmpty ? null : caption,
-          createdAt: DateTime.now(),
-        ),
+    final out = buffer.toString();
+    if (kDebugMode) {
+      debugPrint(
+        '[MANGA] online_text.done thinking=$enableThinking ms=${sw.elapsedMilliseconds} outLen=${out.length}',
       );
     }
-
-    if (out.length != expectedCount) {
-      errors.add('分镜数量不符(${out.length}/$expectedCount)');
-    }
-    final ok = errors.isEmpty;
-    final hint = errors.isEmpty ? '' : errors.take(3).join('；');
-    return (ok: ok, panels: out, errorHint: hint);
+    return out;
   }
 
-  String _buildExpandPrompt({
-    required String chapterTitle,
-    required MangaPanel panel,
-    required String anchorText,
-    required String stylePrefix,
+  List<_AnchorRange> _buildAnchorsByParagraphCount({
+    required int paragraphCount,
+    required int count,
   }) {
-    final buffer = StringBuffer();
-    buffer.writeln('你是提示词导演，负责把单格分镜蓝图扩写为文生图提示词。');
-    buffer.writeln('章节标题：$chapterTitle');
-    buffer.writeln('硬性规则：');
-    buffer.writeln('1) 严禁新增剧情事实；严禁新增原文未出现的人物/地点/道具。');
-    buffer.writeln('2) 只输出 JSON：{"prompt": "..."}，不要解释/Markdown。');
-    buffer.writeln('3) prompt 不要直接复制原文句子；避免出现原文连续 20 个以上的片段。');
-    buffer.writeln('4) prompt 必须信息密度高：主体/动作/环境/时间天气/镜头/光影/氛围/构图要点齐全。');
-    buffer.writeln('5) 画面中禁止出现文字/水印/字幕条。');
-    buffer.writeln();
-    buffer.writeln('风格前缀：$stylePrefix');
-    buffer.writeln();
-    buffer.writeln('分镜蓝图：');
-    buffer.writeln(jsonEncode(panel.toJson()));
-    buffer.writeln();
-    buffer.writeln('锚定原文（只作为事实来源）：');
-    buffer.writeln(anchorText);
-    return buffer.toString();
+    if (paragraphCount <= 0 || count <= 0) {
+      return const <_AnchorRange>[];
+    }
+    final cap = count.clamp(1, paragraphCount);
+    final out = <_AnchorRange>[];
+    for (int i = 0; i < cap; i++) {
+      final start = ((i * paragraphCount) / cap).floor().clamp(0, paragraphCount - 1);
+      int end =
+          (((i + 1) * paragraphCount) / cap).floor() - 1;
+      if (i == cap - 1) end = paragraphCount - 1;
+      end = end.clamp(start, paragraphCount - 1);
+      out.add((anchorStart: start, anchorEnd: end));
+    }
+    return out;
   }
 
-  String _buildExpandRepairPrompt({
-    required String chapterTitle,
-    required MangaPanel panel,
-    required String anchorText,
-    required String stylePrefix,
-    required String rawOutput,
-    required String errorHint,
+  List<_AnchorRange> _buildAnchorsByWeightedLength({
+    required List<String> paragraphs,
+    required int count,
   }) {
-    final buffer = StringBuffer();
-    buffer.writeln('你是提示词导演。你上一次输出不符合要求，需要修正。');
-    buffer.writeln('章节标题：$chapterTitle');
-    if (errorHint.trim().isNotEmpty) {
-      buffer.writeln('已发现的问题：$errorHint');
+    if (paragraphs.isEmpty || count <= 0) {
+      return const <_AnchorRange>[];
     }
-    buffer.writeln('上次输出：');
-    buffer.writeln(rawOutput);
-    buffer.writeln();
-    buffer.writeln('请重新输出 JSON：{"prompt": "..."}，不要解释。');
-    buffer.writeln('风格前缀：$stylePrefix');
-    buffer.writeln('分镜蓝图：');
-    buffer.writeln(jsonEncode(panel.toJson()));
-    buffer.writeln('锚定原文（只作为事实来源）：');
-    buffer.writeln(anchorText);
-    return buffer.toString();
-  }
+    final cap = count.clamp(1, paragraphs.length);
+    
+    int totalLen = 0;
+    final lengths = <int>[];
+    for (final p in paragraphs) {
+      final len = p.length;
+      lengths.add(len);
+      totalLen += len;
+    }
 
-  ({bool ok, String prompt, String errorHint}) _parseExpandedPrompt(
-    String raw, {
-    required List<String> anchorParagraphs,
-  }) {
-    final cleaned = _stripModelNoise(raw);
-    final startObj = cleaned.indexOf('{');
-    final endObj = cleaned.lastIndexOf('}');
-    if (startObj == -1 || endObj == -1 || endObj <= startObj) {
-      return (ok: false, prompt: '', errorHint: '未找到JSON对象');
+    if (totalLen == 0) {
+      return _buildAnchorsByParagraphCount(paragraphCount: paragraphs.length, count: cap);
     }
-    dynamic decoded;
-    try {
-      decoded = jsonDecode(cleaned.substring(startObj, endObj + 1));
-    } catch (_) {
-      return (ok: false, prompt: '', errorHint: 'JSON解析失败');
-    }
-    if (decoded is! Map) {
-      return (ok: false, prompt: '', errorHint: 'JSON不是对象');
-    }
-    final p = _normalizeModelPrompt(decoded['prompt']?.toString() ?? '');
-    if (p.isEmpty) {
-      return (ok: false, prompt: '', errorHint: 'prompt为空');
-    }
-    for (final para in anchorParagraphs) {
-      if (_looksLikeCopiedFromParagraph(p, para)) {
-        return (ok: false, prompt: '', errorHint: 'prompt疑似直接复制原文');
+
+    final targetLenPerChunk = totalLen / cap;
+    final out = <_AnchorRange>[];
+    
+    int currentStart = 0;
+    int currentLen = 0;
+    
+    for (int i = 0; i < cap; i++) {
+      if (currentStart >= paragraphs.length) break;
+      
+      if (i == cap - 1) {
+        out.add((anchorStart: currentStart, anchorEnd: paragraphs.length - 1));
+        break;
       }
+
+      int end = currentStart;
+      currentLen = 0;
+      
+      while (end < paragraphs.length) {
+        final len = lengths[end];
+        
+        if (currentLen + len > targetLenPerChunk && currentLen > 0) {
+          final diffCurrent = (targetLenPerChunk - currentLen).abs();
+          final diffNext = ((currentLen + len) - targetLenPerChunk).abs();
+          
+          if (diffNext < diffCurrent) {
+             currentLen += len;
+             end++;
+          }
+          break;
+        }
+        
+        currentLen += len;
+        end++;
+      }
+      
+      if (end <= currentStart) {
+        end = currentStart + 1;
+      }
+      
+      final realEnd = (end - 1).clamp(currentStart, paragraphs.length - 1);
+      out.add((anchorStart: currentStart, anchorEnd: realEnd));
+      
+      currentStart = realEnd + 1;
     }
-    return (ok: true, prompt: p, errorHint: '');
+    
+    return out;
   }
 
   String _stripModelNoise(String raw) {
@@ -472,34 +446,5 @@ class MangaService {
     s = s.replaceAll(RegExp(r'[\r\n]+'), ' ');
     s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
     return s;
-  }
-
-  String _normalizeForCopyCheck(String s) {
-    var t = s.replaceAll('\u0000', '');
-    t = t.replaceAll(RegExp(r'[\r\n]+'), '');
-    t = t.replaceAll(
-      RegExp("[\\s，。！？、；：,.!?\"'（）()\\[\\]【】《》<>]"),
-      '',
-    );
-    return t;
-  }
-
-  bool _looksLikeCopiedFromParagraph(String prompt, String paragraph) {
-    final p = _normalizeForCopyCheck(paragraph);
-    final s = _normalizeForCopyCheck(prompt);
-    const minRun = 32;
-    if (p.length < minRun || s.length < minRun) return false;
-    final midStart =
-        ((p.length - minRun) / 2).floor().clamp(0, p.length - minRun);
-    final samples = <String>[
-      p.substring(0, minRun),
-      p.substring(midStart, midStart + minRun),
-      p.substring(p.length - minRun),
-    ];
-    for (final sample in samples) {
-      if (sample.trim().isEmpty) continue;
-      if (s.contains(sample)) return true;
-    }
-    return false;
   }
 }
