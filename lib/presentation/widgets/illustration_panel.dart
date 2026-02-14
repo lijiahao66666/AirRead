@@ -335,8 +335,11 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
   }) async {
     if (item.status == ill.IllustrationStatus.generating) return;
     if (_pendingGenerateIds.contains(item.id)) return;
+    if (provider.isAnyGenerating) {
+      _showToast('正在出图，请等待上一张完成');
+      return;
+    }
     _pendingGenerateIds.add(item.id);
-    bool deducted = false;
 
     try {
       final usingPersonal = tp.usingPersonalTencentKeys &&
@@ -346,21 +349,13 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
           _showToast('积分不足，无法出图');
           return;
         }
-        await aiModel.addPoints(-_imageCostPoints);
-        deducted = true;
       }
 
       await provider.generateImage(
         cacheKey: cacheKey,
         itemId: item.id,
       );
-      if (deducted && item.status == ill.IllustrationStatus.failed) {
-        await aiModel.addPoints(_imageCostPoints);
-      }
     } catch (e) {
-      if (deducted) {
-        await aiModel.addPoints(_imageCostPoints);
-      }
       _showToast(_friendlyErrorMessage(e));
     } finally {
       _pendingGenerateIds.remove(item.id);
@@ -400,7 +395,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
 
     final usingPersonal = tp.usingPersonalTencentKeys &&
         getEmbeddedPublicHunyuanCredentials().isUsable;
-    final canGenerate = usingPersonal || aiModel.pointsBalance >= _imageCostPoints;
+    final canGenerate =
+        usingPersonal || aiModel.pointsBalance >= _imageCostPoints;
     final canGenerateScript = _modelChoice.isOnline
         ? (aiModel.pointsBalance > 0 || usingPersonal)
         : (aiModel.installStatusFor(switch (_modelChoice) {

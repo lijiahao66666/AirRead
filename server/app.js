@@ -435,6 +435,22 @@ async function setPointsBalance({ bucket, region, deviceId, balance, credentials
   return next;
 }
 
+async function tryMarkImageChargedOnce({ bucket, region, deviceId, jobId, credentials }) {
+  const id = String(jobId || '').trim();
+  if (!id) return false;
+  const key = `image_charged/${deviceId}/${id}.ok`;
+  const status = await cosPutObject({
+    bucket,
+    region,
+    key,
+    headers: { 'If-None-Match': '*' },
+    credentials,
+  });
+  if (status >= 200 && status < 300) return true;
+  if (status === 412 || status === 409) return false;
+  throw new Error(`COS Put ChargeMarker Error: ${status}`);
+}
+
 // --- Helper: HTTP Utils ---
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -506,6 +522,34 @@ function _tryAcquireActionSlot(action) {
     const cur = _actionActiveCount.get(a) || 0;
     _actionActiveCount.set(a, cur > 0 ? cur - 1 : 0);
   };
+}
+
+const _activeImageJobs = new Map();
+const _imageJobTtlMs = 20 * 60 * 1000;
+function _pruneActiveImageJobs() {
+  const now = Date.now();
+  for (const [jobId, ts] of _activeImageJobs.entries()) {
+    if (!Number.isFinite(ts) || (now - ts) > _imageJobTtlMs) {
+      _activeImageJobs.delete(jobId);
+    }
+  }
+}
+
+function _canStartNewImageJob() {
+  _pruneActiveImageJobs();
+  return _activeImageJobs.size < 1;
+}
+
+function _markImageJobActive(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return;
+  _activeImageJobs.set(id, Date.now());
+}
+
+function _markImageJobDone(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return;
+  _activeImageJobs.delete(id);
 }
 
 async function handleApiProxy(req, res, body) {
@@ -590,7 +634,7 @@ async function handleApiProxy(req, res, body) {
       inputChars = charCount(payload && payload.SourceText);
       unitCost = 1;
     } else if (action === 'SubmitTextToImageJob') {
-      inputChars = 20000; // Fixed cost per image generation
+      inputChars = 0;
       unitCost = 1;
     } else if (action === 'QueryTextToImageJob') {
       inputChars = 0;
@@ -600,6 +644,12 @@ async function handleApiProxy(req, res, body) {
 
   if (!isAllowedHost(host) || !isAllowedAction(action)) {
     return sendJson(res, 403, { error: 'Forbidden', message: 'Host or action not allowed' });
+  }
+
+  if (action === 'SubmitTextToImageJob' && !_canStartNewImageJob()) {
+    const retryAfterMs = 1200;
+    res.setHeader('Retry-After', String(Math.ceil(retryAfterMs / 1000)));
+    return sendJson(res, 429, { error: 'QueueBusy', message: '上一张出图未完成，请稍后重试', retryAfterMs });
   }
 
   const releaseSlot = _tryAcquireActionSlot(action);
@@ -642,6 +692,27 @@ async function handleApiProxy(req, res, body) {
   const useStream = Boolean(stream);
   if (useStream) {
     headers.Accept = 'text/event-stream';
+  }
+
+  if (canAccountPoints && !useStream && action === 'SubmitTextToImageJob') {
+    try {
+      const current = await getPointsBalance({
+        bucket,
+        region: regionStr,
+        deviceId,
+        credentials: null,
+      });
+      if (current < 20000) {
+        safeReleaseSlot();
+        return sendJson(res, 402, {
+          error: 'PointsInsufficient',
+          message: '积分不足，无法开始生图',
+          need: 20000,
+          balance: current,
+        });
+      }
+    } catch (_) {
+    }
   }
 
   let streamBalanceAfterInput = null;
@@ -795,7 +866,20 @@ async function handleApiProxy(req, res, body) {
         }
         try {
           const json = JSON.parse(raw);
-          if (canAccountPoints) {
+          if (action === 'SubmitTextToImageJob') {
+            const respObj = (json && json.Response) ? json.Response : json;
+            const jobId = respObj && respObj.JobId;
+            if (jobId) _markImageJobActive(jobId);
+          } else if (action === 'QueryTextToImageJob') {
+            const respObj = (json && json.Response) ? json.Response : json;
+            const jobStatusRaw = respObj && respObj.JobStatusCode;
+            const jobStatus = Number.isFinite(Number(jobStatusRaw)) ? Number(jobStatusRaw) : 0;
+            const jobId = respObj && respObj.JobId;
+            if ((jobStatus === 4 || jobStatus === 5) && jobId) {
+              _markImageJobDone(jobId);
+            }
+          }
+          if (canAccountPoints && action !== 'SubmitTextToImageJob' && action !== 'QueryTextToImageJob') {
             try {
               if (action === 'ChatCompletions') {
                 const choices = (json && json.Choices) || (json && json.Response && json.Response.Choices);
@@ -850,6 +934,61 @@ async function handleApiProxy(req, res, body) {
                  const current = await getPointsBalance({ bucket, region: regionStr, deviceId, credentials: null });
                  json.PointsBalance = current;
               } catch (_) {}
+            }
+          }
+          if (canAccountPoints && action === 'QueryTextToImageJob') {
+            const respObj = (json && json.Response) ? json.Response : json;
+            const jobStatusRaw = respObj && respObj.JobStatusCode;
+            const jobStatus = Number.isFinite(Number(jobStatusRaw)) ? Number(jobStatusRaw) : 0;
+            const jobId = respObj && respObj.JobId;
+            if (jobStatus === 5 && jobId) {
+              try {
+                const acquired = await tryMarkImageChargedOnce({
+                  bucket,
+                  region: regionStr,
+                  deviceId,
+                  jobId,
+                  credentials: null,
+                });
+                if (acquired) {
+                  const current = await getPointsBalance({
+                    bucket,
+                    region: regionStr,
+                    deviceId,
+                    credentials: null,
+                  });
+                  const need = 20000;
+                  if (current >= need) {
+                    const next = await setPointsBalance({
+                      bucket,
+                      region: regionStr,
+                      deviceId,
+                      balance: current - need,
+                      credentials: null,
+                    });
+                    json.PointsDeducted = need;
+                    json.PointsBalance = next;
+                  } else {
+                    json.PointsBalance = current;
+                  }
+                } else {
+                  try {
+                    const current = await getPointsBalance({
+                      bucket,
+                      region: regionStr,
+                      deviceId,
+                      credentials: null,
+                    });
+                    json.PointsBalance = current;
+                  } catch (_) {}
+                }
+              } catch (e) {
+                json.PointsError = String(e && e.message ? e.message : e);
+                try {
+                  const current = await getPointsBalance({ bucket, region: regionStr, deviceId, credentials: null });
+                  json.PointsBalance = current;
+                } catch (_) {}
+              }
             }
           }
           sendJson(res, 200, json);

@@ -146,6 +146,7 @@ class IllustrationProvider extends ChangeNotifier {
   bool isAnalyzing(String cacheKey) => _analyzingKeys.contains(cacheKey);
 
   bool isGenerating(String itemId) => _generatingIds.contains(itemId);
+  bool get isAnyGenerating => _generatingIds.isNotEmpty;
 
   List<IllustrationItem> getItems(String cacheKey) {
     return _cache[cacheKey]?.items ?? const <IllustrationItem>[];

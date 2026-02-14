@@ -54,6 +54,8 @@ class HunyuanImageClient {
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
       useScfProxy: !usingPersonalTencentKeys(),
+      timeout: const Duration(seconds: 60),
+      maxRetries: 120,
       payload: {
         'Prompt': _truncateUtf8(prompt, maxBytes: 1024),
         'Resolution': resolution,
@@ -87,6 +89,8 @@ class HunyuanImageClient {
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
       useScfProxy: !usingPersonalTencentKeys(),
+      timeout: const Duration(seconds: 60),
+      maxRetries: 120,
       payload: {
         'JobId': jobId,
       },

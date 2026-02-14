@@ -230,8 +230,9 @@ class IllustrationService {
         count: scenes.length,
       );
 
-      final loopCount =
-          scenes.length < sceneAnchors.length ? scenes.length : sceneAnchors.length;
+      final loopCount = scenes.length < sceneAnchors.length
+          ? scenes.length
+          : sceneAnchors.length;
       for (int k = 0; k < loopCount; k++) {
         final subAnchor = sceneAnchors[k];
         final realStart = anchor.anchorStart + subAnchor.anchorStart;
@@ -431,9 +432,7 @@ class IllustrationService {
     for (final s in inList) {
       final t = _normalizeModelPrompt(s);
       if (t.isEmpty) continue;
-      final key = t
-          .replaceAll(RegExp(r'[，,。\.、；;：:\s]+'), '')
-          .toLowerCase();
+      final key = t.replaceAll(RegExp(r'[，,。\.、；;：:\s]+'), '').toLowerCase();
       if (key.isEmpty) continue;
       if (seen.contains(key)) continue;
       seen.add(key);
@@ -523,7 +522,8 @@ class IllustrationService {
         );
       }
       return out;
-    }()).timeout(const Duration(seconds: 45));
+    }())
+        .timeout(const Duration(seconds: 120));
     return out;
   }
 
@@ -609,9 +609,8 @@ class IllustrationService {
     final cap = count.clamp(1, paragraphCount);
     final out = <_AnchorRange>[];
     for (int i = 0; i < cap; i++) {
-      final start = ((i * paragraphCount) / cap)
-          .floor()
-          .clamp(0, paragraphCount - 1);
+      final start =
+          ((i * paragraphCount) / cap).floor().clamp(0, paragraphCount - 1);
       int end = (((i + 1) * paragraphCount) / cap).floor() - 1;
       if (i == cap - 1) end = paragraphCount - 1;
       end = end.clamp(start, paragraphCount - 1);
@@ -669,20 +668,18 @@ class IllustrationService {
   String _stripModelNoise(String raw) {
     var s = raw;
     String? extracted;
-    for (final m
-        in RegExp(
-          r'<answer>\s*([\s\S]*?)\s*</answer>',
-          caseSensitive: false,
-        ).allMatches(s)) {
+    for (final m in RegExp(
+      r'<answer>\s*([\s\S]*?)\s*</answer>',
+      caseSensitive: false,
+    ).allMatches(s)) {
       final g = m.group(1)?.trim();
       if (g != null && g.isNotEmpty) extracted = g;
     }
     if (extracted == null) {
-      for (final m
-          in RegExp(
-            r'<final>\s*([\s\S]*?)\s*</final>',
-            caseSensitive: false,
-          ).allMatches(s)) {
+      for (final m in RegExp(
+        r'<final>\s*([\s\S]*?)\s*</final>',
+        caseSensitive: false,
+      ).allMatches(s)) {
         final g = m.group(1)?.trim();
         if (g != null && g.isNotEmpty) extracted = g;
       }

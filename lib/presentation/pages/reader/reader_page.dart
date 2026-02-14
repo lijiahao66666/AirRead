@@ -6326,65 +6326,69 @@ class _ReaderPageState extends State<ReaderPage>
                   ),
                 );
               },
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text.rich(
-                    effectiveBodySpan,
-                    style: bodyStyle,
-                    strutStyle: StrutStyle.fromTextStyle(bodyStyle,
-                        forceStrutHeight: true),
-                    textHeightBehavior: const TextHeightBehavior(
-                      applyHeightToFirstAscent: false,
-                      applyHeightToLastDescent: false,
-                    ),
-                  ),
-                  if (showChapterIllustrationsButton) ...[
-                    const SizedBox(height: 10),
-                    Align(
-                      alignment: Alignment.center,
-                      child: Listener(
-                        behavior: HitTestBehavior.opaque,
-                        onPointerDown: (_) => _suppressReaderTap(),
-                        onPointerUp: (_) => _suppressReaderTap(),
-                        onPointerCancel: (_) => _suppressReaderTap(),
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () {
-                            unawaited(_openAiHud(
-                              initialRoute: AiHudRoute.illustration,
-                              chapterIndexOverride: chapterIndex,
-                            ));
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: AppColors.techBlue.withOpacityCompat(0.12),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color:
-                                    AppColors.techBlue.withOpacityCompat(0.22),
-                                width: AppTokens.stroke,
-                              ),
-                            ),
-                            child: const Text(
-                              '查看章节插画',
-                              style: TextStyle(
-                                fontSize: 12,
-                                height: 1.0,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.techBlue,
-                                decoration: TextDecoration.none,
+              child: Text.rich(
+                showChapterIllustrationsButton
+                    ? TextSpan(
+                        style: bodyStyle,
+                        children: [
+                          effectiveBodySpan,
+                          const TextSpan(text: ' '),
+                          WidgetSpan(
+                            alignment: PlaceholderAlignment.baseline,
+                            baseline: TextBaseline.alphabetic,
+                            child: Listener(
+                              behavior: HitTestBehavior.opaque,
+                              onPointerDown: (_) => _suppressReaderTap(),
+                              onPointerUp: (_) => _suppressReaderTap(),
+                              onPointerCancel: (_) => _suppressReaderTap(),
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  unawaited(_openAiHud(
+                                    initialRoute: AiHudRoute.illustration,
+                                    chapterIndexOverride: chapterIndex,
+                                  ));
+                                },
+                                child: Container(
+                                  margin: const EdgeInsets.only(left: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.techBlue
+                                        .withOpacityCompat(0.12),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: AppColors.techBlue
+                                          .withOpacityCompat(0.22),
+                                      width: AppTokens.stroke,
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    '查看本章插图',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      height: 1.0,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.techBlue,
+                                      decoration: TextDecoration.none,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+                        ],
+                      )
+                    : effectiveBodySpan,
+                style: bodyStyle,
+                strutStyle:
+                    StrutStyle.fromTextStyle(bodyStyle, forceStrutHeight: true),
+                textHeightBehavior: const TextHeightBehavior(
+                  applyHeightToFirstAscent: false,
+                  applyHeightToLastDescent: false,
+                ),
               ),
             ),
           );
