@@ -479,7 +479,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                         Text(
                           analyzing
                               ? '提示词生成中...'
-                              : (isSelectionMode ? '生成选中文本插画提示词' : '生成插画提示词'),
+                              : (isSelectionMode ? '生成选中文本插画提示词' : '生成章节插画提示词'),
                         ),
                       ],
                     ),
