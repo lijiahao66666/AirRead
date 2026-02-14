@@ -356,16 +356,6 @@ class _SelectionIllustrationLink {
   });
 }
 
-class _ReaderSelectionControls extends MaterialTextSelectionControls {
-  @override
-  Size getHandleSize(double textLineHeight) {
-    final base = super.getHandleSize(textLineHeight);
-    final w = base.width < 26 ? 26.0 : base.width;
-    final h = base.height < 26 ? 26.0 : base.height;
-    return Size(w, h);
-  }
-}
-
 class ReaderPage extends StatefulWidget {
   final String bookId;
 
@@ -382,8 +372,6 @@ class _ReaderPageState extends State<ReaderPage>
       MethodChannel('airread/local_tts');
   static const EventChannel _localTtsEvents =
       EventChannel('airread/local_tts_events');
-  static final TextSelectionControls _readerSelectionControls =
-      _ReaderSelectionControls();
   bool _showControls = false;
   bool _isLoading = true;
   String? _error;
@@ -5889,7 +5877,6 @@ class _ReaderPageState extends State<ReaderPage>
               if (hasSelection) _suppressReaderTap();
             },
             child: SelectionArea(
-              selectionControls: _readerSelectionControls,
               key: ValueKey(
                   'sel_${chapterIndex}_${range.start}_$_selectionAreaResetToken'),
               onSelectionChanged: (value) {
