@@ -2385,7 +2385,7 @@ class _TencentHunyuanSettingsPanelState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '本地模型可离线免费使用，但效果不如在线大模型。问答/插画面板内可单独选择在线或本地模型。',
+                      '本地模型可离线免费使用，但效果不如在线大模型。问答/插画面板内可单独选择在线或本地模型。注意：若手机内存不足，使用本地模型可能会导致闪退。',
                       style: TextStyle(
                         color: widget.textColor.withOpacityCompat(0.65),
                         fontSize: 12,

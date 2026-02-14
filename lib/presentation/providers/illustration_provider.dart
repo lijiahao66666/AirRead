@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../../ai/illustration/illustration_item.dart';
 import '../../ai/illustration/illustration_service.dart';
@@ -12,6 +14,10 @@ class IllustrationProvider extends ChangeNotifier {
   final Set<String> _analyzingKeys = {};
   final Set<String> _generatingIds = {};
   final Map<String, Completer<List<IllustrationItem>>> _analysisInFlight = {};
+
+  static const String _kCacheFileName = 'airread_illustration_cache_v1.json';
+  File? _cacheFile;
+  Timer? _persistTimer;
 
   String _expandPromptForImage(String s) {
     var t = s.trim();
@@ -32,9 +38,16 @@ class IllustrationProvider extends ChangeNotifier {
     _initFuture = _init();
   }
 
+  @override
+  void dispose() {
+    _persistTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _init() async {
     if (kIsWeb) {
       _storagePath = '';
+      _cacheFile = null;
       notifyListeners();
       return;
     }
@@ -46,12 +59,66 @@ class IllustrationProvider extends ChangeNotifier {
     } catch (_) {
       _storagePath = Directory.systemTemp.path;
     }
+    final storage = _storagePath;
+    if (storage != null && storage.trim().isNotEmpty) {
+      _cacheFile = File(p.join(storage, _kCacheFileName));
+      await _loadCacheFromDisk();
+    }
     notifyListeners();
   }
 
   Future<void> _ensureReady() async {
     if (_storagePath != null) return;
     await (_initFuture ??= _init());
+  }
+
+  Future<void> _loadCacheFromDisk() async {
+    final file = _cacheFile;
+    if (file == null) return;
+    try {
+      if (!await file.exists()) return;
+      final raw = await file.readAsString();
+      if (raw.trim().isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final cacheObj = decoded['cache'];
+      if (cacheObj is! Map) return;
+      _cache.clear();
+      for (final e in cacheObj.entries) {
+        final key = e.key.toString();
+        final v = e.value;
+        if (v is! Map) continue;
+        final entry =
+            _IllustrationCacheEntry.fromJson(v.cast<String, dynamic>());
+        if (entry.items.isEmpty) continue;
+        _cache[key] = entry;
+      }
+    } catch (_) {}
+  }
+
+  void _schedulePersist() {
+    final file = _cacheFile;
+    if (file == null) return;
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(milliseconds: 700), () {
+      unawaited(_persistNow());
+    });
+  }
+
+  Future<void> _persistNow() async {
+    final file = _cacheFile;
+    if (file == null) return;
+    try {
+      final dir = file.parent;
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      final obj = <String, dynamic>{
+        'version': 1,
+        'cache': _cache.map((k, v) => MapEntry(k, v.toJson())),
+      };
+      await file.writeAsString(jsonEncode(obj));
+    } catch (_) {}
   }
 
   IllustrationService _buildService() {
@@ -96,7 +163,9 @@ class IllustrationProvider extends ChangeNotifier {
     final idx = entry.items.indexWhere((e) => e.id == itemId);
     if (idx < 0) return false;
     entry.items[idx].prompt = prompt.trim();
+    entry.updatedAtMs = DateTime.now().millisecondsSinceEpoch;
     notifyListeners();
+    _schedulePersist();
     return true;
   }
 
@@ -110,6 +179,7 @@ class IllustrationProvider extends ChangeNotifier {
       _analyzingKeys.remove(k);
     }
     notifyListeners();
+    _schedulePersist();
   }
 
   List<String> _splitParagraphsForAnalysis(String content) {
@@ -124,7 +194,8 @@ class IllustrationProvider extends ChangeNotifier {
         continue;
       }
 
-      final byLine = t.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty);
+      final byLine =
+          t.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty);
       final byLineList = byLine.toList();
       if (byLineList.length > 1) {
         for (final line in byLineList) {
@@ -236,19 +307,20 @@ class IllustrationProvider extends ChangeNotifier {
       final entry = _IllustrationCacheEntry(
         chapterId: chapterId,
         chapterTitle: chapterTitle,
-        paragraphs: paragraphs,
         items: items,
         modelKey: modelKey,
         thinkingEnabled: thinkingEnabled,
         count: count,
         stylePrefix: stylePrefix,
         resolution: resolution,
+        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
       );
       _cache[cacheKey] = entry;
       completer.complete(List<IllustrationItem>.unmodifiable(items));
       _analysisInFlight.remove(cacheKey);
       _analyzingKeys.remove(cacheKey);
       notifyListeners();
+      _schedulePersist();
 
       return items;
     } catch (e) {
@@ -285,8 +357,7 @@ class IllustrationProvider extends ChangeNotifier {
       notifyListeners();
 
       final imageDesc = _expandPromptForImage(item.prompt!);
-      final fullPrompt =
-          '${entry.stylePrefix}, $imageDesc, 高细节，清晰构图，景深，质感细腻';
+      final fullPrompt = '${entry.stylePrefix}, $imageDesc, 高细节，清晰构图，景深，质感细腻';
       final jobId = await _buildService().submitGeneration(
         prompt: fullPrompt,
         resolution: entry.resolution,
@@ -297,11 +368,14 @@ class IllustrationProvider extends ChangeNotifier {
       final localPath = await _buildService().pollJobStatus(jobId);
       item.localImagePath = localPath;
       item.status = IllustrationStatus.completed;
+      entry.updatedAtMs = DateTime.now().millisecondsSinceEpoch;
       notifyListeners();
+      _schedulePersist();
     } catch (e) {
       item.status = IllustrationStatus.failed;
       item.errorMsg = e.toString();
       notifyListeners();
+      _schedulePersist();
     } finally {
       _generatingIds.remove(itemId);
     }
@@ -311,23 +385,68 @@ class IllustrationProvider extends ChangeNotifier {
 class _IllustrationCacheEntry {
   final String chapterId;
   final String chapterTitle;
-  final List<String> paragraphs;
   final List<IllustrationItem> items;
   final String modelKey;
   final bool thinkingEnabled;
   final int count;
   final String stylePrefix;
   final String resolution;
+  int updatedAtMs;
 
   _IllustrationCacheEntry({
     required this.chapterId,
     required this.chapterTitle,
-    required this.paragraphs,
     required this.items,
     required this.modelKey,
     required this.thinkingEnabled,
     required this.count,
     required this.stylePrefix,
     required this.resolution,
+    required this.updatedAtMs,
   });
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'chapterId': chapterId,
+      'chapterTitle': chapterTitle,
+      'items': items.map((e) => e.toJson()).toList(growable: false),
+      'modelKey': modelKey,
+      'thinkingEnabled': thinkingEnabled,
+      'count': count,
+      'stylePrefix': stylePrefix,
+      'resolution': resolution,
+      'updatedAtMs': updatedAtMs,
+    };
+  }
+
+  factory _IllustrationCacheEntry.fromJson(Map<String, dynamic> json) {
+    final itemsRaw = json['items'];
+    final items = <IllustrationItem>[];
+    if (itemsRaw is List) {
+      for (final it in itemsRaw) {
+        if (it is Map) {
+          items.add(IllustrationItem.fromJson(it.cast<String, dynamic>()));
+        }
+      }
+    }
+    final updatedRaw = json['updatedAtMs'];
+    final updatedAtMs = updatedRaw is int
+        ? updatedRaw
+        : (updatedRaw is num
+            ? updatedRaw.toInt()
+            : int.tryParse(updatedRaw?.toString() ?? '') ?? 0);
+    return _IllustrationCacheEntry(
+      chapterId: (json['chapterId'] ?? '').toString(),
+      chapterTitle: (json['chapterTitle'] ?? '').toString(),
+      items: items,
+      modelKey: (json['modelKey'] ?? '').toString(),
+      thinkingEnabled: json['thinkingEnabled'] == true,
+      count: (json['count'] is int)
+          ? json['count']
+          : int.tryParse(json['count']?.toString() ?? '') ?? 0,
+      stylePrefix: (json['stylePrefix'] ?? '').toString(),
+      resolution: (json['resolution'] ?? '').toString(),
+      updatedAtMs: updatedAtMs,
+    );
+  }
 }

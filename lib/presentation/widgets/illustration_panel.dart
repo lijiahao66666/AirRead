@@ -358,6 +358,9 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         await aiModel.addPoints(_imageCostPoints);
       }
     } catch (e) {
+      if (deducted) {
+        await aiModel.addPoints(_imageCostPoints);
+      }
       _showToast(_friendlyErrorMessage(e));
     } finally {
       _pendingGenerateIds.remove(item.id);
@@ -397,8 +400,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
 
     final usingPersonal = tp.usingPersonalTencentKeys &&
         getEmbeddedPublicHunyuanCredentials().isUsable;
-    final canGenerate =
-        usingPersonal || aiModel.pointsBalance >= _imageCostPoints;
+    final canGenerate = usingPersonal || aiModel.pointsBalance >= _imageCostPoints;
     final canGenerateScript = _modelChoice.isOnline
         ? (aiModel.pointsBalance > 0 || usingPersonal)
         : (aiModel.installStatusFor(switch (_modelChoice) {

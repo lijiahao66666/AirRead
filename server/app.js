@@ -483,6 +483,31 @@ function isAllowedAction(action) {
   return allow.has(String(action || ''));
 }
 
+const _actionConcurrencyLimit = new Map([
+  ['SubmitTextToImageJob', 1],
+  ['QueryTextToImageJob', 5],
+  ['ChatCompletions', 5],
+  ['ChatTranslations', 5],
+  ['TextToVoice', 20],
+  ['TextTranslate', 5],
+]);
+
+const _actionActiveCount = new Map();
+function _tryAcquireActionSlot(action) {
+  const a = String(action || '');
+  const limit = _actionConcurrencyLimit.has(a) ? _actionConcurrencyLimit.get(a) : 5;
+  const active = _actionActiveCount.get(a) || 0;
+  if (active >= limit) return null;
+  _actionActiveCount.set(a, active + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const cur = _actionActiveCount.get(a) || 0;
+    _actionActiveCount.set(a, cur > 0 ? cur - 1 : 0);
+  };
+}
+
 async function handleApiProxy(req, res, body) {
   const {
     host,
@@ -577,11 +602,25 @@ async function handleApiProxy(req, res, body) {
     return sendJson(res, 403, { error: 'Forbidden', message: 'Host or action not allowed' });
   }
 
+  const releaseSlot = _tryAcquireActionSlot(action);
+  if (!releaseSlot) {
+    const retryAfterMs = 900;
+    res.setHeader('Retry-After', String(Math.ceil(retryAfterMs / 1000)));
+    return sendJson(res, 429, { error: 'QueueBusy', message: '系统繁忙，请稍后重试', retryAfterMs });
+  }
+  let slotReleased = false;
+  function safeReleaseSlot() {
+    if (slotReleased) return;
+    slotReleased = true;
+    try { releaseSlot(); } catch (_) {}
+  }
+
   const envSecretId = String(process.env.TENCENT_SECRET_ID || '').trim();
   const envSecretKey = String(process.env.TENCENT_SECRET_KEY || '').trim();
   const secretId = usingPersonalKeys ? requestSecretId : envSecretId;
   const secretKey = usingPersonalKeys ? requestSecretKey : envSecretKey;
   if (!secretId || !secretKey) {
+    safeReleaseSlot();
     return sendJson(res, 500, { error: 'MissingCredentials', message: usingPersonalKeys ? 'Missing secretId / secretKey in request' : 'Set TENCENT_SECRET_ID / TENCENT_SECRET_KEY' });
   }
 
@@ -616,6 +655,7 @@ async function handleApiProxy(req, res, body) {
       });
       const need = inputChars * unitCost;
       if (current < need) {
+        safeReleaseSlot();
         return sendJson(res, 402, { error: 'PointsInsufficient', message: '积分不足，无法开始流式请求', need, balance: current });
       }
       streamBalanceAfterInput = await setPointsBalance({
@@ -688,125 +728,142 @@ async function handleApiProxy(req, res, body) {
         }
       });
       upstreamRes.on('end', async () => {
-        if (sseBuffer.length > 0) {
-          res.write(sseBuffer);
-        }
-        if (canAccountPoints) {
-          let nextBalance = null;
-          try {
-            const extraNeed = outputChars * unitCost;
-            if (extraNeed > 0) {
-              const current = await getPointsBalance({
-                bucket,
-                region: regionStr,
-                deviceId,
-                credentials: null,
-              });
-              nextBalance = await setPointsBalance({
-                bucket,
-                region: regionStr,
-                deviceId,
-                balance: current - extraNeed,
-                credentials: null,
-              });
+        try {
+          if (sseBuffer.length > 0) {
+            res.write(sseBuffer);
+          }
+          if (canAccountPoints) {
+            let nextBalance = null;
+            try {
+              const extraNeed = outputChars * unitCost;
+              if (extraNeed > 0) {
+                const current = await getPointsBalance({
+                  bucket,
+                  region: regionStr,
+                  deviceId,
+                  credentials: null,
+                });
+                nextBalance = await setPointsBalance({
+                  bucket,
+                  region: regionStr,
+                  deviceId,
+                  balance: current - extraNeed,
+                  credentials: null,
+                });
+              }
+            } catch (_) {
             }
-          } catch (_) {
+            if (nextBalance === null && streamBalanceAfterInput !== null) {
+              nextBalance = streamBalanceAfterInput;
+            }
+            if (nextBalance !== null) {
+              res.write(`data: ${JSON.stringify({ PointsBalance: nextBalance })}\n\n`);
+            }
           }
-          if (nextBalance === null && streamBalanceAfterInput !== null) {
-            nextBalance = streamBalanceAfterInput;
+          if (doneSeen) {
+            res.write('data: [DONE]\n\n');
           }
-          if (nextBalance !== null) {
-            res.write(`data: ${JSON.stringify({ PointsBalance: nextBalance })}\n\n`);
-          }
+          res.end();
+        } finally {
+          safeReleaseSlot();
         }
-        if (doneSeen) {
-          res.write('data: [DONE]\n\n');
-        }
-        res.end();
       });
-      upstreamRes.on('error', () => res.end());
+      upstreamRes.on('error', () => {
+        try { res.end(); } catch (_) {}
+        safeReleaseSlot();
+      });
 
       req.on('close', () => {
         try { upstreamReq.destroy(); } catch (_) {}
+        safeReleaseSlot();
       });
       return;
     }
 
     let buf = [];
     upstreamRes.on('data', (c) => buf.push(c));
+    upstreamRes.on('error', () => {
+      try { res.end(); } catch (_) {}
+      safeReleaseSlot();
+    });
     upstreamRes.on('end', async () => {
-      const raw = Buffer.concat(buf).toString('utf8');
-      if ((upstreamRes.statusCode || 500) < 200 || (upstreamRes.statusCode || 500) >= 300) {
-        sendJson(res, upstreamRes.statusCode || 500, { error: 'UpstreamHttpError', status: upstreamRes.statusCode, body: raw });
-        return;
-      }
       try {
-        const json = JSON.parse(raw);
-        if (canAccountPoints) {
-          try {
-            if (action === 'ChatCompletions') {
-              const choices = (json && json.Choices) || (json && json.Response && json.Response.Choices);
-              if (Array.isArray(choices) && choices.length > 0) {
-                const first = choices[0];
-                const msg = first && first.Message;
-                if (msg && typeof msg === 'object' && msg.Content) {
-                  outputChars = charCount(msg.Content);
-                } else if (first && typeof first.Content === 'string') {
-                  outputChars = charCount(first.Content);
-                }
-              }
-            } else if (action === 'ChatTranslations') {
-              const choices = (json && json.Choices) || (json && json.Response && json.Response.Choices);
-              if (Array.isArray(choices) && choices.length > 0) {
-                const first = choices[0];
-                const msg = first && first.Message;
-                if (msg && typeof msg === 'object' && msg.Content) {
-                  outputChars = charCount(msg.Content);
-                } else if (first && typeof first.Content === 'string') {
-                  outputChars = charCount(first.Content);
-                }
-              }
-            } else if (action === 'TextTranslate') {
-              outputChars = charCount((json && json.TargetText) || (json && json.Response && json.Response.TargetText));
-            } else if (action === 'TextToVoice' || action === 'SubmitTextToImageJob' || action === 'QueryTextToImageJob') {
-              outputChars = 0;
-            }
-            const totalNeed = (inputChars * unitCost) + (outputChars * unitCost);
-            const current = await getPointsBalance({
-              bucket,
-              region: regionStr,
-              deviceId,
-              credentials: null,
-            });
-            if (current < totalNeed) {
-              sendJson(res, 402, { error: 'PointsInsufficient', message: '积分不足，无法完成请求', need: totalNeed, balance: current });
-              return;
-            }
-            const next = await setPointsBalance({
-              bucket,
-              region: regionStr,
-              deviceId,
-              balance: current - totalNeed,
-              credentials: null,
-            });
-            json.PointsDeducted = totalNeed;
-            json.PointsBalance = next;
-          } catch (e) {
-            json.PointsError = String(e && e.message ? e.message : e);
-            try {
-               const current = await getPointsBalance({ bucket, region: regionStr, deviceId, credentials: null });
-               json.PointsBalance = current;
-            } catch (_) {}
-          }
+        const raw = Buffer.concat(buf).toString('utf8');
+        if ((upstreamRes.statusCode || 500) < 200 || (upstreamRes.statusCode || 500) >= 300) {
+          sendJson(res, upstreamRes.statusCode || 500, { error: 'UpstreamHttpError', status: upstreamRes.statusCode, body: raw });
+          return;
         }
-        sendJson(res, 200, json);
-      } catch (_) {
-        sendJson(res, 200, { body: raw, contentType });
+        try {
+          const json = JSON.parse(raw);
+          if (canAccountPoints) {
+            try {
+              if (action === 'ChatCompletions') {
+                const choices = (json && json.Choices) || (json && json.Response && json.Response.Choices);
+                if (Array.isArray(choices) && choices.length > 0) {
+                  const first = choices[0];
+                  const msg = first && first.Message;
+                  if (msg && typeof msg === 'object' && msg.Content) {
+                    outputChars = charCount(msg.Content);
+                  } else if (first && typeof first.Content === 'string') {
+                    outputChars = charCount(first.Content);
+                  }
+                }
+              } else if (action === 'ChatTranslations') {
+                const choices = (json && json.Choices) || (json && json.Response && json.Response.Choices);
+                if (Array.isArray(choices) && choices.length > 0) {
+                  const first = choices[0];
+                  const msg = first && first.Message;
+                  if (msg && typeof msg === 'object' && msg.Content) {
+                    outputChars = charCount(msg.Content);
+                  } else if (first && typeof first.Content === 'string') {
+                    outputChars = charCount(first.Content);
+                  }
+                }
+              } else if (action === 'TextTranslate') {
+                outputChars = charCount((json && json.TargetText) || (json && json.Response && json.Response.TargetText));
+              } else if (action === 'TextToVoice' || action === 'SubmitTextToImageJob' || action === 'QueryTextToImageJob') {
+                outputChars = 0;
+              }
+              const totalNeed = (inputChars * unitCost) + (outputChars * unitCost);
+              const current = await getPointsBalance({
+                bucket,
+                region: regionStr,
+                deviceId,
+                credentials: null,
+              });
+              if (current < totalNeed) {
+                sendJson(res, 402, { error: 'PointsInsufficient', message: '积分不足，无法完成请求', need: totalNeed, balance: current });
+                return;
+              }
+              const next = await setPointsBalance({
+                bucket,
+                region: regionStr,
+                deviceId,
+                balance: current - totalNeed,
+                credentials: null,
+              });
+              json.PointsDeducted = totalNeed;
+              json.PointsBalance = next;
+            } catch (e) {
+              json.PointsError = String(e && e.message ? e.message : e);
+              try {
+                 const current = await getPointsBalance({ bucket, region: regionStr, deviceId, credentials: null });
+                 json.PointsBalance = current;
+              } catch (_) {}
+            }
+          }
+          sendJson(res, 200, json);
+        } catch (_) {
+          sendJson(res, 200, { body: raw, contentType });
+        }
+      } finally {
+        safeReleaseSlot();
       }
     });
   });
 
   upstreamReq.on('error', (e) => {
+    safeReleaseSlot();
     if (!res.headersSent) sendJson(res, 502, { error: 'BadGateway', message: String(e && e.message ? e.message : e) });
     else res.end();
   });

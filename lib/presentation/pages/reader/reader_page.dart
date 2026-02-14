@@ -1020,6 +1020,8 @@ class _ReaderPageState extends State<ReaderPage>
     } catch (_) {}
 
     await _loadBookContent();
+    _restoreIllustrationMarkers();
+    if (mounted) setState(() {});
 
     // Restore Progress
     if (_chapters.isNotEmpty) {
@@ -1986,6 +1988,75 @@ class _ReaderPageState extends State<ReaderPage>
     if (list.length > 8) {
       list.removeRange(8, list.length);
     }
+    unawaited(_saveIllustrationMarkers());
+  }
+
+  String _illustrationMarkersKey() {
+    return 'illustration_markers_${widget.bookId}';
+  }
+
+  Future<void> _saveIllustrationMarkers() async {
+    final prefs = _prefs;
+    if (prefs == null) return;
+    try {
+      final selections = <String, dynamic>{};
+      for (final e in _selectionIllustrations.entries) {
+        selections[e.key.toString()] = e.value
+            .map((l) => <String, dynamic>{'text': l.text, 'suffix': l.suffix})
+            .toList(growable: false);
+      }
+      final obj = <String, dynamic>{
+        'version': 1,
+        'chapters': _chaptersWithChapterIllustrations.toList(growable: false),
+        'selections': selections,
+      };
+      await prefs.setString(_illustrationMarkersKey(), jsonEncode(obj));
+    } catch (_) {}
+  }
+
+  void _restoreIllustrationMarkers() {
+    final prefs = _prefs;
+    if (prefs == null) return;
+    try {
+      final raw = (prefs.getString(_illustrationMarkersKey()) ?? '').trim();
+      if (raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final chaptersRaw = decoded['chapters'];
+      final selectionsRaw = decoded['selections'];
+
+      _chaptersWithChapterIllustrations.clear();
+      if (chaptersRaw is List) {
+        for (final v in chaptersRaw) {
+          final idx = v is int ? v : int.tryParse(v?.toString() ?? '');
+          if (idx == null) continue;
+          if (idx < 0 || idx >= _chapters.length) continue;
+          _chaptersWithChapterIllustrations.add(idx);
+        }
+      }
+
+      _selectionIllustrations.clear();
+      if (selectionsRaw is Map) {
+        for (final e in selectionsRaw.entries) {
+          final chapterIndex = int.tryParse(e.key.toString());
+          if (chapterIndex == null) continue;
+          if (chapterIndex < 0 || chapterIndex >= _chapters.length) continue;
+          final listRaw = e.value;
+          if (listRaw is! List) continue;
+          final links = <_SelectionIllustrationLink>[];
+          for (final it in listRaw) {
+            if (it is! Map) continue;
+            final text = (it['text'] ?? '').toString().trim();
+            final suffix = (it['suffix'] ?? '').toString().trim();
+            if (text.isEmpty || suffix.isEmpty) continue;
+            links.add(_SelectionIllustrationLink(text: text, suffix: suffix));
+          }
+          if (links.isNotEmpty) {
+            _selectionIllustrations[chapterIndex] = links;
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   InlineSpan _buildInlineIllustrationButton({
@@ -2198,6 +2269,7 @@ class _ReaderPageState extends State<ReaderPage>
                     _chaptersWithChapterIllustrations.add(chapterIndex);
                   }
                 });
+                unawaited(_saveIllustrationMarkers());
               },
               onShowTopMessage: _showTopError,
             );
@@ -6254,7 +6326,8 @@ class _ReaderPageState extends State<ReaderPage>
                   ),
                 );
               },
-              child: Stack(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text.rich(
                     effectiveBodySpan,
@@ -6266,55 +6339,51 @@ class _ReaderPageState extends State<ReaderPage>
                       applyHeightToLastDescent: false,
                     ),
                   ),
-                  if (showChapterIllustrationsButton)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Listener(
+                  if (showChapterIllustrationsButton) ...[
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.center,
+                      child: Listener(
+                        behavior: HitTestBehavior.opaque,
+                        onPointerDown: (_) => _suppressReaderTap(),
+                        onPointerUp: (_) => _suppressReaderTap(),
+                        onPointerCancel: (_) => _suppressReaderTap(),
+                        child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
-                          onPointerDown: (_) => _suppressReaderTap(),
-                          onPointerUp: (_) => _suppressReaderTap(),
-                          onPointerCancel: (_) => _suppressReaderTap(),
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () {
-                              unawaited(_openAiHud(
-                                initialRoute: AiHudRoute.illustration,
-                                chapterIndexOverride: chapterIndex,
-                              ));
-                            },
-                            child: Container(
-                              margin: const EdgeInsets.only(top: 10),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
+                          onTap: () {
+                            unawaited(_openAiHud(
+                              initialRoute: AiHudRoute.illustration,
+                              chapterIndexOverride: chapterIndex,
+                            ));
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.techBlue.withOpacityCompat(0.12),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
                                 color:
-                                    AppColors.techBlue.withOpacityCompat(0.12),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                  color: AppColors.techBlue
-                                      .withOpacityCompat(0.22),
-                                  width: AppTokens.stroke,
-                                ),
+                                    AppColors.techBlue.withOpacityCompat(0.22),
+                                width: AppTokens.stroke,
                               ),
-                              child: const Text(
-                                '查看章节插画',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  height: 1.0,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.techBlue,
-                                  decoration: TextDecoration.none,
-                                ),
+                            ),
+                            child: const Text(
+                              '查看章节插画',
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.0,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.techBlue,
+                                decoration: TextDecoration.none,
                               ),
                             ),
                           ),
                         ),
                       ),
                     ),
+                  ],
                 ],
               ),
             ),

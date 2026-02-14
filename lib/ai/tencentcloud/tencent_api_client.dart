@@ -136,14 +136,45 @@ class TencentApiClient {
   }
 
   Future<void> _syncPointsFromBalance(dynamic balance) async {
-    final next = (balance is num) ? balance.toInt() : int.tryParse(balance.toString());
+    final next =
+        (balance is num) ? balance.toInt() : int.tryParse(balance.toString());
     if (next == null) return;
     await _syncPointsFromResponse(<String, dynamic>{'PointsBalance': next});
+  }
+
+  int? _retryAfterMsFromHeaders(Map<String, String> headers) {
+    String? getHeader(String key) {
+      for (final e in headers.entries) {
+        if (e.key.toLowerCase() == key.toLowerCase()) return e.value;
+      }
+      return null;
+    }
+
+    final msRaw = (getHeader('x-retry-after-ms') ?? '').trim();
+    final ms = int.tryParse(msRaw);
+    if (ms != null && ms > 0) return ms;
+
+    final raRaw = (getHeader('retry-after') ?? '').trim();
+    final seconds = int.tryParse(raRaw);
+    if (seconds != null && seconds > 0) return seconds * 1000;
+    return null;
+  }
+
+  bool _shouldRetryTencentException(TencentCloudException e) {
+    if (e.code == 'QueueBusy') return true;
+    final hs = e.httpStatus;
+    if (hs == 429 || hs == 503) return true;
+    if (e.code == 'HttpError') {
+      final m = e.message;
+      if (m.contains('HTTP 429') || m.contains('HTTP 503')) return true;
+    }
+    return _shouldRetry(e.code);
   }
 
   Future<Never> _throwScfHttpError({
     required int statusCode,
     required String body,
+    required Map<String, String> headers,
   }) async {
     dynamic decoded;
     try {
@@ -154,6 +185,13 @@ class TencentApiClient {
     if (decoded is Map) {
       final error = decoded['error']?.toString() ?? '';
       final message = decoded['message']?.toString() ?? '';
+      final retryAfterMs = switch (decoded['retryAfterMs']) {
+            int v => v,
+            num v => v.toInt(),
+            String v => int.tryParse(v),
+            _ => null,
+          } ??
+          _retryAfterMsFromHeaders(headers);
       if (decoded.containsKey('balance')) {
         await _syncPointsFromBalance(decoded['balance']);
       }
@@ -161,12 +199,17 @@ class TencentApiClient {
         throw TencentCloudException(
           code: error,
           message: message.isNotEmpty ? message : 'HTTP $statusCode',
+          httpStatus: statusCode,
+          retryAfterMs: retryAfterMs,
         );
       }
     }
+    final retryAfterMs = _retryAfterMsFromHeaders(headers);
     throw TencentCloudException(
       code: 'HttpError',
       message: 'HTTP $statusCode',
+      httpStatus: statusCode,
+      retryAfterMs: retryAfterMs,
     );
   }
 
@@ -355,6 +398,7 @@ class TencentApiClient {
             await _throwScfHttpError(
               statusCode: resp.statusCode,
               body: utf8.decode(resp.bodyBytes),
+              headers: resp.headers,
             );
           }
 
@@ -412,6 +456,8 @@ class TencentApiClient {
           throw TencentCloudException(
             code: 'HttpError',
             message: 'HTTP ${resp.statusCode}: ${resp.body}',
+            httpStatus: resp.statusCode,
+            retryAfterMs: _retryAfterMsFromHeaders(resp.headers),
           );
         }
 
@@ -455,6 +501,13 @@ class TencentApiClient {
         return response.cast<String, dynamic>();
       } catch (e, st) {
         if (e is TencentCloudException) {
+          if (_shouldRetryTencentException(e) && retryCount < maxRetries) {
+            retryCount++;
+            final ms = (e.retryAfterMs ?? (200 * (1 << retryCount)))
+                .clamp(200, 5000);
+            await Future<void>.delayed(Duration(milliseconds: ms));
+            continue;
+          }
           rethrow;
         }
 
@@ -580,54 +633,145 @@ class TencentApiClient {
     required Map<String, dynamic> payload,
     bool useScfProxy = false,
     Duration? timeout,
+    int maxRetries = 3,
   }) async* {
-    void Function()? release;
-    try {
-      if (action == 'ChatTranslations') {
-        release = await _chatTranslationsGate.acquire();
-        await _chatTranslationsPacer.pace();
-      } else if (action == 'ChatCompletions') {
-        release = await _chatCompletionsGate.acquire();
-      }
-      final now = DateTime.now().toUtc();
-      final ts = now.millisecondsSinceEpoch ~/ 1000;
-      final payloadJson = jsonEncode(payload);
+    int retryCount = 0;
+    while (true) {
+      void Function()? release;
+      try {
+        if (action == 'ChatTranslations') {
+          release = await _chatTranslationsGate.acquire();
+          await _chatTranslationsPacer.pace();
+        } else if (action == 'ChatCompletions') {
+          release = await _chatCompletionsGate.acquire();
+        }
+        final now = DateTime.now().toUtc();
+        final ts = now.millisecondsSinceEpoch ~/ 1000;
+        final payloadJson = jsonEncode(payload);
 
-      final usingScf = useScfProxy;
-      if (!usingScf && (secretId.trim().isEmpty || secretKey.trim().isEmpty)) {
-        throw TencentCloudException(
-          code: 'MissingCredentials',
-          message: '已开启个人密钥，但未填写 SecretId/SecretKey',
+        final usingScf = useScfProxy;
+        if (!usingScf &&
+            (secretId.trim().isEmpty || secretKey.trim().isEmpty)) {
+          throw TencentCloudException(
+            code: 'MissingCredentials',
+            message: '已开启个人密钥，但未填写 SecretId/SecretKey',
+          );
+        }
+
+        if (usingScf) {
+          final uri = _resolveScfUri();
+          final request = http.Request('POST', uri);
+          request.headers.addAll(<String, String>{
+            'Content-Type': 'application/json; charset=utf-8',
+            'Accept': 'text/event-stream',
+          });
+
+          var token = (_pointsToken ?? _envScfToken).trim();
+
+          if (token.isNotEmpty) {
+            request.headers['X-Airread-Token'] = token;
+          }
+          final debugNoJwt = _envDebugNoJwt.trim() == '1';
+          if (kDebugMode && debugNoJwt) {
+            request.headers['X-Airread-Debug-NoJWT'] = '1';
+          }
+          request.body = jsonEncode(<String, dynamic>{
+            'host': host,
+            'service': service,
+            'action': action,
+            'version': version,
+            if (region != null && region.trim().isNotEmpty) 'region': region,
+            'payload': payload,
+            'stream': true,
+            'timestamp': ts,
+          });
+
+          final streamedResponse = timeout != null
+              ? await _client.send(request).timeout(timeout)
+              : await _client.send(request);
+
+          if (streamedResponse.statusCode < 200 ||
+              streamedResponse.statusCode >= 300) {
+            final content = await streamedResponse.stream.toBytes();
+            final body = utf8.decode(content);
+            await _throwScfHttpError(
+              statusCode: streamedResponse.statusCode,
+              body: body,
+              headers: streamedResponse.headers,
+            );
+          }
+
+          final contentType =
+              streamedResponse.headers['content-type']?.toLowerCase() ?? '';
+          if (contentType.contains('text/event-stream')) {
+            final transformer = utf8.decoder;
+            String buffer = '';
+
+            await for (final chunk
+                in streamedResponse.stream.transform(transformer)) {
+              buffer += chunk;
+
+              while (true) {
+                final lineIndex = buffer.indexOf('\n');
+                if (lineIndex == -1) break;
+
+                final line = buffer.substring(0, lineIndex).trim();
+                buffer = buffer.substring(lineIndex + 1);
+                if (line.isEmpty) continue;
+
+                await for (final chunk in _processSseLine(line)) {
+                  yield chunk;
+                }
+              }
+            }
+
+            if (buffer.trim().isNotEmpty) {
+              await for (final chunk in _processSseLine(buffer.trim())) {
+                yield chunk;
+              }
+            }
+
+            yield StreamChunk(content: '', isComplete: true);
+            return;
+          }
+
+          final content = await streamedResponse.stream.toBytes();
+          final body = utf8.decode(content);
+          final decoded = jsonDecode(body);
+          final response = _normalizeScfJsonResponse(decoded);
+          await _syncPointsFromResponse(response);
+          _throwIfTencentError(response);
+          yield* _singleShotStreamFromResponse(response);
+          return;
+        }
+
+        final signer = Tc3Signer.signJson(
+          secretId: secretId.trim(),
+          secretKey: secretKey.trim(),
+          service: service,
+          host: host,
+          action: action,
+          version: version,
+          region: region,
+          timestampSeconds: ts,
+          payloadJson: payloadJson,
         );
-      }
 
-      if (usingScf) {
-        final uri = _resolveScfUri();
-        final request = http.Request('POST', uri);
-        request.headers.addAll(<String, String>{
+        final headers = <String, String>{
           'Content-Type': 'application/json; charset=utf-8',
-          'Accept': 'text/event-stream',
-        });
+          if (!kIsWeb) 'Host': host,
+          'X-TC-Action': action,
+          'X-TC-Version': version,
+          'X-TC-Timestamp': ts.toString(),
+          if (region != null && region.trim().isNotEmpty)
+            'X-TC-Region': region.trim(),
+          'Authorization': signer.authorization,
+        };
 
-        var token = (_pointsToken ?? _envScfToken).trim();
-
-        if (token.isNotEmpty) {
-          request.headers['X-Airread-Token'] = token;
-        }
-        final debugNoJwt = _envDebugNoJwt.trim() == '1';
-        if (kDebugMode && debugNoJwt) {
-          request.headers['X-Airread-Debug-NoJWT'] = '1';
-        }
-        request.body = jsonEncode(<String, dynamic>{
-          'host': host,
-          'service': service,
-          'action': action,
-          'version': version,
-          if (region != null && region.trim().isNotEmpty) 'region': region,
-          'payload': payload,
-          'stream': true,
-          'timestamp': ts,
-        });
+        final uri = Uri.https(host, '/');
+        final request = http.Request('POST', uri);
+        request.headers.addAll(headers);
+        request.body = payloadJson;
 
         final streamedResponse = timeout != null
             ? await _client.send(request).timeout(timeout)
@@ -637,135 +781,58 @@ class TencentApiClient {
             streamedResponse.statusCode >= 300) {
           final content = await streamedResponse.stream.toBytes();
           final body = utf8.decode(content);
-          await _throwScfHttpError(
-            statusCode: streamedResponse.statusCode,
-            body: body,
+          debugPrint(
+              'TencentApiClient Stream Error: HTTP ${streamedResponse.statusCode} - $body');
+          throw TencentCloudException(
+            code: 'HttpError',
+            message: 'HTTP ${streamedResponse.statusCode}: $body',
+            httpStatus: streamedResponse.statusCode,
+            retryAfterMs: _retryAfterMsFromHeaders(streamedResponse.headers),
           );
         }
 
-        final contentType =
-            streamedResponse.headers['content-type']?.toLowerCase() ?? '';
-        if (contentType.contains('text/event-stream')) {
-          final transformer = utf8.decoder;
-          String buffer = '';
+        final transformer = utf8.decoder;
+        String buffer = '';
 
-          await for (final chunk
-              in streamedResponse.stream.transform(transformer)) {
-            buffer += chunk;
+        await for (final chunk
+            in streamedResponse.stream.transform(transformer)) {
+          buffer += chunk;
 
-            while (true) {
-              final lineIndex = buffer.indexOf('\n');
-              if (lineIndex == -1) break;
+          while (true) {
+            final lineIndex = buffer.indexOf('\n');
+            if (lineIndex == -1) break;
 
-              final line = buffer.substring(0, lineIndex).trim();
-              buffer = buffer.substring(lineIndex + 1);
-              if (line.isEmpty) continue;
+            final line = buffer.substring(0, lineIndex).trim();
+            buffer = buffer.substring(lineIndex + 1);
+            if (line.isEmpty) continue;
 
-              await for (final chunk in _processSseLine(line)) {
-                yield chunk;
-                // if (chunk.isComplete) return; // Do not stop early
-              }
-            }
-          }
-
-          if (buffer.trim().isNotEmpty) {
-            await for (final chunk in _processSseLine(buffer.trim())) {
+            await for (final chunk in _processSseLine(line)) {
               yield chunk;
-              // if (chunk.isComplete) return; // Do not stop early
             }
           }
-
-          yield StreamChunk(content: '', isComplete: true);
-          return;
         }
 
-        final content = await streamedResponse.stream.toBytes();
-        final body = utf8.decode(content);
-        final decoded = jsonDecode(body);
-        final response = _normalizeScfJsonResponse(decoded);
-        await _syncPointsFromResponse(response);
-        _throwIfTencentError(response);
-        yield* _singleShotStreamFromResponse(response);
-        return;
-      }
-
-      final signer = Tc3Signer.signJson(
-        secretId: secretId.trim(),
-        secretKey: secretKey.trim(),
-        service: service,
-        host: host,
-        action: action,
-        version: version,
-        region: region,
-        timestampSeconds: ts,
-        payloadJson: payloadJson,
-      );
-
-      final headers = <String, String>{
-        'Content-Type': 'application/json; charset=utf-8',
-        if (!kIsWeb) 'Host': host,
-        'X-TC-Action': action,
-        'X-TC-Version': version,
-        'X-TC-Timestamp': ts.toString(),
-        if (region != null && region.trim().isNotEmpty)
-          'X-TC-Region': region.trim(),
-        'Authorization': signer.authorization,
-      };
-
-      final uri = Uri.https(host, '/');
-      final request = http.Request('POST', uri);
-      request.headers.addAll(headers);
-      request.body = payloadJson;
-
-      final streamedResponse = timeout != null
-          ? await _client.send(request).timeout(timeout)
-          : await _client.send(request);
-
-      if (streamedResponse.statusCode < 200 ||
-          streamedResponse.statusCode >= 300) {
-        final content = await streamedResponse.stream.toBytes();
-        final body = utf8.decode(content);
-        debugPrint(
-            'TencentApiClient Stream Error: HTTP ${streamedResponse.statusCode} - $body');
-        throw TencentCloudException(
-          code: 'HttpError',
-          message: 'HTTP ${streamedResponse.statusCode}: $body',
-        );
-      }
-
-      // 持续读取流式响应，直到连接关闭或收到[DONE]
-      final transformer = utf8.decoder;
-      String buffer = '';
-
-      await for (final chunk
-          in streamedResponse.stream.transform(transformer)) {
-        buffer += chunk;
-
-        while (true) {
-          final lineIndex = buffer.indexOf('\n');
-          if (lineIndex == -1) break;
-
-          final line = buffer.substring(0, lineIndex).trim();
-          buffer = buffer.substring(lineIndex + 1);
-          if (line.isEmpty) continue;
-
-          await for (final chunk in _processSseLine(line)) {
+        if (buffer.trim().isNotEmpty) {
+          await for (final chunk in _processSseLine(buffer.trim())) {
             yield chunk;
-            // if (chunk.isComplete) return; // Do not stop early
           }
         }
-      }
 
-      if (buffer.trim().isNotEmpty) {
-        await for (final chunk in _processSseLine(buffer.trim())) {
-          yield chunk;
-          // if (chunk.isComplete) return; // Do not stop early
+        yield StreamChunk(content: '', isComplete: true);
+        return;
+      } catch (e) {
+        if (e is TencentCloudException &&
+            _shouldRetryTencentException(e) &&
+            retryCount < maxRetries) {
+          retryCount++;
+          final ms = (e.retryAfterMs ?? (250 * (1 << retryCount))).clamp(200, 6000);
+          await Future<void>.delayed(Duration(milliseconds: ms));
+          continue;
         }
-      } else {}
-
-      yield StreamChunk(content: '', isComplete: true);
-    } finally {
-      release?.call();
+        rethrow;
+      } finally {
+        release?.call();
+      }
     }
   }
 }
