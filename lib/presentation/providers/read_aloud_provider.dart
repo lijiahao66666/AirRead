@@ -252,7 +252,7 @@ class ReadAloudProvider extends ChangeNotifier {
     final personalKeysChanged =
         _lastUsingPersonalTencentKeys != tp.usingPersonalTencentKeys;
 
-    final changed = engineChanged ||
+    final configChanged = engineChanged ||
         voiceChanged ||
         speedChanged ||
         localSpeedChanged ||
@@ -261,9 +261,8 @@ class ReadAloudProvider extends ChangeNotifier {
         fromChanged ||
         toChanged ||
         aiReadAloudEnabledChanged ||
-        pointsBalanceChanged ||
         personalKeysChanged;
-    if (!changed && !cacheChanged) return;
+    if (!configChanged && !pointsBalanceChanged && !cacheChanged) return;
 
     _lastEngine = tp.readAloudEngine;
     _lastVoiceType = tp.ttsVoiceType;
@@ -296,7 +295,7 @@ class ReadAloudProvider extends ChangeNotifier {
       return;
     }
 
-    if (cacheChanged && !changed) {
+    if (cacheChanged && !configChanged) {
       if (!tp.applyToReader) return;
       if (tp.config.displayMode != TranslationDisplayMode.translationOnly &&
           tp.config.displayMode != TranslationDisplayMode.bilingual) {
@@ -321,6 +320,10 @@ class ReadAloudProvider extends ChangeNotifier {
           keepPaused: true,
         ));
       }
+      return;
+    }
+
+    if (pointsBalanceChanged && !configChanged && !cacheChanged) {
       return;
     }
 

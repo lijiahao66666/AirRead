@@ -518,6 +518,7 @@ class _ReaderPageState extends State<ReaderPage>
   bool _tapMoved = false;
   int _suppressReaderTapUntilMs = 0;
   final Map<int, List<_SelectionIllustrationLink>> _selectionIllustrations = {};
+  final Set<int> _chaptersWithChapterIllustrations = {};
   AiModelProvider? _aiModel;
   VoidCallback? _aiModelListener;
   int _lastAiPointsBalance = 0;
@@ -1938,6 +1939,7 @@ class _ReaderPageState extends State<ReaderPage>
     bool autoSendInitialQa = false,
     String? illustrationOverrideText,
     String? illustrationChapterIdSuffix,
+    int? chapterIndexOverride,
   }) async {
     await showModalBottomSheet(
       context: context,
@@ -1951,30 +1953,36 @@ class _ReaderPageState extends State<ReaderPage>
       builder: (sheetContext) {
         return Consumer<TranslationProvider>(
           builder: (context, translationProvider, _) {
+            final targetChapterIndex = chapterIndexOverride ?? _currentChapterIndex;
             final viewportHeight = _lastPaginationViewportHeight;
             final contentWidth = _lastPaginationContentWidth;
             if (viewportHeight != null && contentWidth != null) {
               _schedulePlainPaginationForChapter(
-                chapterIndex: _currentChapterIndex,
+                chapterIndex: targetChapterIndex,
                 viewportHeight: viewportHeight,
                 contentWidth: contentWidth,
               );
             }
 
-            final plainRanges = _chapterPlainPageRanges[_currentChapterIndex];
-            final plainPageIndex = plainRanges == null || plainRanges.isEmpty
-                ? _currentPageInChapter
-                : _plainPageIndexForProgress(
-                    _currentChapterIndex,
-                    _currentPageProgressInChapter,
-                  );
+            int plainPageIndex = 0;
+            final plainRanges = _chapterPlainPageRanges[targetChapterIndex];
+            if (targetChapterIndex == _currentChapterIndex) {
+              plainPageIndex = plainRanges == null || plainRanges.isEmpty
+                  ? _currentPageInChapter
+                  : _plainPageIndexForProgress(
+                      _currentChapterIndex,
+                      _currentPageProgressInChapter,
+                    );
+            } else if (plainRanges != null && plainRanges.isNotEmpty) {
+              plainPageIndex = 0;
+            }
 
             final qaTextCache = Map<int, String>.from(_chapterPlainText);
-            qaTextCache[_currentChapterIndex] =
-                _getPlainTextForChapter(_currentChapterIndex);
+            qaTextCache[targetChapterIndex] =
+                _getPlainTextForChapter(targetChapterIndex);
             final overrideText = (illustrationOverrideText ?? '').trim();
             if (overrideText.isNotEmpty) {
-              qaTextCache[_currentChapterIndex] = overrideText;
+              qaTextCache[targetChapterIndex] = overrideText;
             }
 
             return AiHud(
@@ -2000,12 +2008,18 @@ class _ReaderPageState extends State<ReaderPage>
               },
               bookId: widget.bookId,
               chapterTextCache: qaTextCache,
-              currentChapterIndex: _currentChapterIndex,
+              currentChapterIndex: targetChapterIndex,
               currentPageInChapter: plainPageIndex,
               chapterPageRanges: _chapterPlainPageRanges.isNotEmpty
                   ? _chapterPlainPageRanges
                   : _chapterPageRanges,
               illustrationChapterIdSuffix: illustrationChapterIdSuffix,
+              onChapterIllustrationsGenerated: (chapterIndex) {
+                if (!mounted) return;
+                setState(() {
+                  _chaptersWithChapterIllustrations.add(chapterIndex);
+                });
+              },
               onShowTopMessage: _showTopError,
             );
           },
@@ -5841,6 +5855,8 @@ class _ReaderPageState extends State<ReaderPage>
         builder: (context) {
           String selectedText = '';
           TextSpan effectiveBodySpan = bodySpan;
+          final showChapterIllustrationsButton = isLastPage &&
+              _chaptersWithChapterIllustrations.contains(chapterIndex);
           return SelectionArea(
             key: ValueKey(
                 'sel_${chapterIndex}_${range.start}_$_selectionAreaResetToken'),
@@ -6016,15 +6032,67 @@ class _ReaderPageState extends State<ReaderPage>
                 ),
               );
             },
-            child: Text.rich(
-              effectiveBodySpan,
-              style: bodyStyle,
-              strutStyle:
-                  StrutStyle.fromTextStyle(bodyStyle, forceStrutHeight: true),
-              textHeightBehavior: const TextHeightBehavior(
-                applyHeightToFirstAscent: false,
-                applyHeightToLastDescent: false,
-              ),
+            child: Stack(
+              children: [
+                Text.rich(
+                  effectiveBodySpan,
+                  style: bodyStyle,
+                  strutStyle: StrutStyle.fromTextStyle(bodyStyle,
+                      forceStrutHeight: true),
+                  textHeightBehavior: const TextHeightBehavior(
+                    applyHeightToFirstAscent: false,
+                    applyHeightToLastDescent: false,
+                  ),
+                ),
+                if (showChapterIllustrationsButton)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Listener(
+                        behavior: HitTestBehavior.opaque,
+                        onPointerDown: (_) => _suppressReaderTap(),
+                        onPointerUp: (_) => _suppressReaderTap(),
+                        onPointerCancel: (_) => _suppressReaderTap(),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            unawaited(_openAiHud(
+                              initialRoute: AiHudRoute.illustration,
+                              chapterIndexOverride: chapterIndex,
+                            ));
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(top: 10),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AppColors.techBlue.withOpacityCompat(0.12),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color:
+                                    AppColors.techBlue.withOpacityCompat(0.22),
+                                width: AppTokens.stroke,
+                              ),
+                            ),
+                            child: const Text(
+                              '查看章节插画',
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.0,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.techBlue,
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           );
         },

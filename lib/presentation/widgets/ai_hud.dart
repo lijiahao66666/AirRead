@@ -81,6 +81,7 @@ class AiHud extends StatefulWidget {
   final int currentPageInChapter;
   final Map<int, List<TextRange>> chapterPageRanges;
   final String? illustrationChapterIdSuffix;
+  final ValueChanged<int>? onChapterIllustrationsGenerated;
 
   final void Function(String, {bool isError})? onShowTopMessage;
 
@@ -102,6 +103,7 @@ class AiHud extends StatefulWidget {
     required this.currentPageInChapter,
     required this.chapterPageRanges,
     this.illustrationChapterIdSuffix,
+    this.onChapterIllustrationsGenerated,
     this.onShowTopMessage,
   });
 
@@ -389,6 +391,7 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           chapterTextCache: widget.chapterTextCache,
           currentChapterIndex: widget.currentChapterIndex,
           chapterIdSuffix: widget.illustrationChapterIdSuffix,
+          onChapterIllustrationsGenerated: widget.onChapterIllustrationsGenerated,
           onShowTopMessage: widget.onShowTopMessage,
         ),
       AiHudRoute.tencentSettings => _TencentHunyuanSettingsPanel(
@@ -4258,6 +4261,7 @@ class _IllustrationPanel extends StatefulWidget {
   final Map<int, String> chapterTextCache;
   final int currentChapterIndex;
   final String? chapterIdSuffix;
+  final ValueChanged<int>? onChapterIllustrationsGenerated;
   final void Function(String, {bool isError})? onShowTopMessage;
 
   const _IllustrationPanel({
@@ -4269,6 +4273,7 @@ class _IllustrationPanel extends StatefulWidget {
     required this.chapterTextCache,
     required this.currentChapterIndex,
     this.chapterIdSuffix,
+    this.onChapterIllustrationsGenerated,
     this.onShowTopMessage,
   });
 
@@ -4287,6 +4292,7 @@ class _IllustrationPanelState extends State<_IllustrationPanel> {
       chapterTextCache: widget.chapterTextCache,
       currentChapterIndex: widget.currentChapterIndex,
       chapterIdSuffix: widget.chapterIdSuffix,
+      onChapterIllustrationsGenerated: widget.onChapterIllustrationsGenerated,
       onShowTopMessage: widget.onShowTopMessage,
     );
   }

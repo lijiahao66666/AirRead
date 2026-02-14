@@ -24,6 +24,7 @@ class IllustrationPanel extends StatefulWidget {
   final Map<int, String> chapterTextCache;
   final int currentChapterIndex;
   final String? chapterIdSuffix;
+  final ValueChanged<int>? onChapterIllustrationsGenerated;
   final void Function(String, {bool isError})? onShowTopMessage;
 
   const IllustrationPanel({
@@ -35,6 +36,7 @@ class IllustrationPanel extends StatefulWidget {
     required this.chapterTextCache,
     required this.currentChapterIndex,
     this.chapterIdSuffix,
+    this.onChapterIllustrationsGenerated,
     this.onShowTopMessage,
   });
 
@@ -206,6 +208,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       _showToast('章节内容为空');
       return;
     }
+    final isSelectionMode = (widget.chapterIdSuffix ?? '').trim().startsWith('sel_');
     final usingPersonal =
         tp.usingPersonalTencentKeys && getEmbeddedPublicHunyuanCredentials().isUsable;
     final onlineEntitled = aiModel.pointsBalance > 0 || usingPersonal;
@@ -240,7 +243,6 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     }
 
     final chapterId = _chapterId();
-    final isSelectionMode = (widget.chapterIdSuffix ?? '').trim().startsWith('sel_');
     final stylePrefix = _stylePrompts[_styleKey] ?? _stylePrompts['国风']!;
     final resolution = _ratioToResolution[_ratioKey] ?? _ratioToResolution['1:1']!;
 
@@ -261,6 +263,9 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         enableThinkingForOnline: enableThinkingForOnline,
         force: force,
       );
+      if (!isSelectionMode) {
+        widget.onChapterIllustrationsGenerated?.call(widget.currentChapterIndex);
+      }
     } catch (e) {
       _showToast(e.toString());
     }
