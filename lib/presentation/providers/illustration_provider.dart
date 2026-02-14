@@ -101,7 +101,8 @@ class IllustrationProvider extends ChangeNotifier {
   }
 
   void clearChapter(String chapterId) {
-    final keys = _cache.keys.where((k) => k.startsWith('$chapterId::')).toList();
+    final prefix = '$chapterId::il';
+    final keys = _cache.keys.where((k) => k.startsWith(prefix)).toList();
     if (keys.isEmpty) return;
     for (final k in keys) {
       _cache.remove(k);

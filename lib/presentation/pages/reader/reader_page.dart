@@ -1941,6 +1941,12 @@ class _ReaderPageState extends State<ReaderPage>
     String? illustrationChapterIdSuffix,
     int? chapterIndexOverride,
   }) async {
+    final overrideTextTrimmed = (illustrationOverrideText ?? '').trim();
+    final suffixTrimmed = (illustrationChapterIdSuffix ?? '').trim();
+    if (overrideTextTrimmed.isNotEmpty && suffixTrimmed.isEmpty) {
+      illustrationChapterIdSuffix =
+          'sel_${overrideTextTrimmed.hashCode.toUnsigned(32).toRadixString(16)}';
+    }
     await showModalBottomSheet(
       context: context,
       backgroundColor: _panelBgColor,
