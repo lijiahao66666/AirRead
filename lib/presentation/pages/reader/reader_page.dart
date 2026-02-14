@@ -356,6 +356,16 @@ class _SelectionIllustrationLink {
   });
 }
 
+class _ReaderSelectionControls extends MaterialTextSelectionControls {
+  @override
+  Size getHandleSize(double textLineHeight) {
+    final base = super.getHandleSize(textLineHeight);
+    final w = base.width < 26 ? 26.0 : base.width;
+    final h = base.height < 26 ? 26.0 : base.height;
+    return Size(w, h);
+  }
+}
+
 class ReaderPage extends StatefulWidget {
   final String bookId;
 
@@ -372,6 +382,8 @@ class _ReaderPageState extends State<ReaderPage>
       MethodChannel('airread/local_tts');
   static const EventChannel _localTtsEvents =
       EventChannel('airread/local_tts_events');
+  static final TextSelectionControls _readerSelectionControls =
+      _ReaderSelectionControls();
   bool _showControls = false;
   bool _isLoading = true;
   String? _error;
@@ -1831,7 +1843,8 @@ class _ReaderPageState extends State<ReaderPage>
     required _SelectionIllustrationLink link,
   }) {
     return WidgetSpan(
-      alignment: PlaceholderAlignment.middle,
+      alignment: PlaceholderAlignment.baseline,
+      baseline: TextBaseline.alphabetic,
       child: Listener(
         behavior: HitTestBehavior.opaque,
         onPointerDown: (_) => _suppressReaderTap(),
@@ -1848,7 +1861,7 @@ class _ReaderPageState extends State<ReaderPage>
           },
           child: Container(
             margin: const EdgeInsets.only(left: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
               color: AppColors.techBlue.withOpacityCompat(0.12),
               borderRadius: BorderRadius.circular(999),
@@ -1860,7 +1873,7 @@ class _ReaderPageState extends State<ReaderPage>
             child: const Text(
               '查看插画',
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 10,
                 height: 1.0,
                 fontWeight: FontWeight.w700,
                 color: AppColors.techBlue,
@@ -5861,17 +5874,35 @@ class _ReaderPageState extends State<ReaderPage>
         builder: (context) {
           String selectedText = '';
           TextSpan effectiveBodySpan = bodySpan;
+          bool hasSelection = false;
           final showChapterIllustrationsButton = isLastPage &&
               _chaptersWithChapterIllustrations.contains(chapterIndex);
-          return SelectionArea(
-            key: ValueKey(
-                'sel_${chapterIndex}_${range.start}_$_selectionAreaResetToken'),
-            onSelectionChanged: (value) {
-              selectedText =
-                  ((value as dynamic)?.plainText as String?)?.trim() ?? '';
+          return Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) {
+              if (hasSelection) _suppressReaderTap();
             },
-            contextMenuBuilder: (context, selectableRegionState) {
-              final text = selectedText.trim();
+            onPointerUp: (_) {
+              if (hasSelection) _suppressReaderTap();
+            },
+            onPointerCancel: (_) {
+              if (hasSelection) _suppressReaderTap();
+            },
+            child: SelectionArea(
+              selectionControls: _readerSelectionControls,
+              key: ValueKey(
+                  'sel_${chapterIndex}_${range.start}_$_selectionAreaResetToken'),
+              onSelectionChanged: (value) {
+                selectedText =
+                    ((value as dynamic)?.plainText as String?)?.trim() ?? '';
+                final active = selectedText.isNotEmpty;
+                if (active != hasSelection) {
+                  hasSelection = active;
+                  if (active) _suppressReaderTap();
+                }
+              },
+              contextMenuBuilder: (context, selectableRegionState) {
+                final text = selectedText.trim();
               final tp = context.read<TranslationProvider>();
               final readAloud = context.read<ReadAloudProvider>();
               final aiModel = context.read<AiModelProvider>();
@@ -6037,68 +6068,70 @@ class _ReaderPageState extends State<ReaderPage>
                   buttonItems: items,
                 ),
               );
-            },
-            child: Stack(
-              children: [
-                Text.rich(
-                  effectiveBodySpan,
-                  style: bodyStyle,
-                  strutStyle: StrutStyle.fromTextStyle(bodyStyle,
-                      forceStrutHeight: true),
-                  textHeightBehavior: const TextHeightBehavior(
-                    applyHeightToFirstAscent: false,
-                    applyHeightToLastDescent: false,
+              },
+              child: Stack(
+                children: [
+                  Text.rich(
+                    effectiveBodySpan,
+                    style: bodyStyle,
+                    strutStyle: StrutStyle.fromTextStyle(bodyStyle,
+                        forceStrutHeight: true),
+                    textHeightBehavior: const TextHeightBehavior(
+                      applyHeightToFirstAscent: false,
+                      applyHeightToLastDescent: false,
+                    ),
                   ),
-                ),
-                if (showChapterIllustrationsButton)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: Listener(
-                        behavior: HitTestBehavior.opaque,
-                        onPointerDown: (_) => _suppressReaderTap(),
-                        onPointerUp: (_) => _suppressReaderTap(),
-                        onPointerCancel: (_) => _suppressReaderTap(),
-                        child: GestureDetector(
+                  if (showChapterIllustrationsButton)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Listener(
                           behavior: HitTestBehavior.opaque,
-                          onTap: () {
-                            unawaited(_openAiHud(
-                              initialRoute: AiHudRoute.illustration,
-                              chapterIndexOverride: chapterIndex,
-                            ));
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.only(top: 10),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.techBlue.withOpacityCompat(0.12),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
+                          onPointerDown: (_) => _suppressReaderTap(),
+                          onPointerUp: (_) => _suppressReaderTap(),
+                          onPointerCancel: (_) => _suppressReaderTap(),
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              unawaited(_openAiHud(
+                                initialRoute: AiHudRoute.illustration,
+                                chapterIndexOverride: chapterIndex,
+                              ));
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.only(top: 10),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
                                 color:
-                                    AppColors.techBlue.withOpacityCompat(0.22),
-                                width: AppTokens.stroke,
+                                    AppColors.techBlue.withOpacityCompat(0.12),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: AppColors.techBlue
+                                      .withOpacityCompat(0.22),
+                                  width: AppTokens.stroke,
+                                ),
                               ),
-                            ),
-                            child: const Text(
-                              '查看章节插画',
-                              style: TextStyle(
-                                fontSize: 12,
-                                height: 1.0,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.techBlue,
-                                decoration: TextDecoration.none,
+                              child: const Text(
+                                '查看章节插画',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  height: 1.0,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.techBlue,
+                                  decoration: TextDecoration.none,
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           );
         },
