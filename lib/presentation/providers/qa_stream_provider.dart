@@ -3,6 +3,7 @@ import 'dart:async';
 import '../../ai/reading/qa_service.dart';
 // import '../../ai/reading/reading_context_service.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
+import '../../ai/tencentcloud/tencent_cloud_exception.dart';
 import 'ai_model_provider.dart';
 import '../models/ai_chat_model_choice.dart';
 import '../../ai/hunyuan/hunyuan_text_client.dart';
@@ -417,7 +418,34 @@ class QaStreamProvider extends ChangeNotifier {
   }
 
   String _formatError(Object e) {
+    if (e is TencentCloudException) {
+      if (e.code == 'PointsInsufficient') return '积分不足，请购买积分后再试';
+      if (e.code == 'HttpError') {
+        final m = e.message;
+        if (m.contains('HTTP 402') || m.contains('PointsInsufficient') || m.contains('积分不足')) {
+          return '积分不足，请购买积分后再试';
+        }
+        if (m.contains('HTTP 401') || m.contains('HTTP 403')) {
+          return '鉴权失败，请检查积分状态或个人密钥是否正确';
+        }
+        if (m.contains('HTTP 429')) {
+          return '请求过于频繁，请稍后重试';
+        }
+        return '在线服务异常，请稍后重试';
+      }
+      if (e.message.contains('积分不足') || e.message.contains('PointsInsufficient')) {
+        return '积分不足，请购买积分后再试';
+      }
+      return e.toString();
+    }
+
     final s = e.toString();
+    if (s.contains('PointsInsufficient') || s.contains('HTTP 402') || s.contains('积分不足')) {
+      return '积分不足，请购买积分后再试';
+    }
+    if (s.contains('SocketException') || s.contains('Failed host lookup') || s.contains('XMLHttpRequest error')) {
+      return '网络连接失败，请检查网络后重试';
+    }
     if (s.startsWith('Exception: ')) return s.substring('Exception: '.length);
     return s;
   }

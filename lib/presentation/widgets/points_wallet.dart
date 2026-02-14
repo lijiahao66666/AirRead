@@ -66,9 +66,13 @@ class _PointsWalletState extends State<PointsWallet> {
     return sha256.convert(utf8.encode(fingerprint)).toString();
   }
 
-  SecretKey _deriveRedeemKey(String fingerprint) {
-    final bytes = sha256.convert(utf8.encode('airread|$fingerprint')).bytes;
+  SecretKey _deriveRedeemKeyWithSalt(String fingerprint, String salt) {
+    final bytes = sha256.convert(utf8.encode('$salt|$fingerprint')).bytes;
     return SecretKey(bytes);
+  }
+
+  SecretKey _deriveRedeemKey(String fingerprint) {
+    return _deriveRedeemKeyWithSalt(fingerprint, 'airread');
   }
 
   Future<String?> _encryptRedeemPayload(String payload, String fingerprint) async {
@@ -88,21 +92,46 @@ class _PointsWalletState extends State<PointsWallet> {
 
   Future<String?> _decryptRedeemPayload(String payload, String fingerprint) async {
     try {
-      final parts = payload.split('.');
-      if (parts.length != 3) return null;
-      final cipherRaw = parts[0];
-      final nonceRaw = parts[1];
-      final macRaw = parts[2];
-      final secretBox = SecretBox(
-        base64Url.decode(cipherRaw),
-        nonce: base64Url.decode(nonceRaw),
-        mac: Mac(base64Url.decode(macRaw)),
-      );
-      final clear = await _redeemCipher.decrypt(
-        secretBox,
-        secretKey: _deriveRedeemKey(fingerprint),
-      );
-      return utf8.decode(clear);
+      final t = payload.trim();
+      if (t.isEmpty) return null;
+
+      Future<String?> tryDecryptDot(String raw, SecretKey key) async {
+        final parts = raw.split('.');
+        if (parts.length != 3) return null;
+        final cipherRaw = parts[0];
+        final nonceRaw = parts[1];
+        final macRaw = parts[2];
+        if (cipherRaw.isEmpty || nonceRaw.isEmpty || macRaw.isEmpty) return null;
+        final secretBox = SecretBox(
+          base64Url.decode(cipherRaw),
+          nonce: base64Url.decode(nonceRaw),
+          mac: Mac(base64Url.decode(macRaw)),
+        );
+        final clear = await _redeemCipher.decrypt(secretBox, secretKey: key);
+        return utf8.decode(clear);
+      }
+
+      Future<String?> tryDecryptJson(String raw, SecretKey key) async {
+        final decoded = jsonDecode(raw);
+        if (decoded is! Map) return null;
+        final nonceRaw = decoded['nonce']?.toString() ?? '';
+        final cipherRaw = decoded['cipher']?.toString() ?? '';
+        final macRaw = decoded['mac']?.toString() ?? '';
+        if (nonceRaw.isEmpty || cipherRaw.isEmpty || macRaw.isEmpty) return null;
+        final secretBox = SecretBox(
+          base64Url.decode(cipherRaw),
+          nonce: base64Url.decode(nonceRaw),
+          mac: Mac(base64Url.decode(macRaw)),
+        );
+        final clear = await _redeemCipher.decrypt(secretBox, secretKey: key);
+        return utf8.decode(clear);
+      }
+
+      final v1Key = _deriveRedeemKeyWithSalt(fingerprint, 'airread');
+      final v2Key = _deriveRedeemKeyWithSalt(fingerprint, 'airread_redeem_v2');
+
+      return await tryDecryptDot(t, v1Key) ??
+          await tryDecryptJson(t, v2Key);
     } catch (_) {
       return null;
     }
@@ -143,6 +172,16 @@ class _PointsWalletState extends State<PointsWallet> {
         s.contains('No address associated with hostname');
   }
 
+  bool _looksLikeNetworkFailure(Object e) {
+    final s = e.toString();
+    return s.contains('SocketException') ||
+        s.contains('Connection refused') ||
+        s.contains('Connection reset') ||
+        s.contains('Network is unreachable') ||
+        s.contains('Operation timed out') ||
+        s.contains('XMLHttpRequest error');
+  }
+
   Future<http.Response> _postRedeem(
     Uri uri, {
     required Map<String, String> headers,
@@ -179,20 +218,28 @@ class _PointsWalletState extends State<PointsWallet> {
       throw const LicenseException('网络超时，请稍后重试');
     } catch (e) {
       final fallback = _fallbackRedeemScfUri(uri);
-      if (fallback != uri && _looksLikeDnsFailure(e)) {
+      if (fallback != uri && (_looksLikeDnsFailure(e) || _looksLikeNetworkFailure(e))) {
         try {
           resp = await _postRedeem(fallback, headers: headers, body: body);
         } on TimeoutException {
           throw const LicenseException('网络超时，请稍后重试');
         } catch (e2) {
-          throw LicenseException(_looksLikeDnsFailure(e2)
-              ? '兑换服务域名解析失败，请切换网络后重试'
-              : '兑换服务连接失败：${e2.toString()}');
+          if (_looksLikeDnsFailure(e2)) {
+            throw const LicenseException('兑换服务域名解析失败，请切换网络后重试');
+          }
+          if (_looksLikeNetworkFailure(e2)) {
+            throw const LicenseException('兑换服务连接失败，请检查网络后重试');
+          }
+          throw const LicenseException('兑换服务异常，请稍后重试');
         }
       } else {
-        throw LicenseException(_looksLikeDnsFailure(e)
-            ? '兑换服务域名解析失败，请切换网络后重试'
-            : '兑换服务连接失败：${e.toString()}');
+        if (_looksLikeDnsFailure(e)) {
+          throw const LicenseException('兑换服务域名解析失败，请切换网络后重试');
+        }
+        if (_looksLikeNetworkFailure(e)) {
+          throw const LicenseException('兑换服务连接失败，请检查网络后重试');
+        }
+        throw const LicenseException('兑换服务异常，请稍后重试');
       }
     }
     if (resp.statusCode == 409) {
@@ -439,21 +486,42 @@ class _PointsWalletState extends State<PointsWallet> {
                       enabled: !dialogBusy,
                       decoration: InputDecoration(
                         hintText: '输入卡密',
+                        isDense: true,
                         filled: true,
                         fillColor: fieldBg,
-                        isDense: true,
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 12),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
+                          borderSide: BorderSide(
+                            color: widget.textColor.withOpacityCompat(0.18),
+                            width: AppTokens.stroke,
+                          ),
                         ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: widget.textColor.withOpacityCompat(0.18),
+                            width: AppTokens.stroke,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: AppColors.techBlue.withOpacityCompat(0.6),
+                            width: AppTokens.stroke,
+                          ),
+                        ),
+                        hintStyle: TextStyle(
+                            color: widget.textColor.withOpacityCompat(0.45)),
                       ),
+                      style: TextStyle(color: widget.textColor, fontSize: 13),
                       onSubmitted: (_) async {
+                        final navigator = Navigator.of(dialogContext);
                         final ok = await submit();
-                        if (!ok) return;
-                        if (dialogContext.mounted) {
-                          Navigator.of(dialogContext).pop();
+                        if (!mounted) return;
+                        if (ok) {
+                          if (navigator.canPop()) navigator.pop();
                         }
                       },
                     ),
@@ -462,8 +530,9 @@ class _PointsWalletState extends State<PointsWallet> {
                       Text(
                         hint,
                         style: const TextStyle(
-                          color: Colors.red,
-                          fontSize: 12,
+                          color: Colors.redAccent,
+                          fontSize: 13,
+                          height: 1.35,
                         ),
                       ),
                     ],
@@ -472,20 +541,29 @@ class _PointsWalletState extends State<PointsWallet> {
               ),
               actions: [
                 TextButton(
-                  onPressed: dialogBusy ? null : () => Navigator.of(dialogContext).pop(),
-                  child: Text('取消', style: TextStyle(color: widget.textColor)),
+                  onPressed: dialogBusy
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  style: TextButton.styleFrom(
+                    foregroundColor: widget.textColor.withOpacityCompat(0.75),
+                  ),
+                  child: const Text('取消'),
                 ),
                 TextButton(
                   onPressed: dialogBusy
                       ? null
                       : () async {
+                          final navigator = Navigator.of(dialogContext);
                           final ok = await submit();
-                          if (!ok) return;
-                          if (dialogContext.mounted) {
-                            Navigator.of(dialogContext).pop();
+                          if (!mounted) return;
+                          if (ok) {
+                            if (navigator.canPop()) navigator.pop();
                           }
                         },
-                  child: Text('兑换', style: TextStyle(color: widget.textColor)),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.techBlue,
+                  ),
+                  child: Text(dialogBusy ? '处理中…' : '确认'),
                 ),
               ],
             );
@@ -544,7 +622,7 @@ class _PointsWalletState extends State<PointsWallet> {
                   foregroundColor: AppColors.techBlue,
                 ),
                 child: Text(
-                  _redeemBusy ? '兑换中' : '兑换',
+                  _redeemBusy ? '处理中…' : '兑换',
                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                 ),
               ),

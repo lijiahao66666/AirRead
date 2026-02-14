@@ -47,8 +47,10 @@ class IllustrationPanel extends StatefulWidget {
 
 class _IllustrationPanelState extends State<IllustrationPanel> {
   static const int _imageCostPoints = 20000;
-  static const String _kIllustrationModelChoice = 'illustration_model_choice_v1';
-  static const String _kIllustrationThinkingEnabled = 'illustration_thinking_enabled_v1';
+  static const String _kIllustrationModelChoice =
+      'illustration_model_choice_v1';
+  static const String _kIllustrationThinkingEnabled =
+      'illustration_thinking_enabled_v1';
 
   String _styleKey = '国风';
   String _ratioKey = '1:1';
@@ -87,7 +89,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
 
     String raw = (prefs.getString(_kIllustrationModelChoice) ?? '').trim();
     if (raw.isEmpty) {
-      final legacyA = (prefs.getString('storybook_model_choice_v1') ?? '').trim();
+      final legacyA =
+          (prefs.getString('storybook_model_choice_v1') ?? '').trim();
       final legacyB = (prefs.getString('manga_model_choice_v1') ?? '').trim();
       final legacy = legacyA.isNotEmpty ? legacyA : legacyB;
       if (legacy.isNotEmpty) {
@@ -98,10 +101,11 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       }
     }
 
-    final choice = AiChatModelChoice.values.cast<AiChatModelChoice?>().firstWhere(
-          (e) => e?.name == raw,
-          orElse: () => null,
-        );
+    final choice =
+        AiChatModelChoice.values.cast<AiChatModelChoice?>().firstWhere(
+              (e) => e?.name == raw,
+              orElse: () => null,
+            );
 
     bool? thinking = prefs.getBool(_kIllustrationThinkingEnabled);
     if (thinking == null) {
@@ -158,6 +162,12 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       return '生成提示词超时，请检查网络后重试';
     }
     if (e is TencentCloudException) {
+      if (e.code == 'PointsInsufficient' ||
+          e.message.contains('PointsInsufficient') ||
+          e.message.contains('HTTP 402') ||
+          e.message.contains('积分不足')) {
+        return '积分不足，请购买积分后再试';
+      }
       if (e.code == 'NoScfUrl') {
         return '在线提示词服务未配置，请在 AI 设置中填写个人密钥，或配置服务端地址';
       }
@@ -166,15 +176,31 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       }
       if (e.code == 'HttpError') {
         final m = e.message;
+        if (m.contains('HTTP 402') ||
+            m.contains('PointsInsufficient') ||
+            m.contains('积分不足')) {
+          return '积分不足，请购买积分后再试';
+        }
         if (m.contains('HTTP 401') || m.contains('HTTP 403')) {
           return '鉴权失败，请检查积分状态或个人密钥是否正确';
         }
         if (m.contains('HTTP 429')) {
           return '请求过于频繁，请稍后重试';
         }
-        return '在线服务异常：${e.message}';
+        return '在线服务异常，请稍后重试';
       }
       return '${e.code}：${e.message}';
+    }
+    final s = e.toString();
+    if (s.contains('PointsInsufficient') ||
+        s.contains('HTTP 402') ||
+        s.contains('积分不足')) {
+      return '积分不足，请购买积分后再试';
+    }
+    if (s.contains('SocketException') ||
+        s.contains('Failed host lookup') ||
+        s.contains('XMLHttpRequest error')) {
+      return '网络连接失败，请检查网络后重试';
     }
     return e.toString();
   }
@@ -192,7 +218,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
 
   String _chapterId() {
     final suffix = (widget.chapterIdSuffix ?? '').trim();
-    if (suffix.isEmpty) return '${widget.bookId}::${widget.currentChapterIndex}';
+    if (suffix.isEmpty)
+      return '${widget.bookId}::${widget.currentChapterIndex}';
     return '${widget.bookId}::${widget.currentChapterIndex}::$suffix';
   }
 
@@ -201,7 +228,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
   }
 
   Future<bool> _confirmRegenerate() async {
-    final isSelectionMode = (widget.chapterIdSuffix ?? '').trim().startsWith('sel_');
+    final isSelectionMode =
+        (widget.chapterIdSuffix ?? '').trim().startsWith('sel_');
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -235,9 +263,10 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       _showToast('章节内容为空');
       return;
     }
-    final isSelectionMode = (widget.chapterIdSuffix ?? '').trim().startsWith('sel_');
-    final usingPersonal =
-        tp.usingPersonalTencentKeys && getEmbeddedPublicHunyuanCredentials().isUsable;
+    final isSelectionMode =
+        (widget.chapterIdSuffix ?? '').trim().startsWith('sel_');
+    final usingPersonal = tp.usingPersonalTencentKeys &&
+        getEmbeddedPublicHunyuanCredentials().isUsable;
     final onlineEntitled = aiModel.pointsBalance > 0 || usingPersonal;
 
     Future<String> Function(String prompt)? generateText;
@@ -250,8 +279,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     };
 
     if (_modelChoice.isLocal) {
-      final installed =
-          aiModel.installStatusFor(localModelId) == ModelInstallStatus.installed;
+      final installed = aiModel.installStatusFor(localModelId) ==
+          ModelInstallStatus.installed;
       if (!installed) {
         _showToast('本地模型未下载，请先在 AI 设置中下载');
         return;
@@ -271,7 +300,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
 
     final chapterId = _chapterId();
     final stylePrefix = _stylePrompts[_styleKey] ?? _stylePrompts['国风']!;
-    final resolution = _ratioToResolution[_ratioKey] ?? _ratioToResolution['1:1']!;
+    final resolution =
+        _ratioToResolution[_ratioKey] ?? _ratioToResolution['1:1']!;
 
     try {
       await provider.generateChapterIllustrations(
@@ -290,9 +320,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         enableThinkingForOnline: enableThinkingForOnline,
         force: force,
       );
-      if (!isSelectionMode) {
-        widget.onChapterIllustrationsGenerated?.call(widget.currentChapterIndex);
-      }
+      widget.onChapterIllustrationsGenerated?.call(widget.currentChapterIndex);
     } catch (e) {
       _showToast(_friendlyErrorMessage(e));
     }
@@ -311,8 +339,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     bool deducted = false;
 
     try {
-      final usingPersonal =
-          tp.usingPersonalTencentKeys && getEmbeddedPublicHunyuanCredentials().isUsable;
+      final usingPersonal = tp.usingPersonalTencentKeys &&
+          getEmbeddedPublicHunyuanCredentials().isUsable;
       if (!usingPersonal) {
         if (aiModel.pointsBalance < _imageCostPoints) {
           _showToast('积分不足，无法出图');
@@ -330,7 +358,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         await aiModel.addPoints(_imageCostPoints);
       }
     } catch (e) {
-      _showToast(e.toString());
+      _showToast(_friendlyErrorMessage(e));
     } finally {
       _pendingGenerateIds.remove(item.id);
     }
@@ -348,11 +376,13 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     final aiModel = context.watch<AiModelProvider>();
     final tp = context.watch<TranslationProvider>();
 
-    final isSelectionMode = (widget.chapterIdSuffix ?? '').trim().startsWith('sel_');
+    final isSelectionMode =
+        (widget.chapterIdSuffix ?? '').trim().startsWith('sel_');
     final effectiveCount = isSelectionMode ? 1 : aiModel.illustrationCount;
 
-    final cardBg =
-        widget.isDark ? Colors.white.withOpacityCompat(0.07) : AppColors.mistWhite;
+    final cardBg = widget.isDark
+        ? Colors.white.withOpacityCompat(0.07)
+        : AppColors.mistWhite;
     final cacheModelKey = _modelChoice.name;
     final cacheKey = provider.buildCacheKey(
       chapterId: _chapterId(),
@@ -365,9 +395,10 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     final items = provider.getItems(cacheKey);
     final analyzing = provider.isAnalyzing(cacheKey);
 
-    final usingPersonal =
-        tp.usingPersonalTencentKeys && getEmbeddedPublicHunyuanCredentials().isUsable;
-    final canGenerate = usingPersonal || aiModel.pointsBalance >= _imageCostPoints;
+    final usingPersonal = tp.usingPersonalTencentKeys &&
+        getEmbeddedPublicHunyuanCredentials().isUsable;
+    final canGenerate =
+        usingPersonal || aiModel.pointsBalance >= _imageCostPoints;
     final canGenerateScript = _modelChoice.isOnline
         ? (aiModel.pointsBalance > 0 || usingPersonal)
         : (aiModel.installStatusFor(switch (_modelChoice) {
@@ -554,7 +585,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
             Padding(
               padding: const EdgeInsets.fromLTRB(2, 10, 2, 0),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
                   color: widget.isDark
                       ? Colors.white.withOpacityCompat(0.06)
@@ -571,7 +603,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                     fontSize: 12,
                     height: 1.25,
                     color: _toastIsError
-                        ? Colors.red.withOpacityCompat(widget.isDark ? 0.9 : 0.8)
+                        ? Colors.red
+                            .withOpacityCompat(widget.isDark ? 0.9 : 0.8)
                         : widget.textColor.withOpacityCompat(0.78),
                   ),
                 ),
@@ -586,7 +619,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     required Color cardBg,
     required AiModelProvider aiModel,
   }) {
-    final isSelectionMode = (widget.chapterIdSuffix ?? '').trim().startsWith('sel_');
+    final isSelectionMode =
+        (widget.chapterIdSuffix ?? '').trim().startsWith('sel_');
     final border = Border.all(
       color: widget.textColor.withOpacityCompat(0.08),
       width: AppTokens.stroke,
@@ -669,8 +703,9 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       color: widget.textColor.withOpacityCompat(0.08),
       width: AppTokens.stroke,
     );
-    final controlBg =
-        widget.isDark ? Colors.white.withOpacityCompat(0.04) : AppColors.mistWhite;
+    final controlBg = widget.isDark
+        ? Colors.white.withOpacityCompat(0.04)
+        : AppColors.mistWhite;
     final iconColor = widget.textColor.withOpacityCompat(0.7);
 
     return Column(
@@ -750,9 +785,11 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     required String Function(T) labelOf,
     required ValueChanged<T?> onChanged,
   }) {
-    final bg = widget.isDark ? Colors.white.withOpacityCompat(0.06) : Colors.white;
-    final dropdownBg =
-        widget.isDark ? Colors.white.withOpacityCompat(0.04) : AppColors.mistWhite;
+    final bg =
+        widget.isDark ? Colors.white.withOpacityCompat(0.06) : Colors.white;
+    final dropdownBg = widget.isDark
+        ? Colors.white.withOpacityCompat(0.04)
+        : AppColors.mistWhite;
     final border = Border.all(
       color: widget.textColor.withOpacityCompat(0.08),
       width: AppTokens.stroke,
@@ -801,7 +838,8 @@ class _IllustrationList extends StatelessWidget {
   final bool canGenerate;
   final double aspect;
   final Future<void> Function(ill.IllustrationItem item) onGenerate;
-  final Future<void> Function(ill.IllustrationItem item, String prompt) onUpdatePrompt;
+  final Future<void> Function(ill.IllustrationItem item, String prompt)
+      onUpdatePrompt;
 
   const _IllustrationList({
     required this.items,
@@ -853,36 +891,30 @@ class _IllustrationCard extends StatelessWidget {
     final saved = await showDialog<String>(
       context: context,
       builder: (context) {
-        final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-        return AnimatedPadding(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          padding: EdgeInsets.only(bottom: bottomInset),
-          child: AlertDialog(
-            content: TextField(
-              controller: controller,
-              autofocus: true,
-              minLines: 1,
-              maxLines: 4,
-              keyboardType: TextInputType.multiline,
-              textAlignVertical: TextAlignVertical.top,
-              decoration: const InputDecoration(
-                hintText: '输入插画提示词（用于文生图）',
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 10),
-              ),
+        return AlertDialog(
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 1,
+            maxLines: 4,
+            keyboardType: TextInputType.multiline,
+            textAlignVertical: TextAlignVertical.top,
+            decoration: const InputDecoration(
+              hintText: '输入插画提示词（用于文生图）',
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(vertical: 10),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('取消'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, controller.text.trim()),
-                child: const Text('保存'),
-              ),
-            ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, controller.text.trim()),
+              child: const Text('保存'),
+            ),
+          ],
         );
       },
     );
@@ -1010,13 +1042,15 @@ class _IllustrationCard extends StatelessWidget {
                         }
                       : null,
                   style: ButtonStyle(
-                    foregroundColor: MaterialStateProperty.resolveWith((states) {
+                    foregroundColor:
+                        MaterialStateProperty.resolveWith((states) {
                       if (states.contains(MaterialState.disabled)) {
                         return textColor.withOpacityCompat(0.38);
                       }
                       return AppColors.techBlue;
                     }),
-                    backgroundColor: MaterialStateProperty.resolveWith((states) {
+                    backgroundColor:
+                        MaterialStateProperty.resolveWith((states) {
                       if (states.contains(MaterialState.disabled)) {
                         return textColor.withOpacityCompat(0.04);
                       }
@@ -1079,7 +1113,8 @@ class _IllustrationCard extends StatelessWidget {
     );
   }
 
-  Widget _media({required ill.IllustrationItem item, required Color textColor}) {
+  Widget _media(
+      {required ill.IllustrationItem item, required Color textColor}) {
     if (item.status != ill.IllustrationStatus.completed) {
       return const SizedBox.shrink();
     }
@@ -1089,7 +1124,6 @@ class _IllustrationCard extends StatelessWidget {
     }
     return const Center(child: Icon(Icons.broken_image));
   }
-
 }
 
 class _BrushLoading extends StatefulWidget {
@@ -1176,8 +1210,8 @@ class _PromptWithEditIcon extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final reserved = iconSize + iconPadL + iconPadV * 2;
-        final maxTextWidth = (constraints.maxWidth - reserved)
-            .clamp(0.0, constraints.maxWidth);
+        final maxTextWidth =
+            (constraints.maxWidth - reserved).clamp(0.0, constraints.maxWidth);
         final painter = TextPainter(
           text: TextSpan(text: text, style: style),
           maxLines: maxLines,
@@ -1189,7 +1223,8 @@ class _PromptWithEditIcon extends StatelessWidget {
           onTap: onEdit,
           borderRadius: BorderRadius.circular(999),
           child: Padding(
-            padding: const EdgeInsets.only(left: iconPadL, top: iconPadV, bottom: iconPadV),
+            padding: const EdgeInsets.only(
+                left: iconPadL, top: iconPadV, bottom: iconPadV),
             child: Icon(
               Icons.edit_rounded,
               size: iconSize,

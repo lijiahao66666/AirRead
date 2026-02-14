@@ -396,7 +396,8 @@ class _AiHudState extends State<AiHud> with TickerProviderStateMixin {
           chapterTextCache: widget.chapterTextCache,
           currentChapterIndex: widget.currentChapterIndex,
           chapterIdSuffix: widget.illustrationChapterIdSuffix,
-          onChapterIllustrationsGenerated: widget.onChapterIllustrationsGenerated,
+          onChapterIllustrationsGenerated:
+              widget.onChapterIllustrationsGenerated,
           onShowTopMessage: widget.onShowTopMessage,
         ),
       AiHudRoute.tencentSettings => _TencentHunyuanSettingsPanel(
@@ -440,7 +441,8 @@ class _TencentHunyuanSettingsPanelState
   static const String _kRedeemedPayloadV2 = 'redeemed_code_payload_v2';
   static const String _kRedeemDeviceFingerprint =
       'redeem_device_fingerprint_v1';
-  static const String _redeemKeySalt = 'airread_redeem_v2';
+  static const String _redeemKeySalt = 'airread';
+  static const String _redeemKeySaltLegacy = 'airread_redeem_v2';
   static final AesGcm _redeemCipher = AesGcm.with256bits();
   static const String _scfUrl =
       String.fromEnvironment('AIRREAD_TENCENT_SCF_URL', defaultValue: '');
@@ -642,23 +644,25 @@ class _TencentHunyuanSettingsPanelState
     return SecretKey(bytes);
   }
 
+  SecretKey _deriveRedeemKeyLegacy(String fingerprint) {
+    final bytes =
+        sha256.convert(utf8.encode('$_redeemKeySaltLegacy|$fingerprint')).bytes;
+    return SecretKey(bytes);
+  }
+
   Future<String?> _encryptRedeemPayload(
     String payload,
     String fingerprint,
   ) async {
     try {
-      final nonce = _redeemCipher.newNonce();
       final secretBox = await _redeemCipher.encrypt(
         utf8.encode(payload),
         secretKey: _deriveRedeemKey(fingerprint),
-        nonce: nonce,
       );
-      final obj = <String, String>{
-        'nonce': base64UrlEncode(nonce),
-        'cipher': base64UrlEncode(secretBox.cipherText),
-        'mac': base64UrlEncode(secretBox.mac.bytes),
-      };
-      return jsonEncode(obj);
+      final cipherRaw = base64UrlEncode(secretBox.cipherText);
+      final nonceRaw = base64UrlEncode(secretBox.nonce);
+      final macRaw = base64UrlEncode(secretBox.mac.bytes);
+      return '$cipherRaw.$nonceRaw.$macRaw';
     } catch (_) {
       return null;
     }
@@ -669,22 +673,45 @@ class _TencentHunyuanSettingsPanelState
     String fingerprint,
   ) async {
     try {
-      final decoded = jsonDecode(payload);
-      if (decoded is! Map) return null;
-      final nonceRaw = decoded['nonce']?.toString() ?? '';
-      final cipherRaw = decoded['cipher']?.toString() ?? '';
-      final macRaw = decoded['mac']?.toString() ?? '';
-      if (nonceRaw.isEmpty || cipherRaw.isEmpty || macRaw.isEmpty) return null;
-      final secretBox = SecretBox(
-        base64Url.decode(cipherRaw),
-        nonce: base64Url.decode(nonceRaw),
-        mac: Mac(base64Url.decode(macRaw)),
-      );
-      final clear = await _redeemCipher.decrypt(
-        secretBox,
-        secretKey: _deriveRedeemKey(fingerprint),
-      );
-      return utf8.decode(clear);
+      final t = payload.trim();
+      if (t.isEmpty) return null;
+
+      Future<String?> tryDecryptDot(String raw, SecretKey key) async {
+        final parts = raw.split('.');
+        if (parts.length != 3) return null;
+        final cipherRaw = parts[0];
+        final nonceRaw = parts[1];
+        final macRaw = parts[2];
+        if (cipherRaw.isEmpty || nonceRaw.isEmpty || macRaw.isEmpty)
+          return null;
+        final secretBox = SecretBox(
+          base64Url.decode(cipherRaw),
+          nonce: base64Url.decode(nonceRaw),
+          mac: Mac(base64Url.decode(macRaw)),
+        );
+        final clear = await _redeemCipher.decrypt(secretBox, secretKey: key);
+        return utf8.decode(clear);
+      }
+
+      Future<String?> tryDecryptJson(String raw, SecretKey key) async {
+        final decoded = jsonDecode(raw);
+        if (decoded is! Map) return null;
+        final nonceRaw = decoded['nonce']?.toString() ?? '';
+        final cipherRaw = decoded['cipher']?.toString() ?? '';
+        final macRaw = decoded['mac']?.toString() ?? '';
+        if (nonceRaw.isEmpty || cipherRaw.isEmpty || macRaw.isEmpty)
+          return null;
+        final secretBox = SecretBox(
+          base64Url.decode(cipherRaw),
+          nonce: base64Url.decode(nonceRaw),
+          mac: Mac(base64Url.decode(macRaw)),
+        );
+        final clear = await _redeemCipher.decrypt(secretBox, secretKey: key);
+        return utf8.decode(clear);
+      }
+
+      return await tryDecryptDot(t, _deriveRedeemKey(fingerprint)) ??
+          await tryDecryptJson(t, _deriveRedeemKeyLegacy(fingerprint));
     } catch (_) {
       return null;
     }
@@ -2423,7 +2450,9 @@ class _TencentHunyuanSettingsPanelState
         if (showProgress && file.isNotEmpty) ...[
           const SizedBox(height: 6),
           Text(
-            progress > 0 ? '下载中：$file（${(progress * 100).round()}%）' : '下载中：$file',
+            progress > 0
+                ? '下载中：$file（${(progress * 100).round()}%）'
+                : '下载中：$file',
             style: TextStyle(
               color: widget.textColor.withOpacityCompat(0.55),
               fontSize: 12,
@@ -3025,10 +3054,11 @@ class _QaPanelState extends State<_QaPanel> {
   Future<void> _loadQaSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = (prefs.getString(_kQaModelChoice) ?? '').trim();
-    final choice = AiChatModelChoice.values.cast<AiChatModelChoice?>().firstWhere(
-          (e) => e?.name == raw,
-          orElse: () => null,
-        );
+    final choice =
+        AiChatModelChoice.values.cast<AiChatModelChoice?>().firstWhere(
+              (e) => e?.name == raw,
+              orElse: () => null,
+            );
     final thinking = prefs.getBool(_kQaThinkingEnabled);
     if (!mounted) return;
     setState(() {
@@ -3044,8 +3074,8 @@ class _QaPanelState extends State<_QaPanel> {
       final localModelId = value == AiChatModelChoice.localHunyuan05b
           ? ModelManager.hunyuan_0_5b
           : ModelManager.hunyuan_1_8b;
-      final installed =
-          aiModel.installStatusFor(localModelId) == ModelInstallStatus.installed;
+      final installed = aiModel.installStatusFor(localModelId) ==
+          ModelInstallStatus.installed;
       if (!installed) {
         _showQaToast('本地模型未下载，请先在 AI 设置中下载');
         return;
@@ -3490,8 +3520,8 @@ class _QaPanelState extends State<_QaPanel> {
       final localModelId = _modelChoice == AiChatModelChoice.localHunyuan05b
           ? ModelManager.hunyuan_0_5b
           : ModelManager.hunyuan_1_8b;
-      final installed =
-          aiModel.installStatusFor(localModelId) == ModelInstallStatus.installed;
+      final installed = aiModel.installStatusFor(localModelId) ==
+          ModelInstallStatus.installed;
       if (installed) return true;
       _showQaToast('本地模型未下载，请先在 AI 设置中下载');
       return false;
@@ -3660,10 +3690,12 @@ class _QaPanelState extends State<_QaPanel> {
     final aiModel = context.watch<AiModelProvider>();
     final tp = context.watch<TranslationProvider>();
     final personalUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
-    final local05Installed = aiModel.installStatusFor(ModelManager.hunyuan_0_5b) ==
-        ModelInstallStatus.installed;
-    final local18Installed = aiModel.installStatusFor(ModelManager.hunyuan_1_8b) ==
-        ModelInstallStatus.installed;
+    final local05Installed =
+        aiModel.installStatusFor(ModelManager.hunyuan_0_5b) ==
+            ModelInstallStatus.installed;
+    final local18Installed =
+        aiModel.installStatusFor(ModelManager.hunyuan_1_8b) ==
+            ModelInstallStatus.installed;
     final localModelId = _modelChoice == AiChatModelChoice.localHunyuan05b
         ? ModelManager.hunyuan_0_5b
         : ModelManager.hunyuan_1_8b;
@@ -4103,7 +4135,8 @@ class _QaPanelState extends State<_QaPanel> {
                   padding: EdgeInsets.only(
                     bottom: (() {
                       final media = MediaQuery.of(context);
-                      final v = media.viewInsets.bottom - media.padding.bottom - 18;
+                      final v =
+                          media.viewInsets.bottom - media.padding.bottom - 18;
                       return v <= 0 ? 0.0 : v.toDouble();
                     })(),
                   ),
@@ -4117,21 +4150,24 @@ class _QaPanelState extends State<_QaPanel> {
                         children: [
                           actionChip(
                             label: '新话题',
-                            onTap: qaBlocked || _messageState != _MessageState.idle
-                                ? null
-                                : _startNewTopic,
+                            onTap:
+                                qaBlocked || _messageState != _MessageState.idle
+                                    ? null
+                                    : _startNewTopic,
                           ),
                           actionChip(
                             label: '总结本章',
-                            onTap: qaBlocked || _messageState != _MessageState.idle
-                                ? null
-                                : () => _sendQuickAction(QAType.summary),
+                            onTap:
+                                qaBlocked || _messageState != _MessageState.idle
+                                    ? null
+                                    : () => _sendQuickAction(QAType.summary),
                           ),
                           actionChip(
                             label: '提取要点',
-                            onTap: qaBlocked || _messageState != _MessageState.idle
-                                ? null
-                                : () => _sendQuickAction(QAType.keyPoints),
+                            onTap:
+                                qaBlocked || _messageState != _MessageState.idle
+                                    ? null
+                                    : () => _sendQuickAction(QAType.keyPoints),
                           ),
                         ],
                       ),
@@ -4146,10 +4182,12 @@ class _QaPanelState extends State<_QaPanel> {
                                         LogicalKeyboardKey.enter &&
                                     !ServicesBinding
                                         .instance.keyboard.logicalKeysPressed
-                                        .contains(LogicalKeyboardKey.shiftLeft) &&
+                                        .contains(
+                                            LogicalKeyboardKey.shiftLeft) &&
                                     !ServicesBinding
                                         .instance.keyboard.logicalKeysPressed
-                                        .contains(LogicalKeyboardKey.shiftRight)) {
+                                        .contains(
+                                            LogicalKeyboardKey.shiftRight)) {
                                   if (!qaBlocked &&
                                       _messageState == _MessageState.idle) {
                                     _send();
@@ -4177,7 +4215,8 @@ class _QaPanelState extends State<_QaPanel> {
                                 ),
                                 contextMenuBuilder:
                                     (context, editableTextState) {
-                                  final List<ContextMenuButtonItem> buttonItems =
+                                  final List<ContextMenuButtonItem>
+                                      buttonItems =
                                       editableTextState.contextMenuButtonItems;
                                   // 仅保留基础编辑功能 (复制/粘贴/剪切/全选)，确保双端一致且清爽
                                   buttonItems.removeWhere(
@@ -4191,7 +4230,8 @@ class _QaPanelState extends State<_QaPanel> {
                                         buttonItem.type !=
                                             ContextMenuButtonType.selectAll;
                                   });
-                                  return AdaptiveTextSelectionToolbar.buttonItems(
+                                  return AdaptiveTextSelectionToolbar
+                                      .buttonItems(
                                     anchors:
                                         editableTextState.contextMenuAnchors,
                                     buttonItems: buttonItems,

@@ -421,7 +421,9 @@ class _ReaderSelectionControls extends MaterialTextSelectionControls {
             (tp.translationMode == TranslationMode.bigModel &&
                 (aiModel.pointsBalance > 0 || personalUsable)));
     final canExplain = text.isNotEmpty &&
-        (aiModel.anyLocalTextInstalled || aiModel.pointsBalance > 0 || personalUsable);
+        (aiModel.anyLocalTextInstalled ||
+            aiModel.pointsBalance > 0 ||
+            personalUsable);
 
     final toolbarBg = isDarkBg
         ? Colors.white.withOpacityCompat(0.94)
@@ -476,7 +478,8 @@ class _ReaderSelectionControls extends MaterialTextSelectionControls {
         ),
       ContextMenuButtonItem(
         onPressed: () {
-          final suffix = 'sel_${text.hashCode.toUnsigned(32).toRadixString(16)}';
+          final suffix =
+              'sel_${text.hashCode.toUnsigned(32).toRadixString(16)}';
           _dismissToolbar(delegate);
           unawaited(onIllustration(text, suffix));
         },
@@ -504,8 +507,8 @@ class _ReaderSelectionControls extends MaterialTextSelectionControls {
       ),
     ];
 
-    final anchors =
-        TextSelectionToolbarAnchors(primaryAnchor: position, secondaryAnchor: position);
+    final anchors = TextSelectionToolbarAnchors(
+        primaryAnchor: position, secondaryAnchor: position);
     return Theme(
       data: themed,
       child: AdaptiveTextSelectionToolbar.buttonItems(
@@ -722,8 +725,6 @@ class _ReaderPageState extends State<ReaderPage>
       }
     });
   }
-
-  
 
   void _armFloatingUiAutoHideIfNeeded() {
     if (_floatingUiAutoHideTimer?.isActive ?? false) return;
@@ -2120,7 +2121,8 @@ class _ReaderPageState extends State<ReaderPage>
       builder: (sheetContext) {
         return Consumer<TranslationProvider>(
           builder: (context, translationProvider, _) {
-            final targetChapterIndex = chapterIndexOverride ?? _currentChapterIndex;
+            final targetChapterIndex =
+                chapterIndexOverride ?? _currentChapterIndex;
             final viewportHeight = _lastPaginationViewportHeight;
             final contentWidth = _lastPaginationContentWidth;
             if (viewportHeight != null && contentWidth != null) {
@@ -2183,8 +2185,18 @@ class _ReaderPageState extends State<ReaderPage>
               illustrationChapterIdSuffix: illustrationChapterIdSuffix,
               onChapterIllustrationsGenerated: (chapterIndex) {
                 if (!mounted) return;
+                final suffix = (illustrationChapterIdSuffix ?? '').trim();
+                final selText = overrideText.trim();
                 setState(() {
-                  _chaptersWithChapterIllustrations.add(chapterIndex);
+                  if (suffix.startsWith('sel_') && selText.isNotEmpty) {
+                    _rememberSelectionIllustration(
+                      chapterIndex: chapterIndex,
+                      text: selText,
+                      suffix: suffix,
+                    );
+                  } else {
+                    _chaptersWithChapterIllustrations.add(chapterIndex);
+                  }
                 });
               },
               onShowTopMessage: _showTopError,
@@ -6052,13 +6064,6 @@ class _ReaderPageState extends State<ReaderPage>
             },
             onIllustration: (text, suffix) async {
               if (!mounted) return;
-              setState(() {
-                _rememberSelectionIllustration(
-                  chapterIndex: chapterIndex,
-                  text: text,
-                  suffix: suffix,
-                );
-              });
               await _openAiHud(
                 initialRoute: AiHudRoute.illustration,
                 illustrationOverrideText: text,
@@ -6092,171 +6097,162 @@ class _ReaderPageState extends State<ReaderPage>
               },
               contextMenuBuilder: (context, selectableRegionState) {
                 final text = selectedText.trim();
-              final tp = context.read<TranslationProvider>();
-              final readAloud = context.read<ReadAloudProvider>();
-              final aiModel = context.read<AiModelProvider>();
-              final personalUsable = tp.usingPersonalTencentKeys &&
-                  getEmbeddedPublicHunyuanCredentials().isUsable;
-              final canReadCurrent = tp.aiReadAloudEnabled && text.isNotEmpty;
-              final canTranslate = text.isNotEmpty &&
-                  (tp.translationMode == TranslationMode.machine ||
-                      (tp.translationMode == TranslationMode.bigModel &&
-                          (aiModel.pointsBalance > 0 || personalUsable)));
-              final canExplain = text.isNotEmpty &&
-                  (aiModel.anyLocalTextInstalled ||
-                      aiModel.pointsBalance > 0 ||
-                      personalUsable);
-              final isDarkBg = _bgColor.computeLuminance() < 0.5;
-              final toolbarBg = isDarkBg
-                  ? Colors.white.withOpacityCompat(0.94)
-                  : AppColors.deepSpace.withOpacityCompat(0.92);
-              final toolbarFg = isDarkBg ? AppColors.deepSpace : Colors.white;
-              final disabledFg = toolbarFg.withOpacityCompat(0.38);
-              final baseTheme = Theme.of(context);
-              final themed = baseTheme.copyWith(
-                colorScheme: baseTheme.colorScheme.copyWith(
-                  surface: toolbarBg,
-                  onSurface: toolbarFg,
-                ),
-                textButtonTheme: TextButtonThemeData(
-                  style: TextButton.styleFrom(
-                    foregroundColor: toolbarFg,
-                    disabledForegroundColor: disabledFg,
-                    textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                final tp = context.read<TranslationProvider>();
+                final readAloud = context.read<ReadAloudProvider>();
+                final aiModel = context.read<AiModelProvider>();
+                final personalUsable = tp.usingPersonalTencentKeys &&
+                    getEmbeddedPublicHunyuanCredentials().isUsable;
+                final canReadCurrent = tp.aiReadAloudEnabled && text.isNotEmpty;
+                final canTranslate = text.isNotEmpty &&
+                    (tp.translationMode == TranslationMode.machine ||
+                        (tp.translationMode == TranslationMode.bigModel &&
+                            (aiModel.pointsBalance > 0 || personalUsable)));
+                final canExplain = text.isNotEmpty &&
+                    (aiModel.anyLocalTextInstalled ||
+                        aiModel.pointsBalance > 0 ||
+                        personalUsable);
+                final isDarkBg = _bgColor.computeLuminance() < 0.5;
+                final toolbarBg = isDarkBg
+                    ? Colors.white.withOpacityCompat(0.94)
+                    : AppColors.deepSpace.withOpacityCompat(0.92);
+                final toolbarFg = isDarkBg ? AppColors.deepSpace : Colors.white;
+                final disabledFg = toolbarFg.withOpacityCompat(0.38);
+                final baseTheme = Theme.of(context);
+                final themed = baseTheme.copyWith(
+                  colorScheme: baseTheme.colorScheme.copyWith(
+                    surface: toolbarBg,
+                    onSurface: toolbarFg,
                   ),
-                ),
-              );
-
-              final items = <ContextMenuButtonItem>[
-                if (canReadCurrent)
-                  ContextMenuButtonItem(
-                    onPressed: () {
-                      ContextMenuController.removeAny();
-                      selectableRegionState.hideToolbar();
-                      if (mounted) {
-                        setState(() {
-                          _selectionAreaResetToken++;
-                        });
-                      }
-                      unawaited(() async {
-                        await readAloud.stop(keepResume: true);
-                        if (!mounted) return;
-                        await _startReadAloudFromSelection(text);
-                      }());
-                    },
-                    type: ContextMenuButtonType.custom,
-                    label: '读当前',
-                  ),
-                if (canTranslate)
-                  ContextMenuButtonItem(
-                    onPressed: () {
-                      ContextMenuController.removeAny();
-                      selectableRegionState.hideToolbar();
-                      if (mounted) {
-                        setState(() {
-                          _selectionAreaResetToken++;
-                        });
-                      }
-                      unawaited(_showSelectionTranslation(text));
-                    },
-                    type: ContextMenuButtonType.custom,
-                    label: '翻译',
-                  ),
-                if (canExplain)
-                  ContextMenuButtonItem(
-                    onPressed: () {
-                      ContextMenuController.removeAny();
-                      selectableRegionState.hideToolbar();
-                      if (mounted) {
-                        setState(() {
-                          _selectionAreaResetToken++;
-                        });
-                      }
-                      unawaited(_openAiHud(
-                        initialRoute: AiHudRoute.qa,
-                        initialQaText: text,
-                        autoSendInitialQa: true,
-                      ));
-                    },
-                    type: ContextMenuButtonType.custom,
-                    label: '解释',
-                  ),
-                if (text.isNotEmpty)
-                  ContextMenuButtonItem(
-                    onPressed: () {
-                      ContextMenuController.removeAny();
-                      selectableRegionState.hideToolbar();
-                      if (mounted) {
-                        setState(() {
-                          _selectionAreaResetToken++;
-                        });
-                      }
-                      final suffix =
-                          'sel_${text.hashCode.toUnsigned(32).toRadixString(16)}';
-                      if (mounted) {
-                        setState(() {
-                          _rememberSelectionIllustration(
-                            chapterIndex: chapterIndex,
-                            text: text,
-                            suffix: suffix,
-                          );
-                        });
-                      }
-                      unawaited(_openAiHud(
-                        initialRoute: AiHudRoute.illustration,
-                        illustrationOverrideText: text,
-                        illustrationChapterIdSuffix: suffix,
-                      ));
-                    },
-                    type: ContextMenuButtonType.custom,
-                    label: '插画',
-                  ),
-              ];
-              final ContextMenuButtonItem? copyItem = selectableRegionState
-                  .contextMenuButtonItems
-                  .where((e) => e.type == ContextMenuButtonType.copy)
-                  .cast<ContextMenuButtonItem?>()
-                  .firstWhere((e) => e != null, orElse: () => null);
-              final ContextMenuButtonItem? selectAllItem = selectableRegionState
-                  .contextMenuButtonItems
-                  .where((e) => e.type == ContextMenuButtonType.selectAll)
-                  .cast<ContextMenuButtonItem?>()
-                  .firstWhere((e) => e != null, orElse: () => null);
-              if (copyItem != null) {
-                items.add(
-                  ContextMenuButtonItem(
-                    onPressed: () {
-                      copyItem.onPressed?.call();
-                      ContextMenuController.removeAny();
-                      selectableRegionState.hideToolbar();
-                      if (mounted) {
-                        setState(() {
-                          _selectionAreaResetToken++;
-                        });
-                      }
-                    },
-                    type: copyItem.type,
-                    label: '复制',
+                  textButtonTheme: TextButtonThemeData(
+                    style: TextButton.styleFrom(
+                      foregroundColor: toolbarFg,
+                      disabledForegroundColor: disabledFg,
+                      textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
                   ),
                 );
-              }
-              if (selectAllItem != null) {
-                items.add(
-                  ContextMenuButtonItem(
-                    onPressed: selectAllItem.onPressed,
-                    type: selectAllItem.type,
-                    label: '全选',
+
+                final items = <ContextMenuButtonItem>[
+                  if (canReadCurrent)
+                    ContextMenuButtonItem(
+                      onPressed: () {
+                        ContextMenuController.removeAny();
+                        selectableRegionState.hideToolbar();
+                        if (mounted) {
+                          setState(() {
+                            _selectionAreaResetToken++;
+                          });
+                        }
+                        unawaited(() async {
+                          await readAloud.stop(keepResume: true);
+                          if (!mounted) return;
+                          await _startReadAloudFromSelection(text);
+                        }());
+                      },
+                      type: ContextMenuButtonType.custom,
+                      label: '读当前',
+                    ),
+                  if (canTranslate)
+                    ContextMenuButtonItem(
+                      onPressed: () {
+                        ContextMenuController.removeAny();
+                        selectableRegionState.hideToolbar();
+                        if (mounted) {
+                          setState(() {
+                            _selectionAreaResetToken++;
+                          });
+                        }
+                        unawaited(_showSelectionTranslation(text));
+                      },
+                      type: ContextMenuButtonType.custom,
+                      label: '翻译',
+                    ),
+                  if (canExplain)
+                    ContextMenuButtonItem(
+                      onPressed: () {
+                        ContextMenuController.removeAny();
+                        selectableRegionState.hideToolbar();
+                        if (mounted) {
+                          setState(() {
+                            _selectionAreaResetToken++;
+                          });
+                        }
+                        unawaited(_openAiHud(
+                          initialRoute: AiHudRoute.qa,
+                          initialQaText: text,
+                          autoSendInitialQa: true,
+                        ));
+                      },
+                      type: ContextMenuButtonType.custom,
+                      label: '解释',
+                    ),
+                  if (text.isNotEmpty)
+                    ContextMenuButtonItem(
+                      onPressed: () {
+                        ContextMenuController.removeAny();
+                        selectableRegionState.hideToolbar();
+                        if (mounted) {
+                          setState(() {
+                            _selectionAreaResetToken++;
+                          });
+                        }
+                        final suffix =
+                            'sel_${text.hashCode.toUnsigned(32).toRadixString(16)}';
+                        unawaited(_openAiHud(
+                          initialRoute: AiHudRoute.illustration,
+                          illustrationOverrideText: text,
+                          illustrationChapterIdSuffix: suffix,
+                        ));
+                      },
+                      type: ContextMenuButtonType.custom,
+                      label: '插画',
+                    ),
+                ];
+                final ContextMenuButtonItem? copyItem = selectableRegionState
+                    .contextMenuButtonItems
+                    .where((e) => e.type == ContextMenuButtonType.copy)
+                    .cast<ContextMenuButtonItem?>()
+                    .firstWhere((e) => e != null, orElse: () => null);
+                final ContextMenuButtonItem? selectAllItem =
+                    selectableRegionState.contextMenuButtonItems
+                        .where((e) => e.type == ContextMenuButtonType.selectAll)
+                        .cast<ContextMenuButtonItem?>()
+                        .firstWhere((e) => e != null, orElse: () => null);
+                if (copyItem != null) {
+                  items.add(
+                    ContextMenuButtonItem(
+                      onPressed: () {
+                        copyItem.onPressed?.call();
+                        ContextMenuController.removeAny();
+                        selectableRegionState.hideToolbar();
+                        if (mounted) {
+                          setState(() {
+                            _selectionAreaResetToken++;
+                          });
+                        }
+                      },
+                      type: copyItem.type,
+                      label: '复制',
+                    ),
+                  );
+                }
+                if (selectAllItem != null) {
+                  items.add(
+                    ContextMenuButtonItem(
+                      onPressed: selectAllItem.onPressed,
+                      type: selectAllItem.type,
+                      label: '全选',
+                    ),
+                  );
+                }
+
+                return Theme(
+                  data: themed,
+                  child: AdaptiveTextSelectionToolbar.buttonItems(
+                    anchors: selectableRegionState.contextMenuAnchors,
+                    buttonItems: items,
                   ),
                 );
-              }
-
-              return Theme(
-                data: themed,
-                child: AdaptiveTextSelectionToolbar.buttonItems(
-                  anchors: selectableRegionState.contextMenuAnchors,
-                  buttonItems: items,
-                ),
-              );
               },
               child: Stack(
                 children: [
@@ -7088,7 +7084,6 @@ class _ReaderPageState extends State<ReaderPage>
                       ),
                     ),
                   ),
-
                 if (_showControls)
                   Positioned.fill(
                     child: GestureDetector(

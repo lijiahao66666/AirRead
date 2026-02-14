@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../ai/hunyuan/hunyuan_translation_engine.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/tencentcloud/tencent_api_client.dart';
+import '../../ai/tencentcloud/tencent_cloud_exception.dart';
 import '../../ai/tencentcloud/tmt_translation_engine.dart';
 import '../../ai/translation/engines/translation_engine.dart';
 import '../../ai/translation/translation_cache.dart';
@@ -542,6 +543,7 @@ class TranslationProvider extends ChangeNotifier {
   Timer? _notifyTimer;
   bool _notifyScheduled = false;
   int _cacheRevision = 0;
+  int _lastPointsInsufficientToastMs = 0;
 
   TranslationProvider({
     AiModelProvider? aiModel,
@@ -1311,7 +1313,38 @@ class TranslationProvider extends ChangeNotifier {
   void _handleTranslationError(String key, String text, dynamic e) {
     _failedKeys.add(key);
     _pendingKeys.remove(key);
+    if (_isPointsInsufficientError(e)) {
+      if (_aiTranslateEnabled &&
+          _translationMode == TranslationMode.bigModel &&
+          !_usingPersonalTencentKeys) {
+        _aiTranslateEnabled = false;
+        _pendingKeys.clear();
+        _failedKeys.clear();
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (now - _lastPointsInsufficientToastMs > 1800) {
+          _lastPointsInsufficientToastMs = now;
+          onError?.call('积分不足，已停止大模型翻译');
+        }
+        _savePrefs().then((_) {});
+        _scheduleNotify();
+        notifyListeners();
+        return;
+      }
+    }
     _scheduleNotify();
+  }
+
+  bool _isPointsInsufficientError(dynamic e) {
+    if (e is TencentCloudException) {
+      if (e.code == 'PointsInsufficient') return true;
+      if (e.code == 'HttpError') {
+        final m = e.message;
+        return m.contains('HTTP 402') || m.contains('PointsInsufficient') || m.contains('积分不足');
+      }
+      return e.message.contains('PointsInsufficient') || e.message.contains('积分不足');
+    }
+    final s = e.toString();
+    return s.contains('PointsInsufficient') || s.contains('HTTP 402') || s.contains('积分不足');
   }
 
   /// Check if we have a cached translation for a given paragraph text

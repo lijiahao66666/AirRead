@@ -135,6 +135,41 @@ class TencentApiClient {
     onPointsBalanceChanged?.call(fixed);
   }
 
+  Future<void> _syncPointsFromBalance(dynamic balance) async {
+    final next = (balance is num) ? balance.toInt() : int.tryParse(balance.toString());
+    if (next == null) return;
+    await _syncPointsFromResponse(<String, dynamic>{'PointsBalance': next});
+  }
+
+  Future<Never> _throwScfHttpError({
+    required int statusCode,
+    required String body,
+  }) async {
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(body);
+    } catch (_) {
+      decoded = null;
+    }
+    if (decoded is Map) {
+      final error = decoded['error']?.toString() ?? '';
+      final message = decoded['message']?.toString() ?? '';
+      if (decoded.containsKey('balance')) {
+        await _syncPointsFromBalance(decoded['balance']);
+      }
+      if (error.isNotEmpty) {
+        throw TencentCloudException(
+          code: error,
+          message: message.isNotEmpty ? message : 'HTTP $statusCode',
+        );
+      }
+    }
+    throw TencentCloudException(
+      code: 'HttpError',
+      message: 'HTTP $statusCode',
+    );
+  }
+
   Uri _resolveScfUri() {
     final raw = _scfUrl.trim();
     if (raw.isEmpty) {
@@ -317,9 +352,9 @@ class TencentApiClient {
               .timeout(timeout);
 
           if (resp.statusCode < 200 || resp.statusCode >= 300) {
-            throw TencentCloudException(
-              code: 'HttpError',
-              message: 'HTTP ${resp.statusCode}: ${resp.body}',
+            await _throwScfHttpError(
+              statusCode: resp.statusCode,
+              body: utf8.decode(resp.bodyBytes),
             );
           }
 
@@ -602,9 +637,9 @@ class TencentApiClient {
             streamedResponse.statusCode >= 300) {
           final content = await streamedResponse.stream.toBytes();
           final body = utf8.decode(content);
-          throw TencentCloudException(
-            code: 'HttpError',
-            message: 'HTTP ${streamedResponse.statusCode}: $body',
+          await _throwScfHttpError(
+            statusCode: streamedResponse.statusCode,
+            body: body,
           );
         }
 

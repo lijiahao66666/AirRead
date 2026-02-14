@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../ai/tencent_tts/tencent_tts_client.dart';
+import '../../ai/tencentcloud/tencent_cloud_exception.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/translation/translation_types.dart';
 import '../pages/reader/tts_web_speech.dart';
@@ -145,6 +146,21 @@ class ReadAloudProvider extends ChangeNotifier {
 
   ReadAloudProvider() {
     unawaited(_init());
+  }
+
+  bool _isPointsInsufficientError(Object e) {
+    if (e is TencentCloudException) {
+      if (e.code == 'PointsInsufficient') return true;
+      if (e.code == 'HttpError') {
+        final m = e.message;
+        return m.contains('HTTP 402') ||
+            m.contains('PointsInsufficient') ||
+            m.contains('积分不足');
+      }
+      return e.message.contains('PointsInsufficient') || e.message.contains('积分不足');
+    }
+    final s = e.toString();
+    return s.contains('PointsInsufficient') || s.contains('HTTP 402') || s.contains('积分不足');
   }
 
   bool get playing => _playing;
@@ -998,6 +1014,16 @@ class ReadAloudProvider extends ChangeNotifier {
       );
     } catch (e) {
       if (session != _session) return;
+      final tp = _tp;
+      if (tp != null &&
+          tp.readAloudEngine == ReadAloudEngine.online &&
+          !tp.usingPersonalTencentKeys &&
+          _isPointsInsufficientError(e)) {
+        unawaited(tp.setAiReadAloudEnabled(false));
+        tp.onError?.call('积分不足，暂停在线朗读');
+        await stop(keepResume: true, endedNaturally: false, stopEngine: false);
+        return;
+      }
       await stop(keepResume: true);
       rethrow;
     }
