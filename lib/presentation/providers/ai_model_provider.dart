@@ -259,11 +259,11 @@ class AiModelProvider extends ChangeNotifier {
   void _markLocalInferenceUsed() {
     _lastLocalInferenceAt = DateTime.now();
     _localIdleUnloadTimer?.cancel();
-    _localIdleUnloadTimer = Timer(const Duration(minutes: 1), () {
+    _localIdleUnloadTimer = Timer(const Duration(minutes: 3), () {
       final last = _lastLocalInferenceAt;
       if (last == null) return;
       final idleFor = DateTime.now().difference(last);
-      if (idleFor < const Duration(minutes: 1)) return;
+      if (idleFor < const Duration(minutes: 3)) return;
       final c = _llmClient;
       if (c != null) {
         debugPrint(

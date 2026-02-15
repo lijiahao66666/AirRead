@@ -254,6 +254,7 @@ class LlmClientMnn implements LlmClient {
 
   @override
   Future<void> dispose() async {
+    debugPrint('[LlmClientMnn] dispose');
     await _client.dispose();
   }
 }
