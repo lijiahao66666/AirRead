@@ -29,6 +29,8 @@ class AiModelProvider extends ChangeNotifier {
   bool _anyLocalModelInstalled = false;
   Timer? _localIdleUnloadTimer;
   DateTime? _lastLocalInferenceAt;
+  int? _lastIdleScheduleAtMs;
+  String? _lastIdleScheduleModelId;
 
   final Map<String, ModelInstallStatus> _installStatusByModelId = {};
   final Map<String, double> _downloadProgressByModelId = {};
@@ -262,6 +264,10 @@ class AiModelProvider extends ChangeNotifier {
     debugPrint(
       '[AiModelProvider] unload local model reason=$reason model=$_activeLocalModelId',
     );
+    _localIdleUnloadTimer?.cancel();
+    _lastLocalInferenceAt = null;
+    _lastIdleScheduleAtMs = null;
+    _lastIdleScheduleModelId = null;
     await c.dispose();
     _llmClient = null;
     notifyListeners();
@@ -287,8 +293,17 @@ class AiModelProvider extends ChangeNotifier {
           '[AiModelProvider] idle unload done model=$_activeLocalModelId');
       notifyListeners();
     });
-    debugPrint(
-        '[AiModelProvider] idle unload scheduled model=$_activeLocalModelId');
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final shouldLog = _lastIdleScheduleAtMs == null ||
+        _lastIdleScheduleModelId != _activeLocalModelId ||
+        nowMs - _lastIdleScheduleAtMs! > 15000;
+    if (shouldLog) {
+      _lastIdleScheduleAtMs = nowMs;
+      _lastIdleScheduleModelId = _activeLocalModelId;
+      debugPrint(
+        '[AiModelProvider] idle unload scheduled model=$_activeLocalModelId',
+      );
+    }
   }
 
   Future<void> _initializeLlmClientFor(String modelId) async {
@@ -296,6 +311,10 @@ class AiModelProvider extends ChangeNotifier {
       debugPrint(
         '[AiModelProvider] switch local model from $_activeLocalModelId to $modelId, disposing',
       );
+      _localIdleUnloadTimer?.cancel();
+      _lastLocalInferenceAt = null;
+      _lastIdleScheduleAtMs = null;
+      _lastIdleScheduleModelId = null;
       await _llmClient!.dispose();
       _llmClient = null;
       debugPrint('[AiModelProvider] dispose complete for $_activeLocalModelId');

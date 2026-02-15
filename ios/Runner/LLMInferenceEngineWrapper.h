@@ -27,6 +27,8 @@ typedef void (^StreamOutputHandler)(NSString * _Nonnull output);
 
 - (void)clearHistory;
 
+- (void)dispose;
+
 - (BOOL)isModelReady;
 
 - (BOOL)isProcessing;

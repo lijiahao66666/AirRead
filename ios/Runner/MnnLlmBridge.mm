@@ -181,6 +181,7 @@
         if (_engine) {
             NSLog(@"[MnnLlmBridge] Disposing model: %@", _modelPath);
             [_engine cancelInference];
+            [_engine dispose];
         }
         _engine = nil;
         _modelPath = nil;

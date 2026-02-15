@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import '../../ai/reading/qa_service.dart';
 // import '../../ai/reading/reading_context_service.dart';
@@ -41,6 +42,7 @@ class QaStreamProvider extends ChangeNotifier {
   final Map<String, QaStreamState> _stateByBookId = {};
   final Map<String, StreamSubscription<QAStreamChunk>> _subByBookId = {};
   final Map<String, String> _localRawByBookId = {};
+  final Map<String, String> _localModelIdByBookId = {};
   int _nextStreamId = 1;
 
   QaStreamState? stateFor(String bookId) => _stateByBookId[bookId];
@@ -118,6 +120,7 @@ class QaStreamProvider extends ChangeNotifier {
 
     if (isLocalModel) {
       _localRawByBookId[bookId] = '';
+      _localModelIdByBookId[bookId] = localModelId;
     }
 
     _stateByBookId[bookId] = QaStreamState(
@@ -186,7 +189,10 @@ class QaStreamProvider extends ChangeNotifier {
         if (cur == null || cur.streamId != streamId) return;
 
         if (isLocalModel) {
-          final raw = _sanitizeLocalDelta(chunk.content);
+          final raw = _sanitizeLocalDelta(
+            chunk.content,
+            localModelId: _localModelIdByBookId[bookId],
+          );
           if (raw.isNotEmpty) {
             var acc = (_localRawByBookId[bookId] ?? '') + raw;
             if (acc.length > 30000) {
@@ -258,6 +264,7 @@ class QaStreamProvider extends ChangeNotifier {
             answer = think;
             think = '';
           }
+          _localModelIdByBookId.remove(bookId);
           _stateByBookId[bookId] = QaStreamState(
             streamId: cur.streamId,
             bookId: cur.bookId,
@@ -297,6 +304,7 @@ class QaStreamProvider extends ChangeNotifier {
       await sub.cancel().catchError((_) {});
     }
     _localRawByBookId.remove(bookId);
+    _localModelIdByBookId.remove(bookId);
     final cur = _stateByBookId[bookId];
     if (cur != null && cur.isStreaming) {
       _stateByBookId[bookId] = QaStreamState(
@@ -323,8 +331,13 @@ class QaStreamProvider extends ChangeNotifier {
     super.dispose();
   }
 
-  String _sanitizeLocalDelta(String input) {
+  String _sanitizeLocalDelta(
+    String input, {
+    String? localModelId,
+  }) {
     if (input.isEmpty) return '';
+    final tightenForMiniCpmIos =
+        Platform.isIOS && localModelId == ModelManager.minicpm4_0_5b;
     final buffer = StringBuffer();
     for (final r in input.runes) {
       if (r == 0x09 || r == 0x0A || r == 0x0D) {
@@ -332,6 +345,19 @@ class QaStreamProvider extends ChangeNotifier {
         continue;
       }
       if (r < 0x20 || r == 0x7F) continue;
+      if (tightenForMiniCpmIos) {
+        if ((r >= 0x0300 && r <= 0x036F) ||
+            r == 0x200B ||
+            r == 0x200C ||
+            r == 0x200D ||
+            r == 0x200E ||
+            r == 0x200F ||
+            (r >= 0x202A && r <= 0x202E) ||
+            (r >= 0x2066 && r <= 0x2069) ||
+            r == 0xFEFF) {
+          continue;
+        }
+      }
       buffer.writeCharCode(r);
     }
     return buffer.toString();

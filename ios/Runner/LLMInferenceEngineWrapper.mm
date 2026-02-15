@@ -13,6 +13,7 @@
 #include <vector>
 #include <utility>
 #include <cctype>
+#include <chrono>
 #include <TargetConditionals.h>
 #import "LLMInferenceEngineWrapper.h"
 
@@ -514,6 +515,29 @@ private:
 
 - (void)cancelInference {
     _shouldStop = true;
+}
+
+- (void)dispose {
+    _shouldStop = true;
+    int waitedMs = 0;
+    while (_isProcessing.load() && waitedMs < 1200) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        waitedMs += 30;
+    }
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (_llm) {
+            _llm->reset();
+            _llm.reset();
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(_historyMutex);
+        _history.clear();
+    }
+    ARLog(@"[LLM] dispose done processing=%s waitedMs=%d",
+          _isProcessing.load() ? "true" : "false",
+          waitedMs);
 }
 
 - (BOOL)isModelReady {
