@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -47,6 +48,10 @@ class AiInferenceTopRow extends StatelessWidget {
     );
     final dropdownBg =
         isDark ? Colors.white.withOpacityCompat(0.04) : AppColors.mistWhite;
+    final options = AiChatModelChoice.values.where((v) {
+      if (Platform.isIOS && v == AiChatModelChoice.localHunyuan18b) return false;
+      return true;
+    }).toList();
 
     return Row(
       children: [
@@ -71,7 +76,7 @@ class AiInferenceTopRow extends StatelessWidget {
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
-                items: AiChatModelChoice.values
+                items: options
                     .map(
                       (v) {
                         final enabled = switch (v) {

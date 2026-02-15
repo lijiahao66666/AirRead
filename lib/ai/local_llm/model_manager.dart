@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'mnn_model_downloader.dart';
 import 'mnn_model_spec.dart';
 
@@ -6,6 +7,7 @@ import 'mnn_model_spec.dart';
 class ModelManager {
   static const String hunyuan_1_8b = 'hunyuan-1.8b-mnn';
   static const String hunyuan_0_5b = 'hunyuan-0.5b-mnn';
+  static const String minicpm4_0_5b = 'minicpm4-0.5b-mnn';
 
   static const MnnModelSpec hunyuan_1_8bSpec = MnnModelSpec(
     id: hunyuan_1_8b,
@@ -73,15 +75,62 @@ class ModelManager {
     },
   );
 
-  static const List<MnnModelSpec> localModels = [
-    hunyuan_1_8bSpec,
-    hunyuan_0_5bSpec,
-  ];
+  static const MnnModelSpec minicpm4_0_5bSpec = MnnModelSpec(
+    id: minicpm4_0_5b,
+    displayName: 'MiniCPM4-0.5B',
+    sizeLabel: '311M',
+    estimatedTotalSizeBytes: 311 * 1024 * 1024,
+    baseUrl:
+        'https://modelscope.cn/models/MNN/MiniCPM4-0.5B-MNN/resolve/master/',
+    filesToDownload: [
+      'config.json',
+      'configuration.json',
+      'llm.mnn',
+      'llm.mnn.weight',
+      'llm_config.json',
+      'tokenizer.txt',
+    ],
+    criticalFiles: [
+      'llm.mnn',
+      'llm.mnn.weight',
+      'tokenizer.txt',
+      'config.json',
+    ],
+    minExpectedBytesByFile: {
+      'llm.mnn.weight': 280 * 1024 * 1024,
+      'llm.mnn': 200 * 1024,
+      'tokenizer.txt': 512 * 1024,
+      'config.json': 200,
+      'configuration.json': 40,
+      'llm_config.json': 200,
+    },
+  );
+
+  static List<MnnModelSpec> get localModels {
+    if (Platform.isIOS) {
+      return [
+        minicpm4_0_5bSpec,
+        hunyuan_0_5bSpec,
+      ];
+    }
+    return [
+      hunyuan_1_8bSpec,
+      hunyuan_0_5bSpec,
+      minicpm4_0_5bSpec,
+    ];
+  }
+
+  static String get defaultLocalModelId {
+    return Platform.isIOS ? hunyuan_0_5b : hunyuan_1_8b;
+  }
+
+  static List<String> get preferredLocalModelIds =>
+      localModels.map((e) => e.id).toList(growable: false);
 
   static MnnModelSpec specFor(String modelId) {
     return localModels.firstWhere(
       (e) => e.id == modelId,
-      orElse: () => hunyuan_1_8bSpec,
+      orElse: () => localModels.first,
     );
   }
 
@@ -91,6 +140,7 @@ class ModelManager {
     return switch (modelId) {
       hunyuan_1_8b => '建议手机内存≥6G',
       hunyuan_0_5b => '建议手机内存≥4G',
+      minicpm4_0_5b => '建议手机内存≥3G',
       _ => '',
     };
   }

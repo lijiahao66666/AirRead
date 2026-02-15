@@ -22,7 +22,7 @@ class AiModelProvider extends ChangeNotifier {
   static const String _kLastLocalModelId = 'ai_last_local_model_id';
 
   LlmClient? _llmClient;
-  String _activeLocalModelId = ModelManager.hunyuan_1_8b;
+  String _activeLocalModelId = ModelManager.defaultLocalModelId;
   int _pointsBalance = 0;
   int? _debugPointsOverride;
   int _illustrationCount = 0; // 0 = Auto
@@ -92,11 +92,7 @@ class AiModelProvider extends ChangeNotifier {
     if (await ModelManager.isModelInstalled(_activeLocalModelId)) {
       return _activeLocalModelId;
     }
-    final prefer = <String>[
-      ModelManager.hunyuan_1_8b,
-      ModelManager.hunyuan_0_5b,
-    ];
-    for (final id in prefer) {
+    for (final id in ModelManager.preferredLocalModelIds) {
       if (await ModelManager.isModelInstalled(id)) return id;
     }
     for (final spec in ModelManager.localModels) {
@@ -158,7 +154,8 @@ class AiModelProvider extends ChangeNotifier {
     final localModelRaw = (prefs.getString(_kLastLocalModelId) ?? '').trim();
     final supported =
         ModelManager.localModels.any((spec) => spec.id == localModelRaw);
-    _activeLocalModelId = supported ? localModelRaw : ModelManager.hunyuan_1_8b;
+    _activeLocalModelId =
+        supported ? localModelRaw : ModelManager.defaultLocalModelId;
     if (!supported && localModelRaw.isNotEmpty) {
       await prefs.setString(_kLastLocalModelId, _activeLocalModelId);
     }

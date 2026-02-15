@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -2358,6 +2359,12 @@ class _TencentHunyuanSettingsPanelState
   }) {
     return Consumer<AiModelProvider>(
       builder: (context, aiModel, child) {
+        final specs = aiModel.availableLocalModels.where((spec) {
+          if (Platform.isIOS && spec.id == ModelManager.hunyuan_1_8b) {
+            return false;
+          }
+          return true;
+        }).toList(growable: false);
         return Container(
           width: double.infinity,
           decoration: BoxDecoration(
@@ -2393,7 +2400,7 @@ class _TencentHunyuanSettingsPanelState
                       ),
                     ),
                     const SizedBox(height: 12),
-                    for (final spec in aiModel.availableLocalModels) ...[
+                    for (final spec in specs) ...[
                       _localModelDownloadRow(aiModel, spec),
                       const SizedBox(height: 10),
                     ],
@@ -3060,9 +3067,14 @@ class _QaPanelState extends State<_QaPanel> {
               orElse: () => null,
             );
     final thinking = prefs.getBool(_kQaThinkingEnabled);
+    final resolvedChoice =
+        (Platform.isIOS && choice == AiChatModelChoice.localHunyuan18b)
+            ? AiChatModelChoice.localHunyuan05b
+            : choice;
+
     if (!mounted) return;
     setState(() {
-      _modelChoice = choice ?? AiChatModelChoice.onlineHunyuan;
+      _modelChoice = resolvedChoice ?? AiChatModelChoice.onlineHunyuan;
       _thinkingEnabled = thinking ?? true;
     });
   }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -123,9 +124,14 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       }
     }
 
+    final resolvedChoice =
+        (Platform.isIOS && choice == AiChatModelChoice.localHunyuan18b)
+            ? AiChatModelChoice.localHunyuan05b
+            : choice;
+
     if (!mounted) return;
     setState(() {
-      _modelChoice = choice ?? AiChatModelChoice.onlineHunyuan;
+      _modelChoice = resolvedChoice ?? AiChatModelChoice.onlineHunyuan;
       _thinkingEnabled = thinking ?? true;
     });
   }
