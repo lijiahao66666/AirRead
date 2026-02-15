@@ -3073,10 +3073,11 @@ class _QaPanelState extends State<_QaPanel>
               orElse: () => null,
             );
     final thinking = prefs.getBool(_kQaThinkingEnabled);
-    final resolvedChoice =
-        (Platform.isIOS && choice == AiChatModelChoice.localHunyuan18b)
-            ? AiChatModelChoice.localHunyuan05b
-            : choice;
+    final resolvedChoice = (Platform.isIOS &&
+            (choice == AiChatModelChoice.localHunyuan18b ||
+                choice == AiChatModelChoice.localMiniCpm05b))
+        ? AiChatModelChoice.localHunyuan05b
+        : choice;
 
     if (!mounted) return;
     setState(() {

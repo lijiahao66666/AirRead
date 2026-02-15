@@ -124,10 +124,11 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       }
     }
 
-    final resolvedChoice =
-        (Platform.isIOS && choice == AiChatModelChoice.localHunyuan18b)
-            ? AiChatModelChoice.localHunyuan05b
-            : choice;
+    final resolvedChoice = (Platform.isIOS &&
+            (choice == AiChatModelChoice.localHunyuan18b ||
+                choice == AiChatModelChoice.localMiniCpm05b))
+        ? AiChatModelChoice.localHunyuan05b
+        : choice;
 
     if (!mounted) return;
     setState(() {

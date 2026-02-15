@@ -109,7 +109,6 @@ class ModelManager {
   static List<MnnModelSpec> get localModels {
     if (Platform.isIOS) {
       return [
-        minicpm4_0_5bSpec,
         hunyuan_0_5bSpec,
       ];
     }

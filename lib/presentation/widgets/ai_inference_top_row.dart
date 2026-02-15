@@ -55,8 +55,12 @@ class AiInferenceTopRow extends StatelessWidget {
     final dropdownBg =
         isDark ? Colors.white.withOpacityCompat(0.04) : AppColors.mistWhite;
     final options = AiChatModelChoice.values.where((v) {
-      if (Platform.isIOS && v == AiChatModelChoice.localHunyuan18b)
-        return false;
+      if (Platform.isIOS) {
+        if (v == AiChatModelChoice.localHunyuan18b ||
+            v == AiChatModelChoice.localMiniCpm05b) {
+          return false;
+        }
+      }
       return true;
     }).toList();
 
