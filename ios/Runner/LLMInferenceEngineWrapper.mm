@@ -275,17 +275,13 @@ private:
                 return NO;
             }
             
-            // Configure LLM - 最小化覆盖项，只设置运行必须参数
-            NSString *tempDirectory = NSTemporaryDirectory();
+            // Configure LLM - 仅设置运行必须参数，与 Android 行为保持一致
             std::string configStr = "{"
-                "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
-                "\"use_mmap\":true,"
                 "\"max_input_tokens\":4096,"
-                "\"max_new_tokens\":1024,"
-                "\"backend_type\":\"cpu\""
+                "\"max_new_tokens\":1024"
                 "}";
             bool loadConfigOk = _llm->set_config(configStr);
-            ARLog(@"[LLMInferenceEngineWrapper] Using config with backend_type=cpu, tmp_path=%s, set_config=%s", configStr.c_str(), loadConfigOk ? "true" : "false");
+            ARLog(@"[LLMInferenceEngineWrapper] Using config max tokens only, set_config=%s", loadConfigOk ? "true" : "false");
             
             // Load model
             bool loaded = _llm->load();
