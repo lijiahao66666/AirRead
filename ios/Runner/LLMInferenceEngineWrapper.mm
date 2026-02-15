@@ -53,6 +53,25 @@ static bool arLooksMeaningfulUtf8(const std::string& s) {
     }
     return false;
 }
+
+static void arDisableFileProtectionForPath(NSString *path) {
+    if (!path || path.length == 0) return;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    BOOL isDir = NO;
+    if (![fm fileExistsAtPath:path isDirectory:&isDir]) {
+        return;
+    }
+    NSDictionary *attrs = @{NSFileProtectionKey: NSFileProtectionNone};
+    [fm setAttributes:attrs ofItemAtPath:path error:nil];
+    if (!isDir) {
+        return;
+    }
+    NSDirectoryEnumerator *enumerator = [fm enumeratorAtPath:path];
+    for (NSString *subpath in enumerator) {
+        NSString *fullPath = [path stringByAppendingPathComponent:subpath];
+        [fm setAttributes:attrs ofItemAtPath:fullPath error:nil];
+    }
+}
 } // namespace
 #endif
 
@@ -266,6 +285,7 @@ private:
                 return NO;
             }
             
+            arDisableFileProtectionForPath(_modelPath);
             std::string config_path = [configPath UTF8String];
             
             // Create LLM instance
@@ -276,12 +296,15 @@ private:
             }
             
             // Configure LLM - 仅设置运行必须参数，与 Android 行为保持一致
+            NSString *tempDirectory = NSTemporaryDirectory();
             std::string configStr = "{"
+                "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
+                "\"use_mmap\":true,"
                 "\"max_input_tokens\":4096,"
                 "\"max_new_tokens\":1024"
                 "}";
             bool loadConfigOk = _llm->set_config(configStr);
-            ARLog(@"[LLMInferenceEngineWrapper] Using config max tokens only, set_config=%s", loadConfigOk ? "true" : "false");
+            ARLog(@"[LLMInferenceEngineWrapper] Using config with mmap+tmp_path, set_config=%s", loadConfigOk ? "true" : "false");
             
             // Load model
             bool loaded = _llm->load();
