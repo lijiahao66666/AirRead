@@ -256,6 +256,17 @@ class AiModelProvider extends ChangeNotifier {
     await _initializeLlmClientFor(modelId);
   }
 
+  Future<void> unloadLocalModel({required String reason}) async {
+    final c = _llmClient;
+    if (c == null) return;
+    debugPrint(
+      '[AiModelProvider] unload local model reason=$reason model=$_activeLocalModelId',
+    );
+    await c.dispose();
+    _llmClient = null;
+    notifyListeners();
+  }
+
   void _markLocalInferenceUsed() {
     _lastLocalInferenceAt = DateTime.now();
     _localIdleUnloadTimer?.cancel();

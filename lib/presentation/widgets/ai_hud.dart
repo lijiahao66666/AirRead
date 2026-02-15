@@ -3088,6 +3088,7 @@ class _QaPanelState extends State<_QaPanel>
   Future<void> _setQaModelChoice(AiChatModelChoice value) async {
     if (_modelChoice == value) return;
     final aiModel = context.read<AiModelProvider>();
+    final prevChoice = _modelChoice;
     if (value.isLocal) {
       final localModelId = switch (value) {
         AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
@@ -3095,6 +3096,9 @@ class _QaPanelState extends State<_QaPanel>
         AiChatModelChoice.localHunyuan18b => ModelManager.hunyuan_1_8b,
         _ => ModelManager.hunyuan_1_8b,
       };
+      if (aiModel.loaded && aiModel.activeLocalModelId != localModelId) {
+        await aiModel.unloadLocalModel(reason: 'qa_switch_local');
+      }
       final installed = aiModel.installStatusFor(localModelId) ==
           ModelInstallStatus.installed;
       if (!installed) {
@@ -3114,6 +3118,9 @@ class _QaPanelState extends State<_QaPanel>
     setState(() => _modelChoice = value);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kQaModelChoice, value.name);
+    if (prevChoice.isLocal && aiModel.loaded) {
+      await aiModel.unloadLocalModel(reason: 'qa_switch_online');
+    }
   }
 
   Future<void> _setQaThinkingEnabled(bool value) async {

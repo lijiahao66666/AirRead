@@ -138,6 +138,21 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
 
   Future<void> _setModelChoice(AiChatModelChoice value) async {
     if (_modelChoice == value) return;
+    final aiModel = context.read<AiModelProvider>();
+    final prevChoice = _modelChoice;
+    if (value.isLocal) {
+      final localModelId = switch (value) {
+        AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
+        AiChatModelChoice.localMiniCpm05b => ModelManager.minicpm4_0_5b,
+        AiChatModelChoice.localHunyuan18b => ModelManager.hunyuan_1_8b,
+        _ => ModelManager.hunyuan_1_8b,
+      };
+      if (aiModel.loaded && aiModel.activeLocalModelId != localModelId) {
+        await aiModel.unloadLocalModel(reason: 'illustration_switch_local');
+      }
+    } else if (prevChoice.isLocal && aiModel.loaded) {
+      await aiModel.unloadLocalModel(reason: 'illustration_switch_online');
+    }
     setState(() => _modelChoice = value);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kIllustrationModelChoice, value.name);
