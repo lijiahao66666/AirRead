@@ -438,7 +438,7 @@ async function setPointsBalance({ bucket, region, deviceId, balance, credentials
 async function tryMarkImageChargedOnce({ bucket, region, deviceId, jobId, credentials }) {
   const id = String(jobId || '').trim();
   if (!id) return false;
-  const key = `image_charged/${deviceId}/${id}.ok`;
+  const key = `points/${deviceId}/image_charged/${id}.ok`;
   try {
     const status = await cosPutObject({
       bucket,

@@ -157,10 +157,13 @@ class ReadAloudProvider extends ChangeNotifier {
             m.contains('PointsInsufficient') ||
             m.contains('积分不足');
       }
-      return e.message.contains('PointsInsufficient') || e.message.contains('积分不足');
+      return e.message.contains('PointsInsufficient') ||
+          e.message.contains('积分不足');
     }
     final s = e.toString();
-    return s.contains('PointsInsufficient') || s.contains('HTTP 402') || s.contains('积分不足');
+    return s.contains('PointsInsufficient') ||
+        s.contains('HTTP 402') ||
+        s.contains('积分不足');
   }
 
   bool get playing => _playing;
