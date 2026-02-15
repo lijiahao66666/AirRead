@@ -14,6 +14,7 @@
 #include <utility>
 #include <cctype>
 #include <chrono>
+#include <thread>
 #include <TargetConditionals.h>
 #import "LLMInferenceEngineWrapper.h"
 
