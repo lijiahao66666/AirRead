@@ -193,6 +193,32 @@ class MnnClient {
     }
   }
 
+  Stream<String> generateStreamMiniCpm({
+    required String prompt,
+    int maxTokens = 512,
+  }) async* {
+    if (!_isInitialized) {
+      throw Exception('MNN client not initialized');
+    }
+    _debugLogModelInput(
+      where: 'chatOnceMiniCpm',
+      prompt: prompt,
+    );
+    final result = await generate(
+      prompt: prompt,
+      maxTokens: maxTokens,
+    );
+    if (result == null || result.isEmpty) return;
+    const chunkSize = 48;
+    var i = 0;
+    while (i < result.length) {
+      final end =
+          (i + chunkSize) > result.length ? result.length : i + chunkSize;
+      yield result.substring(i, end);
+      i = end;
+    }
+  }
+
   Future<void> cancel() async {
     try {
       await _channel.invokeMethod('cancelChatStream');

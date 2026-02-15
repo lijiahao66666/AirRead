@@ -3717,6 +3717,7 @@ class _QaPanelState extends State<_QaPanel> {
     final local18Installed =
         aiModel.installStatusFor(ModelManager.hunyuan_1_8b) ==
             ModelInstallStatus.installed;
+    final thinkingSupported = _modelChoice != AiChatModelChoice.localMiniCpm05b;
     final localModelId = switch (_modelChoice) {
       AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
       AiChatModelChoice.localMiniCpm05b => ModelManager.minicpm4_0_5b,
@@ -3814,6 +3815,7 @@ class _QaPanelState extends State<_QaPanel> {
                   onModelChoiceChanged: _setQaModelChoice,
                   thinkingEnabled: _thinkingEnabled,
                   onThinkingChanged: _setQaThinkingEnabled,
+                  thinkingSupported: thinkingSupported,
                 ),
                 const SizedBox(height: 12),
                 PointsWallet(

@@ -59,7 +59,8 @@ class LlmClientMnn implements LlmClient {
     final trimmed = output.trimRight();
     const headLen = 80;
     const tailLen = 160;
-    final head = trimmed.length <= headLen ? trimmed : trimmed.substring(0, headLen);
+    final head =
+        trimmed.length <= headLen ? trimmed : trimmed.substring(0, headLen);
     final tail = trimmed.length <= tailLen
         ? trimmed
         : trimmed.substring(trimmed.length - tailLen);
@@ -136,7 +137,12 @@ class LlmClientMnn implements LlmClient {
             model != null && !p.isAbsolute(model) ? model : null;
         final requiredFiles = modelId != null
             ? ModelManager.specFor(modelId).criticalFiles
-            : const ['config.json', 'llm.mnn', 'llm.mnn.weight', 'tokenizer.txt'];
+            : const [
+                'config.json',
+                'llm.mnn',
+                'llm.mnn.weight',
+                'tokenizer.txt'
+              ];
         for (var f in requiredFiles) {
           final file = File('${dir.path}/$f');
           if (!await file.exists()) {
@@ -211,6 +217,13 @@ class LlmClientMnn implements LlmClient {
     double minP = 0.0,
     double repetitionPenalty = 1.1,
   }) async* {
+    if (_currentModel == ModelManager.minicpm4_0_5b) {
+      yield* _client.generateStreamMiniCpm(
+        prompt: prompt,
+        maxTokens: maxTokens,
+      );
+      return;
+    }
     final effectivePrompt = _appendThinkIfNeeded(prompt);
     _debugLogPrompt(
       'generateStream',

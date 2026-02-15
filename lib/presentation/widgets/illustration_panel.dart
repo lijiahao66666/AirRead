@@ -305,6 +305,9 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       AiChatModelChoice.localHunyuan18b => ModelManager.hunyuan_1_8b,
       _ => ModelManager.hunyuan_1_8b,
     };
+    final thinkingSupported = _modelChoice != AiChatModelChoice.localMiniCpm05b;
+    final effectiveThinkingEnabled =
+        thinkingSupported ? _thinkingEnabled : false;
 
     if (_modelChoice.isLocal) {
       final installed = aiModel.installStatusFor(localModelId) ==
@@ -314,7 +317,9 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         return;
       }
       generateText = (prompt) => aiModel.generate(
-            prompt: _thinkingEnabled ? prompt : '/no_think\n$prompt',
+            prompt: effectiveThinkingEnabled
+                ? prompt
+                : (thinkingSupported ? '/no_think\n$prompt' : prompt),
             maxTokens: 1536,
             modelId: localModelId,
           );
@@ -337,7 +342,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         chapterTitle: '第${widget.currentChapterIndex + 1}章',
         content: content,
         modelKey: modelKey,
-        thinkingEnabled: _thinkingEnabled,
+        thinkingEnabled: effectiveThinkingEnabled,
         count: isSelectionMode ? 1 : aiModel.illustrationCount,
         styleKey: _styleKey,
         ratioKey: _ratioKey,
@@ -420,11 +425,14 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     final cardBg = widget.isDark
         ? Colors.white.withOpacityCompat(0.07)
         : AppColors.mistWhite;
+    final thinkingSupported = _modelChoice != AiChatModelChoice.localMiniCpm05b;
+    final effectiveThinkingEnabled =
+        thinkingSupported ? _thinkingEnabled : false;
     final cacheModelKey = _modelChoice.name;
     final cacheKey = provider.buildCacheKey(
       chapterId: _chapterId(),
       modelKey: cacheModelKey,
-      thinkingEnabled: _thinkingEnabled,
+      thinkingEnabled: effectiveThinkingEnabled,
       count: effectiveCount,
       styleKey: _styleKey,
       ratioKey: _ratioKey,
@@ -512,8 +520,9 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                         }
                         await _setModelChoice(choice);
                       },
-                      thinkingEnabled: _thinkingEnabled,
+                      thinkingEnabled: effectiveThinkingEnabled,
                       onThinkingChanged: _setThinkingEnabled,
+                      thinkingSupported: thinkingSupported,
                     ),
                     const SizedBox(height: 12),
                     PointsWallet(

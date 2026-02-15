@@ -135,13 +135,19 @@ class QaStreamProvider extends ChangeNotifier {
 
     Stream<QAStreamChunk> stream;
     if (isLocalModel) {
+      final thinkingSupported =
+          modelChoice != AiChatModelChoice.localMiniCpm05b;
+      final effectiveThinkingEnabled =
+          thinkingSupported ? thinkingEnabled : false;
       final basePrompt = buildLocalQaPrompt(
         contextService: contextService,
         question: question,
         qaType: qaType,
         history: history,
       );
-      final prompt = thinkingEnabled ? basePrompt : '/no_think\n$basePrompt';
+      final prompt = effectiveThinkingEnabled
+          ? basePrompt
+          : (thinkingSupported ? '/no_think\n$basePrompt' : basePrompt);
       stream = aiModel
           .generateStream(
             prompt: prompt,
@@ -334,6 +340,7 @@ class QaStreamProvider extends ChangeNotifier {
   String _stripModelTokens(String input) {
     var s = input;
     s = s.replaceAll(RegExp(r'<\|[^>]*\|>'), '');
+    s = s.replaceAll(RegExp(r'(^|\n)\s*/no_think\s*(?=\n|$)'), '\n');
     return s;
   }
 
@@ -415,6 +422,7 @@ class QaStreamProvider extends ChangeNotifier {
     s = s.replaceAll('<think>', '').replaceAll('</think>', '');
     s = s.replaceAll('<answer>', '').replaceAll('</answer>', '');
     s = s.replaceAll(RegExp(r'</?\[[^\]]+\]>'), '');
+    s = s.replaceAll(RegExp(r'(^|\n)\s*/no_think\s*(?=\n|$)'), '\n');
     s = s.trim();
     return s;
   }

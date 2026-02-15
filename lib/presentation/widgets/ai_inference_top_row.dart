@@ -15,6 +15,7 @@ class AiInferenceTopRow extends StatelessWidget {
   final Future<void> Function(AiChatModelChoice) onModelChoiceChanged;
   final bool thinkingEnabled;
   final Future<void> Function(bool) onThinkingChanged;
+  final bool thinkingSupported;
   final bool enabled;
 
   const AiInferenceTopRow({
@@ -28,6 +29,7 @@ class AiInferenceTopRow extends StatelessWidget {
     required this.onModelChoiceChanged,
     required this.thinkingEnabled,
     required this.onThinkingChanged,
+    required this.thinkingSupported,
     this.enabled = true,
   });
 
@@ -36,9 +38,8 @@ class AiInferenceTopRow extends StatelessWidget {
       AiChatModelChoice.onlineHunyuan => '在线（混元）',
       AiChatModelChoice.localHunyuan05b =>
         local05Installed ? '本地（Hunyuan-0.5B）' : '本地（Hunyuan-0.5B 未下载）',
-      AiChatModelChoice.localMiniCpm05b => localMiniInstalled
-          ? '本地（MiniCPM4-0.5B）'
-          : '本地（MiniCPM4-0.5B 未下载）',
+      AiChatModelChoice.localMiniCpm05b =>
+        localMiniInstalled ? '本地（MiniCPM4-0.5B）' : '本地（MiniCPM4-0.5B 未下载）',
       AiChatModelChoice.localHunyuan18b =>
         local18Installed ? '本地（Hunyuan-1.8B）' : '本地（Hunyuan-1.8B 未下载）',
     };
@@ -54,7 +55,8 @@ class AiInferenceTopRow extends StatelessWidget {
     final dropdownBg =
         isDark ? Colors.white.withOpacityCompat(0.04) : AppColors.mistWhite;
     final options = AiChatModelChoice.values.where((v) {
-      if (Platform.isIOS && v == AiChatModelChoice.localHunyuan18b) return false;
+      if (Platform.isIOS && v == AiChatModelChoice.localHunyuan18b)
+        return false;
       return true;
     }).toList();
 
@@ -81,30 +83,27 @@ class AiInferenceTopRow extends StatelessWidget {
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
-                items: options
-                    .map(
-                      (v) {
-                        final enabled = switch (v) {
-                          AiChatModelChoice.localHunyuan05b => local05Installed,
-                          AiChatModelChoice.localMiniCpm05b =>
-                            localMiniInstalled,
-                          AiChatModelChoice.localHunyuan18b => local18Installed,
-                          _ => true,
-                        };
-                        final color = enabled
-                            ? textColor.withOpacityCompat(0.9)
-                            : textColor.withOpacityCompat(0.35);
-                        return DropdownMenuItem(
-                          value: v,
-                          enabled: enabled,
-                          child: Text(
-                            _labelFor(v),
-                            style: TextStyle(color: color),
-                          ),
-                        );
-                      },
-                    )
-                    .toList(),
+                items: options.map(
+                  (v) {
+                    final enabled = switch (v) {
+                      AiChatModelChoice.localHunyuan05b => local05Installed,
+                      AiChatModelChoice.localMiniCpm05b => localMiniInstalled,
+                      AiChatModelChoice.localHunyuan18b => local18Installed,
+                      _ => true,
+                    };
+                    final color = enabled
+                        ? textColor.withOpacityCompat(0.9)
+                        : textColor.withOpacityCompat(0.35);
+                    return DropdownMenuItem(
+                      value: v,
+                      enabled: enabled,
+                      child: Text(
+                        _labelFor(v),
+                        style: TextStyle(color: color),
+                      ),
+                    );
+                  },
+                ).toList(),
                 onChanged: !enabled
                     ? null
                     : (v) {
@@ -126,19 +125,23 @@ class AiInferenceTopRow extends StatelessWidget {
         const SizedBox(width: 10),
         FilterChip(
           label: const Text('深度思考'),
-          selected: thinkingEnabled,
-          onSelected: !enabled ? null : (v) => onThinkingChanged(v),
+          selected: thinkingEnabled && thinkingSupported,
+          onSelected: (!enabled || !thinkingSupported)
+              ? null
+              : (v) => onThinkingChanged(v),
           selectedColor: AppColors.techBlue.withOpacityCompat(0.16),
           side: BorderSide(
-            color: thinkingEnabled
+            color: thinkingEnabled && thinkingSupported
                 ? AppColors.techBlue.withOpacityCompat(0.55)
                 : textColor.withOpacityCompat(0.12),
             width: AppTokens.stroke,
           ),
           labelStyle: TextStyle(
-            color: thinkingEnabled
+            color: thinkingEnabled && thinkingSupported
                 ? AppColors.techBlue
-                : textColor.withOpacityCompat(0.75),
+                : textColor.withOpacityCompat(
+                    thinkingSupported ? 0.75 : 0.35,
+                  ),
             fontWeight: FontWeight.w700,
             fontSize: 13,
           ),
