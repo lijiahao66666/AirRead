@@ -249,7 +249,13 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text(isSelectionMode ? '重新生成选中文本插画提示词？' : '重新生成插画提示词？'),
+          title: Text(
+            isSelectionMode ? '重新生成选中文本插画提示词？' : '重新生成插画提示词？',
+            style: TextStyle(
+              fontSize: 16,
+              color: widget.textColor,
+            ),
+          ),
           content: const Text('将覆盖当前提示词与已生成图片。'),
           actions: [
             TextButton(

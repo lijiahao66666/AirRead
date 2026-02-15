@@ -379,8 +379,6 @@ class TencentApiClient {
             'action': action,
             'version': version,
             if (region != null && region.trim().isNotEmpty) 'region': region,
-            if (secretId.isNotEmpty) 'secretId': secretId,
-            if (secretKey.isNotEmpty) 'secretKey': secretKey,
             'payload': payload,
             'stream': false,
             'timestamp': ts,
