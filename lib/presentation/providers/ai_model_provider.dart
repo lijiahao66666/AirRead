@@ -252,30 +252,42 @@ class AiModelProvider extends ChangeNotifier {
     if (!installed) {
       throw StateError('本地模型未下载：${ModelManager.displayNameFor(modelId)}');
     }
+    debugPrint('[AiModelProvider] ensureLocalModelReady modelId=$modelId');
     await _initializeLlmClientFor(modelId);
   }
 
   void _markLocalInferenceUsed() {
     _lastLocalInferenceAt = DateTime.now();
     _localIdleUnloadTimer?.cancel();
-    _localIdleUnloadTimer = Timer(const Duration(minutes: 10), () {
+    _localIdleUnloadTimer = Timer(const Duration(minutes: 1), () {
       final last = _lastLocalInferenceAt;
       if (last == null) return;
       final idleFor = DateTime.now().difference(last);
-      if (idleFor < const Duration(minutes: 10)) return;
+      if (idleFor < const Duration(minutes: 1)) return;
       final c = _llmClient;
       if (c != null) {
+        debugPrint(
+          '[AiModelProvider] idle unload start model=$_activeLocalModelId idleMs=${idleFor.inMilliseconds}',
+        );
         unawaited(c.dispose());
       }
       _llmClient = null;
+      debugPrint(
+          '[AiModelProvider] idle unload done model=$_activeLocalModelId');
       notifyListeners();
     });
+    debugPrint(
+        '[AiModelProvider] idle unload scheduled model=$_activeLocalModelId');
   }
 
   Future<void> _initializeLlmClientFor(String modelId) async {
     if (_llmClient != null && _activeLocalModelId != modelId) {
+      debugPrint(
+        '[AiModelProvider] switch local model from $_activeLocalModelId to $modelId, disposing',
+      );
       await _llmClient!.dispose();
       _llmClient = null;
+      debugPrint('[AiModelProvider] dispose complete for $_activeLocalModelId');
     }
     _llmClient ??= createLocalLlmClient();
     _activeLocalModelId = modelId;
@@ -288,6 +300,7 @@ class AiModelProvider extends ChangeNotifier {
           .initialize(model: modelId)
           .timeout(const Duration(seconds: 60), onTimeout: () => false);
     } catch (_) {}
+    debugPrint('[AiModelProvider] initialize done model=$modelId');
     notifyListeners();
   }
 

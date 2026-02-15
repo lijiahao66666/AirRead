@@ -3008,7 +3008,8 @@ class _QaPanel extends StatefulWidget {
   State<_QaPanel> createState() => _QaPanelState();
 }
 
-class _QaPanelState extends State<_QaPanel> {
+class _QaPanelState extends State<_QaPanel>
+    with SingleTickerProviderStateMixin {
   static const String _kWelcomeMessage =
       '你好，我是Air！你的AI伴读助手。\n我可以帮你总结章节要点、解释复杂概念，或者回答任何关于这本书的问题。\n快来问我吧！';
   static const String _kQaModelChoice = 'qa_model_choice_v1';
@@ -3038,12 +3039,17 @@ class _QaPanelState extends State<_QaPanel> {
   bool _qaBlockedByEntitlement = false;
   int? _actionTargetIndex;
   Timer? _actionHideTimer;
+  late final AnimationController _thinkingController;
 
   String get _historyKey => 'qa_history_${widget.bookId}';
 
   @override
   void initState() {
     super.initState();
+    _thinkingController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       _qaStream = context.read<QaStreamProvider>();
@@ -3256,6 +3262,7 @@ class _QaPanelState extends State<_QaPanel> {
     _persistTimer?.cancel();
     _qaToastTimer?.cancel();
     _actionHideTimer?.cancel();
+    _thinkingController.dispose();
     _inputCtl.dispose();
     _scrollCtl.dispose();
     if (_qaStreamListener != null) {
@@ -3735,13 +3742,19 @@ class _QaPanelState extends State<_QaPanel> {
     final bool qaBlocked =
         qaBlockedByPersonalKeys || qaBlockedByPoints || qaBlockedByLocal;
     if (qaBlocked && !_qaBlockedByEntitlement) {
-      _qaBlockedByEntitlement = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _showQaToast(qaBlockedByLocal
-            ? '本地模型未下载'
-            : (qaBlockedByPersonalKeys ? '个人密钥不可用' : '积分不足，暂停问答'));
-      });
+      String? toast;
+      if (qaBlockedByLocal) {
+        toast = '本地模型未下载';
+      } else if (qaBlockedByPersonalKeys) {
+        toast = '个人密钥不可用';
+      }
+      if (toast != null) {
+        _qaBlockedByEntitlement = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _showQaToast(toast!);
+        });
+      }
     } else if (!qaBlocked && _qaBlockedByEntitlement) {
       _qaBlockedByEntitlement = false;
     }
@@ -4150,10 +4163,21 @@ class _QaPanelState extends State<_QaPanel> {
                     alignment: Alignment.centerLeft,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text('思考中...',
-                          style: TextStyle(
+                      child: AnimatedBuilder(
+                        animation: _thinkingController,
+                        builder: (context, _) {
+                          final phase =
+                              (_thinkingController.value * 3).floor() % 3;
+                          final dots = '.' * (phase + 1);
+                          return Text(
+                            '思考中$dots',
+                            style: TextStyle(
                               color: widget.textColor.withOpacityCompat(0.6),
-                              fontSize: 15)),
+                              fontSize: 15,
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
                 AnimatedPadding(

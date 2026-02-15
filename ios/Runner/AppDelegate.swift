@@ -308,6 +308,10 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
         localLlmStreamHandler.cancel()
         result(nil)
 
+      case "dispose":
+        self.mnnLlmBridge?.dispose()
+        result(nil)
+
       case "dumpConfig":
         let config = self.mnnLlmBridge?.dumpConfig()
         result(config)

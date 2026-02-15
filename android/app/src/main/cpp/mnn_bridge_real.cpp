@@ -159,11 +159,13 @@ Java_com_airread_airread_MainActivity_nativeInit(JNIEnv *env, jobject thiz, jstr
 JNIEXPORT void JNICALL
 Java_com_airread_airread_MainActivity_nativeDispose(JNIEnv *env, jobject thiz) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    LOGI("nativeDispose start model=%s", g_model_config_path_for_log.c_str());
     g_initialized = false;
     g_model_config_path_for_log.clear();
     if (g_llm != nullptr) {
         g_llm.reset();
     }
+    LOGI("nativeDispose done");
 }
 
 JNIEXPORT jbyteArray JNICALL

@@ -246,6 +246,7 @@ class MnnClient {
       await cancel();
     } catch (_) {}
     try {
+      debugPrint('[MnnClient] dispose called modelPath=$_modelPath');
       await _channel.invokeMethod('dispose');
     } catch (_) {}
     _isInitialized = false;

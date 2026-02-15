@@ -522,7 +522,9 @@ class MainActivity: FlutterActivity() {
                         return@setMethodCallHandler
                     }
                     try {
+                        Log.i("MainActivity", "Calling nativeDispose")
                         try { nativeDispose() } catch (_: UnsatisfiedLinkError) {}
+                        Log.i("MainActivity", "nativeDispose finished")
                         result.success(null)
                     } catch (e: Exception) {
                         result.success(null)

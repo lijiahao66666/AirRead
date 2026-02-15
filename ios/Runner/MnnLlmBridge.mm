@@ -173,4 +173,22 @@
 #endif
 }
 
+- (void)dispose {
+#if MNN_NOT_AVAILABLE
+    return;
+#else
+    @try {
+        if (_engine) {
+            NSLog(@"[MnnLlmBridge] Disposing model: %@", _modelPath);
+            [_engine cancelInference];
+        }
+        _engine = nil;
+        _modelPath = nil;
+        NSLog(@"[MnnLlmBridge] Dispose completed");
+    } @catch (NSException *exception) {
+        NSLog(@"[MnnLlmBridge] Dispose exception: %@", exception.reason);
+    }
+#endif
+}
+
 @end
