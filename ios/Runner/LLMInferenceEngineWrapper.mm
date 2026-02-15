@@ -279,7 +279,7 @@ private:
             NSString *tempDirectory = NSTemporaryDirectory();
             std::string configStr = "{"
                 "\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\","
-                "\"use_mmap\":false,"
+                "\"use_mmap\":true,"
                 "\"max_input_tokens\":4096,"
                 "\"max_new_tokens\":1024,"
                 "\"backend_type\":\"cpu\""
