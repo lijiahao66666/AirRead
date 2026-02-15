@@ -70,6 +70,7 @@ class QaStreamProvider extends ChangeNotifier {
     final isLocalModel = modelChoice.isLocal;
     final localModelId = switch (modelChoice) {
       AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
+      AiChatModelChoice.localMiniCpm05b => ModelManager.minicpm4_0_5b,
       AiChatModelChoice.localHunyuan18b => ModelManager.hunyuan_1_8b,
       _ => ModelManager.hunyuan_1_8b,
     };
@@ -155,7 +156,8 @@ class QaStreamProvider extends ChangeNotifier {
         qaType: qaType,
         history: history,
       );
-      final client = HunyuanTextClient(credentials: getEmbeddedPublicHunyuanCredentials());
+      final client =
+          HunyuanTextClient(credentials: getEmbeddedPublicHunyuanCredentials());
       stream = client
           .chatStream(
             userText: prompt,
@@ -422,7 +424,9 @@ class QaStreamProvider extends ChangeNotifier {
       if (e.code == 'PointsInsufficient') return '积分不足，请购买积分后再试';
       if (e.code == 'HttpError') {
         final m = e.message;
-        if (m.contains('HTTP 402') || m.contains('PointsInsufficient') || m.contains('积分不足')) {
+        if (m.contains('HTTP 402') ||
+            m.contains('PointsInsufficient') ||
+            m.contains('积分不足')) {
           return '积分不足，请购买积分后再试';
         }
         if (m.contains('HTTP 401') || m.contains('HTTP 403')) {
@@ -433,17 +437,22 @@ class QaStreamProvider extends ChangeNotifier {
         }
         return '在线服务异常，请稍后重试';
       }
-      if (e.message.contains('积分不足') || e.message.contains('PointsInsufficient')) {
+      if (e.message.contains('积分不足') ||
+          e.message.contains('PointsInsufficient')) {
         return '积分不足，请购买积分后再试';
       }
       return e.toString();
     }
 
     final s = e.toString();
-    if (s.contains('PointsInsufficient') || s.contains('HTTP 402') || s.contains('积分不足')) {
+    if (s.contains('PointsInsufficient') ||
+        s.contains('HTTP 402') ||
+        s.contains('积分不足')) {
       return '积分不足，请购买积分后再试';
     }
-    if (s.contains('SocketException') || s.contains('Failed host lookup') || s.contains('XMLHttpRequest error')) {
+    if (s.contains('SocketException') ||
+        s.contains('Failed host lookup') ||
+        s.contains('XMLHttpRequest error')) {
       return '网络连接失败，请检查网络后重试';
     }
     if (s.startsWith('Exception: ')) return s.substring('Exception: '.length);

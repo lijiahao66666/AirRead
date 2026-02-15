@@ -1,6 +1,7 @@
 enum AiChatModelChoice {
   onlineHunyuan,
   localHunyuan05b,
+  localMiniCpm05b,
   localHunyuan18b,
 }
 

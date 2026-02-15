@@ -10,6 +10,7 @@ class AiInferenceTopRow extends StatelessWidget {
   final Color textColor;
   final AiChatModelChoice modelChoice;
   final bool local05Installed;
+  final bool localMiniInstalled;
   final bool local18Installed;
   final Future<void> Function(AiChatModelChoice) onModelChoiceChanged;
   final bool thinkingEnabled;
@@ -22,6 +23,7 @@ class AiInferenceTopRow extends StatelessWidget {
     required this.textColor,
     required this.modelChoice,
     required this.local05Installed,
+    required this.localMiniInstalled,
     required this.local18Installed,
     required this.onModelChoiceChanged,
     required this.thinkingEnabled,
@@ -34,6 +36,9 @@ class AiInferenceTopRow extends StatelessWidget {
       AiChatModelChoice.onlineHunyuan => '在线（混元）',
       AiChatModelChoice.localHunyuan05b =>
         local05Installed ? '本地（Hunyuan-0.5B）' : '本地（Hunyuan-0.5B 未下载）',
+      AiChatModelChoice.localMiniCpm05b => localMiniInstalled
+          ? '本地（MiniCPM4-0.5B）'
+          : '本地（MiniCPM4-0.5B 未下载）',
       AiChatModelChoice.localHunyuan18b =>
         local18Installed ? '本地（Hunyuan-1.8B）' : '本地（Hunyuan-1.8B 未下载）',
     };
@@ -81,6 +86,8 @@ class AiInferenceTopRow extends StatelessWidget {
                       (v) {
                         final enabled = switch (v) {
                           AiChatModelChoice.localHunyuan05b => local05Installed,
+                          AiChatModelChoice.localMiniCpm05b =>
+                            localMiniInstalled,
                           AiChatModelChoice.localHunyuan18b => local18Installed,
                           _ => true,
                         };
@@ -104,6 +111,8 @@ class AiInferenceTopRow extends StatelessWidget {
                         if (v == null) return;
                         final selectable = switch (v) {
                           AiChatModelChoice.localHunyuan05b => local05Installed,
+                          AiChatModelChoice.localMiniCpm05b =>
+                            localMiniInstalled,
                           AiChatModelChoice.localHunyuan18b => local18Installed,
                           _ => true,
                         };

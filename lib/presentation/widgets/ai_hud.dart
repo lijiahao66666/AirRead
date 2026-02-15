@@ -3083,9 +3083,12 @@ class _QaPanelState extends State<_QaPanel> {
     if (_modelChoice == value) return;
     final aiModel = context.read<AiModelProvider>();
     if (value.isLocal) {
-      final localModelId = value == AiChatModelChoice.localHunyuan05b
-          ? ModelManager.hunyuan_0_5b
-          : ModelManager.hunyuan_1_8b;
+      final localModelId = switch (value) {
+        AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
+        AiChatModelChoice.localMiniCpm05b => ModelManager.minicpm4_0_5b,
+        AiChatModelChoice.localHunyuan18b => ModelManager.hunyuan_1_8b,
+        _ => ModelManager.hunyuan_1_8b,
+      };
       final installed = aiModel.installStatusFor(localModelId) ==
           ModelInstallStatus.installed;
       if (!installed) {
@@ -3529,9 +3532,12 @@ class _QaPanelState extends State<_QaPanel> {
     final tp = context.read<TranslationProvider>();
     final personalUsable = getEmbeddedPublicHunyuanCredentials().isUsable;
     if (_modelChoice.isLocal) {
-      final localModelId = _modelChoice == AiChatModelChoice.localHunyuan05b
-          ? ModelManager.hunyuan_0_5b
-          : ModelManager.hunyuan_1_8b;
+      final localModelId = switch (_modelChoice) {
+        AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
+        AiChatModelChoice.localMiniCpm05b => ModelManager.minicpm4_0_5b,
+        AiChatModelChoice.localHunyuan18b => ModelManager.hunyuan_1_8b,
+        _ => ModelManager.hunyuan_1_8b,
+      };
       final installed = aiModel.installStatusFor(localModelId) ==
           ModelInstallStatus.installed;
       if (installed) return true;
@@ -3705,12 +3711,18 @@ class _QaPanelState extends State<_QaPanel> {
     final local05Installed =
         aiModel.installStatusFor(ModelManager.hunyuan_0_5b) ==
             ModelInstallStatus.installed;
+    final localMiniInstalled =
+        aiModel.installStatusFor(ModelManager.minicpm4_0_5b) ==
+            ModelInstallStatus.installed;
     final local18Installed =
         aiModel.installStatusFor(ModelManager.hunyuan_1_8b) ==
             ModelInstallStatus.installed;
-    final localModelId = _modelChoice == AiChatModelChoice.localHunyuan05b
-        ? ModelManager.hunyuan_0_5b
-        : ModelManager.hunyuan_1_8b;
+    final localModelId = switch (_modelChoice) {
+      AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
+      AiChatModelChoice.localMiniCpm05b => ModelManager.minicpm4_0_5b,
+      AiChatModelChoice.localHunyuan18b => ModelManager.hunyuan_1_8b,
+      _ => ModelManager.hunyuan_1_8b,
+    };
     final localInstalled =
         aiModel.installStatusFor(localModelId) == ModelInstallStatus.installed;
     final bool qaBlockedByPersonalKeys =
@@ -3797,6 +3809,7 @@ class _QaPanelState extends State<_QaPanel> {
                   textColor: widget.textColor,
                   modelChoice: _modelChoice,
                   local05Installed: local05Installed,
+                  localMiniInstalled: localMiniInstalled,
                   local18Installed: local18Installed,
                   onModelChoiceChanged: _setQaModelChoice,
                   thinkingEnabled: _thinkingEnabled,

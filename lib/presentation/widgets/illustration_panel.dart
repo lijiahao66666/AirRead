@@ -301,6 +301,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     final modelKey = _modelChoice.name;
     final localModelId = switch (_modelChoice) {
       AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
+      AiChatModelChoice.localMiniCpm05b => ModelManager.minicpm4_0_5b,
       AiChatModelChoice.localHunyuan18b => ModelManager.hunyuan_1_8b,
       _ => ModelManager.hunyuan_1_8b,
     };
@@ -439,6 +440,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         ? (aiModel.pointsBalance > 0 || usingPersonal)
         : (aiModel.installStatusFor(switch (_modelChoice) {
               AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
+              AiChatModelChoice.localMiniCpm05b => ModelManager.minicpm4_0_5b,
               AiChatModelChoice.localHunyuan18b => ModelManager.hunyuan_1_8b,
               _ => ModelManager.hunyuan_1_8b,
             }) ==
@@ -473,6 +475,10 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                       local05Installed:
                           aiModel.installStatusFor(ModelManager.hunyuan_0_5b) ==
                               ModelInstallStatus.installed,
+                      localMiniInstalled: aiModel.installStatusFor(
+                            ModelManager.minicpm4_0_5b,
+                          ) ==
+                          ModelInstallStatus.installed,
                       local18Installed:
                           aiModel.installStatusFor(ModelManager.hunyuan_1_8b) ==
                               ModelInstallStatus.installed,
@@ -480,10 +486,15 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                         final prev = _modelChoice;
                         if (prev == choice) return;
                         if (choice.isLocal) {
-                          final localModelId =
-                              choice == AiChatModelChoice.localHunyuan05b
-                                  ? ModelManager.hunyuan_0_5b
-                                  : ModelManager.hunyuan_1_8b;
+                          final localModelId = switch (choice) {
+                            AiChatModelChoice.localHunyuan05b =>
+                              ModelManager.hunyuan_0_5b,
+                            AiChatModelChoice.localMiniCpm05b =>
+                              ModelManager.minicpm4_0_5b,
+                            AiChatModelChoice.localHunyuan18b =>
+                              ModelManager.hunyuan_1_8b,
+                            _ => ModelManager.hunyuan_1_8b,
+                          };
                           final installed =
                               aiModel.installStatusFor(localModelId) ==
                                   ModelInstallStatus.installed;
