@@ -376,6 +376,16 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         cacheKey: cacheKey,
         itemId: item.id,
       );
+      if (!usingPersonal &&
+          item.status == ill.IllustrationStatus.completed &&
+          item.chargedAtMs == null) {
+        await aiModel.addPoints(-_imageCostPoints);
+        provider.markImageCharged(
+          cacheKey: cacheKey,
+          itemId: item.id,
+          chargedAtMs: DateTime.now().millisecondsSinceEpoch,
+        );
+      }
     } catch (e) {
       _showToast(_friendlyErrorMessage(e));
     } finally {

@@ -435,39 +435,6 @@ async function setPointsBalance({ bucket, region, deviceId, balance, credentials
   return next;
 }
 
-async function tryMarkImageChargedOnce({ bucket, region, deviceId, jobId, credentials }) {
-  const id = String(jobId || '').trim();
-  if (!id) return false;
-  const key = `points/${deviceId}/image_charged/${id}.ok`;
-  try {
-    const status = await cosPutObject({
-      bucket,
-      region,
-      key,
-      headers: { 'If-None-Match': '*' },
-      credentials,
-    });
-    if (status >= 200 && status < 300) return true;
-    if (status === 412 || status === 409) return false;
-    if (status === 400 || status === 403 || status === 501) {
-      // fallthrough to HEAD+PUT fallback
-    } else {
-      throw new Error(`COS Put ChargeMarker Error: ${status}`);
-    }
-  } catch (_) {
-  }
-
-  const head = await cosHeadObject({ bucket, region, key, credentials });
-  if (head >= 200 && head < 300) return false;
-  if (head !== 404 && head !== 403 && head !== 0) {
-    throw new Error(`COS Head ChargeMarker Error: ${head}`);
-  }
-  const put = await cosPutObject({ bucket, region, key, headers: {}, credentials });
-  if (put >= 200 && put < 300) return true;
-  if (put === 409 || put === 412) return false;
-  throw new Error(`COS Put ChargeMarker Error: ${put}`);
-}
-
 // --- Helper: HTTP Utils ---
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -711,27 +678,6 @@ async function handleApiProxy(req, res, body) {
     headers.Accept = 'text/event-stream';
   }
 
-  if (canAccountPoints && !useStream && action === 'SubmitTextToImageJob') {
-    try {
-      const current = await getPointsBalance({
-        bucket,
-        region: regionStr,
-        deviceId,
-        credentials: null,
-      });
-      if (current < 20000) {
-        safeReleaseSlot();
-        return sendJson(res, 402, {
-          error: 'PointsInsufficient',
-          message: '积分不足，无法开始生图',
-          need: 20000,
-          balance: current,
-        });
-      }
-    } catch (_) {
-    }
-  }
-
   let streamBalanceAfterInput = null;
   if (canAccountPoints && useStream) {
     try {
@@ -951,61 +897,6 @@ async function handleApiProxy(req, res, body) {
                  const current = await getPointsBalance({ bucket, region: regionStr, deviceId, credentials: null });
                  json.PointsBalance = current;
               } catch (_) {}
-            }
-          }
-          if (canAccountPoints && action === 'QueryTextToImageJob') {
-            const respObj = (json && json.Response) ? json.Response : json;
-            const jobStatusRaw = respObj && respObj.JobStatusCode;
-            const jobStatus = Number.isFinite(Number(jobStatusRaw)) ? Number(jobStatusRaw) : 0;
-            const jobId = respObj && respObj.JobId;
-            if (jobStatus === 5 && jobId) {
-              try {
-                const acquired = await tryMarkImageChargedOnce({
-                  bucket,
-                  region: regionStr,
-                  deviceId,
-                  jobId,
-                  credentials: null,
-                });
-                if (acquired) {
-                  const current = await getPointsBalance({
-                    bucket,
-                    region: regionStr,
-                    deviceId,
-                    credentials: null,
-                  });
-                  const need = 20000;
-                  if (current >= need) {
-                    const next = await setPointsBalance({
-                      bucket,
-                      region: regionStr,
-                      deviceId,
-                      balance: current - need,
-                      credentials: null,
-                    });
-                    json.PointsDeducted = need;
-                    json.PointsBalance = next;
-                  } else {
-                    json.PointsBalance = current;
-                  }
-                } else {
-                  try {
-                    const current = await getPointsBalance({
-                      bucket,
-                      region: regionStr,
-                      deviceId,
-                      credentials: null,
-                    });
-                    json.PointsBalance = current;
-                  } catch (_) {}
-                }
-              } catch (e) {
-                json.PointsError = String(e && e.message ? e.message : e);
-                try {
-                  const current = await getPointsBalance({ bucket, region: regionStr, deviceId, credentials: null });
-                  json.PointsBalance = current;
-                } catch (_) {}
-              }
             }
           }
           sendJson(res, 200, json);

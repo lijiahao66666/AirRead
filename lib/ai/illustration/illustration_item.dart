@@ -27,6 +27,7 @@ class IllustrationItem {
   String? prompt;
   IllustrationStatus status;
   String? jobId;
+  int? chargedAtMs;
   String? localImagePath;
   String? errorMsg;
   DateTime? createdAt;
@@ -51,6 +52,7 @@ class IllustrationItem {
     this.prompt,
     this.status = IllustrationStatus.draft,
     this.jobId,
+    this.chargedAtMs,
     this.localImagePath,
     this.errorMsg,
     this.createdAt,
@@ -77,6 +79,7 @@ class IllustrationItem {
       'prompt': prompt,
       'status': status.index,
       'jobId': jobId,
+      'chargedAtMs': chargedAtMs,
       'localImagePath': localImagePath,
       'errorMsg': errorMsg,
       'createdAt': createdAt?.millisecondsSinceEpoch,
@@ -110,6 +113,9 @@ class IllustrationItem {
       status:
           IllustrationStatus.values[statusIndex.clamp(0, IllustrationStatus.values.length - 1)],
       jobId: json['jobId']?.toString(),
+      chargedAtMs: json['chargedAtMs'] is int
+          ? json['chargedAtMs']
+          : int.tryParse(json['chargedAtMs']?.toString() ?? ''),
       localImagePath: json['localImagePath']?.toString(),
       errorMsg: json['errorMsg']?.toString(),
       createdAt:

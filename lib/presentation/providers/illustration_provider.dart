@@ -148,6 +148,22 @@ class IllustrationProvider extends ChangeNotifier {
   bool isGenerating(String itemId) => _generatingIds.contains(itemId);
   bool get isAnyGenerating => _generatingIds.isNotEmpty;
 
+  bool markImageCharged({
+    required String cacheKey,
+    required String itemId,
+    required int chargedAtMs,
+  }) {
+    final entry = _cache[cacheKey];
+    if (entry == null) return false;
+    final idx = entry.items.indexWhere((e) => e.id == itemId);
+    if (idx < 0) return false;
+    entry.items[idx].chargedAtMs = chargedAtMs;
+    entry.updatedAtMs = DateTime.now().millisecondsSinceEpoch;
+    notifyListeners();
+    _schedulePersist();
+    return true;
+  }
+
   List<IllustrationItem> getItems(String cacheKey) {
     return _cache[cacheKey]?.items ?? const <IllustrationItem>[];
   }
