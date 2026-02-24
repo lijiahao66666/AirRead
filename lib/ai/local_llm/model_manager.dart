@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'mnn_model_downloader.dart';
 import 'mnn_model_spec.dart';
 
@@ -107,7 +107,8 @@ class ModelManager {
   );
 
   static List<MnnModelSpec> get localModels {
-    if (Platform.isIOS) {
+    if (kIsWeb) return const [];
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
       return [
         hunyuan_0_5bSpec,
       ];
@@ -120,16 +121,21 @@ class ModelManager {
   }
 
   static String get defaultLocalModelId {
-    return Platform.isIOS ? hunyuan_0_5b : hunyuan_1_8b;
+    if (kIsWeb) return '';
+    return defaultTargetPlatform == TargetPlatform.iOS
+        ? hunyuan_0_5b
+        : hunyuan_1_8b;
   }
 
   static List<String> get preferredLocalModelIds =>
       localModels.map((e) => e.id).toList(growable: false);
 
   static MnnModelSpec specFor(String modelId) {
-    return localModels.firstWhere(
+    final models = localModels;
+    if (models.isEmpty) return hunyuan_1_8bSpec;
+    return models.firstWhere(
       (e) => e.id == modelId,
-      orElse: () => localModels.first,
+      orElse: () => models.first,
     );
   }
 
@@ -155,10 +161,12 @@ class ModelManager {
   }
 
   /// 获取模型总大小（字节）- 预估
-  static int totalSizeFor(String modelId) => specFor(modelId).estimatedTotalSizeBytes;
+  static int totalSizeFor(String modelId) =>
+      specFor(modelId).estimatedTotalSizeBytes;
 
   /// 获取格式化的模型大小文本
-  static String formattedTotalSizeFor(String modelId) => specFor(modelId).sizeLabel;
+  static String formattedTotalSizeFor(String modelId) =>
+      specFor(modelId).sizeLabel;
 
   /// 安装模型（从网络下载）
   /// 返回下载器实例，用于监听进度

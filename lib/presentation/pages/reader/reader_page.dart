@@ -587,6 +587,7 @@ class _ReaderPageState extends State<ReaderPage>
   String? _readAloudAutoContinueHandledKey;
   bool _readAloudNavInFlight = false;
   int _selectionAreaResetToken = 0;
+  OverlayEntry? _webSelectionToolbarEntry;
 
   final AudioPlayer _readAloudPlayer = AudioPlayer();
   final Map<String, Uint8List> _readAloudAudioCache = {};
@@ -1073,6 +1074,7 @@ class _ReaderPageState extends State<ReaderPage>
 
   @override
   void dispose() {
+    _hideWebSelectionToolbar();
     try {
       context.read<TranslationProvider>().onError = null;
     } catch (_) {}
@@ -1970,6 +1972,165 @@ class _ReaderPageState extends State<ReaderPage>
     _suppressReaderTapUntilMs = DateTime.now().millisecondsSinceEpoch + 800;
   }
 
+  void _hideWebSelectionToolbar() {
+    final e = _webSelectionToolbarEntry;
+    if (e == null) return;
+    _webSelectionToolbarEntry = null;
+    try {
+      e.remove();
+    } catch (_) {}
+  }
+
+  void _dismissReaderSelectionAndToolbars() {
+    _suppressReaderTap();
+    _hideWebSelectionToolbar();
+    ContextMenuController.removeAny();
+    if (!mounted) return;
+    setState(() {
+      _selectionAreaResetToken++;
+    });
+  }
+
+  void _showWebSelectionToolbar({
+    required Offset anchor,
+    required String selectedText,
+  }) {
+    if (!kIsWeb) return;
+    final text = selectedText.trim();
+    if (text.isEmpty) return;
+    if (!mounted) return;
+
+    _hideWebSelectionToolbar();
+
+    final tp = context.read<TranslationProvider>();
+    final readAloud = context.read<ReadAloudProvider>();
+    final aiModel = context.read<AiModelProvider>();
+    final personalUsable = tp.usingPersonalTencentKeys &&
+        getEmbeddedPublicHunyuanCredentials().isUsable;
+    final canReadCurrent = tp.aiReadAloudEnabled && text.isNotEmpty;
+    final canTranslate = text.isNotEmpty &&
+        (tp.translationMode == TranslationMode.machine ||
+            (tp.translationMode == TranslationMode.bigModel &&
+                (aiModel.pointsBalance > 0 || personalUsable)));
+    final canExplain = text.isNotEmpty &&
+        (aiModel.anyLocalTextInstalled ||
+            aiModel.pointsBalance > 0 ||
+            personalUsable);
+
+    final items = <ContextMenuButtonItem>[
+      if (canReadCurrent)
+        ContextMenuButtonItem(
+          onPressed: () {
+            _dismissReaderSelectionAndToolbars();
+            unawaited(() async {
+              await readAloud.stop(keepResume: true);
+              if (!mounted) return;
+              await _startReadAloudFromSelection(text);
+            }());
+          },
+          type: ContextMenuButtonType.custom,
+          label: '读当前',
+        ),
+      if (canTranslate)
+        ContextMenuButtonItem(
+          onPressed: () {
+            _dismissReaderSelectionAndToolbars();
+            unawaited(_showSelectionTranslation(text));
+          },
+          type: ContextMenuButtonType.custom,
+          label: '翻译',
+        ),
+      if (canExplain)
+        ContextMenuButtonItem(
+          onPressed: () {
+            _dismissReaderSelectionAndToolbars();
+            unawaited(_openAiHud(
+              initialRoute: AiHudRoute.qa,
+              initialQaText: text,
+              autoSendInitialQa: true,
+            ));
+          },
+          type: ContextMenuButtonType.custom,
+          label: '解释',
+        ),
+      ContextMenuButtonItem(
+        onPressed: () {
+          final suffix =
+              'sel_${text.hashCode.toUnsigned(32).toRadixString(16)}';
+          _dismissReaderSelectionAndToolbars();
+          unawaited(_openAiHud(
+            initialRoute: AiHudRoute.illustration,
+            illustrationOverrideText: text,
+            illustrationChapterIdSuffix: suffix,
+          ));
+        },
+        type: ContextMenuButtonType.custom,
+        label: '插画',
+      ),
+      ContextMenuButtonItem(
+        onPressed: () {
+          _dismissReaderSelectionAndToolbars();
+          unawaited(Clipboard.setData(ClipboardData(text: text)));
+        },
+        type: ContextMenuButtonType.copy,
+        label: '复制',
+      ),
+    ];
+
+    final isDarkBg = _bgColor.computeLuminance() < 0.5;
+    final toolbarBg = isDarkBg
+        ? Colors.white.withOpacityCompat(0.94)
+        : AppColors.deepSpace.withOpacityCompat(0.92);
+    final toolbarFg = isDarkBg ? AppColors.deepSpace : Colors.white;
+    final disabledFg = toolbarFg.withOpacityCompat(0.38);
+    final baseTheme = Theme.of(context);
+    final themed = baseTheme.copyWith(
+      colorScheme: baseTheme.colorScheme.copyWith(
+        surface: toolbarBg,
+        onSurface: toolbarFg,
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: toolbarFg,
+          disabledForegroundColor: disabledFg,
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+
+    final overlay = Overlay.of(context, rootOverlay: true);
+    if (overlay == null) return;
+
+    final anchors = TextSelectionToolbarAnchors(
+      primaryAnchor: anchor,
+      secondaryAnchor: anchor,
+    );
+
+    _webSelectionToolbarEntry = OverlayEntry(
+      builder: (context) {
+        return Positioned.fill(
+          child: Stack(
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _dismissReaderSelectionAndToolbars,
+                onPanDown: (_) => _dismissReaderSelectionAndToolbars(),
+              ),
+              Theme(
+                data: themed,
+                child: AdaptiveTextSelectionToolbar.buttonItems(
+                  anchors: anchors,
+                  buttonItems: items,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    overlay.insert(_webSelectionToolbarEntry!);
+  }
+
   void _rememberSelectionIllustration({
     required int chapterIndex,
     required String text,
@@ -2290,19 +2451,6 @@ class _ReaderPageState extends State<ReaderPage>
   Future<void> _showSelectionTranslation(String sourceText) async {
     final text = sourceText.trim();
     if (text.isEmpty) return;
-    final tp = context.read<TranslationProvider>();
-    Map<int, String> result;
-    try {
-      result = await tp.translateParagraphsByIndex({0: text});
-    } catch (e) {
-      if (!mounted) return;
-      _showTopError(e.toString());
-      return;
-    }
-    if (!mounted) return;
-    final translated =
-        result.values.isNotEmpty ? result.values.first.trim() : '';
-    final displayTranslation = translated.isEmpty ? '翻译失败' : translated;
 
     await showModalBottomSheet(
       context: context,
@@ -2315,109 +2463,337 @@ class _ReaderPageState extends State<ReaderPage>
         final cardBg = panelBg.computeLuminance() < 0.5
             ? Colors.white.withOpacityCompat(0.06)
             : AppColors.mistWhite;
-        return GlassPanel.sheet(
-          surfaceColor: panelBg,
-          opacity: AppTokens.glassOpacityDense,
-          child: SafeArea(
-            top: false,
-            child: SizedBox(
-              height:
-                  (media.size.height * 0.62).clamp(320.0, media.size.height),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.translate, color: AppColors.techBlue),
-                        const SizedBox(width: 8),
-                        Text(
-                          '翻译',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: panelText,
-                          ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          icon: Icon(Icons.close,
-                              color: panelText.withOpacityCompat(0.7)),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
+        final tp = context.read<TranslationProvider>();
+        final baseCfg = tp.config;
+
+        String currentSourceLang = baseCfg.sourceLang;
+        String currentTargetLang = baseCfg.targetLang;
+        String translatedText = '';
+        bool started = false;
+        bool loading = false;
+        String? errorText;
+
+        Future<void> runTranslate(StateSetter setModalState) async {
+          if (loading) return;
+          setModalState(() {
+            loading = true;
+            errorText = null;
+          });
+          try {
+            final result = await tp.translateParagraphsByIndexWithConfig(
+              config: baseCfg.copyWith(
+                sourceLang: currentSourceLang,
+                targetLang: currentTargetLang,
+              ),
+              paragraphsByIndex: {0: text},
+            );
+            final translated =
+                result.values.isNotEmpty ? result.values.first.trim() : '';
+            setModalState(() {
+              translatedText = translated;
+            });
+          } catch (e) {
+            setModalState(() {
+              errorText = e.toString();
+              translatedText = '';
+            });
+          } finally {
+            setModalState(() {
+              loading = false;
+            });
+          }
+        }
+
+        Widget buildSelectableText(
+          String content, {
+          required bool enableTranslateAction,
+        }) {
+          final isDarkBg = panelBg.computeLuminance() < 0.5;
+          final toolbarBg = isDarkBg
+              ? Colors.white.withOpacityCompat(0.94)
+              : AppColors.deepSpace.withOpacityCompat(0.92);
+          final toolbarFg = isDarkBg ? AppColors.deepSpace : Colors.white;
+          final disabledFg = toolbarFg.withOpacityCompat(0.38);
+          final baseTheme = Theme.of(context);
+          final themed = baseTheme.copyWith(
+            colorScheme: baseTheme.colorScheme.copyWith(
+              surface: toolbarBg,
+              onSurface: toolbarFg,
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(
+                foregroundColor: toolbarFg,
+                disabledForegroundColor: disabledFg,
+                textStyle: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          );
+
+          return SelectableText(
+            content,
+            style: TextStyle(
+              color: panelText.withOpacityCompat(0.9),
+              height: 1.5,
+            ),
+            contextMenuBuilder: (context, editableTextState) {
+              final selection = editableTextState.textEditingValue.selection;
+              final selectedText = selection.isValid && !selection.isCollapsed
+                  ? selection
+                      .textInside(editableTextState.textEditingValue.text)
+                      .trim()
+                  : '';
+
+              final items = <ContextMenuButtonItem>[
+                if (enableTranslateAction && selectedText.isNotEmpty)
+                  ContextMenuButtonItem(
+                    onPressed: () {
+                      ContextMenuController.removeAny();
+                      editableTextState.hideToolbar();
+                      unawaited(_showSelectionTranslation(selectedText));
+                    },
+                    type: ContextMenuButtonType.custom,
+                    label: '翻译',
+                  ),
+              ];
+
+              final ContextMenuButtonItem? copyItem = editableTextState
+                  .contextMenuButtonItems
+                  .where((e) => e.type == ContextMenuButtonType.copy)
+                  .cast<ContextMenuButtonItem?>()
+                  .firstWhere((e) => e != null, orElse: () => null);
+              final ContextMenuButtonItem? selectAllItem = editableTextState
+                  .contextMenuButtonItems
+                  .where((e) => e.type == ContextMenuButtonType.selectAll)
+                  .cast<ContextMenuButtonItem?>()
+                  .firstWhere((e) => e != null, orElse: () => null);
+              if (copyItem != null) {
+                items.add(
+                  ContextMenuButtonItem(
+                    onPressed: () {
+                      copyItem.onPressed?.call();
+                      ContextMenuController.removeAny();
+                      editableTextState.hideToolbar();
+                    },
+                    type: copyItem.type,
+                    label: '复制',
+                  ),
+                );
+              }
+              if (selectAllItem != null) {
+                items.add(
+                  ContextMenuButtonItem(
+                    onPressed: selectAllItem.onPressed,
+                    type: selectAllItem.type,
+                    label: '全选',
+                  ),
+                );
+              }
+
+              return Theme(
+                data: themed,
+                child: AdaptiveTextSelectionToolbar.buttonItems(
+                  anchors: editableTextState.contextMenuAnchors,
+                  buttonItems: items,
+                ),
+              );
+            },
+          );
+        }
+
+        Widget buildLangDropdown({
+          required String value,
+          required Map<String, String> items,
+          required ValueChanged<String?> onChanged,
+        }) {
+          return SizedBox(
+            height: 50,
+            width: 150,
+            child: DropdownButtonFormField<String>(
+              key: ValueKey('tr_inline_${items.length}|$value'),
+              initialValue: items.containsKey(value) ? value : items.keys.first,
+              dropdownColor: panelBg,
+              decoration: InputDecoration(
+                isDense: true,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              items: items.entries
+                  .map(
+                    (e) => DropdownMenuItem<String>(
+                      value: e.key,
+                      child:
+                          Text(e.value, style: const TextStyle(fontSize: 13)),
                     ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                  )
+                  .toList(),
+              onChanged: onChanged,
+            ),
+          );
+        }
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            if (!started) {
+              started = true;
+              unawaited(runTranslate(setModalState));
+            }
+
+            final sourceItems = tp.uiSourceLangItems;
+            final targetItems =
+                tp.uiTargetLangItems(sourceLang: currentSourceLang);
+            if (!targetItems.containsKey(currentTargetLang) &&
+                targetItems.isNotEmpty) {
+              currentTargetLang = targetItems.keys.first;
+              unawaited(runTranslate(setModalState));
+            }
+
+            final displayTranslation = loading
+                ? '翻译中…'
+                : ((errorText != null && errorText!.trim().isNotEmpty)
+                    ? '翻译失败：$errorText'
+                    : (translatedText.trim().isEmpty
+                        ? '翻译失败'
+                        : translatedText));
+
+            return GlassPanel.sheet(
+              surfaceColor: panelBg,
+              opacity: AppTokens.glassOpacityDense,
+              child: SafeArea(
+                top: false,
+                child: SizedBox(
+                  height: (media.size.height * 0.62)
+                      .clamp(320.0, media.size.height),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
+                            const Icon(Icons.translate,
+                                color: AppColors.techBlue),
+                            const SizedBox(width: 8),
                             Text(
-                              '原文',
+                              '翻译',
                               style: TextStyle(
-                                  color: panelText,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: cardBg,
-                                borderRadius:
-                                    BorderRadius.circular(AppTokens.radiusMd),
-                                border: Border.all(
-                                  color: panelText.withOpacityCompat(0.08),
-                                  width: AppTokens.stroke,
-                                ),
-                              ),
-                              padding: const EdgeInsets.all(12),
-                              child: SelectableText(
-                                text,
-                                style: TextStyle(
-                                  color: panelText.withOpacityCompat(0.9),
-                                  height: 1.5,
-                                ),
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: panelText,
                               ),
                             ),
-                            const SizedBox(height: 14),
-                            Text(
-                              '译文',
-                              style: TextStyle(
-                                  color: panelText,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: cardBg,
-                                borderRadius:
-                                    BorderRadius.circular(AppTokens.radiusMd),
-                                border: Border.all(
-                                  color: panelText.withOpacityCompat(0.08),
-                                  width: AppTokens.stroke,
-                                ),
-                              ),
-                              padding: const EdgeInsets.all(12),
-                              child: SelectableText(
-                                displayTranslation,
-                                style: TextStyle(
-                                  color: panelText.withOpacityCompat(0.9),
-                                  height: 1.5,
-                                ),
-                              ),
+                            const Spacer(),
+                            IconButton(
+                              icon: Icon(Icons.close,
+                                  color: panelText.withOpacityCompat(0.7)),
+                              onPressed: () => Navigator.pop(context),
                             ),
                           ],
                         ),
-                      ),
+                        const SizedBox(height: 10),
+                        const SizedBox(height: 2),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      '原文',
+                                      style: TextStyle(
+                                          color: panelText,
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                    const Spacer(),
+                                    buildLangDropdown(
+                                      value: currentSourceLang,
+                                      items: sourceItems,
+                                      onChanged: (v) {
+                                        setModalState(() {
+                                          currentSourceLang = v ?? '';
+                                        });
+                                        unawaited(runTranslate(setModalState));
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: cardBg,
+                                    borderRadius: BorderRadius.circular(
+                                        AppTokens.radiusMd),
+                                    border: Border.all(
+                                      color: panelText.withOpacityCompat(0.08),
+                                      width: AppTokens.stroke,
+                                    ),
+                                  ),
+                                  padding: const EdgeInsets.all(12),
+                                  child: buildSelectableText(
+                                    text,
+                                    enableTranslateAction: true,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                Row(
+                                  children: [
+                                    Text(
+                                      '译文',
+                                      style: TextStyle(
+                                          color: panelText,
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                    const Spacer(),
+                                    buildLangDropdown(
+                                      value: currentTargetLang,
+                                      items: targetItems,
+                                      onChanged: (v) {
+                                        if (v == null || v.trim().isEmpty) {
+                                          return;
+                                        }
+                                        setModalState(() {
+                                          currentTargetLang = v;
+                                        });
+                                        unawaited(runTranslate(setModalState));
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: cardBg,
+                                    borderRadius: BorderRadius.circular(
+                                        AppTokens.radiusMd),
+                                    border: Border.all(
+                                      color: panelText.withOpacityCompat(0.08),
+                                      width: AppTokens.stroke,
+                                    ),
+                                  ),
+                                  padding: const EdgeInsets.all(12),
+                                  child: buildSelectableText(
+                                    displayTranslation,
+                                    enableTranslateAction:
+                                        !loading && errorText == null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -6146,12 +6522,24 @@ class _ReaderPageState extends State<ReaderPage>
           return Listener(
             behavior: HitTestBehavior.translucent,
             onPointerDown: (_) {
+              if (kIsWeb) {
+                _hideWebSelectionToolbar();
+              }
               if (hasSelection) _suppressReaderTap();
             },
-            onPointerUp: (_) {
+            onPointerUp: (e) {
               if (hasSelection) _suppressReaderTap();
+              if (kIsWeb && hasSelection && selectedText.trim().isNotEmpty) {
+                _showWebSelectionToolbar(
+                  anchor: e.position,
+                  selectedText: selectedText,
+                );
+              }
             },
             onPointerCancel: (_) {
+              if (kIsWeb) {
+                _hideWebSelectionToolbar();
+              }
               if (hasSelection) _suppressReaderTap();
             },
             child: SelectionArea(
@@ -6165,6 +6553,9 @@ class _ReaderPageState extends State<ReaderPage>
                 if (active != hasSelection) {
                   hasSelection = active;
                   if (active) _suppressReaderTap();
+                  if (!active && kIsWeb) {
+                    _hideWebSelectionToolbar();
+                  }
                 }
               },
               contextMenuBuilder: (context, selectableRegionState) {

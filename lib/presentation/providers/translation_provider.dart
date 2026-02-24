@@ -530,6 +530,50 @@ class TranslationProvider extends ChangeNotifier {
     ],
   };
 
+  static const Map<String, String> _machineLangLabels = <String, String>{
+    '': '自动',
+    'zh': '简体中文',
+    'zh-TW': '繁体中文',
+    'en': '英语',
+    'ja': '日语',
+    'ko': '韩语',
+    'fr': '法语',
+    'es': '西班牙语',
+    'it': '意大利语',
+    'de': '德语',
+    'tr': '土耳其语',
+    'ru': '俄语',
+    'pt': '葡萄牙语',
+    'vi': '越南语',
+    'id': '印尼语',
+    'th': '泰语',
+    'ms': '马来语',
+    'ar': '阿拉伯语',
+    'hi': '印地语',
+  };
+
+  static const Map<String, String> _bigModelLangLabels = <String, String>{
+    '': '自动',
+    'zh': '简体中文',
+    'zh-TR': '繁体中文',
+    'yue': '粤语',
+    'en': '英语',
+    'fr': '法语',
+    'pt': '葡萄牙语',
+    'es': '西班牙语',
+    'ja': '日语',
+    'tr': '土耳其语',
+    'ru': '俄语',
+    'ar': '阿拉伯语',
+    'ko': '韩语',
+    'th': '泰语',
+    'it': '意大利语',
+    'de': '德语',
+    'vi': '越南语',
+    'ms': '马来语',
+    'id': '印尼语',
+  };
+
   bool _aiTranslateEnabled = false;
   bool _aiReadAloudEnabled = false;
   bool _readTranslationEnabled = false;
@@ -1085,6 +1129,51 @@ class TranslationProvider extends ChangeNotifier {
       config: _config,
       paragraphsByIndex: paragraphsByIndex,
     );
+  }
+
+  Future<Map<int, String>> translateParagraphsByIndexWithConfig({
+    required TranslationConfig config,
+    required Map<int, String> paragraphsByIndex,
+  }) async {
+    _validateEngineConfig();
+    final sanitized = _sanitizeConfig(config, _translationMode);
+    return _service.translateParagraphs(
+      config: sanitized,
+      paragraphsByIndex: paragraphsByIndex,
+    );
+  }
+
+  Map<String, String> get uiSourceLangItems {
+    if (_translationMode == TranslationMode.bigModel) {
+      return Map<String, String>.from(_bigModelLangLabels);
+    }
+    return Map<String, String>.from(_machineLangLabels);
+  }
+
+  Map<String, String> uiTargetLangItems({required String sourceLang}) {
+    if (_translationMode == TranslationMode.bigModel) {
+      final out = Map<String, String>.from(_bigModelLangLabels);
+      out.remove('');
+      return out;
+    }
+    final s = _normalizeLangForMode(sourceLang, _translationMode, isSource: true);
+    final allowed = _machineTargetsBySource[s] ?? _machineTargetsBySource['']!;
+    final out = <String, String>{};
+    for (final code in allowed) {
+      final label = _machineLangLabels[code];
+      if (label == null) continue;
+      out[code] = label;
+    }
+    return out;
+  }
+
+  String uiLangLabel(String code) {
+    final normalized =
+        _normalizeLangForMode(code, _translationMode, isSource: true);
+    if (_translationMode == TranslationMode.bigModel) {
+      return _bigModelLangLabels[normalized] ?? normalized;
+    }
+    return _machineLangLabels[normalized] ?? normalized;
   }
 
   Future<String?> translateParagraphWithState(String paragraphText) async {
