@@ -125,6 +125,13 @@ class AzureTranslationEngine implements TranslationEngine {
     if (first is! Map) {
       throw StateError('Azure translate response invalid');
     }
+    final detectedLanguage = first['detectedLanguage'];
+    final detected = detectedLanguage is Map
+        ? (detectedLanguage['language']?.toString() ?? '')
+        : '';
+    final detectedNormalized = detected.trim().isEmpty
+        ? ''
+        : _normalizeAzureLang(detected, allowEmpty: true);
     final translations = first['translations'];
     if (translations is List && translations.isNotEmpty) {
       final item = translations.first;
@@ -135,7 +142,11 @@ class AzureTranslationEngine implements TranslationEngine {
         }
         // Check for echo translation (source == target) which often indicates failure
         if (out.trim() == normalized && normalized.length > 5) {
-           throw StateError('Azure translate result equals source (echo)');
+          if (detectedNormalized.isNotEmpty &&
+              detectedNormalized.toLowerCase() == to.toLowerCase()) {
+            return normalized;
+          }
+          throw StateError('Azure translate result equals source (echo)');
         }
         return out;
       }
@@ -713,7 +724,8 @@ class TranslationProvider extends ChangeNotifier {
       primary: primary,
       fallback: fallback,
       primaryAvailable: () => AzureTranslationEngine.isConfigured,
-      fallbackAvailable: () => true, // Always allow fallback; TmtEngine handles auth/SCF internally
+      fallbackAvailable: () =>
+          true, // Always allow fallback; TmtEngine handles auth/SCF internally
     );
     _machineEngineId = machineEngine.id;
 
@@ -726,8 +738,9 @@ class TranslationProvider extends ChangeNotifier {
       backend: TranslationBackend.online,
     );
 
-    final engine =
-        _translationMode == TranslationMode.bigModel ? bigModelEngine : machineEngine;
+    final engine = _translationMode == TranslationMode.bigModel
+        ? bigModelEngine
+        : machineEngine;
 
     _service = TranslationService(
       cache: _cache,
@@ -957,8 +970,10 @@ class TranslationProvider extends ChangeNotifier {
     await prefs.setString(_kTranslationMode, _translationMode.name);
     final bookId = _boundBookId;
     if (bookId != null && bookId.trim().isNotEmpty) {
-      await prefs.setBool(_bookKey(_kAiTranslateEnabled, bookId), _aiTranslateEnabled);
-      await prefs.setBool(_bookKey(_kAiReadAloudEnabled, bookId), _aiReadAloudEnabled);
+      await prefs.setBool(
+          _bookKey(_kAiTranslateEnabled, bookId), _aiTranslateEnabled);
+      await prefs.setBool(
+          _bookKey(_kAiReadAloudEnabled, bookId), _aiReadAloudEnabled);
     } else {
       await prefs.setBool(_kAiTranslateEnabled, _aiTranslateEnabled);
       await prefs.setBool(_kAiReadAloudEnabled, _aiReadAloudEnabled);
@@ -981,10 +996,10 @@ class TranslationProvider extends ChangeNotifier {
     if (_boundBookId == id) return;
     _boundBookId = id;
     final prefs = await SharedPreferences.getInstance();
-    _aiTranslateEnabled =
-        prefs.getBool(_bookKey(_kAiTranslateEnabled, id)) ?? _aiTranslateEnabledGlobal;
-    _aiReadAloudEnabled =
-        prefs.getBool(_bookKey(_kAiReadAloudEnabled, id)) ?? _aiReadAloudEnabledGlobal;
+    _aiTranslateEnabled = prefs.getBool(_bookKey(_kAiTranslateEnabled, id)) ??
+        _aiTranslateEnabledGlobal;
+    _aiReadAloudEnabled = prefs.getBool(_bookKey(_kAiReadAloudEnabled, id)) ??
+        _aiReadAloudEnabledGlobal;
     notifyListeners();
   }
 
@@ -1156,7 +1171,8 @@ class TranslationProvider extends ChangeNotifier {
       out.remove('');
       return out;
     }
-    final s = _normalizeLangForMode(sourceLang, _translationMode, isSource: true);
+    final s =
+        _normalizeLangForMode(sourceLang, _translationMode, isSource: true);
     final allowed = _machineTargetsBySource[s] ?? _machineTargetsBySource['']!;
     final out = <String, String>{};
     for (final code in allowed) {
@@ -1208,7 +1224,8 @@ class TranslationProvider extends ChangeNotifier {
       );
       if (_translationMode == TranslationMode.bigModel &&
           !_usingPersonalTencentKeys) {
-        unawaited(_consumeDebugPoints(_estimateOnlineTranslateCost(normalized)));
+        unawaited(
+            _consumeDebugPoints(_estimateOnlineTranslateCost(normalized)));
       }
       _pendingKeys.remove(cacheKey);
       _failedKeys.remove(cacheKey);
@@ -1320,9 +1337,10 @@ class TranslationProvider extends ChangeNotifier {
 
   void retryTranslation(String paragraphText) {
     final normalized = _service.normalizeParagraphText(paragraphText);
-    final k1 = _service.buildCacheKey(config: _config, paragraphText: normalized);
-    final k2 =
-        _machineService.buildCacheKey(config: _config, paragraphText: normalized);
+    final k1 =
+        _service.buildCacheKey(config: _config, paragraphText: normalized);
+    final k2 = _machineService.buildCacheKey(
+        config: _config, paragraphText: normalized);
     _failedKeys.remove(k1);
     _failedKeys.remove(k2);
     _pendingKeys.remove(k1);
@@ -1428,12 +1446,17 @@ class TranslationProvider extends ChangeNotifier {
       if (e.code == 'PointsInsufficient') return true;
       if (e.code == 'HttpError') {
         final m = e.message;
-        return m.contains('HTTP 402') || m.contains('PointsInsufficient') || m.contains('积分不足');
+        return m.contains('HTTP 402') ||
+            m.contains('PointsInsufficient') ||
+            m.contains('积分不足');
       }
-      return e.message.contains('PointsInsufficient') || e.message.contains('积分不足');
+      return e.message.contains('PointsInsufficient') ||
+          e.message.contains('积分不足');
     }
     final s = e.toString();
-    return s.contains('PointsInsufficient') || s.contains('HTTP 402') || s.contains('积分不足');
+    return s.contains('PointsInsufficient') ||
+        s.contains('HTTP 402') ||
+        s.contains('积分不足');
   }
 
   /// Check if we have a cached translation for a given paragraph text

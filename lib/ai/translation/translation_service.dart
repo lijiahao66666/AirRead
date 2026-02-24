@@ -81,6 +81,21 @@ class TranslationService {
       return paragraphText;
     }
 
+    final sourceKey = _langKey(config.sourceLang);
+    final targetKey = _langKey(config.targetLang);
+    if (targetKey.isEmpty) {
+      return paragraphText;
+    }
+    if (sourceKey.isNotEmpty && sourceKey == targetKey) {
+      return paragraphText;
+    }
+    if (sourceKey.isEmpty) {
+      final guessed = _guessLangFromText(normalized);
+      if (guessed.isNotEmpty && guessed == targetKey) {
+        return paragraphText;
+      }
+    }
+
     final cacheKey = cache.buildKey(
       engineId: engine.id,
       sourceLang: config.sourceLang,
@@ -209,6 +224,23 @@ class TranslationService {
     return task();
   }
 
+  String _langKey(String lang) {
+    final v = lang.trim().toLowerCase();
+    if (v.isEmpty) return '';
+    if (v.startsWith('zh')) return 'zh';
+    if (v.startsWith('en')) return 'en';
+    final dash = v.indexOf('-');
+    if (dash > 0) return v.substring(0, dash);
+    return v;
+  }
+
+  String _guessLangFromText(String s) {
+    final stats = _scriptStats(s);
+    if (stats.latinRatio > 0.22 && stats.cjkRatio < 0.12) return 'en';
+    if (stats.cjkRatio > 0.22 && stats.latinRatio < 0.18) return 'zh';
+    return '';
+  }
+
   bool _looksLikeBadTranslation(
     String translated,
     String source,
@@ -226,6 +258,19 @@ class TranslationService {
 
     final s = source.trim();
     if (s.isNotEmpty && translated.trim() == s) {
+      final sourceKey = _langKey(config.sourceLang);
+      final targetKey = _langKey(config.targetLang);
+      if (targetKey.isNotEmpty) {
+        if (sourceKey.isNotEmpty && sourceKey == targetKey) {
+          return false;
+        }
+        if (sourceKey.isEmpty) {
+          final guessed = _guessLangFromText(s);
+          if (guessed.isNotEmpty && guessed == targetKey) {
+            return false;
+          }
+        }
+      }
       if (s.length <= 8) return false;
       int alpha = 0;
       int cjk = 0;

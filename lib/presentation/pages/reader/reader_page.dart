@@ -420,10 +420,7 @@ class _ReaderSelectionControls extends MaterialTextSelectionControls {
         (tp.translationMode == TranslationMode.machine ||
             (tp.translationMode == TranslationMode.bigModel &&
                 (aiModel.pointsBalance > 0 || personalUsable)));
-    final canExplain = text.isNotEmpty &&
-        (aiModel.anyLocalTextInstalled ||
-            aiModel.pointsBalance > 0 ||
-            personalUsable);
+    final canExplain = text.isNotEmpty;
 
     final toolbarBg = isDarkBg
         ? Colors.white.withOpacityCompat(0.94)
@@ -2012,10 +2009,7 @@ class _ReaderPageState extends State<ReaderPage>
         (tp.translationMode == TranslationMode.machine ||
             (tp.translationMode == TranslationMode.bigModel &&
                 (aiModel.pointsBalance > 0 || personalUsable)));
-    final canExplain = text.isNotEmpty &&
-        (aiModel.anyLocalTextInstalled ||
-            aiModel.pointsBalance > 0 ||
-            personalUsable);
+    final canExplain = text.isNotEmpty;
 
     final items = <ContextMenuButtonItem>[
       if (canReadCurrent)
@@ -2605,28 +2599,49 @@ class _ReaderPageState extends State<ReaderPage>
           required Map<String, String> items,
           required ValueChanged<String?> onChanged,
         }) {
+          final bg = panelBg.computeLuminance() < 0.5
+              ? const Color(0xFF2A2A2A)
+              : Colors.white;
           return SizedBox(
-            height: 50,
+            height: 32,
             width: 150,
             child: DropdownButtonFormField<String>(
               key: ValueKey('tr_inline_${items.length}|$value'),
               initialValue: items.containsKey(value) ? value : items.keys.first,
-              dropdownColor: panelBg,
+              dropdownColor: bg,
+              style: TextStyle(color: panelText, fontSize: 13),
+              iconEnabledColor: panelText.withOpacityCompat(0.75),
               decoration: InputDecoration(
                 isDense: true,
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: bg,
                 contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 border:
                     OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: panelText.withOpacityCompat(0.18),
+                    width: AppTokens.stroke,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: panelText.withOpacityCompat(0.18),
+                    width: AppTokens.stroke,
+                  ),
+                ),
               ),
               items: items.entries
                   .map(
                     (e) => DropdownMenuItem<String>(
                       value: e.key,
-                      child:
-                          Text(e.value, style: const TextStyle(fontSize: 13)),
+                      child: Text(
+                        e.value,
+                        style: TextStyle(fontSize: 13, color: panelText),
+                      ),
                     ),
                   )
                   .toList(),
@@ -6570,10 +6585,7 @@ class _ReaderPageState extends State<ReaderPage>
                     (tp.translationMode == TranslationMode.machine ||
                         (tp.translationMode == TranslationMode.bigModel &&
                             (aiModel.pointsBalance > 0 || personalUsable)));
-                final canExplain = text.isNotEmpty &&
-                    (aiModel.anyLocalTextInstalled ||
-                        aiModel.pointsBalance > 0 ||
-                        personalUsable);
+                final canExplain = text.isNotEmpty;
                 final isDarkBg = _bgColor.computeLuminance() < 0.5;
                 final toolbarBg = isDarkBg
                     ? Colors.white.withOpacityCompat(0.94)
