@@ -289,6 +289,9 @@ class AiModelProvider extends ChangeNotifier {
         unawaited(c.dispose());
       }
       _llmClient = null;
+      _lastLocalInferenceAt = null;
+      _lastIdleScheduleAtMs = null;
+      _lastIdleScheduleModelId = null;
       debugPrint(
           '[AiModelProvider] idle unload done model=$_activeLocalModelId');
       notifyListeners();
@@ -307,9 +310,10 @@ class AiModelProvider extends ChangeNotifier {
   }
 
   Future<void> _initializeLlmClientFor(String modelId) async {
-    if (_llmClient != null && _activeLocalModelId != modelId) {
+    if (_llmClient != null &&
+        (_activeLocalModelId != modelId || !_llmClient!.isAvailable)) {
       debugPrint(
-        '[AiModelProvider] switch local model from $_activeLocalModelId to $modelId, disposing',
+        '[AiModelProvider] reinit local model (current=$_activeLocalModelId target=$modelId available=${_llmClient!.isAvailable}), disposing',
       );
       _localIdleUnloadTimer?.cancel();
       _lastLocalInferenceAt = null;
@@ -331,6 +335,9 @@ class AiModelProvider extends ChangeNotifier {
           .timeout(const Duration(seconds: 60), onTimeout: () => false);
     } catch (_) {}
     debugPrint('[AiModelProvider] initialize done model=$modelId');
+    // Start idle unload timer so the model gets auto-unloaded even if
+    // no inference is ever run after initialization.
+    _markLocalInferenceUsed();
     notifyListeners();
   }
 

@@ -612,7 +612,7 @@ class MainActivity: FlutterActivity() {
                     result.success(null)
                 }
                 "isAvailable" -> {
-                    if (!nativeLibLoaded) {
+                    if (!ensureNativeLibsLoaded()) {
                         result.success(false)
                         return@setMethodCallHandler
                     }
