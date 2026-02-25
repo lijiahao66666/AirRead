@@ -5,6 +5,8 @@ Widget? buildLocalFileImage({
   required BoxFit fit,
   double? width,
   double? height,
+  int? cacheWidth,
+  int? cacheHeight,
   ImageErrorWidgetBuilder? errorBuilder,
 }) {
   return null;

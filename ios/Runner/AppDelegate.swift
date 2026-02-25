@@ -190,6 +190,16 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
 @objc class AppDelegate: FlutterAppDelegate {
   private var mnnLlmBridge: MnnLlmBridge?
   
+  /// 按需创建 MnnLlmBridge（延迟实例化，避免启动时占用内存）
+  private func ensureMnnBridge() -> MnnLlmBridge {
+    if let bridge = mnnLlmBridge {
+      return bridge
+    }
+    let bridge = MnnLlmBridge()
+    mnnLlmBridge = bridge
+    return bridge
+  }
+  
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -225,8 +235,7 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
   }
   
   private func setupMethodChannels(controller: FlutterViewController) {
-    // MARK: - MNN LLM 功能
-    mnnLlmBridge = MnnLlmBridge()
+    // MARK: - MNN LLM 功能（MnnLlmBridge 延迟创建，首次 initialize 时才实例化）
     let localLlmStreamHandler = LocalLlmStreamHandler()
     let localLlmEventChannel = FlutterEventChannel(name: "airread/local_llm_stream", binaryMessenger: controller.binaryMessenger)
     localLlmEventChannel.setStreamHandler(localLlmStreamHandler)
@@ -247,9 +256,9 @@ final class LocalTtsStreamHandler: NSObject, FlutterStreamHandler, AVSpeechSynth
           return
         }
 
-        // modelPath 已经是完整路径，直接使用
-        // 使用异步初始化
-        self.mnnLlmBridge?.initialize(modelPath, completion: { success in
+        // 延迟创建 MnnLlmBridge（首次 initialize 时才分配内存）
+        let bridge = self.ensureMnnBridge()
+        bridge.initialize(modelPath, completion: { success in
             if success {
                 result(true)
             } else {

@@ -317,13 +317,19 @@ class MainActivity: FlutterActivity() {
     }
 
     companion object {
+        @Volatile
         private var nativeLibLoaded: Boolean = false
         private var lastLoadError: String? = null
 
-        init {
+        /**
+         * 按需加载 MNN 原生库（延迟加载，避免启动时占用 80-150MB 内存）。
+         * 仅在首次需要 LLM 功能时调用，线程安全。
+         */
+        @Synchronized
+        fun ensureNativeLibsLoaded(): Boolean {
+            if (nativeLibLoaded) return true
             try {
-                Log.i("MainActivity", "Starting to load native libraries...")
-                // 尝试加载库，即使部分失败也继续，只要 mnn_bridge 加载成功即可
+                Log.i("MainActivity", "Starting to load native libraries (lazy)...")
                 val libs = listOf(
                     "c++_shared", "mnncore", "MNN", "MNN_Express",
                     "MNNOpenCV", "MNN_CL", "MNN_Vulkan", "llm", "mnn_bridge"
@@ -352,6 +358,7 @@ class MainActivity: FlutterActivity() {
                 Log.e("MainActivity", "Unexpected error loading native libraries: $e")
                 nativeLibLoaded = false
             }
+            return nativeLibLoaded
         }
     }
 
@@ -490,7 +497,7 @@ class MainActivity: FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "init", "initialize" -> {
-                    if (!nativeLibLoaded) {
+                    if (!ensureNativeLibsLoaded()) {
                         result.error("NOT_AVAILABLE", "Native library not loaded", null)
                         return@setMethodCallHandler
                     }
@@ -531,7 +538,7 @@ class MainActivity: FlutterActivity() {
                     }
                 }
                 "chatOnce" -> {
-                    if (!nativeLibLoaded) {
+                    if (!ensureNativeLibsLoaded()) {
                         result.error("NOT_AVAILABLE", "Native library not loaded", null)
                         return@setMethodCallHandler
                     }
@@ -565,7 +572,7 @@ class MainActivity: FlutterActivity() {
                     }
                 }
                 "chatStream" -> {
-                    if (!nativeLibLoaded) {
+                    if (!ensureNativeLibsLoaded()) {
                         result.error("NOT_AVAILABLE", "Native library not loaded", null)
                         return@setMethodCallHandler
                     }
@@ -620,7 +627,7 @@ class MainActivity: FlutterActivity() {
                     result.success(lastLoadError)
                 }
                 "dumpConfig" -> {
-                    if (!nativeLibLoaded) {
+                    if (!ensureNativeLibsLoaded()) {
                         result.error("NOT_AVAILABLE", "Native library not loaded", null)
                         return@setMethodCallHandler
                     }

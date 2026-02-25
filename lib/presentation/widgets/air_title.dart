@@ -1,5 +1,5 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/app_colors.dart';
 
 class AirTitle extends StatefulWidget {
@@ -82,7 +82,11 @@ class _AirTitleState extends State<AirTitle> with SingleTickerProviderStateMixin
                 );
               }();
 
-        final titleStyle = GoogleFonts.notoSansSc(
+        final titleStyle = TextStyle(
+          fontFamily: defaultTargetPlatform == TargetPlatform.iOS
+              ? 'PingFang SC'
+              : null,
+          fontFamilyFallback: const ['PingFang SC', 'HarmonyOS Sans SC', 'Noto Sans SC', 'Microsoft YaHei'],
           fontSize: 30,
           fontWeight: FontWeight.w800,
           letterSpacing: 2.0,
@@ -127,7 +131,7 @@ class _AirTitleState extends State<AirTitle> with SingleTickerProviderStateMixin
             const SizedBox(height: 2),
             Text(
               'AIR READ',
-              style: GoogleFonts.montserrat(
+              style: TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 2.8,

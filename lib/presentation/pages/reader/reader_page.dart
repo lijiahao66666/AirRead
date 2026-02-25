@@ -82,9 +82,8 @@ class _EpubReaderChapter implements _ReaderChapter {
 
 class _TextReaderChapter implements _ReaderChapter {
   final String _title;
-  final String _sourceText;
-  final int _start;
-  final int _end;
+  /// Only holds the chapter's own text (substring), not the entire book.
+  final String _chapterText;
 
   _TextReaderChapter({
     required String title,
@@ -92,9 +91,10 @@ class _TextReaderChapter implements _ReaderChapter {
     required int start,
     required int end,
   })  : _title = title,
-        _sourceText = sourceText,
-        _start = start,
-        _end = end;
+        _chapterText = sourceText.substring(
+          start.clamp(0, sourceText.length),
+          end.clamp(start.clamp(0, sourceText.length), sourceText.length),
+        );
 
   @override
   String? get title => _title;
@@ -108,8 +108,8 @@ class _TextReaderChapter implements _ReaderChapter {
     final titleText = _title.trim().isEmpty ? '正文' : _title.trim();
     buffer.write(titleText);
 
-    final int start = _start.clamp(0, _sourceText.length);
-    final int end = _end.clamp(start, _sourceText.length);
+    final int start = 0;
+    final int end = _chapterText.length;
     if (start >= end) return buffer.toString();
     buffer.write('\n\n');
 
@@ -166,23 +166,23 @@ class _TextReaderChapter implements _ReaderChapter {
       int lineStart = j;
       int lineEnd = j;
       while (lineEnd < end) {
-        final int cu = _sourceText.codeUnitAt(lineEnd);
+        final int cu = _chapterText.codeUnitAt(lineEnd);
         if (cu == 10 || cu == 13) break;
         lineEnd++;
       }
       int next = lineEnd;
       if (next < end) {
-        final int cu = _sourceText.codeUnitAt(next);
+        final int cu = _chapterText.codeUnitAt(next);
         if (cu == 13) {
           next++;
-          if (next < end && _sourceText.codeUnitAt(next) == 10) {
+          if (next < end && _chapterText.codeUnitAt(next) == 10) {
             next++;
           }
         } else if (cu == 10) {
           next++;
         }
       }
-      final rawLine = _sourceText.substring(lineStart, lineEnd);
+      final rawLine = _chapterText.substring(lineStart, lineEnd);
       final t = rawLine.trim();
       if (t.isEmpty) {
         sampleBlank++;
@@ -211,17 +211,17 @@ class _TextReaderChapter implements _ReaderChapter {
       int lineStart = i;
       int lineEnd = i;
       while (lineEnd < end) {
-        final int cu = _sourceText.codeUnitAt(lineEnd);
+        final int cu = _chapterText.codeUnitAt(lineEnd);
         if (cu == 10 || cu == 13) break;
         lineEnd++;
       }
 
       int next = lineEnd;
       if (next < end) {
-        final int cu = _sourceText.codeUnitAt(next);
+        final int cu = _chapterText.codeUnitAt(next);
         if (cu == 13) {
           next++;
-          if (next < end && _sourceText.codeUnitAt(next) == 10) {
+          if (next < end && _chapterText.codeUnitAt(next) == 10) {
             next++;
           }
         } else if (cu == 10) {
@@ -229,7 +229,7 @@ class _TextReaderChapter implements _ReaderChapter {
         }
       }
 
-      final rawLine = _sourceText.substring(lineStart, lineEnd);
+      final rawLine = _chapterText.substring(lineStart, lineEnd);
       final t = rawLine.trim();
 
       if (t.isEmpty) {
@@ -586,7 +586,17 @@ class _ReaderPageState extends State<ReaderPage>
   int _selectionAreaResetToken = 0;
   OverlayEntry? _webSelectionToolbarEntry;
 
-  final AudioPlayer _readAloudPlayer = AudioPlayer();
+  AudioPlayer? _readAloudPlayerInstance;
+  AudioPlayer get _readAloudPlayer {
+    if (_readAloudPlayerInstance == null) {
+      _readAloudPlayerInstance = AudioPlayer();
+      _readAloudPlayerInstance!.onPlayerComplete.listen((_) {
+        if (!mounted) return;
+        _onReadAloudPlayerComplete();
+      });
+    }
+    return _readAloudPlayerInstance!;
+  }
   final Map<String, Uint8List> _readAloudAudioCache = {};
   final Map<String, Future<Uint8List>> _readAloudAudioInFlight = {};
   String? _readAloudTempFilePath;
@@ -647,6 +657,49 @@ class _ReaderPageState extends State<ReaderPage>
   final Map<int, List<ReaderParagraph>> _chapterParagraphsCache = {};
   final Map<int, _ReaderChapter> _chapterPlainLoading = {};
   final Map<int, _ReaderChapter> _chapterHtmlLoading = {};
+
+  /// Evict cached data for chapters far from the current reading position.
+  /// Keeps a window of [_kCacheWindow] chapters around [_currentChapterIndex].
+  static const int _kCacheWindow = 3;
+
+  void _evictDistantChapterCaches() {
+    final lo = _currentChapterIndex - _kCacheWindow;
+    final hi = _currentChapterIndex + _kCacheWindow;
+    void evict(Map<int, dynamic> map) {
+      map.removeWhere((k, _) => k < lo || k > hi);
+    }
+    evict(_chapterContentCache);
+    evict(_chapterPlainText);
+    evict(_chapterEffectiveText);
+    evict(_chapterPageRanges);
+    evict(_chapterPageRangeKeys);
+    evict(_chapterFallbackEffectiveText);
+    evict(_chapterFallbackPageRanges);
+    evict(_chapterFallbackPageRangeKeys);
+    evict(_chapterPlainPageRanges);
+    evict(_chapterPlainPageRangeKeys);
+    evict(_chapterTextPaginationTasks);
+    evict(_chapterTextPaginationTaskKeys);
+    evict(_chapterTextPaginationTargetCounts);
+    evict(_chapterTextPaginationComplete);
+    evict(_chapterPlainPaginationTasks);
+    evict(_chapterPlainPaginationTaskKeys);
+    evict(_chapterPlainPaginationTargetCounts);
+    evict(_chapterPlainPaginationComplete);
+    evict(_chapterPaginationLastMs);
+    evict(_chapterTitleLength);
+    evict(_chapterParagraphsCache);
+    evict(_chapterPlainLoading);
+    evict(_chapterHtmlLoading);
+    evict(_chapterPageCounts);
+    // Evict TTS audio cache if too large (limit ~10 entries)
+    if (_readAloudAudioCache.length > 10) {
+      final keys = _readAloudAudioCache.keys.toList();
+      for (var i = 0; i < keys.length - 10; i++) {
+        _readAloudAudioCache.remove(keys[i]);
+      }
+    }
+  }
 
   double _currentPageProgressInChapter = 0;
   double? _lastPaginationViewportHeight;
@@ -845,10 +898,6 @@ class _ReaderPageState extends State<ReaderPage>
     );
     _startPulseTimer();
 
-    _readAloudPlayer.onPlayerComplete.listen((_) {
-      if (!mounted) return;
-      _onReadAloudPlayerComplete();
-    });
 
     if (!kIsWeb) {
       try {
@@ -1088,7 +1137,7 @@ class _ReaderPageState extends State<ReaderPage>
     _localTtsSub?.cancel();
     unawaited(_webSpeechTts.stop());
     unawaited(_cleanupReadAloudTempFile());
-    _readAloudPlayer.dispose();
+    _readAloudPlayerInstance?.dispose();
     _pageController.dispose();
     // for (var c in _chapterControllers.values) c.dispose(); // Removed
     _pulseController.dispose();
@@ -1196,6 +1245,7 @@ class _ReaderPageState extends State<ReaderPage>
 
   void _saveProgressDebounced() {
     if (_prefs == null) return;
+    _evictDistantChapterCaches();
     _progressSaveTimer?.cancel();
     _progressSaveTimer = Timer(const Duration(milliseconds: 500), () {
       _saveProgress();

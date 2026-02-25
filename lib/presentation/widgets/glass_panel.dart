@@ -80,6 +80,20 @@ class GlassPanel extends StatelessWidget {
           ),
         );
 
+    // Skip expensive BackdropFilter when blur is disabled (blurSigma <= 0)
+    if (blurSigma <= 0) {
+      return Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          color: base.withOpacityCompat(opacity),
+          borderRadius: borderRadius,
+          border: effectiveBorder,
+          boxShadow: boxShadow,
+        ),
+        child: child,
+      );
+    }
+
     return ClipRRect(
       borderRadius: borderRadius,
       child: BackdropFilter(

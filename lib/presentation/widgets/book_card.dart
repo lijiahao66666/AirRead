@@ -43,9 +43,19 @@ class _BookCardState extends State<BookCard> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final rap = context.watch<ReadAloudProvider>();
-    final bool isCurrentReadBook = rap.bookId == widget.book.id &&
-        (rap.playing || rap.paused || rap.preparing);
+    final bool isCurrentReadBook = context.select<ReadAloudProvider, bool>(
+      (rap) => rap.bookId == widget.book.id &&
+          (rap.playing || rap.paused || rap.preparing),
+    );
+    final String? readAloudStatus = !isCurrentReadBook
+        ? null
+        : context.select<ReadAloudProvider, String?>((rap) {
+            if (rap.bookId != widget.book.id) return null;
+            if (rap.preparing) return '准备中';
+            if (rap.playing) return '朗读中';
+            if (rap.paused) return '已暂停';
+            return null;
+          });
     return GestureDetector(
       onTap: widget.onTap,
       child: Column(
@@ -79,10 +89,11 @@ class _BookCardState extends State<BookCard> {
                             borderRadius: BorderRadius.circular(999),
                             onTap: () {
                               if (widget.isSelectionMode) return;
-                              if (rap.playing || rap.preparing) {
-                                unawaited(rap.pause());
-                              } else if (rap.paused) {
-                                unawaited(rap.resume());
+                              final r = context.read<ReadAloudProvider>();
+                              if (r.playing || r.preparing) {
+                                unawaited(r.pause());
+                              } else if (r.paused) {
+                                unawaited(r.resume());
                               }
                             },
                             child: Container(
@@ -111,9 +122,7 @@ class _BookCardState extends State<BookCard> {
                                   ),
                                   const SizedBox(width: 4),
                                   Text(
-                                    rap.preparing
-                                        ? '准备中'
-                                        : (rap.playing ? '朗读中' : '已暂停'),
+                                    readAloudStatus ?? '已暂停',
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 11,
@@ -261,12 +270,18 @@ class _BookCardState extends State<BookCard> {
   }
 
   Widget _buildCoverImage() {
+    // Limit decoded image resolution to save memory (~200KB vs ~8MB per cover)
+    const int coverCacheWidth = 300;
+    const int coverCacheHeight = 450;
+
     if (widget.book.coverBytes != null) {
       return Image.memory(
         widget.book.coverBytes!,
         fit: BoxFit.cover,
         width: double.infinity,
         height: double.infinity,
+        cacheWidth: coverCacheWidth,
+        cacheHeight: coverCacheHeight,
         errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
       );
     }
@@ -277,6 +292,8 @@ class _BookCardState extends State<BookCard> {
         fit: BoxFit.cover,
         width: double.infinity,
         height: double.infinity,
+        cacheWidth: coverCacheWidth,
+        cacheHeight: coverCacheHeight,
         errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
       );
       if (image != null) return image;

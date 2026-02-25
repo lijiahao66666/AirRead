@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -40,9 +41,9 @@ class TranslationCache {
 
   SharedPreferences? _prefs;
 
-  /// In-memory cache for speed.
-  final Map<String, TranslationCacheEntry> _mem = {};
-  final List<String> _memOrder = [];
+  /// In-memory LRU cache. LinkedHashMap preserves insertion order;
+  /// re-inserting a key moves it to end (most recently used).
+  final LinkedHashMap<String, TranslationCacheEntry> _mem = LinkedHashMap();
 
   TranslationCache({
     required this.ttl,
@@ -87,7 +88,6 @@ class TranslationCache {
     if (entry.isExpired(ttl)) {
       await _prefs!.remove(key);
       _mem.remove(key);
-      _memOrder.remove(key);
       return null;
     }
 
@@ -103,16 +103,18 @@ class TranslationCache {
   }
 
   void _memPut(String key, TranslationCacheEntry entry) {
+    // Remove first so re-insert moves key to end (most recently used)
+    _mem.remove(key);
     _mem[key] = entry;
-    _touchKey(key);
-    while (_memOrder.length > memoryLimit) {
-      final oldest = _memOrder.removeAt(0);
-      _mem.remove(oldest);
+    while (_mem.length > memoryLimit) {
+      _mem.remove(_mem.keys.first);
     }
   }
 
   void _touchKey(String key) {
-    _memOrder.remove(key);
-    _memOrder.add(key);
+    final entry = _mem.remove(key);
+    if (entry != null) {
+      _mem[key] = entry;
+    }
   }
 }

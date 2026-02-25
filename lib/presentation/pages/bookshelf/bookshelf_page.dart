@@ -157,7 +157,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                 surfaceColor: isDark
                                     ? const Color(0xFF1E272C)
                                     : Colors.white,
-                                opacity: isDark ? 0.72 : 0.60,
+                                opacity: isDark ? 0.82 : 0.72,
+                                blurSigma: 0,
                                 border: Border.all(
                                   color: scheme.onSurface
                                       .withOpacityCompat(isDark ? 0.12 : 0.06),
@@ -369,7 +370,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
                     ),
                     surfaceColor:
                         isDark ? const Color(0xFF1E272C) : Colors.white,
-                    opacity: isDark ? 0.94 : 0.92,
+                    opacity: isDark ? 0.96 : 0.94,
+                    blurSigma: 0,
                     boxShadow: AppTokens.shadowSoft,
                     child: Padding(
                       padding: EdgeInsets.fromLTRB(
@@ -488,7 +490,8 @@ Widget _buildActionButton({
         child: GlassPanel(
           borderRadius: BorderRadius.circular(AppTokens.radiusMd),
           surfaceColor: isDark ? const Color(0xFF1E272C) : Colors.white,
-          opacity: isActive ? (isDark ? 0.86 : 0.72) : (isDark ? 0.72 : 0.60),
+          opacity: isActive ? (isDark ? 0.90 : 0.80) : (isDark ? 0.82 : 0.72),
+          blurSigma: 0,
           border: Border.all(
             color: (isActive ? AppColors.techBlue : onSurface)
                 .withOpacityCompat(isActive ? 0.28 : 0.08),

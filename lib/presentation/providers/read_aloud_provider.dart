@@ -106,7 +106,17 @@ class ReadAloudProvider extends ChangeNotifier {
   StreamSubscription<dynamic>? _localTtsSub;
   StreamSubscription<void>? _playerCompleteSub;
 
-  final AudioPlayer _player = AudioPlayer();
+  AudioPlayer? _playerInstance;
+  AudioPlayer get _player {
+    if (_playerInstance == null) {
+      _playerInstance = AudioPlayer();
+      _playerCompleteSub?.cancel();
+      _playerCompleteSub = _playerInstance!.onPlayerComplete.listen((_) {
+        _onOnlineChunkDone();
+      });
+    }
+    return _playerInstance!;
+  }
   final WebSpeechTts _webSpeechTts = createWebSpeechTts();
   String? _tempFilePath;
   String? _currentLocalToken;
@@ -144,9 +154,7 @@ class ReadAloudProvider extends ChangeNotifier {
 
   ReadAloudPosition? _position;
 
-  ReadAloudProvider() {
-    unawaited(_init());
-  }
+  ReadAloudProvider();
 
   bool _isPointsInsufficientError(Object e) {
     if (e is TencentCloudException) {
@@ -204,14 +212,11 @@ class ReadAloudProvider extends ChangeNotifier {
     tp.addListener(_onTtsConfigChanged);
   }
 
-  Future<void> _init() async {
+  Future<void> _ensureInit() async {
     if (_initialized) return;
     _initialized = true;
     _prefs = await SharedPreferences.getInstance();
     _restoreLastPosition();
-    _playerCompleteSub = _player.onPlayerComplete.listen((_) {
-      _onOnlineChunkDone();
-    });
     if (!kIsWeb) {
       try {
         _localTtsSub = _localTtsEvents.receiveBroadcastStream().listen((event) {
@@ -411,7 +416,7 @@ class ReadAloudProvider extends ChangeNotifier {
     required List<ReaderParagraph> paragraphs,
     int? startParagraphIndex,
   }) async {
-    await _init();
+    await _ensureInit();
     _endedNaturally = false;
     attachChapter(
         bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
@@ -445,7 +450,7 @@ class ReadAloudProvider extends ChangeNotifier {
     required List<ReaderParagraph> paragraphs,
     int? startParagraphIndex,
   }) async {
-    await _init();
+    await _ensureInit();
     _endedNaturally = false;
     attachChapter(
         bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
@@ -614,7 +619,7 @@ class ReadAloudProvider extends ChangeNotifier {
     required List<ReaderParagraph> paragraphs,
     required bool keepPaused,
   }) async {
-    await _init();
+    await _ensureInit();
     _endedNaturally = false;
     attachChapter(
         bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
@@ -652,7 +657,7 @@ class ReadAloudProvider extends ChangeNotifier {
     required int chunkIndexInParagraph,
     required bool keepPaused,
   }) async {
-    await _init();
+    await _ensureInit();
     _endedNaturally = false;
     attachChapter(
         bookId: bookId, chapterIndex: chapterIndex, paragraphs: paragraphs);
@@ -749,7 +754,7 @@ class ReadAloudProvider extends ChangeNotifier {
     bool endedNaturally = false,
     bool stopEngine = true,
   }) async {
-    await _init();
+    await _ensureInit();
     _session++;
     _stopLocalSpeakingPoll();
     _paused = false;
@@ -1381,7 +1386,9 @@ class ReadAloudProvider extends ChangeNotifier {
     try {
       _tp?.removeListener(_onTtsConfigChanged);
     } catch (_) {}
-    unawaited(_player.dispose());
+    if (_playerInstance != null) {
+      unawaited(_playerInstance!.dispose());
+    }
     super.dispose();
   }
 }
