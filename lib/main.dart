@@ -9,6 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:http/http.dart' as http;
 import 'ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import 'ai/tencentcloud/tencent_credentials.dart';
+import 'ai/config/checkin_service.dart';
 import 'ai/config/remote_config_service.dart';
 import 'ai/tencentcloud/tencent_api_client.dart';
 import 'core/theme/app_theme.dart';
@@ -67,10 +68,14 @@ Future<void> main() async {
   }
   setUserTencentKeysEnabledOverride(enabled);
 
+  // 生成/加载设备唯一标识（用于积分计费）
+  await TencentApiClient.initDeviceId();
+
   // 拉取远程配置（签到积分、广告开关、应用更新等）
   await RemoteConfigService.fetch();
 
-  await TencentApiClient.init();
+  // 从服务端同步签到状态（防重装后本地缓存丢失导致按钮可重复点击）
+  unawaited(CheckinService.syncStatusFromServer());
 
   // 提前触发网络权限请求（iOS）- 在后台执行，不阻塞启动
   if (!kIsWeb && Platform.isIOS) {

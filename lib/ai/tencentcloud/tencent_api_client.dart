@@ -4,7 +4,10 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
+import 'dart:io' show Platform;
 
 import 'http_client_factory.dart'
     if (dart.library.js_interop) 'http_client_factory_web.dart';
@@ -83,25 +86,42 @@ class TencentApiClient {
 
   static const String _proxyUrl =
       String.fromEnvironment('AIRREAD_API_PROXY_URL', defaultValue: '');
-  static const String _envDebugNoJwt =
-      String.fromEnvironment('AIRREAD_DEBUG_NO_JWT', defaultValue: '');
+  static const String _apiKey =
+      String.fromEnvironment('AIRREAD_API_KEY', defaultValue: '');
 
-  static String? _pointsToken;
-  static ValueChanged<int>? onPointsBalanceChanged;
+  static String _deviceId = '';
+  static String get deviceId => _deviceId;
 
-  static void setToken(String? token) {
-    if (token != null) _pointsToken = token;
-  }
-
-  static Future<void> init() async {
+  static Future<void> initDeviceId() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('api_proxy_jwt');
-      if (token != null && token.isNotEmpty) {
-        _pointsToken = token;
+      final info = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        final android = await info.androidInfo;
+        // ANDROID_ID: 卸载重装不变，恢复出厂才变
+        _deviceId = android.id.isNotEmpty ? android.id : android.fingerprint;
+      } else if (Platform.isIOS) {
+        final ios = await info.iosInfo;
+        // identifierForVendor: 同开发者 App 全删才变
+        _deviceId = ios.identifierForVendor ?? '';
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[TencentApiClient] device_info_plus error: $e');
+    }
+    // fallback: 如果平台 API 获取失败，用 SharedPreferences + UUID
+    if (_deviceId.isEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = (prefs.getString('device_id') ?? '').trim();
+      if (stored.isNotEmpty) {
+        _deviceId = stored;
+      } else {
+        _deviceId = const Uuid().v4();
+        await prefs.setString('device_id', _deviceId);
+      }
+    }
+    debugPrint('[TencentApiClient] deviceId=$_deviceId');
   }
+
+  static ValueChanged<int>? onPointsBalanceChanged;
 
   static bool get hasProxyUrl => _proxyUrl.trim().isNotEmpty;
 
@@ -361,16 +381,9 @@ class TencentApiClient {
           final headers = <String, String>{
             'Content-Type': 'application/json; charset=utf-8',
           };
-
-          final token = (_pointsToken ?? '').trim();
-
-          if (token.isNotEmpty) {
-            headers['X-Airread-Token'] = token;
-          }
-          final debugNoJwt = _envDebugNoJwt.trim() == '1';
-          if (kDebugMode && debugNoJwt) {
-            headers['X-Airread-Debug-NoJWT'] = '1';
-          }
+          final key = _apiKey.trim();
+          if (key.isNotEmpty) headers['X-Api-Key'] = key;
+          if (_deviceId.isNotEmpty) headers['X-Device-Id'] = _deviceId;
           final proxyPayload = jsonEncode(<String, dynamic>{
             'host': host,
             'service': service,
@@ -661,16 +674,9 @@ class TencentApiClient {
             'Content-Type': 'application/json; charset=utf-8',
             'Accept': 'text/event-stream',
           });
-
-          var token = (_pointsToken ?? '').trim();
-
-          if (token.isNotEmpty) {
-            request.headers['X-Airread-Token'] = token;
-          }
-          final debugNoJwt = _envDebugNoJwt.trim() == '1';
-          if (kDebugMode && debugNoJwt) {
-            request.headers['X-Airread-Debug-NoJWT'] = '1';
-          }
+          final key = _apiKey.trim();
+          if (key.isNotEmpty) request.headers['X-Api-Key'] = key;
+          if (_deviceId.isNotEmpty) request.headers['X-Device-Id'] = _deviceId;
           request.body = jsonEncode(<String, dynamic>{
             'host': host,
             'service': service,

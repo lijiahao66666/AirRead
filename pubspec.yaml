@@ -63,6 +63,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   intl: ^0.20.2
+  device_info_plus: ^10.1.2
 
 
 dev_dependencies:

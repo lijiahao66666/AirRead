@@ -1,11 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../ai/local_llm/llm_client.dart';
 import '../../ai/local_llm/model_manager.dart';
 import '../../ai/local_llm/mnn_model_downloader.dart';
 import '../../ai/local_llm/mnn_model_spec.dart';
-import '../../ai/config/remote_config_service.dart';
 import '../../ai/tencentcloud/tencent_api_client.dart';
 
 enum ModelInstallStatus {
@@ -152,6 +153,35 @@ class AiModelProvider extends ChangeNotifier {
     await setPointsBalance(_pointsBalance + delta);
   }
 
+  Future<void> _syncBalanceFromServer() async {
+    try {
+      final deviceId = TencentApiClient.deviceId;
+      if (deviceId.isEmpty) return;
+      const proxyUrl =
+          String.fromEnvironment('AIRREAD_API_PROXY_URL', defaultValue: '');
+      if (proxyUrl.isEmpty) return;
+      const apiKey =
+          String.fromEnvironment('AIRREAD_API_KEY', defaultValue: '');
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        'X-Device-Id': deviceId,
+      };
+      if (apiKey.isNotEmpty) headers['X-Api-Key'] = apiKey;
+      final resp = await http
+          .post(Uri.parse('$proxyUrl/points/init'), headers: headers)
+          .timeout(const Duration(seconds: 10));
+      if (resp.statusCode == 200) {
+        final json = jsonDecode(resp.body);
+        final balance = (json['balance'] as num?)?.toInt();
+        if (balance != null) {
+          await setPointsBalance(balance);
+        }
+      }
+    } catch (e) {
+      debugPrint('[AiModelProvider] _syncBalanceFromServer error: $e');
+    }
+  }
+
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final localModelRaw = (prefs.getString(_kLastLocalModelId) ?? '').trim();
@@ -163,14 +193,9 @@ class AiModelProvider extends ChangeNotifier {
       await prefs.setString(_kLastLocalModelId, _activeLocalModelId);
     }
 
-    // 新用户首次启动赠送初始积分（数量由远程配置控制）
-    const String kInitialPointsGranted = 'initial_points_granted';
-    if (!prefs.containsKey(kInitialPointsGranted)) {
-      await prefs.setBool(kInitialPointsGranted, true);
-      final grant = RemoteConfigService.initialGrantPoints;
-      await prefs.setInt(_kPointsBalance, grant);
-    }
+    // 从服务端同步积分余额（首次自动赠送初始积分由服务端控制）
     _pointsBalance = prefs.getInt(_kPointsBalance) ?? 0;
+    unawaited(_syncBalanceFromServer());
     if (kDebugMode) {
       if (prefs.containsKey(_kDebugPointsOverride)) {
         _debugPointsOverride = prefs.getInt(_kDebugPointsOverride);

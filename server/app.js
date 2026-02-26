@@ -6,42 +6,12 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-// --- Helper: JWT (HS256) ---
-function base64UrlEncode(str) {
-  return Buffer.from(str)
-    .toString('base64')
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
-}
-
-function base64UrlDecode(str) {
-  str = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (str.length % 4) str += '=';
-  return Buffer.from(str, 'base64');
-}
-
-function verifyJwt(token, secret) {
-  const parts = token.split('.');
-  if (parts.length !== 3) return null;
-  const [encodedHeader, encodedPayload, signature] = parts;
-  const signatureInput = `${encodedHeader}.${encodedPayload}`;
-  const expectedSignature = crypto
-    .createHmac('sha256', secret)
-    .update(signatureInput)
-    .digest('base64')
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
-  if (signature !== expectedSignature) return null;
-  try {
-    const payload = JSON.parse(base64UrlDecode(encodedPayload).toString('utf8'));
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < now) return null;
-    return payload;
-  } catch (e) {
-    return null;
-  }
+// --- Helper: API Key Check ---
+function verifyApiKey(req) {
+  const serverKey = (process.env.API_KEY || '').trim();
+  if (!serverKey) return true; // No API_KEY configured = allow all (dev mode)
+  const clientKey = String(req.headers['x-api-key'] || '').trim();
+  return clientKey === serverKey;
 }
 
 /*
@@ -54,8 +24,7 @@ function verifyJwt(token, secret) {
  *
  * Environment Variables Required:
  * - TENCENT_SECRET_ID / TENCENT_SECRET_KEY: For signing Tencent Cloud API requests.
- * - JWT_SECRET: (Optional) For auth token verification.
- * - JWT_OPTIONAL: (Optional) Set to "1" to skip JWT auth (for development/initial launch).
+ * - API_KEY: (Optional) Static API key for request authentication.
  * - PORT: (Optional) Default 9000.
  *
  * Data stored locally:
@@ -63,7 +32,11 @@ function verifyJwt(token, secret) {
  * - ./data/points/{deviceId}.json: Points balance per device.
  */
 
-// --- Helper: HMAC ---
+// --- Helper: Crypto ---
+function sha256Hex(msg) {
+  return crypto.createHash('sha256').update(msg, 'utf8').digest('hex');
+}
+
 function hmacSha256(key, msg, encoding) {
   return crypto.createHmac('sha256', key).update(msg, 'utf8').digest(encoding);
 }
@@ -160,23 +133,78 @@ function _pointsFile(deviceId) {
   return path.join(DATA_DIR, `${safe}.json`);
 }
 
-async function getPointsBalance({ deviceId }) {
+function _readPointsData(deviceId) {
   try {
     const file = _pointsFile(deviceId);
-    if (!fs.existsSync(file)) return 0;
-    const obj = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    const prev = Number(obj && obj.balance ? obj.balance : 0) || 0;
-    return prev < 0 ? 0 : prev;
+    if (!fs.existsSync(file)) return null;
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
   } catch (_) {
-    return 0;
+    return null;
   }
+}
+
+function _writePointsData(deviceId, data) {
+  const file = _pointsFile(deviceId);
+  data.updatedAt = new Date().toISOString();
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+async function getPointsBalance({ deviceId }) {
+  const obj = _readPointsData(deviceId);
+  if (!obj) return 0;
+  const prev = Number(obj.balance || 0);
+  return prev < 0 ? 0 : prev;
 }
 
 async function setPointsBalance({ deviceId, balance }) {
   const next = balance < 0 ? 0 : balance;
-  const file = _pointsFile(deviceId);
-  fs.writeFileSync(file, JSON.stringify({ balance: next, updatedAt: new Date().toISOString() }), 'utf-8');
+  const obj = _readPointsData(deviceId) || {};
+  obj.balance = next;
+  _writePointsData(deviceId, obj);
   return next;
+}
+
+// Ensure device has received initial grant; returns current balance
+async function ensureInitialGrant({ deviceId, config }) {
+  let obj = _readPointsData(deviceId);
+  if (!obj) {
+    // Brand new device — grant initial points
+    const grant = Number(config.initial_grant_points) || 500000;
+    obj = { balance: grant, initialGranted: true, createdAt: new Date().toISOString() };
+    _writePointsData(deviceId, obj);
+    console.log(`[points] initial grant ${grant} to ${deviceId}`);
+    return obj.balance;
+  }
+  if (!obj.initialGranted) {
+    // Legacy file without grant flag — assume already granted (don't double-grant)
+    obj.initialGranted = true;
+    _writePointsData(deviceId, obj);
+  }
+  return Number(obj.balance || 0);
+}
+
+// Server-side checkin: returns { points, streak, alreadyDone } or null
+async function doCheckin({ deviceId, config }) {
+  if (!deviceId) return null;
+  const today = new Date().toISOString().substring(0, 10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().substring(0, 10);
+  let obj = _readPointsData(deviceId) || { balance: 0 };
+
+  const lastCheckin = obj.lastCheckinDate || '';
+  if (lastCheckin === today) {
+    return { points: 0, streak: obj.checkinStreak || 0, alreadyDone: true, balance: obj.balance };
+  }
+
+  let streak = Number(obj.checkinStreak || 0);
+  streak = (lastCheckin === yesterday) ? streak + 1 : 1;
+
+  const reward = Number(config.checkin_points) || 5000;
+  obj.balance = (Number(obj.balance) || 0) + reward;
+  obj.lastCheckinDate = today;
+  obj.checkinStreak = streak;
+  _writePointsData(deviceId, obj);
+  console.log(`[checkin] ${deviceId} +${reward} streak=${streak}`);
+  return { points: reward, streak, alreadyDone: false, balance: obj.balance };
 }
 
 // --- Helper: HTTP Utils ---
@@ -302,43 +330,12 @@ async function handleApiProxy(req, res, body) {
   const requestSecretKey = String(requestSecretKeyRaw || '').trim();
   const usingPersonalKeys = Boolean(requestSecretId && requestSecretKey);
 
-  // --- Security Check: Auth Token ---
-  // Only online big model translation / QA / TTS require JWT.
-  let clientToken = String(req.headers['x-airread-token'] || '').trim();
-  if (!clientToken) {
-    const auth = String(req.headers['authorization'] || '').trim();
-    const m = auth.match(/^Bearer\s+(.+)$/i);
-    if (m) clientToken = String(m[1] || '').trim();
-  }
-  const jwtSecret = (process.env.JWT_SECRET || '').trim();
-  const requiresAuth = !usingPersonalKeys && String(action) !== 'TextTranslate';
-
-  if (requiresAuth) {
-    if (!jwtSecret) {
-      return sendJson(res, 500, { error: 'ServerMisconfiguration', message: 'JWT_SECRET must be set' });
-    }
-
-    const claim = verifyJwt(clientToken, jwtSecret);
-    if (!claim) {
-      const jwtOptional = String(process.env.JWT_OPTIONAL || '').trim() === '1';
-      const jwtOptionalHeader = String(process.env.JWT_OPTIONAL_HEADER || '').trim() === '1';
-      const debugNoJwtHeader = String(req.headers['x-airread-debug-nojwt'] || '').trim() === '1';
-      const remote = String(req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : '').trim();
-      const fromLocal = (remote === '127.0.0.1' || remote === '::1' || remote.endsWith('127.0.0.1'));
-      const allowNoJwt = jwtOptional || (jwtOptionalHeader && debugNoJwtHeader && fromLocal);
-      if (!allowNoJwt) {
-        return sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing JWT token' });
-      }
-      req.jwtClaim = null;
-    } else {
-      // Points-based system: token validity only, no scope separation
-      req.jwtClaim = claim;
-    }
+  // --- Security Check: Static API Key ---
+  if (!usingPersonalKeys && !verifyApiKey(req)) {
+    return sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing API key' });
   }
 
-  const deviceId = (req.jwtClaim && req.jwtClaim.sub)
-      ? String(req.jwtClaim.sub).trim()
-      : '';
+  const deviceId = String(req.headers['x-device-id'] || '').trim();
   const canAccountPoints = !usingPersonalKeys && Boolean(deviceId);
   let inputChars = 0;
   let outputChars = 0;
@@ -674,7 +671,7 @@ if (!fs.existsSync(CONFIG_FILE)) {
 const server = http.createServer(async (req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'content-type,x-airread-token,authorization,accept');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type,x-api-key,x-device-id,accept');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
 
   if (req.method === 'OPTIONS') {
@@ -696,6 +693,48 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('OK');
     return;
+  }
+
+  // POST /points/init — Initialize device (ensure initial grant), return balance
+  if (req.method === 'POST' && req.url === '/points/init') {
+    if (!verifyApiKey(req)) return sendJson(res, 401, { error: 'Unauthorized' });
+    const deviceId = String(req.headers['x-device-id'] || '').trim();
+    if (!deviceId) return sendJson(res, 400, { error: 'MissingDeviceId' });
+    const config = loadConfig();
+    const balance = await ensureInitialGrant({ deviceId, config });
+    return sendJson(res, 200, { balance });
+  }
+
+  // POST /points/balance — Get current balance
+  if (req.method === 'POST' && req.url === '/points/balance') {
+    if (!verifyApiKey(req)) return sendJson(res, 401, { error: 'Unauthorized' });
+    const deviceId = String(req.headers['x-device-id'] || '').trim();
+    if (!deviceId) return sendJson(res, 400, { error: 'MissingDeviceId' });
+    const balance = await getPointsBalance({ deviceId });
+    return sendJson(res, 200, { balance });
+  }
+
+  // POST /checkin/status — Check if already checked in today
+  if (req.method === 'POST' && req.url === '/checkin/status') {
+    if (!verifyApiKey(req)) return sendJson(res, 401, { error: 'Unauthorized' });
+    const deviceId = String(req.headers['x-device-id'] || '').trim();
+    if (!deviceId) return sendJson(res, 400, { error: 'MissingDeviceId' });
+    const today = new Date().toISOString().substring(0, 10);
+    const obj = _readPointsData(deviceId);
+    const done = obj && obj.lastCheckinDate === today;
+    const streak = (obj && obj.checkinStreak) || 0;
+    return sendJson(res, 200, { checkedInToday: !!done, streak });
+  }
+
+  // POST /checkin — Server-side daily checkin
+  if (req.method === 'POST' && req.url === '/checkin') {
+    if (!verifyApiKey(req)) return sendJson(res, 401, { error: 'Unauthorized' });
+    const deviceId = String(req.headers['x-device-id'] || '').trim();
+    if (!deviceId) return sendJson(res, 400, { error: 'MissingDeviceId' });
+    const config = loadConfig();
+    const result = await doCheckin({ deviceId, config });
+    if (!result) return sendJson(res, 500, { error: 'CheckinFailed' });
+    return sendJson(res, 200, result);
   }
 
   // POST — API proxy

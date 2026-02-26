@@ -50,9 +50,11 @@ class _PointsWalletState extends State<PointsWallet> {
     if (_checkedInToday || _checkinBusy) return;
     setSheetState(() => _checkinBusy = true);
     try {
-      final points = await CheckinService.checkin();
-      if (points > 0) {
-        await aiModel.addPoints(points);
+      final result = await CheckinService.checkin();
+      if (result.balance != null) {
+        await aiModel.setPointsBalance(result.balance!);
+      } else if (result.points > 0) {
+        await aiModel.addPoints(result.points);
       }
       final streak = await CheckinService.getStreak();
       if (mounted) {

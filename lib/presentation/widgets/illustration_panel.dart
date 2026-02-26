@@ -547,7 +547,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
                       cardBg: widget.isDark
                           ? Colors.white.withOpacityCompat(0.06)
                           : Colors.white,
-                      hintText: '选择的模型用于生成插画提示词；生图固定使用在线生图（2万积分/张）',
+                      hintText: '选择的模型用于生成插画提示词，在线模型需要积分或个人密钥；本地模型免费，但效果不如在线；生图固定使用在线生图（2万积分/张）',
                     ),
                     const SizedBox(height: 12),
                     _settingsArea(
