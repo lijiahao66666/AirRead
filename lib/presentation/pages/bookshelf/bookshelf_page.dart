@@ -12,6 +12,7 @@ import '../../widgets/glass_panel.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../reader/reader_page.dart';
+import '../../../ai/config/app_update_service.dart';
 import '../../../data/models/book.dart';
 
 class BookshelfPage extends StatefulWidget {
@@ -29,6 +30,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
   void initState() {
     super.initState();
     // System UI mode handled globally in main.dart to ensure consistency
+    // 延迟检查应用更新（Android）
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) AppUpdateService.checkAndPrompt(context);
+    });
   }
 
   @override

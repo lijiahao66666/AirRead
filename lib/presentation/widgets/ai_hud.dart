@@ -5,21 +5,14 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:crypto/crypto.dart';
-import 'package:cryptography/cryptography.dart';
-import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../../ai/licensing/license_codec.dart';
 import '../../ai/local_llm/mnn_model_spec.dart';
 import '../../ai/local_llm/model_manager.dart';
 import '../../ai/reading/qa_service.dart';
 export '../../ai/reading/qa_service.dart' show QAStreamChunk, QAType;
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
-import '../../ai/tencentcloud/tencent_api_client.dart';
 import '../../ai/tencentcloud/tencent_credentials.dart';
 import '../../ai/translation/translation_types.dart';
 import '../../core/theme/app_colors.dart';
@@ -41,12 +34,6 @@ enum AiHudRoute {
   qa,
   illustration,
   tencentSettings,
-}
-
-class _PurchaseSku {
-  final String label;
-  final String url;
-  const _PurchaseSku(this.label, this.url);
 }
 
 /// AI companion bottom sheet with in-panel navigation.
@@ -438,18 +425,6 @@ class _TencentHunyuanSettingsPanelState
   static const String _kUserTencentSecretKey = 'user_tencent_secret_key';
   static const String _kLegacyDevTencentSecretId = 'dev_tencent_secret_id';
   static const String _kLegacyDevTencentSecretKey = 'dev_tencent_secret_key';
-  static const String _kRedeemedCodeHashes = 'redeemed_code_hashes_v1';
-  static const String _kRedeemedPayloadV2 = 'redeemed_code_payload_v2';
-  static const String _kRedeemDeviceFingerprint =
-      'redeem_device_fingerprint_v1';
-  static const String _redeemKeySalt = 'airread';
-  static const String _redeemKeySaltLegacy = 'airread_redeem_v2';
-  static final AesGcm _redeemCipher = AesGcm.with256bits();
-  static const String _scfUrl =
-      String.fromEnvironment('AIRREAD_TENCENT_SCF_URL', defaultValue: '');
-  static const String _scfToken =
-      String.fromEnvironment('AIRREAD_TENCENT_SCF_TOKEN', defaultValue: '');
-
   bool _showSaveSuccessPrompt = false;
   int? _voiceType;
   double? _speed;
@@ -461,17 +436,8 @@ class _TencentHunyuanSettingsPanelState
   final GlobalKey _userSecretIdFieldKey = GlobalKey();
   final GlobalKey _userSecretKeyFieldKey = GlobalKey();
   bool _userKeysEnabled = false;
-  bool _redeemBusy = false;
   String? _userKeysHint;
   Timer? _userKeysHintTimer;
-
-  static const List<_PurchaseSku> _purchaseSkus = <_PurchaseSku>[
-    _PurchaseSku('5万积分', 'https://pay.ldxp.cn/item/ajnlvp'),
-    _PurchaseSku('10万积分', 'https://pay.ldxp.cn/item/b5p0id'),
-    _PurchaseSku('20万积分', 'https://pay.ldxp.cn/item/f2ezmi'),
-    _PurchaseSku('50万积分', 'https://pay.ldxp.cn/item/pwaixm'),
-    _PurchaseSku('100万积分', 'https://pay.ldxp.cn/item/4dp4xf'),
-  ];
 
   static const Map<int, String> _ttsLargeModelVoices = {
     501000: '智斌（阅读男声）',
@@ -633,211 +599,6 @@ class _TencentHunyuanSettingsPanelState
       );
       await context.read<TranslationProvider>().reloadTencentCredentials();
     }
-  }
-
-  String _fingerprintHash(String fingerprint) {
-    return sha256.convert(utf8.encode(fingerprint)).toString();
-  }
-
-  SecretKey _deriveRedeemKey(String fingerprint) {
-    final bytes =
-        sha256.convert(utf8.encode('$_redeemKeySalt|$fingerprint')).bytes;
-    return SecretKey(bytes);
-  }
-
-  SecretKey _deriveRedeemKeyLegacy(String fingerprint) {
-    final bytes =
-        sha256.convert(utf8.encode('$_redeemKeySaltLegacy|$fingerprint')).bytes;
-    return SecretKey(bytes);
-  }
-
-  Future<String?> _encryptRedeemPayload(
-    String payload,
-    String fingerprint,
-  ) async {
-    try {
-      final secretBox = await _redeemCipher.encrypt(
-        utf8.encode(payload),
-        secretKey: _deriveRedeemKey(fingerprint),
-      );
-      final cipherRaw = base64UrlEncode(secretBox.cipherText);
-      final nonceRaw = base64UrlEncode(secretBox.nonce);
-      final macRaw = base64UrlEncode(secretBox.mac.bytes);
-      return '$cipherRaw.$nonceRaw.$macRaw';
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<String?> _decryptRedeemPayload(
-    String payload,
-    String fingerprint,
-  ) async {
-    try {
-      final t = payload.trim();
-      if (t.isEmpty) return null;
-
-      Future<String?> tryDecryptDot(String raw, SecretKey key) async {
-        final parts = raw.split('.');
-        if (parts.length != 3) return null;
-        final cipherRaw = parts[0];
-        final nonceRaw = parts[1];
-        final macRaw = parts[2];
-        if (cipherRaw.isEmpty || nonceRaw.isEmpty || macRaw.isEmpty)
-          return null;
-        final secretBox = SecretBox(
-          base64Url.decode(cipherRaw),
-          nonce: base64Url.decode(nonceRaw),
-          mac: Mac(base64Url.decode(macRaw)),
-        );
-        final clear = await _redeemCipher.decrypt(secretBox, secretKey: key);
-        return utf8.decode(clear);
-      }
-
-      Future<String?> tryDecryptJson(String raw, SecretKey key) async {
-        final decoded = jsonDecode(raw);
-        if (decoded is! Map) return null;
-        final nonceRaw = decoded['nonce']?.toString() ?? '';
-        final cipherRaw = decoded['cipher']?.toString() ?? '';
-        final macRaw = decoded['mac']?.toString() ?? '';
-        if (nonceRaw.isEmpty || cipherRaw.isEmpty || macRaw.isEmpty)
-          return null;
-        final secretBox = SecretBox(
-          base64Url.decode(cipherRaw),
-          nonce: base64Url.decode(nonceRaw),
-          mac: Mac(base64Url.decode(macRaw)),
-        );
-        final clear = await _redeemCipher.decrypt(secretBox, secretKey: key);
-        return utf8.decode(clear);
-      }
-
-      return await tryDecryptDot(t, _deriveRedeemKey(fingerprint)) ??
-          await tryDecryptJson(t, _deriveRedeemKeyLegacy(fingerprint));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<String> _getDeviceFingerprint(SharedPreferences prefs) async {
-    final existing = prefs.getString(_kRedeemDeviceFingerprint);
-    if (existing != null && existing.trim().isNotEmpty) return existing;
-    final uuid = const Uuid().v4();
-    final fp =
-        '$uuid|${defaultTargetPlatform.toString()}|${kIsWeb ? 'web' : 'app'}';
-    await prefs.setString(_kRedeemDeviceFingerprint, fp);
-    return fp;
-  }
-
-  Uri _resolveRedeemScfUri() {
-    final raw = _scfUrl.trim();
-    if (raw.isEmpty) {
-      throw const LicenseException('兑换服务未配置，请检查网络连接或联系客服');
-    }
-    return Uri.parse(raw);
-  }
-
-  Future<String?> _redeemOnCloud({
-    required String licenseCode,
-    required String deviceId,
-  }) async {
-    final uri = _resolveRedeemScfUri();
-    final headers = <String, String>{
-      'Content-Type': 'application/json; charset=utf-8',
-    };
-    final token = _scfToken.trim();
-    if (token.isNotEmpty) {
-      headers['X-Airread-Token'] = token;
-    }
-    final resp = await http.post(
-      uri,
-      headers: headers,
-      body: jsonEncode(<String, dynamic>{
-        'license_code': licenseCode,
-        'device_id': deviceId,
-      }),
-    );
-    if (resp.statusCode == 409) {
-      throw const LicenseException('重复兑换');
-    }
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      String message = '兑换失败';
-      try {
-        final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
-        if (decoded is Map) {
-          message = decoded['message']?.toString() ??
-              decoded['error']?.toString() ??
-              message;
-        }
-      } catch (_) {}
-      throw LicenseException(message);
-    }
-
-    try {
-      final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
-      if (decoded is Map) {
-        return decoded['token']?.toString();
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  Future<List<Map<String, dynamic>>> _loadRedeemedEntries({
-    required SharedPreferences prefs,
-    required String fingerprint,
-  }) async {
-    final payload = prefs.getString(_kRedeemedPayloadV2);
-    if (payload != null && payload.trim().isNotEmpty) {
-      final decrypted = await _decryptRedeemPayload(payload, fingerprint);
-      if (decrypted != null && decrypted.trim().isNotEmpty) {
-        final obj = jsonDecode(decrypted);
-        if (obj is List) {
-          final entries = <Map<String, dynamic>>[];
-          for (final item in obj) {
-            if (item is Map) {
-              final hash = item['hash']?.toString() ?? '';
-              if (hash.trim().isEmpty) continue;
-              final fp = item['fp']?.toString() ?? '';
-              final t = int.tryParse(item['t']?.toString() ?? '') ?? 0;
-              entries.add(<String, dynamic>{'hash': hash, 'fp': fp, 't': t});
-            }
-          }
-          return entries;
-        }
-      }
-    }
-
-    final legacy = prefs.getStringList(_kRedeemedCodeHashes);
-    if (legacy != null && legacy.isNotEmpty) {
-      final fpHash = _fingerprintHash(fingerprint);
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      final entries = legacy
-          .map((hash) => <String, dynamic>{
-                'hash': hash,
-                'fp': fpHash,
-                't': nowMs,
-              })
-          .toList();
-      await _saveRedeemedEntries(
-        prefs: prefs,
-        fingerprint: fingerprint,
-        entries: entries,
-      );
-      await prefs.remove(_kRedeemedCodeHashes);
-      return entries;
-    }
-
-    return [];
-  }
-
-  Future<void> _saveRedeemedEntries({
-    required SharedPreferences prefs,
-    required String fingerprint,
-    required List<Map<String, dynamic>> entries,
-  }) async {
-    final encoded = jsonEncode(entries);
-    final encrypted = await _encryptRedeemPayload(encoded, fingerprint);
-    if (encrypted == null) return;
-    await prefs.setString(_kRedeemedPayloadV2, encrypted);
   }
 
   Future<void> _setUserTencentKeysEnabled(bool enabled) async {
@@ -1129,71 +890,6 @@ class _TencentHunyuanSettingsPanelState
     );
   }
 
-  Widget _redeemRow(AiModelProvider aiModel, {required Color cardBg}) {
-    return Wrap(
-      spacing: 14,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        TextButton(
-          onPressed: () => _showPurchaseDialog(cardBg: cardBg),
-          style: TextButton.styleFrom(
-            padding: EdgeInsets.zero,
-            minimumSize: const Size(0, 0),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            foregroundColor: AppColors.techBlue,
-          ),
-          child: const Text(
-            '购买',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-        ),
-        TextButton(
-          onPressed: _redeemBusy
-              ? null
-              : () => _showRedeemDialog(aiModel, cardBg: cardBg),
-          style: TextButton.styleFrom(
-            padding: EdgeInsets.zero,
-            minimumSize: const Size(0, 0),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            foregroundColor: AppColors.techBlue,
-          ),
-          child: Text(
-            _redeemBusy ? '处理中…' : '兑换',
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(top: 1),
-          child: Text(
-            '剩余积分：${aiModel.pointsBalance}',
-            style: TextStyle(
-              color: widget.textColor.withOpacityCompat(0.75),
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              height: 1.0,
-            ),
-          ),
-        ),
-        if (kDebugMode)
-          TextButton(
-            onPressed: () => _showDebugPointsDialog(aiModel, cardBg: cardBg),
-            style: TextButton.styleFrom(
-              padding: EdgeInsets.zero,
-              minimumSize: const Size(0, 0),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              foregroundColor: AppColors.techBlue,
-            ),
-            child: Text(
-              aiModel.debugPointsOverride == null
-                  ? '调试积分'
-                  : '调试：${aiModel.debugPointsOverride}',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-          ),
-      ],
-    );
-  }
-
   Future<void> _showDebugPointsDialog(
     AiModelProvider aiModel, {
     required Color cardBg,
@@ -1333,268 +1029,6 @@ class _TencentHunyuanSettingsPanelState
           ),
         ),
       ),
-    );
-  }
-
-  Future<void> _openExternalUrl(String url) async {
-    final uri = Uri.parse(url);
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  Future<void> _showRedeemDialog(
-    AiModelProvider aiModel, {
-    required Color cardBg,
-  }) async {
-    final controller = TextEditingController();
-    final dialogBg = widget.isDark ? const Color(0xFF262626) : Colors.white;
-    final fieldBg =
-        widget.isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF2F2F2);
-    bool dialogBusy = _redeemBusy;
-    String dialogHint = '';
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            Future<bool> submit() async {
-              final trimmed = controller.text.trim();
-              if (trimmed.isEmpty) {
-                setDialogState(() => dialogHint = '请输入卡密');
-                return false;
-              }
-              if (dialogBusy) return false;
-
-              final codeHash = sha256.convert(utf8.encode(trimmed)).toString();
-              final prefs = await SharedPreferences.getInstance();
-              final fingerprint = await _getDeviceFingerprint(prefs);
-
-              final fpHash = _fingerprintHash(fingerprint);
-              final redeemed = await _loadRedeemedEntries(
-                prefs: prefs,
-                fingerprint: fingerprint,
-              );
-              final alreadyRedeemed = redeemed.any((e) =>
-                  (e['hash']?.toString() ?? '') == codeHash &&
-                  (e['fp']?.toString() ?? '') == fpHash);
-              if (alreadyRedeemed) {
-                setDialogState(() => dialogHint = '重复兑换');
-                return false;
-              }
-
-              setDialogState(() {
-                dialogBusy = true;
-                dialogHint = '';
-              });
-              if (mounted) {
-                setState(() {
-                  _redeemBusy = true;
-                });
-              }
-
-              try {
-                final payload = await LicenseCodec.verifyAndParse(trimmed);
-                final token = await _redeemOnCloud(
-                  licenseCode: trimmed,
-                  deviceId: fpHash,
-                );
-
-                if (token != null && token.isNotEmpty) {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setString('tencent_scf_jwt', token);
-                  TencentApiClient.setToken(token);
-                }
-                final nowMs2 = DateTime.now().millisecondsSinceEpoch;
-                if (payload.points > 0) {
-                  await aiModel.addPoints(payload.points);
-                }
-
-                final updated =
-                    List<Map<String, dynamic>>.from(redeemed, growable: true);
-                updated.add(<String, dynamic>{
-                  'hash': codeHash,
-                  'fp': fpHash,
-                  't': nowMs2,
-                });
-                if (updated.length > 2000) {
-                  updated.removeRange(0, updated.length - 2000);
-                }
-                await _saveRedeemedEntries(
-                  prefs: prefs,
-                  fingerprint: fingerprint,
-                  entries: updated,
-                );
-
-                setDialogState(() => dialogHint = '');
-                return true;
-              } catch (e) {
-                final msg = e.toString();
-                setDialogState(() => dialogHint = msg);
-                return false;
-              } finally {
-                setDialogState(() => dialogBusy = false);
-                if (mounted) setState(() => _redeemBusy = false);
-              }
-            }
-
-            final hint = dialogHint.trim();
-
-            return AlertDialog(
-              backgroundColor: dialogBg,
-              surfaceTintColor: Colors.transparent,
-              title: Text(
-                '兑换卡密',
-                style: TextStyle(color: widget.textColor, fontSize: 14),
-              ),
-              content: SizedBox(
-                width: 320,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextField(
-                      controller: controller,
-                      autofocus: true,
-                      enabled: !dialogBusy,
-                      decoration: InputDecoration(
-                        hintText: '输入卡密',
-                        isDense: true,
-                        filled: true,
-                        fillColor: fieldBg,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 12),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                            color: widget.textColor.withOpacityCompat(0.18),
-                            width: AppTokens.stroke,
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                            color: widget.textColor.withOpacityCompat(0.18),
-                            width: AppTokens.stroke,
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                            color: AppColors.techBlue.withOpacityCompat(0.6),
-                            width: AppTokens.stroke,
-                          ),
-                        ),
-                        hintStyle: TextStyle(
-                            color: widget.textColor.withOpacityCompat(0.45)),
-                      ),
-                      style: TextStyle(color: widget.textColor, fontSize: 13),
-                      onSubmitted: (_) async {
-                        final navigator = Navigator.of(dialogContext);
-                        final ok = await submit();
-                        if (!mounted) return;
-                        if (ok) {
-                          if (navigator.canPop()) navigator.pop();
-                        }
-                      },
-                    ),
-                    if (hint.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        hint,
-                        style: const TextStyle(
-                          color: Colors.redAccent,
-                          fontSize: 13,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: dialogBusy
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(),
-                  style: TextButton.styleFrom(
-                    foregroundColor: widget.textColor.withOpacityCompat(0.75),
-                  ),
-                  child: const Text('取消'),
-                ),
-                TextButton(
-                  onPressed: dialogBusy
-                      ? null
-                      : () async {
-                          final navigator = Navigator.of(dialogContext);
-                          final ok = await submit();
-                          if (!mounted) return;
-                          if (ok) {
-                            if (navigator.canPop()) navigator.pop();
-                          }
-                        },
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.techBlue,
-                  ),
-                  child: Text(dialogBusy ? '处理中…' : '确认'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _showPurchaseDialog({
-    required Color cardBg,
-    String title = '购买积分',
-    List<_PurchaseSku>? skus,
-  }) async {
-    final dialogBg = widget.isDark ? const Color(0xFF262626) : Colors.white;
-    final items = skus ?? _purchaseSkus;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: dialogBg,
-          surfaceTintColor: Colors.transparent,
-          title: Text(
-            title,
-            style: TextStyle(color: widget.textColor, fontSize: 14),
-          ),
-          content: SizedBox(
-            width: 320,
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                for (final sku in items)
-                  ListTile(
-                    dense: true,
-                    textColor: widget.textColor,
-                    iconColor: widget.textColor.withOpacityCompat(0.75),
-                    title: Text(
-                      sku.label,
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                    trailing: const Icon(Icons.open_in_new_rounded, size: 18),
-                    onTap: () async {
-                      Navigator.of(dialogContext).pop();
-                      await _openExternalUrl(sku.url);
-                    },
-                  ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              style: TextButton.styleFrom(
-                foregroundColor: widget.textColor.withOpacityCompat(0.75),
-              ),
-              child: const Text('关闭'),
-            ),
-          ],
-        );
-      },
     );
   }
 
@@ -1899,7 +1333,11 @@ class _TencentHunyuanSettingsPanelState
                       ),
                     ),
                     const SizedBox(height: 10),
-                    _redeemRow(aiModel, cardBg: cardBg),
+                    PointsWallet(
+                      isDark: widget.isDark,
+                      textColor: widget.textColor,
+                      cardBg: cardBg,
+                    ),
                   ],
                 ],
               ],
@@ -2183,7 +1621,11 @@ class _TencentHunyuanSettingsPanelState
                       ),
                     ),
                     const SizedBox(height: 10),
-                    _redeemRow(aiModel, cardBg: cardBg),
+                    PointsWallet(
+                      isDark: widget.isDark,
+                      textColor: widget.textColor,
+                      cardBg: cardBg,
+                    ),
                   ],
                 ],
               ],

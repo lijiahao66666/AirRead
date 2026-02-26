@@ -59,7 +59,7 @@ class TencentTtsClient {
       version: _version,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
-      useScfProxy: !usingPersonalTencentKeys(),
+      useProxy: !usingPersonalTencentKeys(),
       payload: payload,
       timeout: const Duration(seconds: 30),
     );

@@ -1,17 +1,7 @@
-import 'dart:async';
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
-import 'package:cryptography/cryptography.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:uuid/uuid.dart';
 
-import '../../ai/licensing/license_codec.dart';
-import '../../ai/tencentcloud/tencent_api_client.dart';
+import '../../ai/config/checkin_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
 import '../providers/ai_model_provider.dart';
@@ -34,542 +24,234 @@ class PointsWallet extends StatefulWidget {
   State<PointsWallet> createState() => _PointsWalletState();
 }
 
-class _PurchaseSku {
-  final String label;
-  final String url;
-  const _PurchaseSku(this.label, this.url);
-}
-
 class _PointsWalletState extends State<PointsWallet> {
-  static const String _scfUrl =
-      String.fromEnvironment('AIRREAD_TENCENT_SCF_URL', defaultValue: '');
-  static const String _scfToken =
-      String.fromEnvironment('AIRREAD_TENCENT_SCF_TOKEN', defaultValue: '');
-  static const Duration _redeemTimeout = Duration(seconds: 20);
-  static const String _kRedeemDeviceFingerprint = 'redeem_device_fingerprint_v1';
-  static const String _kRedeemedPayloadV2 = 'redeemed_code_payload_v2';
-  static const String _kRedeemedCodeHashes = 'redeemed_code_hashes';
+  bool _checkedInToday = false;
+  bool _checkinBusy = false;
+  int _streak = 0;
 
-  static const List<_PurchaseSku> _purchaseSkus = <_PurchaseSku>[
-    _PurchaseSku('5万积分', 'https://pay.ldxp.cn/item/ajnlvp'),
-    _PurchaseSku('10万积分', 'https://pay.ldxp.cn/item/b5p0id'),
-    _PurchaseSku('20万积分', 'https://pay.ldxp.cn/item/f2ezmi'),
-    _PurchaseSku('50万积分', 'https://pay.ldxp.cn/item/pwaixm'),
-    _PurchaseSku('100万积分', 'https://pay.ldxp.cn/item/4dp4xf'),
-  ];
-
-  static final Cipher _redeemCipher = AesGcm.with256bits();
-
-  bool _redeemBusy = false;
-
-  String _fingerprintHash(String fingerprint) {
-    return sha256.convert(utf8.encode(fingerprint)).toString();
+  @override
+  void initState() {
+    super.initState();
+    _loadCheckinState();
   }
 
-  SecretKey _deriveRedeemKeyWithSalt(String fingerprint, String salt) {
-    final bytes = sha256.convert(utf8.encode('$salt|$fingerprint')).bytes;
-    return SecretKey(bytes);
-  }
-
-  SecretKey _deriveRedeemKey(String fingerprint) {
-    return _deriveRedeemKeyWithSalt(fingerprint, 'airread');
-  }
-
-  Future<String?> _encryptRedeemPayload(String payload, String fingerprint) async {
-    try {
-      final box = await _redeemCipher.encrypt(
-        utf8.encode(payload),
-        secretKey: _deriveRedeemKey(fingerprint),
-      );
-      final cipherRaw = base64UrlEncode(box.cipherText);
-      final nonceRaw = base64UrlEncode(box.nonce);
-      final macRaw = base64UrlEncode(box.mac.bytes);
-      return '$cipherRaw.$nonceRaw.$macRaw';
-    } catch (_) {
-      return null;
+  Future<void> _loadCheckinState() async {
+    final done = await CheckinService.hasCheckedInToday();
+    final streak = await CheckinService.getStreak();
+    if (mounted) {
+      setState(() {
+        _checkedInToday = done;
+        _streak = streak;
+      });
     }
   }
 
-  Future<String?> _decryptRedeemPayload(String payload, String fingerprint) async {
+  Future<void> _doCheckin(AiModelProvider aiModel, StateSetter setSheetState) async {
+    if (_checkedInToday || _checkinBusy) return;
+    setSheetState(() => _checkinBusy = true);
     try {
-      final t = payload.trim();
-      if (t.isEmpty) return null;
-
-      Future<String?> tryDecryptDot(String raw, SecretKey key) async {
-        final parts = raw.split('.');
-        if (parts.length != 3) return null;
-        final cipherRaw = parts[0];
-        final nonceRaw = parts[1];
-        final macRaw = parts[2];
-        if (cipherRaw.isEmpty || nonceRaw.isEmpty || macRaw.isEmpty) return null;
-        final secretBox = SecretBox(
-          base64Url.decode(cipherRaw),
-          nonce: base64Url.decode(nonceRaw),
-          mac: Mac(base64Url.decode(macRaw)),
-        );
-        final clear = await _redeemCipher.decrypt(secretBox, secretKey: key);
-        return utf8.decode(clear);
+      final points = await CheckinService.checkin();
+      if (points > 0) {
+        await aiModel.addPoints(points);
       }
-
-      Future<String?> tryDecryptJson(String raw, SecretKey key) async {
-        final decoded = jsonDecode(raw);
-        if (decoded is! Map) return null;
-        final nonceRaw = decoded['nonce']?.toString() ?? '';
-        final cipherRaw = decoded['cipher']?.toString() ?? '';
-        final macRaw = decoded['mac']?.toString() ?? '';
-        if (nonceRaw.isEmpty || cipherRaw.isEmpty || macRaw.isEmpty) return null;
-        final secretBox = SecretBox(
-          base64Url.decode(cipherRaw),
-          nonce: base64Url.decode(nonceRaw),
-          mac: Mac(base64Url.decode(macRaw)),
-        );
-        final clear = await _redeemCipher.decrypt(secretBox, secretKey: key);
-        return utf8.decode(clear);
+      final streak = await CheckinService.getStreak();
+      if (mounted) {
+        setState(() {
+          _checkedInToday = true;
+          _streak = streak;
+        });
+        setSheetState(() {
+          _checkedInToday = true;
+          _streak = streak;
+        });
       }
-
-      final v1Key = _deriveRedeemKeyWithSalt(fingerprint, 'airread');
-      final v2Key = _deriveRedeemKeyWithSalt(fingerprint, 'airread_redeem_v2');
-
-      return await tryDecryptDot(t, v1Key) ??
-          await tryDecryptJson(t, v2Key);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<String> _getDeviceFingerprint(SharedPreferences prefs) async {
-    final existing = prefs.getString(_kRedeemDeviceFingerprint);
-    if (existing != null && existing.trim().isNotEmpty) return existing;
-    final uuid = const Uuid().v4();
-    final fp =
-        '$uuid|${defaultTargetPlatform.toString()}|${kIsWeb ? 'web' : 'app'}';
-    await prefs.setString(_kRedeemDeviceFingerprint, fp);
-    return fp;
-  }
-
-  Uri _resolveRedeemScfUri() {
-    final raw = _scfUrl.trim();
-    if (raw.isEmpty) {
-      throw const LicenseException('兑换服务未配置，请检查网络连接或联系客服');
-    }
-    return Uri.parse(raw);
-  }
-
-  Uri _fallbackRedeemScfUri(Uri primary) {
-    final host = primary.host.trim();
-    if (host.endsWith('.apigw.tencentcs.com')) {
-      final nextHost =
-          host.replaceFirst('.apigw.tencentcs.com', '.apigateway.myqcloud.com');
-      return primary.replace(host: nextHost);
-    }
-    return primary;
-  }
-
-  bool _looksLikeDnsFailure(Object e) {
-    final s = e.toString();
-    return s.contains('Failed host lookup') ||
-        s.contains('nodename nor servname provided') ||
-        s.contains('No address associated with hostname');
-  }
-
-  bool _looksLikeNetworkFailure(Object e) {
-    final s = e.toString();
-    return s.contains('SocketException') ||
-        s.contains('Connection refused') ||
-        s.contains('Connection reset') ||
-        s.contains('Network is unreachable') ||
-        s.contains('Operation timed out') ||
-        s.contains('XMLHttpRequest error');
-  }
-
-  Future<http.Response> _postRedeem(
-    Uri uri, {
-    required Map<String, String> headers,
-    required String body,
-  }) async {
-    return http
-        .post(uri, headers: headers, body: body)
-        .timeout(_redeemTimeout);
-  }
-
-  Future<String?> _redeemOnCloud({
-    required String licenseCode,
-    required String deviceId,
-  }) async {
-    final uri = _resolveRedeemScfUri();
-    final headers = <String, String>{
-      'Content-Type': 'application/json; charset=utf-8',
-    };
-    final prefs = await SharedPreferences.getInstance();
-    final token = _scfToken.trim().isNotEmpty
-        ? _scfToken.trim()
-        : (prefs.getString('tencent_scf_jwt') ?? '').trim();
-    if (token.isNotEmpty) {
-      headers['X-Airread-Token'] = token;
-    }
-    final body = jsonEncode(<String, dynamic>{
-      'license_code': licenseCode,
-      'device_id': deviceId,
-    });
-    late http.Response resp;
-    try {
-      resp = await _postRedeem(uri, headers: headers, body: body);
-    } on TimeoutException {
-      throw const LicenseException('网络超时，请稍后重试');
     } catch (e) {
-      final fallback = _fallbackRedeemScfUri(uri);
-      if (fallback != uri && (_looksLikeDnsFailure(e) || _looksLikeNetworkFailure(e))) {
-        try {
-          resp = await _postRedeem(fallback, headers: headers, body: body);
-        } on TimeoutException {
-          throw const LicenseException('网络超时，请稍后重试');
-        } catch (e2) {
-          if (_looksLikeDnsFailure(e2)) {
-            throw const LicenseException('兑换服务域名解析失败，请切换网络后重试');
-          }
-          if (_looksLikeNetworkFailure(e2)) {
-            throw const LicenseException('兑换服务连接失败，请检查网络后重试');
-          }
-          throw const LicenseException('兑换服务异常，请稍后重试');
-        }
-      } else {
-        if (_looksLikeDnsFailure(e)) {
-          throw const LicenseException('兑换服务域名解析失败，请切换网络后重试');
-        }
-        if (_looksLikeNetworkFailure(e)) {
-          throw const LicenseException('兑换服务连接失败，请检查网络后重试');
-        }
-        throw const LicenseException('兑换服务异常，请稍后重试');
-      }
+      debugPrint('[PointsWallet] checkin error: $e');
+    } finally {
+      if (mounted) setSheetState(() => _checkinBusy = false);
     }
-    if (resp.statusCode == 409) {
-      throw const LicenseException('重复兑换');
-    }
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      String message = '兑换失败';
-      try {
-        final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
-        if (decoded is Map) {
-          message = decoded['message']?.toString() ??
-              decoded['error']?.toString() ??
-              message;
-        }
-      } catch (_) {}
-      throw LicenseException(message);
-    }
-
-    try {
-      final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
-      if (decoded is Map) {
-        return decoded['token']?.toString();
-      }
-    } catch (_) {}
-    return null;
   }
 
-  Future<List<Map<String, dynamic>>> _loadRedeemedEntries({
-    required SharedPreferences prefs,
-    required String fingerprint,
-  }) async {
-    final payload = prefs.getString(_kRedeemedPayloadV2);
-    if (payload != null && payload.trim().isNotEmpty) {
-      final decrypted = await _decryptRedeemPayload(payload, fingerprint);
-      if (decrypted != null && decrypted.trim().isNotEmpty) {
-        final obj = jsonDecode(decrypted);
-        if (obj is List) {
-          final entries = <Map<String, dynamic>>[];
-          for (final item in obj) {
-            if (item is Map) {
-              final hash = item['hash']?.toString() ?? '';
-              if (hash.trim().isEmpty) continue;
-              final fp = item['fp']?.toString() ?? '';
-              final t = int.tryParse(item['t']?.toString() ?? '') ?? 0;
-              entries.add(<String, dynamic>{'hash': hash, 'fp': fp, 't': t});
-            }
-          }
-          return entries;
-        }
-      }
-    }
+  // ── Wallet BottomSheet ──────────────────────────────────────────
 
-    final legacy = prefs.getStringList(_kRedeemedCodeHashes);
-    if (legacy != null && legacy.isNotEmpty) {
-      final fpHash = _fingerprintHash(fingerprint);
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      final entries = legacy
-          .map((hash) => <String, dynamic>{
-                'hash': hash,
-                'fp': fpHash,
-                't': nowMs,
-              })
-          .toList();
-      await _saveRedeemedEntries(
-        prefs: prefs,
-        fingerprint: fingerprint,
-        entries: entries,
-      );
-      await prefs.remove(_kRedeemedCodeHashes);
-      return entries;
-    }
+  void _showWalletSheet(AiModelProvider aiModel) {
+    final isDark = widget.isDark;
+    final textColor = widget.textColor;
+    final sheetBg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final sectionBg = isDark ? const Color(0xFF262626) : const Color(0xFFF7F7F7);
 
-    return [];
-  }
-
-  Future<void> _saveRedeemedEntries({
-    required SharedPreferences prefs,
-    required String fingerprint,
-    required List<Map<String, dynamic>> entries,
-  }) async {
-    final encoded = jsonEncode(entries);
-    final encrypted = await _encryptRedeemPayload(encoded, fingerprint);
-    if (encrypted == null) return;
-    await prefs.setString(_kRedeemedPayloadV2, encrypted);
-  }
-
-  Future<void> _openExternalUrl(String url) async {
-    final uri = Uri.parse(url);
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  Future<void> _showPurchaseDialog({List<_PurchaseSku>? skus}) async {
-    final dialogBg = widget.isDark ? const Color(0xFF262626) : Colors.white;
-    final items = skus ?? _purchaseSkus;
-    await showDialog<void>(
+    showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: dialogBg,
-          surfaceTintColor: Colors.transparent,
-          title:
-              Text('购买积分', style: TextStyle(color: widget.textColor, fontSize: 14)),
-          content: SizedBox(
-            width: 320,
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                for (final sku in items)
-                  ListTile(
-                    dense: true,
-                    textColor: widget.textColor,
-                    iconColor: widget.textColor.withOpacityCompat(0.75),
-                    title: Text(
-                      sku.label,
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                    trailing: const Icon(Icons.open_in_new_rounded, size: 18),
-                    onTap: () async {
-                      Navigator.of(ctx).pop();
-                      await _openExternalUrl(sku.url);
-                    },
-                  ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              style: TextButton.styleFrom(
-                foregroundColor: widget.textColor.withOpacityCompat(0.75),
+      isScrollControlled: true,
+      backgroundColor: sheetBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            final checkinEnabled = CheckinService.isEnabled;
+            final checkinPoints = CheckinService.rewardPoints;
+            // TODO: 广告SDK接入后读取 RemoteConfigService.adEnabled
+            // TODO: 微信支付接入后读取 RemoteConfigService.purchaseEnabled
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
               ),
-              child: const Text('关闭'),
-            ),
-          ],
+              child: SafeArea(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── Handle bar ──
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: textColor.withOpacityCompat(0.2),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      // ── Title row ──
+                      Row(
+                        children: [
+                          Text(
+                            '积分钱包',
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '余额：${aiModel.pointsBalance}',
+                            style: TextStyle(
+                              color: textColor.withOpacityCompat(0.7),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+
+                      // ── Section: Daily Check-in ──
+                      if (checkinEnabled)
+                        _sectionCard(
+                          sectionBg: sectionBg,
+                          textColor: textColor,
+                          child: Row(
+                            children: [
+                              Icon(
+                                _checkedInToday
+                                    ? Icons.check_circle_rounded
+                                    : Icons.calendar_today_rounded,
+                                color: _checkedInToday
+                                    ? Colors.green
+                                    : AppColors.techBlue,
+                                size: 28,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '每日签到',
+                                      style: TextStyle(
+                                        color: textColor,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _checkedInToday
+                                          ? '今日已签到  连续 $_streak 天'
+                                          : '签到领 +$checkinPoints 积分${_streak > 0 ? '  已连续 $_streak 天' : ''}',
+                                      style: TextStyle(
+                                        color: textColor.withOpacityCompat(0.55),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              SizedBox(
+                                height: 32,
+                                child: TextButton(
+                                  onPressed: _checkedInToday || _checkinBusy
+                                      ? null
+                                      : () => _doCheckin(aiModel, setSheetState),
+                                  style: TextButton.styleFrom(
+                                    backgroundColor: _checkedInToday
+                                        ? textColor.withOpacityCompat(0.1)
+                                        : AppColors.techBlue,
+                                    foregroundColor: _checkedInToday
+                                        ? textColor.withOpacityCompat(0.35)
+                                        : Colors.white,
+                                    disabledBackgroundColor:
+                                        textColor.withOpacityCompat(0.1),
+                                    disabledForegroundColor:
+                                        textColor.withOpacityCompat(0.35),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 14),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    _checkinBusy
+                                        ? '签到中…'
+                                        : (_checkedInToday ? '已签到' : '立即签到'),
+                                    style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      // TODO: 广告区域（RemoteConfigService.adEnabled 为 true 时显示）
+                      // TODO: 购买区域（RemoteConfigService.purchaseEnabled 为 true 时显示）
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
   }
 
-  Future<void> _showRedeemDialog(AiModelProvider aiModel) async {
-    final controller = TextEditingController();
-    final dialogBg = widget.isDark ? const Color(0xFF262626) : Colors.white;
-    final fieldBg =
-        widget.isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF2F2F2);
-    bool dialogBusy = _redeemBusy;
-    String dialogHint = '';
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            Future<bool> submit() async {
-              final trimmed = controller.text.trim();
-              if (trimmed.isEmpty) {
-                setDialogState(() => dialogHint = '请输入卡密');
-                return false;
-              }
-              if (dialogBusy) return false;
-
-              final codeHash = sha256.convert(utf8.encode(trimmed)).toString();
-              final prefs = await SharedPreferences.getInstance();
-              final fingerprint = await _getDeviceFingerprint(prefs);
-
-              final fpHash = _fingerprintHash(fingerprint);
-              final redeemed = await _loadRedeemedEntries(
-                prefs: prefs,
-                fingerprint: fingerprint,
-              );
-              final alreadyRedeemed = redeemed.any((e) =>
-                  (e['hash']?.toString() ?? '') == codeHash &&
-                  (e['fp']?.toString() ?? '') == fpHash);
-              if (alreadyRedeemed) {
-                setDialogState(() => dialogHint = '重复兑换');
-                return false;
-              }
-
-              setDialogState(() {
-                dialogBusy = true;
-                dialogHint = '';
-              });
-              if (mounted) setState(() => _redeemBusy = true);
-
-              try {
-                final payload = await LicenseCodec.verifyAndParse(trimmed);
-                final token = await _redeemOnCloud(
-                  licenseCode: trimmed,
-                  deviceId: fpHash,
-                );
-                if (token != null && token.isNotEmpty) {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setString('tencent_scf_jwt', token);
-                  TencentApiClient.setToken(token);
-                }
-                if (payload.points > 0) {
-                  await aiModel.addPoints(payload.points);
-                }
-
-                final nowMs2 = DateTime.now().millisecondsSinceEpoch;
-                final updated =
-                    List<Map<String, dynamic>>.from(redeemed, growable: true);
-                updated.add(<String, dynamic>{
-                  'hash': codeHash,
-                  'fp': fpHash,
-                  't': nowMs2,
-                });
-                if (updated.length > 2000) {
-                  updated.removeRange(0, updated.length - 2000);
-                }
-                await _saveRedeemedEntries(
-                  prefs: prefs,
-                  fingerprint: fingerprint,
-                  entries: updated,
-                );
-
-                setDialogState(() => dialogHint = '');
-                return true;
-              } catch (e) {
-                setDialogState(() => dialogHint = e.toString());
-                return false;
-              } finally {
-                setDialogState(() => dialogBusy = false);
-                if (mounted) setState(() => _redeemBusy = false);
-              }
-            }
-
-            final hint = dialogHint.trim();
-
-            return AlertDialog(
-              backgroundColor: dialogBg,
-              surfaceTintColor: Colors.transparent,
-              title: Text(
-                '兑换卡密',
-                style: TextStyle(color: widget.textColor, fontSize: 14),
-              ),
-              content: SizedBox(
-                width: 320,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextField(
-                      controller: controller,
-                      autofocus: true,
-                      enabled: !dialogBusy,
-                      decoration: InputDecoration(
-                        hintText: '输入卡密',
-                        isDense: true,
-                        filled: true,
-                        fillColor: fieldBg,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 12),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                            color: widget.textColor.withOpacityCompat(0.18),
-                            width: AppTokens.stroke,
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                            color: widget.textColor.withOpacityCompat(0.18),
-                            width: AppTokens.stroke,
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                            color: AppColors.techBlue.withOpacityCompat(0.6),
-                            width: AppTokens.stroke,
-                          ),
-                        ),
-                        hintStyle: TextStyle(
-                            color: widget.textColor.withOpacityCompat(0.45)),
-                      ),
-                      style: TextStyle(color: widget.textColor, fontSize: 13),
-                      onSubmitted: (_) async {
-                        final navigator = Navigator.of(dialogContext);
-                        final ok = await submit();
-                        if (!mounted) return;
-                        if (ok) {
-                          if (navigator.canPop()) navigator.pop();
-                        }
-                      },
-                    ),
-                    if (hint.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        hint,
-                        style: const TextStyle(
-                          color: Colors.redAccent,
-                          fontSize: 13,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: dialogBusy
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(),
-                  style: TextButton.styleFrom(
-                    foregroundColor: widget.textColor.withOpacityCompat(0.75),
-                  ),
-                  child: const Text('取消'),
-                ),
-                TextButton(
-                  onPressed: dialogBusy
-                      ? null
-                      : () async {
-                          final navigator = Navigator.of(dialogContext);
-                          final ok = await submit();
-                          if (!mounted) return;
-                          if (ok) {
-                            if (navigator.canPop()) navigator.pop();
-                          }
-                        },
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.techBlue,
-                  ),
-                  child: Text(dialogBusy ? '处理中…' : '确认'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+  Widget _sectionCard({
+    required Color sectionBg,
+    required Color textColor,
+    required Widget child,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: sectionBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: textColor.withOpacityCompat(0.06),
+          width: AppTokens.stroke,
+        ),
+      ),
+      child: child,
     );
   }
 
@@ -602,30 +284,32 @@ class _PointsWalletState extends State<PointsWallet> {
                   ),
                 ),
               ),
-              TextButton(
-                onPressed: () => _showPurchaseDialog(),
-                style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  minimumSize: const Size(0, 0),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  foregroundColor: AppColors.techBlue,
+              if (!_checkedInToday && CheckinService.isEnabled)
+                TextButton(
+                  onPressed: () => _showWalletSheet(aiModel),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    minimumSize: const Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    foregroundColor: Colors.orange,
+                  ),
+                  child: const Text('签到领积分',
+                      style:
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                 ),
-                child: const Text('购买', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-              ),
-              const SizedBox(width: 10),
-              TextButton(
-                onPressed: _redeemBusy ? null : () => _showRedeemDialog(aiModel),
-                style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  minimumSize: const Size(0, 0),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  foregroundColor: AppColors.techBlue,
+              if (_checkedInToday || !CheckinService.isEnabled)
+                TextButton(
+                  onPressed: () => _showWalletSheet(aiModel),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    minimumSize: const Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    foregroundColor: AppColors.techBlue,
+                  ),
+                  child: const Text('积分钱包',
+                      style:
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                 ),
-                child: Text(
-                  _redeemBusy ? '处理中…' : '兑换',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                ),
-              ),
             ],
           ),
           if (hint.isNotEmpty) ...[
@@ -633,7 +317,9 @@ class _PointsWalletState extends State<PointsWallet> {
             Text(
               hint,
               style: TextStyle(
-                color: widget.isDark ? const Color(0xFFE6A23C) : const Color(0xFFF57C00),
+                color: widget.isDark
+                    ? const Color(0xFFE6A23C)
+                    : const Color(0xFFF57C00),
                 fontSize: 12,
                 height: 1.35,
                 fontWeight: FontWeight.w500,

@@ -39,7 +39,7 @@ class HunyuanTranslationEngine implements TranslationEngine {
       region: _region,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
-      useScfProxy: !usingPersonalTencentKeys(),
+      useProxy: !usingPersonalTencentKeys(),
       payload: {
         'Model': model,
         'Stream': false,

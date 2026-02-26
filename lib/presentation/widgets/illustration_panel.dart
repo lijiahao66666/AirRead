@@ -205,7 +205,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
           e.message.contains('积分不足')) {
         return '积分不足，请购买积分后再试';
       }
-      if (e.code == 'NoScfUrl') {
+      if (e.code == 'NoProxyUrl') {
         return '在线提示词服务未配置，请在 AI 设置中填写个人密钥，或配置服务端地址';
       }
       if (e.code == 'MissingCredentials') {

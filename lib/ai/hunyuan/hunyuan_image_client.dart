@@ -53,7 +53,7 @@ class HunyuanImageClient {
       region: _region,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
-      useScfProxy: !usingPersonalTencentKeys(),
+      useProxy: !usingPersonalTencentKeys(),
       timeout: const Duration(seconds: 60),
       maxRetries: 120,
       payload: {
@@ -88,7 +88,7 @@ class HunyuanImageClient {
       region: _region,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
-      useScfProxy: !usingPersonalTencentKeys(),
+      useProxy: !usingPersonalTencentKeys(),
       timeout: const Duration(seconds: 60),
       maxRetries: 120,
       payload: {

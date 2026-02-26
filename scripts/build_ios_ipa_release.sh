@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCF_URL="https://1256643821-j52mlcdvkt.ap-guangzhou.tencentscf.com"
+CONFIG_URL="http://air-inc.top:9000/config"
+PROXY_URL="http://air-inc.top:9000"
+APP_VERSION="1.0.0"
 
 flutter clean
 flutter pub get
 
 flutter build ipa --release \
-  --dart-define=AIRREAD_TENCENT_SCF_URL="$SCF_URL" \
+  --dart-define=AIRREAD_CONFIG_URL="$CONFIG_URL" \
+  --dart-define=AIRREAD_API_PROXY_URL="$PROXY_URL" \
+  --dart-define=APP_VERSION="$APP_VERSION" \
   --obfuscate \
   --split-debug-info=build/symbols/ios
 

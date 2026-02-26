@@ -3,30 +3,10 @@
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
-// --- Helper: Ed25519 & JWT ---
-function getEd25519PublicKey(base64Key) {
-  // Convert raw 32-byte key to SPKI format for Node.js crypto
-  // OID: 1.3.101.112 (Ed25519)
-  // Prefix: Sequence(42) { Sequence(5) { OID(3) }, BitString(33) { 0x00, ... } }
-  // Hex: 30 2a 30 05 06 03 2b 65 70 03 21 00
-  const prefix = Buffer.from('302a300506032b6570032100', 'hex');
-  const rawKey = Buffer.from(base64Key, 'base64');
-  if (rawKey.length !== 32) {
-    throw new Error('Invalid Ed25519 public key length');
-  }
-  const der = Buffer.concat([prefix, rawKey]);
-  return crypto.createPublicKey({
-    key: der,
-    format: 'der',
-    type: 'spki',
-  });
-}
-
-function verifyEd25519(data, signature, publicKey) {
-  return crypto.verify(null, data, publicKey, signature);
-}
-
+// --- Helper: JWT (HS256) ---
 function base64UrlEncode(str) {
   return Buffer.from(str)
     .toString('base64')
@@ -41,32 +21,9 @@ function base64UrlDecode(str) {
   return Buffer.from(str, 'base64');
 }
 
-function signJwt(payload, secret, expiresInSeconds) {
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const now = Math.floor(Date.now() / 1000);
-  const claim = Object.assign({}, payload, {
-    iat: now,
-    exp: now + expiresInSeconds,
-  });
-  
-  const encodedHeader = base64UrlEncode(JSON.stringify(header));
-  const encodedPayload = base64UrlEncode(JSON.stringify(claim));
-  const signatureInput = `${encodedHeader}.${encodedPayload}`;
-  const signature = crypto
-    .createHmac('sha256', secret)
-    .update(signatureInput)
-    .digest('base64')
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
-    
-  return `${signatureInput}.${signature}`;
-}
-
 function verifyJwt(token, secret) {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
-  
   const [encodedHeader, encodedPayload, signature] = parts;
   const signatureInput = `${encodedHeader}.${encodedPayload}`;
   const expectedSignature = crypto
@@ -76,9 +33,7 @@ function verifyJwt(token, secret) {
     .replace(/=/g, '')
     .replace(/\+/g, '-')
     .replace(/\//g, '_');
-    
   if (signature !== expectedSignature) return null;
-  
   try {
     const payload = JSON.parse(base64UrlDecode(encodedPayload).toString('utf8'));
     const now = Math.floor(Date.now() / 1000);
@@ -90,40 +45,29 @@ function verifyJwt(token, secret) {
 }
 
 /*
- * AirRead Unified SCF Function
- * 
+ * AirRead Unified API Server (Lightweight Cloud)
+ *
  * Capabilities:
- * 1. Proxy Tencent Cloud API requests (Hunyuan, TTS, TMT) to bypass browser CORS and protect secret keys.
- * 2. Handle License Redemption (Anti-replay check using COS).
- * 
+ * 1. Proxy Tencent Cloud API requests (Hunyuan, TTS, TMT) with server-side signing.
+ * 2. Points-based billing (local JSON files).
+ * 3. Remote config endpoint (/config).
+ *
  * Environment Variables Required:
- * - TENCENT_SECRET_ID / TENCENT_SECRET_KEY: For signing API requests.
- * - TENCENTCLOUD_SECRETID / TENCENTCLOUD_SECRETKEY / TENCENTCLOUD_SESSIONTOKEN: (Auto-injected by SCF) For accessing COS.
- * - BUCKET_NAME: (Optional, for License) e.g., "license-keys-1250000000".
- * - REGION: (Optional, for License) e.g., "ap-guangzhou".
+ * - TENCENT_SECRET_ID / TENCENT_SECRET_KEY: For signing Tencent Cloud API requests.
+ * - JWT_SECRET: (Optional) For auth token verification.
+ * - JWT_OPTIONAL: (Optional) Set to "1" to skip JWT auth (for development/initial launch).
+ * - PORT: (Optional) Default 9000.
+ *
+ * Data stored locally:
+ * - ./config.json: Remote config for App.
+ * - ./data/points/{deviceId}.json: Points balance per device.
  */
 
-// --- Helper: SHA256 & HMAC ---
-function sha256Hex(s) {
-  return crypto.createHash('sha256').update(s, 'utf8').digest('hex');
-}
-
+// --- Helper: HMAC ---
 function hmacSha256(key, msg, encoding) {
   return crypto.createHmac('sha256', key).update(msg, 'utf8').digest(encoding);
 }
 
-function sha1Hex(s) {
-  return crypto.createHash('sha1').update(s, 'utf8').digest('hex');
-}
-
-function hmacSha1Hex(key, msg) {
-  return crypto.createHmac('sha1', key).update(msg, 'utf8').digest('hex');
-}
-
-function uriEncode(s) {
-  return encodeURIComponent(s)
-    .replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
-}
 
 function formatDateUTC(tsSeconds) {
   const d = new Date(tsSeconds * 1000);
@@ -204,213 +148,23 @@ function buildTc3Auth({
   return headers;
 }
 
-function buildCosAuthorization({
-  secretId,
-  secretKey,
-  method,
-  path,
-  headers,
-  query,
-  startTime,
-  endTime,
-}) {
-  const signTime = `${startTime};${endTime}`;
-  const keyTime = signTime;
-  const signKey = hmacSha1Hex(secretKey, keyTime);
-
-  const headerKeys = Object.keys(headers || {})
-    .map((k) => k.toLowerCase())
-    .sort();
-  const headerList = headerKeys.join(';');
-  const headerString = headerKeys
-    .map((k) => `${k}=${uriEncode(String(headers[k] ?? '').trim())}`)
-    .join('&');
-
-  const queryKeys = Object.keys(query || {})
-    .map((k) => k.toLowerCase())
-    .sort();
-  const queryList = queryKeys.join(';');
-  const queryString = queryKeys
-    .map((k) => `${k}=${uriEncode(String(query[k] ?? '').trim())}`)
-    .join('&');
-
-  const formatString = [
-    String(method || 'get').toLowerCase(),
-    path,
-    queryString,
-    headerString,
-    '',
-  ].join('\n');
-  const stringToSign = [
-    'sha1',
-    keyTime,
-    sha1Hex(formatString),
-    '',
-  ].join('\n');
-  const signature = hmacSha1Hex(signKey, stringToSign);
-  return `q-sign-algorithm=sha1&q-ak=${secretId}&q-sign-time=${signTime}&q-key-time=${keyTime}&q-header-list=${headerList}&q-url-param-list=${queryList}&q-signature=${signature}`;
+// --- Local Points Storage (replaces COS) ---
+const DATA_DIR = path.join(__dirname, 'data', 'points');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-function buildCosPath(key) {
-  const encoded = String(key || '').split('/').map((seg) => encodeURIComponent(seg)).join('/');
-  return `/${encoded}`;
+function _pointsFile(deviceId) {
+  // Sanitize deviceId to prevent path traversal
+  const safe = String(deviceId || 'unknown').replace(/[^a-zA-Z0-9_\-]/g, '_');
+  return path.join(DATA_DIR, `${safe}.json`);
 }
 
-function cosRequest({
-  method,
-  bucket,
-  region,
-  key,
-  headers,
-  query,
-  body,
-  credentials,
-}) {
-  const cred = credentials || {};
-  const secretId =
-    cred.secretId ||
-    cred.TmpSecretId ||
-    process.env.TENCENT_SECRET_ID ||
-    process.env.TENCENTCLOUD_SECRETID ||
-    '';
-  const secretKey =
-    cred.secretKey ||
-    cred.TmpSecretKey ||
-    process.env.TENCENT_SECRET_KEY ||
-    process.env.TENCENTCLOUD_SECRETKEY ||
-    '';
-  const token =
-    cred.sessionToken ||
-    cred.SecurityToken ||
-    process.env.TENCENTCLOUD_SESSIONTOKEN ||
-    '';
-  if (!String(secretId).trim() || !String(secretKey).trim()) {
-    return Promise.reject(new Error('Missing COS credentials'));
-  }
-
-  const host = `${bucket}.cos.${region}.myqcloud.com`;
-  const path = buildCosPath(key);
-  const finalHeaders = Object.assign({}, headers || {});
-  finalHeaders.host = host;
-  if (String(token).trim()) {
-    finalHeaders['x-cos-security-token'] = token;
-  }
-  const now = Math.floor(Date.now() / 1000);
-  const authorization = buildCosAuthorization({
-    secretId: String(secretId).trim(),
-    secretKey: String(secretKey).trim(),
-    method,
-    path,
-    headers: finalHeaders,
-    query: query || {},
-    startTime: now - 60,
-    endTime: now + 600,
-  });
-  finalHeaders.Authorization = authorization;
-
-  const options = {
-    protocol: 'https:',
-    hostname: host,
-    method,
-    path,
-    headers: finalHeaders,
-  };
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(options, (resp) => {
-      const chunks = [];
-      resp.on('data', (c) => chunks.push(c));
-      resp.on('end', () => {
-        resolve({
-          statusCode: resp.statusCode || 0,
-          headers: resp.headers || {},
-          body: Buffer.concat(chunks),
-        });
-      });
-    });
-    req.on('error', reject);
-    if (body && body.length) {
-      req.write(body);
-    }
-    req.end();
-  });
-}
-
-async function cosHeadObject({ bucket, region, key, credentials }) {
-  const resp = await cosRequest({
-    method: 'HEAD',
-    bucket,
-    region,
-    key,
-    headers: {},
-    query: {},
-    credentials,
-  });
-  return resp.statusCode || 0;
-}
-
-async function cosPutObject({ bucket, region, key, headers, credentials }) {
-  const body = Buffer.from('');
-  const resp = await cosRequest({
-    method: 'PUT',
-    bucket,
-    region,
-    key,
-    headers: Object.assign(
-      {
-        'content-length': String(body.length),
-      },
-      headers || {}
-    ),
-    query: {},
-    body,
-    credentials,
-  });
-  return resp.statusCode || 0;
-}
-
-async function cosGetObject({ bucket, region, key, credentials }) {
-  const resp = await cosRequest({
-    method: 'GET',
-    bucket,
-    region,
-    key,
-    headers: {},
-    query: {},
-    credentials,
-  });
-  if ((resp.statusCode || 0) !== 200) {
-    throw new Error(`COS GET ${key} status=${resp.statusCode || 0}`);
-  }
-  return resp.body || Buffer.from('');
-}
-
-async function cosPutJson({ bucket, region, key, json, headers, credentials }) {
-  const body = Buffer.from(JSON.stringify(json));
-  const resp = await cosRequest({
-    method: 'PUT',
-    bucket,
-    region,
-    key,
-    headers: Object.assign(
-      {
-        'content-length': String(body.length),
-        'content-type': 'application/json; charset=utf-8',
-      },
-      headers || {}
-    ),
-    query: {},
-    body,
-    credentials,
-  });
-  return resp.statusCode || 0;
-}
-
-async function getPointsBalance({ bucket, region, deviceId, credentials }) {
-  const key = `points/${deviceId}.json`;
+async function getPointsBalance({ deviceId }) {
   try {
-    const buf = await cosGetObject({ bucket, region, key, credentials });
-    const obj = JSON.parse(buf.toString('utf8'));
+    const file = _pointsFile(deviceId);
+    if (!fs.existsSync(file)) return 0;
+    const obj = JSON.parse(fs.readFileSync(file, 'utf-8'));
     const prev = Number(obj && obj.balance ? obj.balance : 0) || 0;
     return prev < 0 ? 0 : prev;
   } catch (_) {
@@ -418,20 +172,10 @@ async function getPointsBalance({ bucket, region, deviceId, credentials }) {
   }
 }
 
-async function setPointsBalance({ bucket, region, deviceId, balance, credentials }) {
-  const key = `points/${deviceId}.json`;
+async function setPointsBalance({ deviceId, balance }) {
   const next = balance < 0 ? 0 : balance;
-  const status = await cosPutJson({
-    bucket,
-    region,
-    key,
-    json: { balance: next, updatedAt: new Date().toISOString() },
-    headers: {},
-    credentials,
-  });
-  if (status < 200 || status >= 300) {
-    throw new Error(`COS Put Points Error: ${status}`);
-  }
+  const file = _pointsFile(deviceId);
+  fs.writeFileSync(file, JSON.stringify({ balance: next, updatedAt: new Date().toISOString() }), 'utf-8');
   return next;
 }
 
@@ -592,13 +336,10 @@ async function handleApiProxy(req, res, body) {
     }
   }
 
-  const bucket = process.env.BUCKET_NAME;
-  const regionEnv = process.env.REGION;
   const deviceId = (req.jwtClaim && req.jwtClaim.sub)
       ? String(req.jwtClaim.sub).trim()
       : '';
-  const canAccountPoints = !usingPersonalKeys && Boolean(bucket && regionEnv && deviceId);
-  const regionStr = regionEnv;
+  const canAccountPoints = !usingPersonalKeys && Boolean(deviceId);
   let inputChars = 0;
   let outputChars = 0;
   let unitCost = 1;
@@ -681,23 +422,15 @@ async function handleApiProxy(req, res, body) {
   let streamBalanceAfterInput = null;
   if (canAccountPoints && useStream) {
     try {
-      const current = await getPointsBalance({
-        bucket,
-        region: regionStr,
-        deviceId,
-        credentials: null,
-      });
+      const current = await getPointsBalance({ deviceId });
       const need = inputChars * unitCost;
       if (current < need) {
         safeReleaseSlot();
         return sendJson(res, 402, { error: 'PointsInsufficient', message: '积分不足，无法开始流式请求', need, balance: current });
       }
       streamBalanceAfterInput = await setPointsBalance({
-        bucket,
-        region: regionStr,
         deviceId,
         balance: current - need,
-        credentials: null,
       });
     } catch (_) {
     }
@@ -771,18 +504,10 @@ async function handleApiProxy(req, res, body) {
             try {
               const extraNeed = outputChars * unitCost;
               if (extraNeed > 0) {
-                const current = await getPointsBalance({
-                  bucket,
-                  region: regionStr,
-                  deviceId,
-                  credentials: null,
-                });
+                const current = await getPointsBalance({ deviceId });
                 nextBalance = await setPointsBalance({
-                  bucket,
-                  region: regionStr,
                   deviceId,
                   balance: current - extraNeed,
-                  credentials: null,
                 });
               }
             } catch (_) {
@@ -872,29 +597,21 @@ async function handleApiProxy(req, res, body) {
                 outputChars = 0;
               }
               const totalNeed = (inputChars * unitCost) + (outputChars * unitCost);
-              const current = await getPointsBalance({
-                bucket,
-                region: regionStr,
-                deviceId,
-                credentials: null,
-              });
+              const current = await getPointsBalance({ deviceId });
               if (current < totalNeed) {
                 sendJson(res, 402, { error: 'PointsInsufficient', message: '积分不足，无法完成请求', need: totalNeed, balance: current });
                 return;
               }
               const next = await setPointsBalance({
-                bucket,
-                region: regionStr,
                 deviceId,
                 balance: current - totalNeed,
-                credentials: null,
               });
               json.PointsDeducted = totalNeed;
               json.PointsBalance = next;
             } catch (e) {
               json.PointsError = String(e && e.message ? e.message : e);
               try {
-                 const current = await getPointsBalance({ bucket, region: regionStr, deviceId, credentials: null });
+                 const current = await getPointsBalance({ deviceId });
                  json.PointsBalance = current;
               } catch (_) {}
             }
@@ -919,168 +636,87 @@ async function handleApiProxy(req, res, body) {
   upstreamReq.end();
 }
 
-// --- Logic: License Redemption (New) ---
-async function handleLicenseRedeem(req, res, body) {
-  const licenseCode = (body.license_code || '').trim();
-  const deviceId = (body.device_id || '').trim();
+// --- Remote Config ---
+const CONFIG_FILE = path.join(__dirname, 'config.json');
+const DEFAULT_CONFIG = {
+  checkin_enabled: true,
+  checkin_points: 5000,
+  initial_grant_points: 500000,
+  ad_enabled: false,
+  ad_reward_points: 2000,
+  ad_daily_limit: 10,
+  purchase_enabled: false,
+  latest_version: '1.0.0',
+  min_version: '1.0.0',
+  update_url: '',
+  update_message: '',
+  force_update: false,
+  announcement: '',
+};
 
-  if (!licenseCode) {
-    return sendJson(res, 400, { error: 'Missing license_code' });
-  }
-
-  // --- Security Check: Signature Verification ---
-  const pubKeyB64 = process.env.LICENSE_PUBLIC_KEY;
-  if (pubKeyB64) {
-    try {
-      const raw = licenseCode;
-      if (!raw.startsWith('P3')) {
-        throw new Error('Invalid version');
-      }
-      const content = raw.substring(2);
-      const bytes = base64UrlDecode(content);
-      // Payload: 1 byte pointsIndex + 4 bytes nonce = 5 bytes
-      const payloadLen = 5;
-      const sigLen = 64;
-      if (bytes.length !== payloadLen + sigLen) throw new Error('Invalid length');
-      
-      const payload = bytes.slice(0, payloadLen);
-      const signature = bytes.slice(payloadLen);
-      
-      const publicKey = getEd25519PublicKey(pubKeyB64);
-      const valid = verifyEd25519(payload, signature, publicKey);
-      if (!valid) {
-        return sendJson(res, 403, { error: 'Invalid license signature' });
-      }
-      
-      // Store points index for accumulation
-      req.licenseIndex = payload[0];
-
-    } catch (e) {
-      console.error('License verification failed:', e);
-      return sendJson(res, 400, { error: 'Invalid license format', details: e.message });
-    }
-  }
-
-  const bucket = process.env.BUCKET_NAME;
-  const region = process.env.REGION;
-  const credentials = body.cos_credentials || body.cosCredentials || null;
-  
-  if (!bucket || !region) {
-    return sendJson(res, 500, { error: 'Server Misconfiguration', message: 'BUCKET_NAME or REGION not set' });
-  }
-
-  // Calculate hash of the license code to use as the key in COS
-  const codeHash = sha256Hex(licenseCode);
-  const usedKeyPath = `used_keys/${codeHash}`;
-
+function loadConfig() {
   try {
-    const headStatus = await cosHeadObject({
-      bucket,
-      region,
-      key: usedKeyPath,
-      credentials,
-    });
-    if (headStatus === 200) {
-      sendJson(res, 409, { error: 'License key already used', code: 'ALREADY_USED', used: true });
-      return;
+    if (fs.existsSync(CONFIG_FILE)) {
+      return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
     }
-    if (headStatus !== 404) {
-      throw new Error(`COS Head Error: ${headStatus}`);
-    }
-
-    const putStatus = await cosPutObject({
-      bucket,
-      region,
-      key: usedKeyPath,
-      headers: {
-        'x-cos-meta-device-id': deviceId,
-        'x-cos-meta-redeemed-at': new Date().toISOString(),
-      },
-      credentials,
-    });
-    if (putStatus < 200 || putStatus >= 300) {
-      throw new Error(`COS Put Error: ${putStatus}`);
-    }
-
-    // --- Accumulate Points ---
-    const index = req.licenseIndex || 0;
-    const pointsMap = [50000, 100000, 200000, 500000, 1000000];
-    const points = (index >= 0 && index < pointsMap.length) ? pointsMap[index] : 0;
-    if (points <= 0) {
-      throw new Error('Unsupported points index');
-    }
-
-    const pointsKey = `points/${deviceId}.json`;
-    let prev = 0;
-    try {
-      const buf = await cosGetObject({ bucket, region, key: pointsKey, credentials });
-      const obj = JSON.parse(buf.toString('utf8'));
-      prev = Number(obj && obj.balance ? obj.balance : 0) || 0;
-    } catch (_) {
-      prev = 0;
-    }
-    const nextBalance = prev + points;
-    const putPointsStatus = await cosPutJson({
-      bucket,
-      region,
-      key: pointsKey,
-      json: { balance: nextBalance, updatedAt: new Date().toISOString() },
-      headers: {},
-      credentials,
-    });
-    if (putPointsStatus < 200 || putPointsStatus >= 300) {
-      throw new Error(`COS Put Points Error: ${putPointsStatus}`);
-    }
-
-    // --- Issue Token (points scope, long-lived) ---
-    let token = null;
-    const jwtSecret = process.env.JWT_SECRET;
-    if (jwtSecret) {
-      const durationSeconds = 365 * 86400; // 1 year
-      token = signJwt({ sub: deviceId, license: codeHash, scopes: ['points'] }, jwtSecret, durationSeconds);
-    }
-
-    sendJson(res, 200, { message: 'License redeemed successfully', used: false, token, pointsAdded: points, balance: nextBalance });
-
-  } catch (err) {
-    sendJson(res, 500, { error: 'COS Error', message: String(err.message || err) });
+  } catch (e) {
+    console.error('[config] Failed to load config.json:', e.message);
   }
+  return DEFAULT_CONFIG;
+}
+
+if (!fs.existsSync(CONFIG_FILE)) {
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(DEFAULT_CONFIG, null, 2), 'utf-8');
+  console.log('[config] Created default ' + CONFIG_FILE);
 }
 
 // --- Main Server ---
 const server = http.createServer(async (req, res) => {
-  // CORS Preflight
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type,x-airread-token,authorization,accept');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+
   if (req.method === 'OPTIONS') {
-    res.statusCode = 204;
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'content-type,x-airread-token,authorization,accept');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.writeHead(204);
     res.end();
     return;
   }
 
-  if (req.method !== 'POST') {
-    sendJson(res, 405, { error: 'MethodNotAllowed' });
+  // GET /config — Remote config for App
+  if (req.method === 'GET' && req.url === '/config') {
+    const config = loadConfig();
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(config));
     return;
   }
 
-  let body;
-  try {
-    body = await readJsonBody(req);
-  } catch (e) {
-    sendJson(res, 400, { error: 'InvalidJson', message: String(e && e.message ? e.message : e) });
+  // GET / or /health — Health check
+  if (req.method === 'GET' && (req.url === '/' || req.url === '/health')) {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('OK');
     return;
   }
 
-  // Route Dispatch based on payload content
-  if (body.license_code) {
-    // It's a license redemption request
-    await handleLicenseRedeem(req, res, body);
-  } else {
-    // It's an API proxy request
+  // POST — API proxy
+  if (req.method === 'POST') {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (e) {
+      sendJson(res, 400, { error: 'InvalidJson', message: String(e && e.message ? e.message : e) });
+      return;
+    }
     await handleApiProxy(req, res, body);
+    return;
   }
+
+  sendJson(res, 405, { error: 'MethodNotAllowed' });
 });
 
 const port = process.env.PORT ? Number(process.env.PORT) : 9000;
-server.listen(port);
+server.listen(port, () => {
+  console.log(`[AirRead API Server] listening on port ${port}`);
+  console.log(`[AirRead API Server] GET  http://localhost:${port}/config`);
+  console.log(`[AirRead API Server] POST http://localhost:${port}/ (API proxy)`);
+});

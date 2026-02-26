@@ -725,7 +725,7 @@ class TranslationProvider extends ChangeNotifier {
       fallback: fallback,
       primaryAvailable: () => AzureTranslationEngine.isConfigured,
       fallbackAvailable: () =>
-          true, // Always allow fallback; TmtEngine handles auth/SCF internally
+          true, // Always allow fallback; TmtEngine handles auth internally
     );
     _machineEngineId = machineEngine.id;
 
@@ -792,7 +792,7 @@ class TranslationProvider extends ChangeNotifier {
   Future<void> _loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
 
-    final token = prefs.getString('tencent_scf_jwt');
+    final token = prefs.getString('api_proxy_jwt');
     TencentApiClient.setToken(token);
 
     final mode = prefs.getString(_kCfgMode);
@@ -1529,7 +1529,7 @@ class TranslationProvider extends ChangeNotifier {
         throw TranslationConfigException('已开启使用个人密钥，但未正确设置个人密钥');
       }
     } else {
-      if (!TencentApiClient.hasScfProxyUrl &&
+      if (!TencentApiClient.hasProxyUrl &&
           !AzureTranslationEngine.isConfigured) {
         throw TranslationConfigException('未配置在线翻译服务地址');
       }

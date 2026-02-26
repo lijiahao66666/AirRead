@@ -9,6 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:http/http.dart' as http;
 import 'ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import 'ai/tencentcloud/tencent_credentials.dart';
+import 'ai/config/remote_config_service.dart';
 import 'ai/tencentcloud/tencent_api_client.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/pages/bookshelf/bookshelf_page.dart';
@@ -65,6 +66,9 @@ Future<void> main() async {
     );
   }
   setUserTencentKeysEnabledOverride(enabled);
+
+  // 拉取远程配置（签到积分、广告开关、应用更新等）
+  await RemoteConfigService.fetch();
 
   await TencentApiClient.init();
 

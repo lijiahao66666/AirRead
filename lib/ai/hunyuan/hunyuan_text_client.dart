@@ -46,7 +46,7 @@ class HunyuanTextClient {
       region: _region,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
-      useScfProxy: !usingPersonalTencentKeys(),
+      useProxy: !usingPersonalTencentKeys(),
       payload: {
         'Model': model,
         'Stream': false,
@@ -86,7 +86,7 @@ class HunyuanTextClient {
       region: _region,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
-      useScfProxy: !usingPersonalTencentKeys(),
+      useProxy: !usingPersonalTencentKeys(),
       timeout: null,
       payload: {
         'Model': model,

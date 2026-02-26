@@ -74,7 +74,7 @@ class TmtTranslationEngine implements TranslationEngine {
       region: _region,
       secretId: _credentials.secretId,
       secretKey: _credentials.secretKey,
-      useScfProxy: !usingPersonalTencentKeys(),
+      useProxy: !usingPersonalTencentKeys(),
       payload: <String, dynamic>{
         'SourceText': clipped,
         'Source': src,

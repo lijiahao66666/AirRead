@@ -81,10 +81,8 @@ class TencentApiClient {
   TencentApiClient({http.Client? client})
       : _client = client ?? createStreamingHttpClient();
 
-  static const String _scfUrl =
-      String.fromEnvironment('AIRREAD_TENCENT_SCF_URL', defaultValue: '');
-  static const String _envScfToken =
-      String.fromEnvironment('AIRREAD_TENCENT_SCF_TOKEN', defaultValue: '');
+  static const String _proxyUrl =
+      String.fromEnvironment('AIRREAD_API_PROXY_URL', defaultValue: '');
   static const String _envDebugNoJwt =
       String.fromEnvironment('AIRREAD_DEBUG_NO_JWT', defaultValue: '');
 
@@ -98,14 +96,14 @@ class TencentApiClient {
   static Future<void> init() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('tencent_scf_jwt');
+      final token = prefs.getString('api_proxy_jwt');
       if (token != null && token.isNotEmpty) {
         _pointsToken = token;
       }
     } catch (_) {}
   }
 
-  static bool get hasScfProxyUrl => _scfUrl.trim().isNotEmpty;
+  static bool get hasProxyUrl => _proxyUrl.trim().isNotEmpty;
 
   static final _ConcurrencyGate _chatTranslationsGate =
       _ConcurrencyGate(maxConcurrent: 3);
@@ -171,7 +169,7 @@ class TencentApiClient {
     return _shouldRetry(e.code);
   }
 
-  Future<Never> _throwScfHttpError({
+  Future<Never> _throwProxyHttpError({
     required int statusCode,
     required String body,
     required Map<String, String> headers,
@@ -213,19 +211,19 @@ class TencentApiClient {
     );
   }
 
-  Uri _resolveScfUri() {
-    final raw = _scfUrl.trim();
+  Uri _resolveProxyUri() {
+    final raw = _proxyUrl.trim();
     if (raw.isEmpty) {
       throw TencentCloudException(
-        code: 'NoScfUrl',
+        code: 'NoProxyUrl',
         message:
-            'AIRREAD_TENCENT_SCF_URL is empty. Configure SCF HTTP trigger URL or provide personal keys.',
+'API proxy URL is empty. Set AIRREAD_API_PROXY_URL or provide personal keys.',
       );
     }
     return Uri.parse(raw);
   }
 
-  Map<String, dynamic> _normalizeScfJsonResponse(dynamic decoded) {
+  Map<String, dynamic> _normalizeProxyJsonResponse(dynamic decoded) {
     dynamic obj = decoded;
     if (obj is Map && obj['body'] is String) {
       final body = (obj['body'] as String).trim();
@@ -329,7 +327,7 @@ class TencentApiClient {
     required String secretId,
     required String secretKey,
     required Map<String, dynamic> payload,
-    bool useScfProxy = false,
+    bool useProxy = false,
     Duration timeout = const Duration(seconds: 30),
     int maxRetries = 3,
   }) async {
@@ -345,8 +343,8 @@ class TencentApiClient {
           release = await _chatCompletionsGate.acquire();
         }
 
-        final usingScf = useScfProxy;
-        if (!usingScf &&
+        final usingProxy = useProxy;
+        if (!usingProxy &&
             (secretId.trim().isEmpty || secretKey.trim().isEmpty)) {
           throw TencentCloudException(
             code: 'MissingCredentials',
@@ -358,13 +356,13 @@ class TencentApiClient {
         final ts = now.millisecondsSinceEpoch ~/ 1000;
         final payloadJson = jsonEncode(payload);
 
-        if (usingScf) {
-          final uri = _resolveScfUri();
+        if (usingProxy) {
+          final uri = _resolveProxyUri();
           final headers = <String, String>{
             'Content-Type': 'application/json; charset=utf-8',
           };
 
-          final token = (_pointsToken ?? _envScfToken).trim();
+          final token = (_pointsToken ?? '').trim();
 
           if (token.isNotEmpty) {
             headers['X-Airread-Token'] = token;
@@ -373,7 +371,7 @@ class TencentApiClient {
           if (kDebugMode && debugNoJwt) {
             headers['X-Airread-Debug-NoJWT'] = '1';
           }
-          final scfPayload = jsonEncode(<String, dynamic>{
+          final proxyPayload = jsonEncode(<String, dynamic>{
             'host': host,
             'service': service,
             'action': action,
@@ -388,12 +386,12 @@ class TencentApiClient {
               .post(
                 uri,
                 headers: headers,
-                body: scfPayload,
+                body: proxyPayload,
               )
               .timeout(timeout);
 
           if (resp.statusCode < 200 || resp.statusCode >= 300) {
-            await _throwScfHttpError(
+            await _throwProxyHttpError(
               statusCode: resp.statusCode,
               body: utf8.decode(resp.bodyBytes),
               headers: resp.headers,
@@ -401,7 +399,7 @@ class TencentApiClient {
           }
 
           final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
-          final response = _normalizeScfJsonResponse(decoded);
+          final response = _normalizeProxyJsonResponse(decoded);
           await _syncPointsFromResponse(response);
           final err = response['Error'];
           if (err is Map) {
@@ -629,7 +627,7 @@ class TencentApiClient {
     required String secretId,
     required String secretKey,
     required Map<String, dynamic> payload,
-    bool useScfProxy = false,
+    bool useProxy = false,
     Duration? timeout,
     int maxRetries = 3,
   }) async* {
@@ -647,8 +645,8 @@ class TencentApiClient {
         final ts = now.millisecondsSinceEpoch ~/ 1000;
         final payloadJson = jsonEncode(payload);
 
-        final usingScf = useScfProxy;
-        if (!usingScf &&
+        final usingProxy = useProxy;
+        if (!usingProxy &&
             (secretId.trim().isEmpty || secretKey.trim().isEmpty)) {
           throw TencentCloudException(
             code: 'MissingCredentials',
@@ -656,15 +654,15 @@ class TencentApiClient {
           );
         }
 
-        if (usingScf) {
-          final uri = _resolveScfUri();
+        if (usingProxy) {
+          final uri = _resolveProxyUri();
           final request = http.Request('POST', uri);
           request.headers.addAll(<String, String>{
             'Content-Type': 'application/json; charset=utf-8',
             'Accept': 'text/event-stream',
           });
 
-          var token = (_pointsToken ?? _envScfToken).trim();
+          var token = (_pointsToken ?? '').trim();
 
           if (token.isNotEmpty) {
             request.headers['X-Airread-Token'] = token;
@@ -692,7 +690,7 @@ class TencentApiClient {
               streamedResponse.statusCode >= 300) {
             final content = await streamedResponse.stream.toBytes();
             final body = utf8.decode(content);
-            await _throwScfHttpError(
+            await _throwProxyHttpError(
               statusCode: streamedResponse.statusCode,
               body: body,
               headers: streamedResponse.headers,
@@ -736,7 +734,7 @@ class TencentApiClient {
           final content = await streamedResponse.stream.toBytes();
           final body = utf8.decode(content);
           final decoded = jsonDecode(body);
-          final response = _normalizeScfJsonResponse(decoded);
+          final response = _normalizeProxyJsonResponse(decoded);
           await _syncPointsFromResponse(response);
           _throwIfTencentError(response);
           yield* _singleShotStreamFromResponse(response);

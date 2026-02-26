@@ -5,6 +5,7 @@ import '../../ai/local_llm/llm_client.dart';
 import '../../ai/local_llm/model_manager.dart';
 import '../../ai/local_llm/mnn_model_downloader.dart';
 import '../../ai/local_llm/mnn_model_spec.dart';
+import '../../ai/config/remote_config_service.dart';
 import '../../ai/tencentcloud/tencent_api_client.dart';
 
 enum ModelInstallStatus {
@@ -162,6 +163,13 @@ class AiModelProvider extends ChangeNotifier {
       await prefs.setString(_kLastLocalModelId, _activeLocalModelId);
     }
 
+    // 新用户首次启动赠送初始积分（数量由远程配置控制）
+    const String kInitialPointsGranted = 'initial_points_granted';
+    if (!prefs.containsKey(kInitialPointsGranted)) {
+      await prefs.setBool(kInitialPointsGranted, true);
+      final grant = RemoteConfigService.initialGrantPoints;
+      await prefs.setInt(_kPointsBalance, grant);
+    }
     _pointsBalance = prefs.getInt(_kPointsBalance) ?? 0;
     if (kDebugMode) {
       if (prefs.containsKey(_kDebugPointsOverride)) {
