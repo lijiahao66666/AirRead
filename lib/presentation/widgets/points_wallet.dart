@@ -110,18 +110,7 @@ class _PointsWalletState extends State<PointsWallet> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // ── Handle bar ──
-                      Center(
-                        child: Container(
-                          width: 36,
-                          height: 4,
-                          margin: const EdgeInsets.only(bottom: 16),
-                          decoration: BoxDecoration(
-                            color: textColor.withOpacityCompat(0.2),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
+                      const SizedBox(height: 8),
                       // ── Title row ──
                       Row(
                         children: [
