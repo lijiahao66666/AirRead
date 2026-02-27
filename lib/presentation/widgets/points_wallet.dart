@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../ai/config/auth_service.dart';
 import '../../ai/config/checkin_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
+import '../pages/auth/login_page.dart';
 import '../providers/ai_model_provider.dart';
 
 class PointsWallet extends StatefulWidget {
@@ -143,6 +145,108 @@ class _PointsWalletState extends State<PointsWallet> {
                         ],
                       ),
                       const SizedBox(height: 18),
+
+                      // ── Section: Account ──
+                      _sectionCard(
+                        sectionBg: sectionBg,
+                        textColor: textColor,
+                        child: Row(
+                          children: [
+                            Icon(
+                              AuthService.isLoggedIn
+                                  ? Icons.account_circle_rounded
+                                  : Icons.account_circle_outlined,
+                              color: AuthService.isLoggedIn
+                                  ? Colors.green
+                                  : textColor.withOpacityCompat(0.5),
+                              size: 28,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    AuthService.isLoggedIn
+                                        ? AuthService.phone
+                                        : '未登录',
+                                    style: TextStyle(
+                                      color: textColor,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    AuthService.isLoggedIn
+                                        ? '积分跨设备同步'
+                                        : '登录后积分跨设备同步',
+                                    style: TextStyle(
+                                      color: textColor.withOpacityCompat(0.55),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              height: 32,
+                              child: TextButton(
+                                onPressed: () async {
+                                  if (AuthService.isLoggedIn) {
+                                    final confirm = await showDialog<bool>(
+                                      context: sheetContext,
+                                      builder: (ctx) => AlertDialog(
+                                        title: const Text('退出登录'),
+                                        content: const Text('退出后在线功能将不可用'),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx, false),
+                                            child: const Text('取消'),
+                                          ),
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx, true),
+                                            child: const Text('确认退出'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirm == true) {
+                                      await AuthService.logout();
+                                      if (mounted) setSheetState(() {});
+                                    }
+                                  } else {
+                                    if (!sheetContext.mounted) return;
+                                    Navigator.pop(sheetContext);
+                                    if (!mounted) return;
+                                    final success = await LoginPage.show(context);
+                                    if (success && mounted) setState(() {});
+                                  }
+                                },
+                                style: TextButton.styleFrom(
+                                  backgroundColor: AuthService.isLoggedIn
+                                      ? textColor.withOpacityCompat(0.1)
+                                      : AppColors.techBlue,
+                                  foregroundColor: AuthService.isLoggedIn
+                                      ? textColor.withOpacityCompat(0.6)
+                                      : Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                child: Text(
+                                  AuthService.isLoggedIn ? '退出' : '登录',
+                                  style: const TextStyle(
+                                      fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
 
                       // ── Section: Daily Check-in ──
                       if (checkinEnabled)

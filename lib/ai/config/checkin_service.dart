@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../tencentcloud/tencent_api_client.dart';
+import 'auth_service.dart';
 import 'remote_config_service.dart';
 
 /// 每日签到服务
@@ -75,6 +76,9 @@ class CheckinService {
       final key = _apiKey.trim();
       if (key.isNotEmpty) headers['X-Api-Key'] = key;
       headers['X-Device-Id'] = deviceId;
+      if (AuthService.isLoggedIn && AuthService.token.isNotEmpty) {
+        headers['X-Auth-Token'] = AuthService.token;
+      }
 
       final resp = await http
           .post(uri, headers: headers)
@@ -116,6 +120,9 @@ class CheckinService {
       };
       final key = _apiKey.trim();
       if (key.isNotEmpty) headers['X-Api-Key'] = key;
+      if (AuthService.isLoggedIn && AuthService.token.isNotEmpty) {
+        headers['X-Auth-Token'] = AuthService.token;
+      }
 
       final resp = await http
           .post(Uri.parse('$baseUrl/checkin/status'), headers: headers)

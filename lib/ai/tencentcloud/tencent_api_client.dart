@@ -7,11 +7,11 @@ import 'package:http/http.dart' as http;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-import 'dart:io' show Platform;
 
 import 'http_client_factory.dart'
     if (dart.library.js_interop) 'http_client_factory_web.dart';
 
+import '../config/auth_service.dart';
 import 'tc3_signer.dart';
 import 'tencent_cloud_exception.dart';
 
@@ -93,21 +93,23 @@ class TencentApiClient {
   static String get deviceId => _deviceId;
 
   static Future<void> initDeviceId() async {
-    try {
-      final info = DeviceInfoPlugin();
-      if (Platform.isAndroid) {
-        final android = await info.androidInfo;
-        // ANDROID_ID: 卸载重装不变，恢复出厂才变
-        _deviceId = android.id.isNotEmpty ? android.id : android.fingerprint;
-      } else if (Platform.isIOS) {
-        final ios = await info.iosInfo;
-        // identifierForVendor: 同开发者 App 全删才变
-        _deviceId = ios.identifierForVendor ?? '';
+    if (!kIsWeb) {
+      try {
+        final info = DeviceInfoPlugin();
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          final android = await info.androidInfo;
+          // ANDROID_ID: 卸载重装不变，恢复出厂才变
+          _deviceId = android.id.isNotEmpty ? android.id : android.fingerprint;
+        } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+          final ios = await info.iosInfo;
+          // identifierForVendor: 同开发者 App 全删才变
+          _deviceId = ios.identifierForVendor ?? '';
+        }
+      } catch (e) {
+        debugPrint('[TencentApiClient] device_info_plus error: $e');
       }
-    } catch (e) {
-      debugPrint('[TencentApiClient] device_info_plus error: $e');
     }
-    // fallback: 如果平台 API 获取失败，用 SharedPreferences + UUID
+    // fallback (Web / desktop / 平台 API 获取失败): SharedPreferences + UUID
     if (_deviceId.isEmpty) {
       final prefs = await SharedPreferences.getInstance();
       final stored = (prefs.getString('device_id') ?? '').trim();
@@ -384,6 +386,9 @@ class TencentApiClient {
           final key = _apiKey.trim();
           if (key.isNotEmpty) headers['X-Api-Key'] = key;
           if (_deviceId.isNotEmpty) headers['X-Device-Id'] = _deviceId;
+          if (AuthService.isLoggedIn && AuthService.token.isNotEmpty) {
+            headers['X-Auth-Token'] = AuthService.token;
+          }
           final proxyPayload = jsonEncode(<String, dynamic>{
             'host': host,
             'service': service,
@@ -677,6 +682,9 @@ class TencentApiClient {
           final key = _apiKey.trim();
           if (key.isNotEmpty) request.headers['X-Api-Key'] = key;
           if (_deviceId.isNotEmpty) request.headers['X-Device-Id'] = _deviceId;
+          if (AuthService.isLoggedIn && AuthService.token.isNotEmpty) {
+            request.headers['X-Auth-Token'] = AuthService.token;
+          }
           request.body = jsonEncode(<String, dynamic>{
             'host': host,
             'service': service,

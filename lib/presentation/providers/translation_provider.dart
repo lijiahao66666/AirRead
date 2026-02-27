@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../ai/hunyuan/hunyuan_translation_engine.dart';
+import '../../ai/config/auth_service.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/tencentcloud/tencent_api_client.dart';
 import '../../ai/tencentcloud/tencent_cloud_exception.dart';
@@ -651,6 +652,8 @@ class TranslationProvider extends ChangeNotifier {
     if (_usingPersonalTencentKeys) {
       return getEmbeddedPublicHunyuanCredentials().isUsable;
     }
+    // TODO: SMS配好后取消注释，强制登录
+    // if (!AuthService.isLoggedIn) return false;
     return pointsBalance > 0;
   }
 
@@ -677,6 +680,16 @@ class TranslationProvider extends ChangeNotifier {
       changed = true;
     }
 
+    // TODO: SMS配好后取消注释，强制登录
+    // if (_aiReadAloudEnabled &&
+    //     _readAloudEngine == ReadAloudEngine.online &&
+    //     !_usingPersonalTencentKeys &&
+    //     !AuthService.isLoggedIn) {
+    //   _aiReadAloudEnabled = false;
+    //   changed = true;
+    //   toastMessage ??= '请先登录后使用在线朗读';
+    // }
+
     if (_aiReadAloudEnabled &&
         _readAloudEngine == ReadAloudEngine.online &&
         !_usingPersonalTencentKeys &&
@@ -700,6 +713,16 @@ class TranslationProvider extends ChangeNotifier {
       changed = true;
       toastMessage ??= '个人密钥不可用，已停止翻译';
     }
+
+    // TODO: SMS配好后取消注释，强制登录
+    // if (_aiTranslateEnabled &&
+    //     _translationMode == TranslationMode.bigModel &&
+    //     !_usingPersonalTencentKeys &&
+    //     !AuthService.isLoggedIn) {
+    //   _aiTranslateEnabled = false;
+    //   changed = true;
+    //   toastMessage ??= '请先登录后使用大模型翻译';
+    // }
 
     if (_aiTranslateEnabled &&
         _translationMode == TranslationMode.bigModel &&

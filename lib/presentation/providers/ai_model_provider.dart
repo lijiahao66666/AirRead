@@ -7,6 +7,7 @@ import '../../ai/local_llm/llm_client.dart';
 import '../../ai/local_llm/model_manager.dart';
 import '../../ai/local_llm/mnn_model_downloader.dart';
 import '../../ai/local_llm/mnn_model_spec.dart';
+import '../../ai/config/auth_service.dart';
 import '../../ai/tencentcloud/tencent_api_client.dart';
 
 enum ModelInstallStatus {
@@ -167,6 +168,9 @@ class AiModelProvider extends ChangeNotifier {
         'X-Device-Id': deviceId,
       };
       if (apiKey.isNotEmpty) headers['X-Api-Key'] = apiKey;
+      if (AuthService.isLoggedIn && AuthService.token.isNotEmpty) {
+        headers['X-Auth-Token'] = AuthService.token;
+      }
       final resp = await http
           .post(Uri.parse('$proxyUrl/points/init'), headers: headers)
           .timeout(const Duration(seconds: 10));

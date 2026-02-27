@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../ai/illustration/illustration_item.dart' as ill;
 import '../../ai/tencentcloud/tencent_cloud_exception.dart';
+import '../../ai/config/auth_service.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/local_llm/model_manager.dart';
 import '../../core/theme/app_colors.dart';
@@ -340,6 +341,11 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
             modelId: localModelId,
           );
     } else {
+      // TODO: SMS配好后取消注释，强制登录
+      // if (!usingPersonal && !AuthService.isLoggedIn) {
+      //   _showToast('请先登录后使用在线插画分析');
+      //   return;
+      // }
       if (!onlineEntitled) {
         _showToast('在线大模型需要购买积分后使用');
         return;
@@ -393,6 +399,11 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     try {
       final usingPersonal = tp.usingPersonalTencentKeys &&
           getEmbeddedPublicHunyuanCredentials().isUsable;
+      // TODO: SMS配好后取消注释，强制登录
+      // if (!usingPersonal && !AuthService.isLoggedIn) {
+      //   _showToast('请先登录后使用在线生图');
+      //   return;
+      // }
       if (!usingPersonal) {
         if (aiModel.pointsBalance < _imageCostPoints) {
           _showToast('积分不足，无法出图');

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../../ai/reading/qa_service.dart';
 // import '../../ai/reading/reading_context_service.dart';
+import '../../ai/config/auth_service.dart';
 import '../../ai/tencentcloud/embedded_public_hunyuan_credentials.dart';
 import '../../ai/tencentcloud/tencent_cloud_exception.dart';
 import 'ai_model_provider.dart';
@@ -94,6 +95,25 @@ class QaStreamProvider extends ChangeNotifier {
       notifyListeners();
       return streamId;
     }
+
+    // TODO: SMS配好后取消注释，强制登录
+    // if (modelChoice.isOnline &&
+    //     !usingPersonalTencentKeys() &&
+    //     !AuthService.isLoggedIn) {
+    //   _stateByBookId[bookId] = QaStreamState(
+    //     streamId: streamId,
+    //     bookId: bookId,
+    //     question: question,
+    //     qaType: qaType,
+    //     isLocalModel: false,
+    //     isStreaming: false,
+    //     answer: '',
+    //     think: '',
+    //     error: '请先登录后使用在线问答',
+    //   );
+    //   notifyListeners();
+    //   return streamId;
+    // }
 
     if (modelChoice.isOnline &&
         !usingPersonalTencentKeys() &&
