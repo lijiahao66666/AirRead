@@ -109,10 +109,10 @@ class _LoginPageState extends State<LoginPage> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 20,
-        bottom: bottomPadding + 24,
+        left: 20,
+        right: 20,
+        top: 16,
+        bottom: bottomPadding + 20,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -129,26 +129,26 @@ class _LoginPageState extends State<LoginPage> {
               ),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
           // 标题
           Text(
             '登录灵阅',
             style: TextStyle(
-              fontSize: 22,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
               color: isDark ? Colors.white : Colors.black87,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
             '登录后积分跨设备同步，在线功能需要登录',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 12,
               color: isDark ? Colors.white54 : Colors.black45,
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
 
           // 手机号输入
           TextField(
@@ -157,23 +157,27 @@ class _LoginPageState extends State<LoginPage> {
             maxLength: 11,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 14,
               color: isDark ? Colors.white : Colors.black87,
             ),
             decoration: InputDecoration(
               labelText: '手机号',
+              labelStyle: const TextStyle(fontSize: 13),
               hintText: '请输入11位手机号',
+              hintStyle: const TextStyle(fontSize: 13),
               counterText: '',
-              prefixIcon: const Icon(Icons.phone_android),
+              prefixIcon: const Icon(Icons.phone_android, size: 18),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
               filled: true,
               fillColor: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade50,
             ),
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           // 验证码输入 + 发送按钮
           Row(
@@ -185,16 +189,20 @@ class _LoginPageState extends State<LoginPage> {
                   maxLength: 6,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     color: isDark ? Colors.white : Colors.black87,
                   ),
                   decoration: InputDecoration(
                     labelText: '验证码',
+                    labelStyle: const TextStyle(fontSize: 13),
                     hintText: '6位验证码',
+                    hintStyle: const TextStyle(fontSize: 13),
                     counterText: '',
-                    prefixIcon: const Icon(Icons.lock_outline),
+                    prefixIcon: const Icon(Icons.lock_outline, size: 18),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     filled: true,
                     fillColor: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade50,
@@ -204,26 +212,26 @@ class _LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(width: 12),
               SizedBox(
-                height: 48,
+                height: 42,
                 child: ElevatedButton(
                   onPressed: (_phoneValid && !_sending && _countdown <= 0)
                       ? _sendCode
                       : null,
                   style: ElevatedButton.styleFrom(
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
                   ),
                   child: _sending
                       ? const SizedBox(
-                          width: 16,
-                          height: 16,
+                          width: 14,
+                          height: 14,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Text(
                           _countdown > 0 ? '${_countdown}s' : '获取验证码',
-                          style: const TextStyle(fontSize: 14),
+                          style: const TextStyle(fontSize: 13),
                         ),
                 ),
               ),
@@ -235,15 +243,15 @@ class _LoginPageState extends State<LoginPage> {
             const SizedBox(height: 12),
             Text(
               _error!,
-              style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+              style: const TextStyle(color: Colors.redAccent, fontSize: 12),
             ),
           ],
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 18),
 
           // 登录按钮
           SizedBox(
-            height: 48,
+            height: 42,
             child: ElevatedButton(
               onPressed: (_phoneValid && _codeValid && !_logging)
                   ? _login
@@ -252,14 +260,14 @@ class _LoginPageState extends State<LoginPage> {
                 backgroundColor: const Color(0xFF4FC3F7),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 elevation: 0,
               ),
               child: _logging
                   ? const SizedBox(
-                      width: 20,
-                      height: 20,
+                      width: 18,
+                      height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation(Colors.white),
@@ -267,17 +275,17 @@ class _LoginPageState extends State<LoginPage> {
                     )
                   : const Text(
                       '登录',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                     ),
             ),
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Text(
             '未注册的手机号将自动创建账号',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 11,
               color: isDark ? Colors.white38 : Colors.black26,
             ),
           ),
