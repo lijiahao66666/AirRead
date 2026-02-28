@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -55,7 +56,7 @@ class AiInferenceTopRow extends StatelessWidget {
     final dropdownBg =
         isDark ? Colors.white.withOpacityCompat(0.04) : AppColors.mistWhite;
     final options = AiChatModelChoice.values.where((v) {
-      if (Platform.isIOS) {
+      if (!kIsWeb && Platform.isIOS) {
         if (v == AiChatModelChoice.localHunyuan18b ||
             v == AiChatModelChoice.localMiniCpm05b) {
           return false;

@@ -127,7 +127,7 @@ class QaStreamProvider extends ChangeNotifier {
         isStreaming: false,
         answer: '',
         think: '',
-        error: '问答需要购买积分后使用',
+        error: '积分不足，请登录后使用',
       );
       notifyListeners();
       return streamId;
@@ -357,7 +357,7 @@ class QaStreamProvider extends ChangeNotifier {
   }) {
     if (input.isEmpty) return '';
     final tightenForMiniCpmIos =
-        Platform.isIOS && localModelId == ModelManager.minicpm4_0_5b;
+        !kIsWeb && Platform.isIOS && localModelId == ModelManager.minicpm4_0_5b;
     final buffer = StringBuffer();
     for (final r in input.runes) {
       if (r == 0x09 || r == 0x0A || r == 0x0D) {
@@ -475,13 +475,13 @@ class QaStreamProvider extends ChangeNotifier {
 
   String _formatError(Object e) {
     if (e is TencentCloudException) {
-      if (e.code == 'PointsInsufficient') return '积分不足，请购买积分后再试';
+      if (e.code == 'PointsInsufficient') return '积分不足';
       if (e.code == 'HttpError') {
         final m = e.message;
         if (m.contains('HTTP 402') ||
             m.contains('PointsInsufficient') ||
             m.contains('积分不足')) {
-          return '积分不足，请购买积分后再试';
+          return '积分不足';
         }
         if (m.contains('HTTP 401') || m.contains('HTTP 403')) {
           return '鉴权失败，请检查积分状态或个人密钥是否正确';
@@ -493,7 +493,7 @@ class QaStreamProvider extends ChangeNotifier {
       }
       if (e.message.contains('积分不足') ||
           e.message.contains('PointsInsufficient')) {
-        return '积分不足，请购买积分后再试';
+        return '积分不足';
       }
       return e.toString();
     }
@@ -502,7 +502,7 @@ class QaStreamProvider extends ChangeNotifier {
     if (s.contains('PointsInsufficient') ||
         s.contains('HTTP 402') ||
         s.contains('积分不足')) {
-      return '积分不足，请购买积分后再试';
+      return '积分不足';
     }
     if (s.contains('SocketException') ||
         s.contains('Failed host lookup') ||

@@ -197,9 +197,11 @@ class AiModelProvider extends ChangeNotifier {
       await prefs.setString(_kLastLocalModelId, _activeLocalModelId);
     }
 
-    // 从服务端同步积分余额（首次自动赠送初始积分由服务端控制）
+    // 从服务端同步积分余额（仅登录后才同步/赠送初始积分）
     _pointsBalance = prefs.getInt(_kPointsBalance) ?? 0;
-    unawaited(_syncBalanceFromServer());
+    if (AuthService.isLoggedIn) {
+      unawaited(_syncBalanceFromServer());
+    }
     if (kDebugMode) {
       if (prefs.containsKey(_kDebugPointsOverride)) {
         _debugPointsOverride = prefs.getInt(_kDebugPointsOverride);

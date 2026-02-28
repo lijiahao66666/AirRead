@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -125,17 +126,32 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
       }
     }
 
-    final resolvedChoice = (Platform.isIOS &&
+    final resolvedChoice = (!kIsWeb && Platform.isIOS &&
             (choice == AiChatModelChoice.localHunyuan18b ||
                 choice == AiChatModelChoice.localMiniCpm05b))
         ? AiChatModelChoice.localHunyuan05b
         : choice;
 
     if (!mounted) return;
+    final effectiveChoice = resolvedChoice ?? AiChatModelChoice.onlineHunyuan;
     setState(() {
-      _modelChoice = resolvedChoice ?? AiChatModelChoice.onlineHunyuan;
+      _modelChoice = effectiveChoice;
       _thinkingEnabled = thinking ?? true;
     });
+
+    // 面板打开时，若在线模型且积分不足，提示登录
+    if (effectiveChoice.isOnline) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final aiModel = context.read<AiModelProvider>();
+        final tp = context.read<TranslationProvider>();
+        final usingPersonal = tp.usingPersonalTencentKeys &&
+            getEmbeddedPublicHunyuanCredentials().isUsable;
+        if (!usingPersonal && aiModel.pointsBalance <= 0) {
+          _showToast('请先登录后使用在线插画');
+        }
+      });
+    }
   }
 
   Future<void> _setModelChoice(AiChatModelChoice value) async {
@@ -204,7 +220,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
           e.message.contains('PointsInsufficient') ||
           e.message.contains('HTTP 402') ||
           e.message.contains('积分不足')) {
-        return '积分不足，请购买积分后再试';
+        return '积分不足';
       }
       if (e.code == 'NoProxyUrl') {
         return '在线提示词服务未配置，请在 AI 设置中填写个人密钥，或配置服务端地址';
@@ -217,7 +233,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         if (m.contains('HTTP 402') ||
             m.contains('PointsInsufficient') ||
             m.contains('积分不足')) {
-          return '积分不足，请购买积分后再试';
+          return '积分不足';
         }
         if (m.contains('HTTP 401') || m.contains('HTTP 403')) {
           return '鉴权失败，请检查积分状态或个人密钥是否正确';
@@ -233,7 +249,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     if (s.contains('PointsInsufficient') ||
         s.contains('HTTP 402') ||
         s.contains('积分不足')) {
-      return '积分不足，请购买积分后再试';
+      return '积分不足';
     }
     if (s.contains('SocketException') ||
         s.contains('Failed host lookup') ||
@@ -341,13 +357,8 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
             modelId: localModelId,
           );
     } else {
-      // TODO: SMS配好后取消注释，强制登录
-      // if (!usingPersonal && !AuthService.isLoggedIn) {
-      //   _showToast('请先登录后使用在线插画分析');
-      //   return;
-      // }
       if (!onlineEntitled) {
-        _showToast('在线大模型需要购买积分后使用');
+        _showToast('请先登录后使用在线插画');
         return;
       }
       enableThinkingForOnline = _thinkingEnabled ? null : false;

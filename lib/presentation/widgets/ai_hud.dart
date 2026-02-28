@@ -722,7 +722,7 @@ class _TencentHunyuanSettingsPanelState
           ),
           if (_userKeysEnabled) ...[
             Text(
-              '可填写腾讯个人开发者的SecretId,SecretKey，会操作的看官自己操作，请放心，app内部不会盗用和泄露此信息，可自己通过控制台查看用量，需要开通混元大模型（文本和生图），机器翻译，语音合成完整使用AI伴读功能，无需购买积分。',
+              '可填写腾讯个人开发者的SecretId,SecretKey，会操作的看官自己操作，请放心，app内部不会盗用和泄露此信息，可自己通过控制台查看用量，需要开通混元大模型（文本和生图），机器翻译，语音合成完整使用AI伴读功能，无需积分。',
               style: TextStyle(
                 color: widget.textColor.withOpacityCompat(0.65),
                 fontSize: 13,
@@ -1325,7 +1325,7 @@ class _TencentHunyuanSettingsPanelState
                   ] else ...[
                     Text(
                       '使用腾讯混元翻译大模型'
-                      '${aiModel.pointsBalance > 0 ? '' : '，需要购买积分后使用'}',
+                      '${aiModel.pointsBalance > 0 ? '' : '，需要登录后使用'}',
                       style: TextStyle(
                         color: widget.textColor.withOpacityCompat(0.65),
                         fontSize: 13,
@@ -1601,7 +1601,7 @@ class _TencentHunyuanSettingsPanelState
                   ] else ...[
                     Text(
                       '使用腾讯大模型朗读'
-                      '${aiModel.pointsBalance > 0 ? '' : '，需要购买积分后使用'}',
+                      '${aiModel.pointsBalance > 0 ? '' : '，需要登录后使用'}',
                       style: TextStyle(
                         color: widget.textColor.withOpacityCompat(0.65),
                         fontSize: 13,
@@ -1802,7 +1802,7 @@ class _TencentHunyuanSettingsPanelState
     return Consumer<AiModelProvider>(
       builder: (context, aiModel, child) {
         final specs = aiModel.availableLocalModels.where((spec) {
-          if (Platform.isIOS && spec.id == ModelManager.hunyuan_1_8b) {
+          if (!kIsWeb && Platform.isIOS && spec.id == ModelManager.hunyuan_1_8b) {
             return false;
           }
           return true;
@@ -2059,7 +2059,7 @@ class _MainPanel extends StatelessWidget {
     if (translationBlockedByKeys) {
       translateSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
     } else if (translationBlockedByEntitlement) {
-      translateSubtitle = '大模型翻译需要购买积分后使用';
+      translateSubtitle = '大模型翻译需要登录后使用';
     } else if (!translateValue) {
       translateSubtitle = '开启后，可实时翻译页面内容';
     } else {
@@ -2084,7 +2084,7 @@ class _MainPanel extends StatelessWidget {
         : (onlineReadAloudKeysMissing
             ? '已开启使用个人密钥，但未正确设置个人密钥'
             : (onlineReadAloudBlocked
-                ? '在线朗读需要购买积分后使用'
+                ? '在线朗读需要登录后使用'
                 : (readAloudEnabled ? '已开启，点击页面胶囊按钮朗读或暂停' : '开启后，可朗读页面内容')));
     final bool readAloudValue =
         localReadAloudBlocked ? false : readAloudEnabled;
@@ -2515,7 +2515,7 @@ class _QaPanelState extends State<_QaPanel>
               orElse: () => null,
             );
     final thinking = prefs.getBool(_kQaThinkingEnabled);
-    final resolvedChoice = (Platform.isIOS &&
+    final resolvedChoice = (!kIsWeb && Platform.isIOS &&
             (choice == AiChatModelChoice.localHunyuan18b ||
                 choice == AiChatModelChoice.localMiniCpm05b))
         ? AiChatModelChoice.localHunyuan05b
@@ -3197,6 +3197,8 @@ class _QaPanelState extends State<_QaPanel>
         toast = '本地模型未下载';
       } else if (qaBlockedByPersonalKeys) {
         toast = '个人密钥不可用';
+      } else if (qaBlockedByPoints) {
+        toast = '请先登录后使用在线问答';
       }
       if (toast != null) {
         _qaBlockedByEntitlement = true;

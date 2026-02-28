@@ -29,7 +29,6 @@ class PointsWallet extends StatefulWidget {
 class _PointsWalletState extends State<PointsWallet> {
   bool _checkedInToday = false;
   bool _checkinBusy = false;
-  int _streak = 0;
 
   @override
   void initState() {
@@ -39,11 +38,9 @@ class _PointsWalletState extends State<PointsWallet> {
 
   Future<void> _loadCheckinState() async {
     final done = await CheckinService.hasCheckedInToday();
-    final streak = await CheckinService.getStreak();
     if (mounted) {
       setState(() {
         _checkedInToday = done;
-        _streak = streak;
       });
     }
   }
@@ -58,15 +55,12 @@ class _PointsWalletState extends State<PointsWallet> {
       } else if (result.points > 0) {
         await aiModel.addPoints(result.points);
       }
-      final streak = await CheckinService.getStreak();
       if (mounted) {
         setState(() {
           _checkedInToday = true;
-          _streak = streak;
         });
         setSheetState(() {
           _checkedInToday = true;
-          _streak = streak;
         });
       }
     } catch (e) {
@@ -237,8 +231,8 @@ class _PointsWalletState extends State<PointsWallet> {
                       ),
                       const SizedBox(height: 12),
 
-                      // ── Section: Daily Check-in ──
-                      if (checkinEnabled)
+                      // ── Section: Daily Check-in (仅登录后显示) ──
+                      if (checkinEnabled && AuthService.isLoggedIn)
                         _sectionCard(
                           sectionBg: sectionBg,
                           textColor: textColor,
@@ -269,8 +263,8 @@ class _PointsWalletState extends State<PointsWallet> {
                                     const SizedBox(height: 2),
                                     Text(
                                       _checkedInToday
-                                          ? '今日已签到  连续 $_streak 天'
-                                          : '签到领 +$checkinPoints 积分${_streak > 0 ? '  已连续 $_streak 天' : ''}',
+                                          ? '今日已签到'
+                                          : '签到领 +$checkinPoints 积分',
                                       style: TextStyle(
                                         color: textColor.withOpacityCompat(0.55),
                                         fontSize: 12,
@@ -352,6 +346,51 @@ class _PointsWalletState extends State<PointsWallet> {
 
   @override
   Widget build(BuildContext context) {
+    // 未登录时显示登录提示卡片
+    if (!AuthService.isLoggedIn) {
+      return Container(
+        decoration: BoxDecoration(
+          color: widget.cardBg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: widget.textColor.withOpacityCompat(0.08),
+            width: AppTokens.stroke,
+          ),
+        ),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Row(
+          children: [
+            Icon(Icons.account_circle_outlined,
+                color: widget.textColor.withOpacityCompat(0.45), size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '登录后可使用在线功能并获得积分',
+                style: TextStyle(
+                  color: widget.textColor.withOpacityCompat(0.6),
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () async {
+                final success = await LoginPage.show(context);
+                if (success && mounted) setState(() {});
+              },
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                minimumSize: const Size(0, 0),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: AppColors.techBlue,
+              ),
+              child: const Text('登录',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      );
+    }
+
     final aiModel = context.watch<AiModelProvider>();
     final hint = (widget.hintText ?? '').trim();
     return Container(

@@ -15,7 +15,6 @@ class CheckinService {
   CheckinService._();
 
   static const String _kLastCheckinDate = 'checkin_last_date';
-  static const String _kCheckinStreak = 'checkin_streak';
 
   static const String _proxyUrl =
       String.fromEnvironment('AIRREAD_API_PROXY_URL', defaultValue: '');
@@ -28,12 +27,6 @@ class CheckinService {
     final last = prefs.getString(_kLastCheckinDate) ?? '';
     final today = _todayStr();
     return last == today;
-  }
-
-  /// 连续签到天数
-  static Future<int> getStreak() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_kCheckinStreak) ?? 0;
   }
 
   /// 签到是否启用（由远程配置决定）
@@ -87,14 +80,12 @@ class CheckinService {
       if (resp.statusCode == 200) {
         final json = jsonDecode(resp.body);
         final points = (json['points'] as num?)?.toInt() ?? 0;
-        final streak = (json['streak'] as num?)?.toInt() ?? 0;
         final balance = (json['balance'] as num?)?.toInt();
 
         // 更新本地缓存
         await prefs.setString(_kLastCheckinDate, today);
-        await prefs.setInt(_kCheckinStreak, streak);
 
-        debugPrint('[Checkin] server: +$points points, streak=$streak, balance=$balance');
+        debugPrint('[Checkin] server: +$points points, balance=$balance');
         return CheckinResult(points: points, balance: balance);
       } else {
         debugPrint('[Checkin] server error: ${resp.statusCode} ${resp.body}');
@@ -131,13 +122,11 @@ class CheckinService {
       if (resp.statusCode == 200) {
         final json = jsonDecode(resp.body);
         final done = json['checkedInToday'] == true;
-        final streak = (json['streak'] as num?)?.toInt() ?? 0;
         final prefs = await SharedPreferences.getInstance();
         if (done) {
           await prefs.setString(_kLastCheckinDate, _todayStr());
         }
-        await prefs.setInt(_kCheckinStreak, streak);
-        debugPrint('[Checkin] synced from server: done=$done streak=$streak');
+        debugPrint('[Checkin] synced from server: done=$done');
       }
     } catch (e) {
       debugPrint('[Checkin] syncStatusFromServer error: $e');

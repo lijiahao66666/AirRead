@@ -432,28 +432,23 @@ async function ensureInitialGrant({ deviceId, config }) {
   return Number(obj.balance || 0);
 }
 
-// Server-side checkin: returns { points, streak, alreadyDone } or null
+// Server-side checkin: returns { points, alreadyDone, balance } or null
 async function doCheckin({ deviceId, config }) {
   if (!deviceId) return null;
   const today = new Date().toISOString().substring(0, 10);
-  const yesterday = new Date(Date.now() - 86400000).toISOString().substring(0, 10);
   let obj = _readPointsData(deviceId) || { balance: 0 };
 
   const lastCheckin = obj.lastCheckinDate || '';
   if (lastCheckin === today) {
-    return { points: 0, streak: obj.checkinStreak || 0, alreadyDone: true, balance: obj.balance };
+    return { points: 0, alreadyDone: true, balance: obj.balance };
   }
-
-  let streak = Number(obj.checkinStreak || 0);
-  streak = (lastCheckin === yesterday) ? streak + 1 : 1;
 
   const reward = Number(config.checkin_points) || 5000;
   obj.balance = (Number(obj.balance) || 0) + reward;
   obj.lastCheckinDate = today;
-  obj.checkinStreak = streak;
   _writePointsData(deviceId, obj);
-  console.log(`[checkin] ${deviceId} +${reward} streak=${streak}`);
-  return { points: reward, streak, alreadyDone: false, balance: obj.balance };
+  console.log(`[checkin] ${deviceId} +${reward}`);
+  return { points: reward, alreadyDone: false, balance: obj.balance };
 }
 
 // --- Helper: HTTP Utils ---
@@ -995,7 +990,6 @@ const server = http.createServer(async (req, res) => {
           userPoints.balance = devicePoints.balance;
           userPoints.initialGranted = true;
           if (devicePoints.lastCheckinDate) userPoints.lastCheckinDate = devicePoints.lastCheckinDate;
-          if (devicePoints.checkinStreak) userPoints.checkinStreak = devicePoints.checkinStreak;
           _writePointsData(user.userId, userPoints);
           console.log(`[Auth] Merged points from device ${deviceId} to user ${user.userId}: ${userPoints.balance}`);
         }
@@ -1089,8 +1083,7 @@ const server = http.createServer(async (req, res) => {
     const today = new Date().toISOString().substring(0, 10);
     const obj = _readPointsData(deviceId);
     const done = obj && obj.lastCheckinDate === today;
-    const streak = (obj && obj.checkinStreak) || 0;
-    return sendJson(res, 200, { checkedInToday: !!done, streak });
+    return sendJson(res, 200, { checkedInToday: !!done });
   }
 
   // POST /checkin — Server-side daily checkin
