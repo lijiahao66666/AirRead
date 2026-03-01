@@ -127,7 +127,7 @@ class QaStreamProvider extends ChangeNotifier {
         isStreaming: false,
         answer: '',
         think: '',
-        error: '积分不足，请登录后使用',
+        error: '积分不足',
       );
       notifyListeners();
       return streamId;

@@ -148,7 +148,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         final usingPersonal = tp.usingPersonalTencentKeys &&
             getEmbeddedPublicHunyuanCredentials().isUsable;
         if (!usingPersonal && aiModel.pointsBalance <= 0) {
-          _showToast('请先登录后使用在线插画');
+          _showToast('积分不足，无法使用在线插画');
         }
       });
     }
@@ -358,7 +358,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
           );
     } else {
       if (!onlineEntitled) {
-        _showToast('请先登录后使用在线插画');
+        _showToast('积分不足，无法使用在线插画');
         return;
       }
       enableThinkingForOnline = _thinkingEnabled ? null : false;

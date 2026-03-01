@@ -1325,7 +1325,7 @@ class _TencentHunyuanSettingsPanelState
                   ] else ...[
                     Text(
                       '使用腾讯混元翻译大模型'
-                      '${aiModel.pointsBalance > 0 ? '' : '，需要登录后使用'}',
+                      '${aiModel.pointsBalance > 0 ? '' : '，积分不足'}',
                       style: TextStyle(
                         color: widget.textColor.withOpacityCompat(0.65),
                         fontSize: 13,
@@ -1601,7 +1601,7 @@ class _TencentHunyuanSettingsPanelState
                   ] else ...[
                     Text(
                       '使用腾讯大模型朗读'
-                      '${aiModel.pointsBalance > 0 ? '' : '，需要登录后使用'}',
+                      '${aiModel.pointsBalance > 0 ? '' : '，积分不足'}',
                       style: TextStyle(
                         color: widget.textColor.withOpacityCompat(0.65),
                         fontSize: 13,
@@ -2059,7 +2059,7 @@ class _MainPanel extends StatelessWidget {
     if (translationBlockedByKeys) {
       translateSubtitle = '已开启使用个人密钥，但未正确设置个人密钥';
     } else if (translationBlockedByEntitlement) {
-      translateSubtitle = '大模型翻译需要登录后使用';
+      translateSubtitle = '大模型翻译需要积分';
     } else if (!translateValue) {
       translateSubtitle = '开启后，可实时翻译页面内容';
     } else {
@@ -2084,7 +2084,7 @@ class _MainPanel extends StatelessWidget {
         : (onlineReadAloudKeysMissing
             ? '已开启使用个人密钥，但未正确设置个人密钥'
             : (onlineReadAloudBlocked
-                ? '在线朗读需要登录后使用'
+                ? '在线朗读需要积分'
                 : (readAloudEnabled ? '已开启，点击页面胶囊按钮朗读或暂停' : '开启后，可朗读页面内容')));
     final bool readAloudValue =
         localReadAloudBlocked ? false : readAloudEnabled;
@@ -3198,7 +3198,7 @@ class _QaPanelState extends State<_QaPanel>
       } else if (qaBlockedByPersonalKeys) {
         toast = '个人密钥不可用';
       } else if (qaBlockedByPoints) {
-        toast = '请先登录后使用在线问答';
+        toast = '积分不足，无法使用在线问答';
       }
       if (toast != null) {
         _qaBlockedByEntitlement = true;

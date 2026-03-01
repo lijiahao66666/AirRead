@@ -181,15 +181,21 @@ class AuthService {
     final baseUrl = _proxyUrl.trim();
     if (baseUrl.isNotEmpty && _token.isNotEmpty) {
       try {
+        final headers = _buildHeaders(withAuth: true);
+        // 传递 deviceId 以便服务端重置设备积分
+        final deviceId = TencentApiClient.deviceId;
+        if (deviceId.isNotEmpty) headers['X-Device-Id'] = deviceId;
         await http
             .post(
               Uri.parse('$baseUrl/auth/logout'),
-              headers: _buildHeaders(withAuth: true),
+              headers: headers,
             )
             .timeout(const Duration(seconds: 5));
       } catch (_) {}
     }
     await _clearLocal();
+    // 退出后积分归零（积分留在账户中）
+    TencentApiClient.onPointsBalanceChanged?.call(0);
     onAuthStateChanged?.call();
     debugPrint('[Auth] logged out');
   }

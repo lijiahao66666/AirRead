@@ -1140,7 +1140,7 @@ class TranslationProvider extends ChangeNotifier {
             !_usingPersonalTencentKeys) {
           final points = _aiModel?.pointsBalance ?? 0;
           if (points <= 0) {
-            throw TranslationConfigException('朗读需要登录后使用');
+            throw TranslationConfigException('朗读需要积分');
           }
         }
       } catch (e) {
@@ -1562,7 +1562,7 @@ class TranslationProvider extends ChangeNotifier {
       } else {
         final points = _aiModel?.pointsBalance ?? 0;
         if (points <= 0) {
-          throw TranslationConfigException('大模型翻译需要登录后使用');
+          throw TranslationConfigException('大模型翻译需要积分');
         }
       }
     }
