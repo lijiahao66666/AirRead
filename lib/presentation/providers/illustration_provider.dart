@@ -285,7 +285,7 @@ class IllustrationProvider extends ChangeNotifier {
     required String resolution,
     required bool useLocalModel,
     Future<String> Function(String prompt)? generateText,
-    bool? enableThinkingForOnline,
+    bool thinkingForOnline = false,
     bool force = false,
   }) async {
     await _ensureReady();
@@ -317,7 +317,7 @@ class IllustrationProvider extends ChangeNotifier {
         count: count,
         useLocalModel: useLocalModel,
         run: generateText,
-        enableThinking: enableThinkingForOnline,
+        thinking: thinkingForOnline,
         debugName: cacheKey,
       );
 

@@ -190,8 +190,9 @@ class QaStreamProvider extends ChangeNotifier {
       stream = client
           .chatStream(
             userText: prompt,
-            model: 'hunyuan-a13b',
-            enableThinking: thinkingEnabled ? null : false,
+            model: thinkingEnabled
+                ? HunyuanTextClient.thinkModel
+                : HunyuanTextClient.instructModel,
           )
           .map(
             (c) => QAStreamChunk(

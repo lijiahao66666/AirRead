@@ -262,7 +262,7 @@ class QAService {
 
     final stream = client.chatStream(
       userText: prompt,
-      model: 'hunyuan-a13b',
+      model: HunyuanTextClient.instructModel,
     );
 
     await for (final chunk in stream) {

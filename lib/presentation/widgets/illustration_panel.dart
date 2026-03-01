@@ -330,7 +330,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     final onlineEntitled = aiModel.pointsBalance > 0 || usingPersonal;
 
     Future<String> Function(String prompt)? generateText;
-    bool? enableThinkingForOnline;
+    bool thinkingForOnline = false;
     final modelKey = _modelChoice.name;
     final localModelId = switch (_modelChoice) {
       AiChatModelChoice.localHunyuan05b => ModelManager.hunyuan_0_5b,
@@ -361,7 +361,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         _showToast('积分不足，无法使用在线插画');
         return;
       }
-      enableThinkingForOnline = _thinkingEnabled ? null : false;
+      thinkingForOnline = _thinkingEnabled;
     }
 
     final chapterId = _chapterId();
@@ -383,7 +383,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
         resolution: resolution,
         useLocalModel: _modelChoice.isLocal,
         generateText: generateText,
-        enableThinkingForOnline: enableThinkingForOnline,
+        thinkingForOnline: thinkingForOnline,
         force: force,
       );
       widget.onChapterIllustrationsGenerated?.call(widget.currentChapterIndex);

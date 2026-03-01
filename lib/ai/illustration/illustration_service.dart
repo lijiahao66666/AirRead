@@ -36,7 +36,7 @@ class IllustrationService {
     required int count,
     required bool useLocalModel,
     Future<String> Function(String prompt)? run,
-    bool? enableThinking,
+    bool thinking = false,
     String? debugName,
   }) async {
     if (paragraphs.isEmpty) return const <IllustrationItem>[];
@@ -61,7 +61,7 @@ class IllustrationService {
     }
 
     final runFn =
-        run ?? ((p) => _runOnlineTextModel(p, enableThinking: enableThinking));
+        run ?? ((p) => _runOnlineTextModel(p, thinking: thinking));
 
     if (useLocalModel) {
       return _generateLocal(
@@ -501,14 +501,15 @@ class IllustrationService {
 
   Future<String> _runOnlineTextModel(
     String prompt, {
-    bool? enableThinking,
+    bool thinking = false,
   }) async {
     final out = await (() async {
       final sw = Stopwatch()..start();
       final stream = _textClient.chatStream(
         userText: prompt,
-        model: 'hunyuan-a13b',
-        enableThinking: enableThinking,
+        model: thinking
+            ? HunyuanTextClient.thinkModel
+            : HunyuanTextClient.instructModel,
       );
       final buffer = StringBuffer();
       await for (final chunk in stream) {
@@ -518,7 +519,7 @@ class IllustrationService {
       final out = buffer.toString();
       if (kDebugMode) {
         debugPrint(
-          '[ILLUSTRATION] online_text.done thinking=$enableThinking ms=${sw.elapsedMilliseconds} outLen=${out.length}',
+          '[ILLUSTRATION] online_text.done thinking=$thinking ms=${sw.elapsedMilliseconds} outLen=${out.length}',
         );
       }
       return out;

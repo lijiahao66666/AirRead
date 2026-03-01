@@ -32,11 +32,13 @@ class HunyuanTextClient {
   })  : _api = api ?? TencentApiClient(),
         _credentials = credentials;
 
+  static const String thinkModel = 'Tencent-HY-2.0-Think';
+  static const String instructModel = 'Tencent-HY-2.0-Instruct';
+
   @Deprecated('Use chatStream for better UX')
   Future<String> chatOnce({
     required String userText,
-    String model = 'hunyuan-a13b',
-    bool? enableThinking,
+    String model = instructModel,
   }) async {
     final resp = await _api.postJson(
       host: _host,
@@ -53,7 +55,6 @@ class HunyuanTextClient {
         'Messages': [
           {'Role': 'user', 'Content': userText},
         ],
-        if (enableThinking != null) 'EnableThinking': enableThinking,
         'EnableEnhancement': true,
         'ForceSearchEnhancement': true,
       },
@@ -74,9 +75,8 @@ class HunyuanTextClient {
 
   Stream<ChatStreamChunk> chatStream({
     required String userText,
-    String model = 'hunyuan-a13b',
+    String model = instructModel,
     List<Map<String, String>>? messages,
-    bool? enableThinking,
   }) async* {
     final stream = _api.postStream(
       host: _host,
@@ -95,7 +95,6 @@ class HunyuanTextClient {
             [
               {'Role': 'user', 'Content': userText},
             ],
-        if (enableThinking != null) 'EnableThinking': enableThinking,
         'EnableEnhancement': true,
         'ForceSearchEnhancement': true,
       },
