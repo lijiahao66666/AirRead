@@ -373,32 +373,18 @@ class _PointsWalletState extends State<PointsWallet> {
                   ),
                 ),
               ),
-              if (!_checkedInToday && CheckinService.isEnabled)
-                TextButton(
-                  onPressed: () => _showWalletSheet(aiModel),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    minimumSize: const Size(0, 0),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    foregroundColor: Colors.orange,
-                  ),
-                  child: const Text('签到领积分',
-                      style:
-                          TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              TextButton(
+                onPressed: () => _showWalletSheet(aiModel),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: const Size(0, 0),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  foregroundColor: AppColors.techBlue,
                 ),
-              if (_checkedInToday || !CheckinService.isEnabled)
-                TextButton(
-                  onPressed: () => _showWalletSheet(aiModel),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    minimumSize: const Size(0, 0),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    foregroundColor: AppColors.techBlue,
-                  ),
-                  child: const Text('积分钱包',
-                      style:
-                          TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                ),
+                child: const Text('积分钱包',
+                    style:
+                        TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              ),
             ],
           ),
           if (hint.isNotEmpty) ...[
