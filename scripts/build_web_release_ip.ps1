@@ -1,5 +1,8 @@
-$CONFIG_URL = "http://read-api.air-inc.top/config"
-$PROXY_URL  = "http://read-api.air-inc.top"
+# 同站部署：API 通过 HTML 站点的 /api 代理，无 CORS
+# 需先在 HTML 站点 nginx 配置中增加 /api 反向代理（见 docs/nginx_html_site_with_api.conf）
+$BASE_URL = "http://122.51.10.98"  
+$CONFIG_URL = "$BASE_URL/api/config"
+$PROXY_URL  = "$BASE_URL/api"
 $APP_VERSION = "1.0.0"
 $API_KEY    = "f56dc8fc812647992db74ee0a419b3b2b7171b669cb2046caa53e19f3c564c73"
 
@@ -19,6 +22,7 @@ if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path "build\web\*" -DestinationPath $zipPath -Force
 
 Write-Host ""
-Write-Host "Web build done." -ForegroundColor Green
-Write-Host "  build output : build/web/"
-Write-Host "  zip package  : $zipPath"
+Write-Host "Web build done (同站模式)." -ForegroundColor Green
+Write-Host "  base url    : $BASE_URL"
+Write-Host "  build output: build/web/"
+Write-Host "  zip package: $zipPath"
