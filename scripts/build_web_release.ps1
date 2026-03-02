@@ -1,7 +1,4 @@
-$CONFIG_URL = "http://read-api.air-inc.top/config"
-$PROXY_URL  = "http://read-api.air-inc.top"
-$APP_VERSION = "1.0.0"
-$API_KEY    = "f56dc8fc812647992db74ee0a419b3b2b7171b669cb2046caa53e19f3c564c73"
+. "$PSScriptRoot\build_config.ps1"
 
 flutter build web --release `
   --dart-define=AIRREAD_CONFIG_URL="$CONFIG_URL" `
@@ -20,5 +17,6 @@ Compress-Archive -Path "build\web\*" -DestinationPath $zipPath -Force
 
 Write-Host ""
 Write-Host "Web build done." -ForegroundColor Green
-Write-Host "  build output : build/web/"
-Write-Host "  zip package  : $zipPath"
+Write-Host "  config : scripts/build_config.ps1 (UseIpMode=$UseIpMode)"
+Write-Host "  output : build/web/"
+Write-Host "  zip    : $zipPath"
