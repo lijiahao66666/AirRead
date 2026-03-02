@@ -937,17 +937,24 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /config — Remote config for App
-  if (req.method === 'GET' && req.url === '/config') {
+  // GET /config — Remote config for App (支持 query 如 ?v=1)
+  const pathOnly = (req.url || '').split('?')[0];
+  if (req.method === 'GET' && pathOnly === '/config') {
     const config = loadConfig();
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+    });
     res.end(JSON.stringify(config));
     return;
   }
 
   // GET / or /health — Health check
-  if (req.method === 'GET' && (req.url === '/' || req.url === '/health')) {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
+  if (req.method === 'GET' && (pathOnly === '/' || pathOnly === '/health')) {
+    res.writeHead(200, {
+      'Content-Type': 'text/plain',
+      'Access-Control-Allow-Origin': '*',
+    });
     res.end('OK');
     return;
   }
