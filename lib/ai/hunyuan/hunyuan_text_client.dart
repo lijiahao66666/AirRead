@@ -32,8 +32,10 @@ class HunyuanTextClient {
   })  : _api = api ?? TencentApiClient(),
         _credentials = credentials;
 
-  static const String thinkModel = 'Tencent-HY-2.0-Think';
-  static const String instructModel = 'Tencent-HY-2.0-Instruct';
+  /// Think 模型：支持推理链，API 调用名见官方文档
+  static const String thinkModel = 'hunyuan-2.0-thinking-20251109';
+  /// Instruct 模型：指令遵循、对话、文学创作
+  static const String instructModel = 'hunyuan-2.0-instruct-20251111';
 
   @Deprecated('Use chatStream for better UX')
   Future<String> chatOnce({
