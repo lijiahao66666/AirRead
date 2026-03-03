@@ -236,8 +236,8 @@ scp server/app.js root@air-inc.top:/www/airread/app.js
 ssh root@air-inc.top "pm2 restart airread"
 
 # 3. 验证
-curl http://air-inc.top:9000/health   # 应返回 OK
-curl http://air-inc.top:9000/config   # 应返回 JSON 配置
+curl http://read-api.air-inc.top/health   # 应返回 OK
+curl http://read-api.air-inc.top/config   # 应返回 JSON 配置
 ```
 
 ### 远程配置 (config.json)
@@ -335,25 +335,12 @@ AirTranslate 同理，把 `server_name` 改为 `translate-api.air-inc.top`，`pr
 2. 将 `build/web/` 目录的所有文件上传到该目录
 3. 申请 SSL 证书，启用 HTTPS
 
-#### 4. 更新打包脚本中的 URL
+#### 4. 打包配置
 
-配置好 HTTPS 二级域名后，需要更新各打包脚本：
-
-```
-# 旧
-http://air-inc.top:9000
-http://air-inc.top:9000/config
-
-# 新（AirRead）
-https://read-api.air-inc.top
-https://read-api.air-inc.top/config
-```
-
-需要修改的文件：
-- `scripts/build_android_apk_arm64_release.ps1`
-- `scripts/build_android_aab_release.ps1`
-- `scripts/build_ios_ipa_release.sh`
-- `scripts/build_web_release.ps1`
+Web / Android / iOS 共用 `scripts/build_config.ps1`：
+- **备案后**：`$UseIpMode = $false`（默认），使用 `read-api.air-inc.top`
+- **备案前**：`$UseIpMode = $true`，使用 `122.51.10.98/api`
+- iOS 需同步修改 `build_ios_ipa_release.sh` 中的 `USE_IP_MODE`
 
 ---
 
@@ -368,7 +355,7 @@ https://read-api.air-inc.top/config
 ### 发布 Android 新版本
 
 1. 修改 `pubspec.yaml` 中的 `version`
-2. 更新打包脚本中的 `$appVersion`
+2. 更新 `scripts/build_config.ps1` 中的 `$APP_VERSION`（可选）
 3. 运行 `pwsh ./scripts/build_android_apk_arm64_release.ps1`
 4. APK 产物在 `build/app/outputs/flutter-apk/app-release.apk`
 5. 更新 `server/config.json` 中的 `latest_version`
@@ -401,7 +388,7 @@ https://read-api.air-inc.top/config
 ### 网站备案
 
 - 域名 `air-inc.top` 如果在国内服务器上提供 **Web 网站**，需要完成 ICP 备案
-- **备案前**：可以用 IP 直连或境外服务器临时测试
+- **备案前**：将 `build_config.ps1` 中 `$UseIpMode = $true`，API 经 HTML 站点 `/api` 代理（需在 Nginx 中配置，见 `docs/nginx_html_site_with_api.conf`）
 - **备案流程**：在腾讯云控制台提交 ICP 备案申请，一般 7-20 个工作日
 - **注意**：备案期间域名不能解析到网站，备案通过后才可正式上线
 - 纯 API 接口服务（`api.air-inc.top`）目前通过 IP + 端口访问，App 端不受网站备案影响
