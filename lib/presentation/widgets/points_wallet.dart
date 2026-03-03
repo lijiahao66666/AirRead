@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../ai/config/auth_service.dart';
+import '../../ai/config/remote_config_service.dart';
 import '../../ai/config/checkin_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_tokens.dart';
@@ -163,7 +165,7 @@ class _PointsWalletState extends State<PointsWallet> {
                                   Text(
                                     AuthService.isLoggedIn
                                         ? '积分跨设备同步'
-                                        : '登录可获赠积分，并跨设备同步',
+                                        : '登录可获赠${NumberFormat('#,###').format(RemoteConfigService.initialGrantPoints)}积分，并跨设备同步',
                                     style: TextStyle(
                                       color: textColor.withOpacityCompat(0.55),
                                       fontSize: 12,
