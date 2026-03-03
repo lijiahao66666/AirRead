@@ -154,6 +154,9 @@ class AiModelProvider extends ChangeNotifier {
     await setPointsBalance(_pointsBalance + delta);
   }
 
+  /// 从服务端同步积分余额（登录后用 userId，否则用 deviceId）
+  Future<void> syncBalanceFromServer() => _syncBalanceFromServer();
+
   Future<void> _syncBalanceFromServer() async {
     try {
       final deviceId = TencentApiClient.deviceId;

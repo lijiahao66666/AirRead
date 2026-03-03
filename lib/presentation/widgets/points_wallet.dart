@@ -57,6 +57,8 @@ class _PointsWalletState extends State<PointsWallet> {
       } else if (result.points > 0) {
         await aiModel.addPoints(result.points);
       }
+      // 签到后同步一次，确保登录用户的 userId 余额正确展示
+      await aiModel.syncBalanceFromServer();
       if (mounted) {
         setState(() {
           _checkedInToday = true;
