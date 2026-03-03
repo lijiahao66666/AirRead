@@ -96,24 +96,7 @@ class QaStreamProvider extends ChangeNotifier {
       return streamId;
     }
 
-    // TODO: SMS配好后取消注释，强制登录
-    // if (modelChoice.isOnline &&
-    //     !usingPersonalTencentKeys() &&
-    //     !AuthService.isLoggedIn) {
-    //   _stateByBookId[bookId] = QaStreamState(
-    //     streamId: streamId,
-    //     bookId: bookId,
-    //     question: question,
-    //     qaType: qaType,
-    //     isLocalModel: false,
-    //     isStreaming: false,
-    //     answer: '',
-    //     think: '',
-    //     error: '请先登录后使用在线问答',
-    //   );
-    //   notifyListeners();
-    //   return streamId;
-    // }
+    // 在线问答：有积分即可用，登录可选
 
     if (modelChoice.isOnline &&
         !usingPersonalTencentKeys() &&

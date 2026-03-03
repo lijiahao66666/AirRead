@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../../ai/config/auth_service.dart';
+import '../../../ai/config/remote_config_service.dart';
 
 /// 手机号验证码登录页面
 class LoginPage extends StatefulWidget {
@@ -218,7 +219,7 @@ class _LoginPageState extends State<LoginPage> {
           ),
           const SizedBox(height: 4),
           Text(
-            '登录后积分跨设备同步，在线功能需要登录',
+            '登录赠送${NumberFormat('#,###').format(RemoteConfigService.initialGrantPoints)}积分，积分跨设备同步',
             style: TextStyle(
               fontSize: 12,
               color: isDark ? Colors.white54 : Colors.black45,

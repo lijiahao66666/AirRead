@@ -410,11 +410,7 @@ class _IllustrationPanelState extends State<IllustrationPanel> {
     try {
       final usingPersonal = tp.usingPersonalTencentKeys &&
           getEmbeddedPublicHunyuanCredentials().isUsable;
-      // TODO: SMS配好后取消注释，强制登录
-      // if (!usingPersonal && !AuthService.isLoggedIn) {
-      //   _showToast('请先登录后使用在线生图');
-      //   return;
-      // }
+      // 在线生图：有积分即可用，登录可选
       if (!usingPersonal) {
         if (aiModel.pointsBalance < _imageCostPoints) {
           _showToast('积分不足，无法出图');
