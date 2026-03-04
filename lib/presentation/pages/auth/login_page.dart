@@ -94,8 +94,10 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _logging = false);
 
     if (result.success) {
-      if (result.isNewUser && result.balance != null && result.balance! > 0 && mounted) {
-        await _showGrantAnimation(context, result.balance!);
+      // 仅当本次登录实际赠送了初始积分时显示弹窗，数字为 config 中的赠送数量
+      if (result.initialGrantedThisTime && mounted) {
+        final points = result.initialGrantPoints ?? RemoteConfigService.initialGrantPoints;
+        await _showGrantAnimation(context, points);
       }
       if (mounted) Navigator.of(context).pop(true);
     } else {
@@ -219,7 +221,7 @@ class _LoginPageState extends State<LoginPage> {
           ),
           const SizedBox(height: 4),
           Text(
-            '登录赠送${NumberFormat('#,###').format(RemoteConfigService.initialGrantPoints)}积分，积分跨设备同步',
+            '登录赠送积分，积分跨设备同步',
             style: TextStyle(
               fontSize: 12,
               color: isDark ? Colors.white54 : Colors.black45,

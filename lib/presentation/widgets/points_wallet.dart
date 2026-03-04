@@ -167,7 +167,7 @@ class _PointsWalletState extends State<PointsWallet> {
                                   Text(
                                     AuthService.isLoggedIn
                                         ? '积分跨设备同步'
-                                        : '登录可获赠${NumberFormat('#,###').format(RemoteConfigService.initialGrantPoints)}积分，并跨设备同步',
+                                        : '登录赠送积分，并跨设备同步',
                                     style: TextStyle(
                                       color: textColor.withOpacityCompat(0.55),
                                       fontSize: 12,

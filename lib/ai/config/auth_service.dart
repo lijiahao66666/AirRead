@@ -132,11 +132,13 @@ class AuthService {
         }
 
         onAuthStateChanged?.call();
-        debugPrint('[Auth] login success: userId=$_userId phone=$_phone isNew=${json['isNewUser']}');
+        debugPrint('[Auth] login success: userId=$_userId phone=$_phone isNew=${json['isNewUser']} initialGranted=${json['initialGrantedThisTime']}');
         return AuthResult(
           success: true,
           balance: balance,
           isNewUser: json['isNewUser'] == true,
+          initialGrantedThisTime: json['initialGrantedThisTime'] == true,
+          initialGrantPoints: (json['initialGrantPoints'] as num?)?.toInt(),
         );
       }
 
@@ -240,11 +242,17 @@ class AuthResult {
   final String? error;
   final int? balance;
   final bool isNewUser;
+  /// 本次登录是否赠送了初始积分（仅首次登录或从未领取过的账号）
+  final bool initialGrantedThisTime;
+  /// 本次赠送的积分数（从 config 读取，仅当 initialGrantedThisTime 时有值）
+  final int? initialGrantPoints;
 
   AuthResult({
     required this.success,
     this.error,
     this.balance,
     this.isNewUser = false,
+    this.initialGrantedThisTime = false,
+    this.initialGrantPoints,
   });
 }

@@ -437,33 +437,31 @@ async function setPointsBalance({ deviceId, balance }) {
 }
 
 // Ensure identity has points record; initial grant ONLY for userId (logged-in accounts)
+// Returns { balance, initialGrantedThisTime } — caller uses initialGrantedThisTime to decide if client should show grant panel
 async function ensureInitialGrant({ deviceId, config, isUserId }) {
   let obj = _readPointsData(deviceId);
+  const grantAmount = Number(config.initial_grant_points) || 500000;
   if (!obj) {
     if (isUserId) {
-      // Logged-in account — grant initial points
-      const grant = Number(config.initial_grant_points) || 500000;
-      obj = { balance: grant, initialGranted: true, createdAt: new Date().toISOString() };
+      obj = { balance: grantAmount, initialGranted: true, createdAt: new Date().toISOString() };
       _writePointsData(deviceId, obj);
-      console.log(`[points] initial grant ${grant} to userId=${deviceId}`);
-      return obj.balance;
+      console.log(`[points] initial grant ${grantAmount} to userId=${deviceId}`);
+      return { balance: grantAmount, initialGrantedThisTime: true };
     } else {
-      // Anonymous device — create record with 0 balance, no grant
       obj = { balance: 0, initialGranted: false, createdAt: new Date().toISOString() };
       _writePointsData(deviceId, obj);
       console.log(`[points] new anonymous device ${deviceId}, balance=0`);
-      return 0;
+      return { balance: 0, initialGrantedThisTime: false };
     }
   }
   if (!obj.initialGranted && isUserId) {
-    // Existing record but never got initial grant (e.g. upgraded from anonymous)
-    const grant = Number(config.initial_grant_points) || 500000;
-    obj.balance = (Number(obj.balance) || 0) + grant;
+    obj.balance = (Number(obj.balance) || 0) + grantAmount;
     obj.initialGranted = true;
     _writePointsData(deviceId, obj);
-    console.log(`[points] late initial grant ${grant} to userId=${deviceId}, new balance=${obj.balance}`);
+    console.log(`[points] late initial grant ${grantAmount} to userId=${deviceId}, new balance=${obj.balance}`);
+    return { balance: Number(obj.balance), initialGrantedThisTime: true };
   }
-  return Number(obj.balance || 0);
+  return { balance: Number(obj.balance || 0), initialGrantedThisTime: false };
 }
 
 // Server-side checkin: returns { points, alreadyDone, balance } or null
@@ -1015,8 +1013,8 @@ const server = http.createServer(async (req, res) => {
     const user = findOrCreateUser(phone);
     const config = loadConfig();
 
-    // Ensure initial points grant for user account
-    await ensureInitialGrant({ deviceId: user.userId, config, isUserId: true });
+    // Ensure initial points grant for user account (idempotent; only grants if never granted before)
+    const grantResult = await ensureInitialGrant({ deviceId: user.userId, config, isUserId: true });
 
     // Merge device anonymous points INTO userId (additive), then reset device
     const deviceId = String(req.headers['x-device-id'] || '').trim();
@@ -1051,6 +1049,8 @@ const server = http.createServer(async (req, res) => {
       phone: user.phone.substring(0, 3) + '****' + user.phone.substring(7),
       balance,
       isNewUser: isNew,
+      initialGrantedThisTime: grantResult.initialGrantedThisTime,
+      initialGrantPoints: grantResult.initialGrantedThisTime ? (Number(config.initial_grant_points) || 500000) : undefined,
     });
   }
 
@@ -1109,7 +1109,7 @@ const server = http.createServer(async (req, res) => {
     const deviceId = userId || String(req.headers['x-device-id'] || '').trim();
     if (!deviceId) return sendJson(res, 400, { error: 'MissingIdentity', message: '缺少设备标识' });
     const config = loadConfig();
-    const balance = await ensureInitialGrant({ deviceId, config, isUserId: !!userId });
+    const { balance } = await ensureInitialGrant({ deviceId, config, isUserId: !!userId });
     return sendJson(res, 200, { balance });
   }
 
