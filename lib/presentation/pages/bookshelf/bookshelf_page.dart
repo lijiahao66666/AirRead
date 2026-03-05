@@ -363,6 +363,22 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 ),
               ),
 
+              // ICP 备案号（灵阅 App: -2A，Web: -1）
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: MediaQuery.of(context).padding.bottom + 8,
+                child: Center(
+                  child: Text(
+                    kIsWeb ? '浙ICP备2026011869号-1' : '浙ICP备2026011869号-2A',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: scheme.onSurface.withOpacityCompat(0.35),
+                    ),
+                  ),
+                ),
+              ),
+
               // Bottom Delete Bar (Selection Mode)
               if (booksProvider.isSelectionMode)
                 Positioned(
