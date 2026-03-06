@@ -236,8 +236,8 @@ scp server/app.js root@air-inc.top:/www/airread/app.js
 ssh root@air-inc.top "pm2 restart airread"
 
 # 3. 验证
-curl http://read-api.air-inc.top/health   # 应返回 OK
-curl http://read-api.air-inc.top/config   # 应返回 JSON 配置
+curl http://read.air-inc.top/api/health   # 应返回 OK
+curl http://read.air-inc.top/api/config   # 应返回 JSON 配置
 ```
 
 ### 远程配置 (config.json)
@@ -272,8 +272,8 @@ curl http://read-api.air-inc.top/config   # 应返回 JSON 配置
 
 | 二级域名 | 用途 | 指向 |
 |----------|------|------|
-| `read-api.air-inc.top` | AirRead 后端 API | 轻量云服务器 IP（反向代理到 :9000） |
-| `translate-api.air-inc.top` | AirTranslate 后端 API | 轻量云服务器 IP（反向代理到 :9001） |
+| `read.air-inc.top/api` | AirRead 后端 API（同源） | 轻量云服务器 IP（同站 /api 反向代理到 :9000） |
+| `translate.air-inc.top/api` | AirTranslate 后端 API（同源） | 轻量云服务器 IP（同站 /api 反向代理到 :9001） |
 | `read.air-inc.top` | AirRead Web 版 | 静态托管（Nginx / 宝塔） |
 | `translate.air-inc.top` | AirTranslate Web 版 | 静态托管 |
 | `www.air-inc.top` | 主站/落地页（可选） | 同上 |
@@ -286,8 +286,6 @@ curl http://read-api.air-inc.top/config   # 应返回 JSON 配置
 
 | 主机记录 | 记录类型 | 记录值 | 说明 |
 |----------|----------|--------|------|
-| `read-api` | A | `你的服务器IP` | AirRead 后端 API |
-| `translate-api` | A | `你的服务器IP` | AirTranslate 后端 API |
 | `read` | A | `你的服务器IP` | AirRead Web |
 | `translate` | A | `你的服务器IP` | AirTranslate Web |
 
@@ -295,15 +293,15 @@ curl http://read-api.air-inc.top/config   # 应返回 JSON 配置
 
 为每个后端服务分别配置反向代理：
 
-**AirRead 后端（`read-api.air-inc.top` → `:9000`）**
+**AirRead 后端（`read.air-inc.top/api` → `:9000`）**
 
-在宝塔面板中新建网站 `read-api.air-inc.top`，**设置 → 反向代理**：
+在宝塔面板中新建网站 `read.air-inc.top`，**设置 → 反向代理**（路径 `/api`）：
 - 目标 URL：`http://127.0.0.1:9000`
 - 申请 SSL 证书，启用 HTTPS
 
-**AirTranslate 后端（`translate-api.air-inc.top` → `:9001`）**
+**AirTranslate 后端（`translate.air-inc.top/api` → `:9001`）**
 
-同上新建网站 `translate-api.air-inc.top`，反向代理到 `:9001`。
+同上新建网站 `translate.air-inc.top`，在同站将 `/api` 反向代理到 `:9001`。
 
 Nginx 配置示例（以 AirRead 为例）：
 
@@ -311,7 +309,7 @@ Nginx 配置示例（以 AirRead 为例）：
 server {
     listen 80;
     listen 443 ssl http2;
-    server_name read-api.air-inc.top;
+    server_name read.air-inc.top;
 
     # SSL 证书（宝塔自动管理或手动配置）
     # ssl_certificate    /path/to/fullchain.pem;
@@ -327,7 +325,7 @@ server {
 }
 ```
 
-AirTranslate 同理，把 `server_name` 改为 `translate-api.air-inc.top`，`proxy_pass` 改为 `:9001`。
+AirTranslate 同理，把 `server_name` 改为 `translate.air-inc.top`，`proxy_pass` 改为 `:9001`。
 
 #### 3. 宝塔面板配置静态网站（read.air-inc.top）
 
@@ -338,7 +336,7 @@ AirTranslate 同理，把 `server_name` 改为 `translate-api.air-inc.top`，`pr
 #### 4. 打包配置
 
 Web / Android / iOS 共用 `scripts/build_config.ps1`：
-- **备案后**：`$UseIpMode = $false`（默认），使用 `read-api.air-inc.top`
+- **备案后**：`$UseIpMode = $false`（默认），使用 `read.air-inc.top/api`
 - **备案前**：`$UseIpMode = $true`，使用 `122.51.10.98/api`
 - iOS 需同步修改 `build_ios_ipa_release.sh` 中的 `USE_IP_MODE`
 
