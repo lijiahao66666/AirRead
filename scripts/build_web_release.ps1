@@ -1,6 +1,8 @@
 . "$PSScriptRoot\build_config.ps1"
 
 flutter build web --release `
+  --no-web-resources-cdn `
+  --pwa-strategy=none `
   --dart-define=AIRREAD_CONFIG_URL="$CONFIG_URL" `
   --dart-define=AIRREAD_API_PROXY_URL="$PROXY_URL" `
   --dart-define=AIRREAD_API_KEY="$API_KEY" `

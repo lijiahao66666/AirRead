@@ -8,8 +8,8 @@ if [ "$USE_IP_MODE" = "1" ]; then
   CONFIG_URL="http://122.51.10.98/api/config"
   PROXY_URL="http://122.51.10.98/api"
 else
-  CONFIG_URL="http://read-api.air-inc.top/config"
-  PROXY_URL="http://read-api.air-inc.top"
+  CONFIG_URL="http://read.air-inc.top/api/config"
+  PROXY_URL="http://read.air-inc.top/api"
 fi
 
 APP_VERSION="1.0.0"

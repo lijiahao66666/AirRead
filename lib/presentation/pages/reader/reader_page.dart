@@ -39,6 +39,7 @@ String _decodeHtmlEntities(String html) {
   // 十六进制 &#xHHHH; 或 &#xHHHH
   s = s.replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]{1,6});?'), (m) {
     final n = int.tryParse(m[1]!, radix: 16);
+    if (n == null) return m[0]!;
     if (n > 0x10FFFF) return m[0]!;
     return String.fromCharCode(n);
   });

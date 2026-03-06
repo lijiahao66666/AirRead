@@ -133,9 +133,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Center(
+          child: SizedBox(
+            width: double.infinity,
             child: Text(
               kIsWeb ? '浙ICP备2026011869号-1' : '浙ICP备2026011869号-2A',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 11,
                 color: scheme.onSurface.withOpacityCompat(0.35),
@@ -195,7 +197,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
                   ),
                 ),
               ),
-
               // Main Content
               SafeArea(
                 child: Column(
