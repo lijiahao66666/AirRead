@@ -91,6 +91,21 @@ class _BookshelfPageState extends State<BookshelfPage> {
       extendBodyBehindAppBar: true,
       resizeToAvoidBottomInset:
           false, // Prevent keyboard/system UI from resizing layout
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Center(
+            child: Text(
+              kIsWeb ? '浙ICP备2026011869号-1' : '浙ICP备2026011869号-2A',
+              style: TextStyle(
+                fontSize: 11,
+                color: scheme.onSurface.withOpacityCompat(0.35),
+              ),
+            ),
+          ),
+        ),
+      ),
       appBar: AppBar(
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
@@ -293,7 +308,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                             )
                           : GridView.builder(
                               padding:
-                                  const EdgeInsets.fromLTRB(20, 0, 20, 100),
+                                  const EdgeInsets.fromLTRB(20, 0, 20, 24),
                               gridDelegate:
                                   SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: crossAxisCount,
@@ -360,22 +375,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
                             ),
                     ),
                   ],
-                ),
-              ),
-
-              // ICP 备案号（灵阅 App: -2A，Web: -1）
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: MediaQuery.of(context).padding.bottom + 8,
-                child: Center(
-                  child: Text(
-                    kIsWeb ? '浙ICP备2026011869号-1' : '浙ICP备2026011869号-2A',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: scheme.onSurface.withOpacityCompat(0.35),
-                    ),
-                  ),
                 ),
               ),
 
