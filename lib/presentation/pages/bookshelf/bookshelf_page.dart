@@ -26,6 +26,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
+  static const _intentChannel = MethodChannel('airread/intent');
+
   @override
   void initState() {
     super.initState();
@@ -34,6 +36,42 @@ class _BookshelfPageState extends State<BookshelfPage> {
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) AppUpdateService.checkAndPrompt(context);
     });
+    // 处理「用灵阅打开」传入的 EPUB 文件（Android）
+    if (!kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _checkInitialEpub());
+    }
+  }
+
+  Future<void> _checkInitialEpub() async {
+    if (!mounted) return;
+    try {
+      final path = await _intentChannel.invokeMethod<String>('getInitialEpubPath');
+      if (path == null || path.isEmpty || !mounted) return;
+      final booksProvider = Provider.of<BooksProvider>(context, listen: false);
+      final book = await booksProvider.importFromPath(path);
+      if (book != null && mounted) {
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                ReaderPage(bookId: book.id),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              const begin = Offset(0.0, 1.0);
+              const end = Offset.zero;
+              const curve = Curves.easeInOutCubic;
+              var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+              return FadeTransition(
+                opacity: animation,
+                child: SlideTransition(position: animation.drive(tween), child: child),
+              );
+            },
+            transitionDuration: const Duration(milliseconds: 500),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error handling initial epub: $e');
+    }
   }
 
   @override

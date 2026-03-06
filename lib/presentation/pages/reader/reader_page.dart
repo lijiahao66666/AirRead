@@ -27,6 +27,32 @@ import '../../../ai/tencent_tts/tencent_tts_client.dart';
 import 'tts_web_speech.dart'
     if (dart.library.js_interop) 'tts_web_speech_web.dart';
 
+/// 解码 HTML 实体（如 &#45556;、&#x3000;），修复灵译等翻译 EPUB 中的乱码
+String _decodeHtmlEntities(String html) {
+  String s = html;
+  // 十进制 &#DDDDD; 或 &#DDDDD（无分号）
+  s = s.replaceAllMapped(RegExp(r'&#(\d{1,7});?'), (m) {
+    final n = int.tryParse(m[1]!);
+    if (n == null || n > 0x10FFFF) return m[0]!;
+    return String.fromCharCode(n);
+  });
+  // 十六进制 &#xHHHH; 或 &#xHHHH
+  s = s.replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]{1,6});?'), (m) {
+    final n = int.tryParse(m[1]!, radix: 16);
+    if (n > 0x10FFFF) return m[0]!;
+    return String.fromCharCode(n);
+  });
+  // 常见命名实体
+  const named = {
+    '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'",
+    '&nbsp;': ' ', '&ensp;': ' ', '&emsp;': ' ', '&#160;': ' ', '&#12288;': ' ',
+  };
+  for (final e in named.entries) {
+    s = s.replaceAll(e.key, e.value);
+  }
+  return s;
+}
+
 class _MeasureSize extends StatefulWidget {
   final Widget child;
   final ValueChanged<Size> onChange;
@@ -5599,7 +5625,7 @@ class _ReaderPageState extends State<ReaderPage>
       if (chapterIndex >= _chapters.length) return;
       if (!identical(_chapters[chapterIndex], chapter)) return;
       setState(() {
-        _chapterContentCache[chapterIndex] = value;
+        _chapterContentCache[chapterIndex] = _decodeHtmlEntities(value);
       });
     } finally {
       if (identical(_chapterHtmlLoading[chapterIndex], chapter)) {

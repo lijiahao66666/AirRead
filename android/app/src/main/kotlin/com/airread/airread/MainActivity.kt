@@ -1,6 +1,7 @@
 package com.airread.airread
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -13,11 +14,17 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.io.FileOutputStream
 import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "airread/local_llm"
+    private val INTENT_CHANNEL = "airread/intent"
+
+    @Volatile
+    private var pendingEpubPath: String? = null
     private val STREAM_CHANNEL = "airread/local_llm_stream"
     private val TTS_CHANNEL = "airread/local_tts"
     private val TTS_STREAM_CHANNEL = "airread/local_tts_events"
@@ -109,6 +116,61 @@ class MainActivity: FlutterActivity() {
         ttsFallbackSession = null
         ttsFallbackStarted = false
         ttsFallbackStartAtMs = 0L
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        _handleViewIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        _handleViewIntent(intent)
+    }
+
+    private fun _handleViewIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val uri = intent.data ?: return
+        val mimeType = intent.type ?: ""
+        val path = _resolveSharedFilePath(uri, mimeType)
+        if (path != null) {
+            pendingEpubPath = path
+        }
+    }
+
+    private fun _resolveSharedFilePath(uri: Uri, mimeType: String): String? {
+        val defaultExt = when {
+            mimeType.contains("epub") -> ".epub"
+            mimeType.contains("text") || mimeType.contains("plain") -> ".txt"
+            else -> ".epub"
+        }
+        return try {
+            when (uri.scheme) {
+                "file" -> uri.path
+                "content" -> {
+                    val segment = uri.lastPathSegment ?: ""
+                    val lower = segment.lowercase()
+                    val ext = when {
+                        lower.endsWith(".epub") -> ".epub"
+                        lower.endsWith(".txt") -> ".txt"
+                        else -> defaultExt
+                    }
+                    val fileName = if (lower.endsWith(".epub") || lower.endsWith(".txt")) segment else "imported_${System.currentTimeMillis()}$ext"
+                    val destFile = File(cacheDir, fileName)
+                    val copied = contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(destFile).use { output ->
+                            input.copyTo(output)
+                        }
+                        true
+                    } ?: false
+                    if (copied && destFile.exists()) destFile.absolutePath else null
+                }
+                else -> null
+            }
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Failed to resolve epub uri: $uri", e)
+            null
+        }
     }
 
     private fun ensureTts(onReady: (Boolean, String?) -> Unit) {
@@ -425,6 +487,17 @@ class MainActivity: FlutterActivity() {
                 }
             }
         )
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, INTENT_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getInitialEpubPath" -> {
+                    val path = pendingEpubPath
+                    pendingEpubPath = null
+                    result.success(path)
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, TTS_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {

@@ -215,6 +215,24 @@ class BooksProvider extends ChangeNotifier {
     }
   }
 
+  /// 从文件路径导入书籍（用于「用灵阅打开」等场景）
+  Future<Book?> importFromPath(String sourcePath) async {
+    if (kIsWeb) return null;
+    try {
+      final book = await _importer.importFile(sourcePath);
+      if (book != null) {
+        _recentlyImportedIds = [book.id];
+        _importBatchId++;
+        _books.insert(0, book);
+        notifyListeners();
+      }
+      return book;
+    } catch (e) {
+      debugPrint('Error importing from path $sourcePath: $e');
+      return null;
+    }
+  }
+
   Future<void> importBooks() async {
     // 1. Pick files first (don't show overlay yet)
     final result = await _importer.pickFiles();
