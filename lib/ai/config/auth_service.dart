@@ -42,7 +42,8 @@ class AuthService {
     _token = (prefs.getString(_kAuthToken) ?? '').trim();
     _userId = (prefs.getString(_kUserId) ?? '').trim();
     _phone = (prefs.getString(_kPhone) ?? '').trim();
-    _loggedIn = prefs.getBool(_kIsLoggedIn) ?? false;
+    final persistedLoggedIn = prefs.getBool(_kIsLoggedIn) ?? false;
+    _loggedIn = _token.isNotEmpty && (persistedLoggedIn || _userId.isNotEmpty);
 
     // 验证 token 是否仍有效
     if (_loggedIn && _token.isNotEmpty) {
@@ -57,7 +58,8 @@ class AuthService {
       }
     }
 
-    debugPrint('[Auth] init: loggedIn=$_loggedIn userId=$_userId phone=$_phone');
+    debugPrint(
+        '[Auth] init: loggedIn=$_loggedIn userId=$_userId phone=$_phone');
   }
 
   /// 发送短信验证码
@@ -132,7 +134,8 @@ class AuthService {
         }
 
         onAuthStateChanged?.call();
-        debugPrint('[Auth] login success: userId=$_userId phone=$_phone isNew=${json['isNewUser']} initialGranted=${json['initialGrantedThisTime']}');
+        debugPrint(
+            '[Auth] login success: userId=$_userId phone=$_phone isNew=${json['isNewUser']} initialGranted=${json['initialGrantedThisTime']}');
         return AuthResult(
           success: true,
           balance: balance,
@@ -171,11 +174,11 @@ class AuthService {
       if (resp.statusCode == 401) {
         return null; // Token expired
       }
+      throw Exception('Unexpected profile status: ${resp.statusCode}');
     } catch (e) {
       debugPrint('[Auth] getProfile error: $e');
       rethrow;
     }
-    return null;
   }
 
   /// 退出登录
@@ -242,8 +245,10 @@ class AuthResult {
   final String? error;
   final int? balance;
   final bool isNewUser;
+
   /// 本次登录是否赠送了初始积分（仅首次登录或从未领取过的账号）
   final bool initialGrantedThisTime;
+
   /// 本次赠送的积分数（从 config 读取，仅当 initialGrantedThisTime 时有值）
   final int? initialGrantPoints;
 

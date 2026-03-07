@@ -17,6 +17,7 @@ class BooksProvider extends ChangeNotifier {
   // Animation Control
   List<String> _recentlyImportedIds = [];
   int _importBatchId = 0;
+  int _booksLoadRequestId = 0;
 
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
   final WebDatabaseHelper _webDbHelper = WebDatabaseHelper.instance;
@@ -40,6 +41,10 @@ class BooksProvider extends ChangeNotifier {
 
   BooksProvider() {
     loadBooks();
+  }
+
+  void _invalidatePendingLoads() {
+    _booksLoadRequestId++;
   }
 
   void toggleSelectionMode() {
@@ -171,6 +176,7 @@ class BooksProvider extends ChangeNotifier {
       });
 
       if (newBooks.isNotEmpty) {
+        _invalidatePendingLoads();
         _loadingMessage = '正在保存...';
 
         // Update Animation State
@@ -196,22 +202,28 @@ class BooksProvider extends ChangeNotifier {
   }
 
   Future<void> loadBooks() async {
+    final requestId = ++_booksLoadRequestId;
+    var applyResult = true;
     _isLoading = true;
     _recentlyImportedIds = []; // Clear animation state on reload
     notifyListeners();
 
     try {
-      if (kIsWeb) {
-        // Load from Web IndexedDB
-        _books = await _webDbHelper.getAllBooks();
-      } else {
-        _books = await _dbHelper.getAllBooks();
+      final loadedBooks = kIsWeb
+          ? await _webDbHelper.getAllBooks()
+          : await _dbHelper.getAllBooks();
+      if (requestId != _booksLoadRequestId) {
+        applyResult = false;
+        return;
       }
+      _books = loadedBooks;
     } catch (e) {
       debugPrint('Error loading books: $e');
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (applyResult && requestId == _booksLoadRequestId) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -221,6 +233,8 @@ class BooksProvider extends ChangeNotifier {
     try {
       final book = await _importer.importFile(sourcePath);
       if (book != null) {
+        _invalidatePendingLoads();
+        _isLoading = false;
         _recentlyImportedIds = [book.id];
         _importBatchId++;
         _books.insert(0, book);
@@ -246,6 +260,7 @@ class BooksProvider extends ChangeNotifier {
       try {
         final newBooks = await _importer.processPickedFiles(result);
         if (newBooks.isNotEmpty) {
+          _invalidatePendingLoads();
           // Update Animation State
           _recentlyImportedIds = newBooks.map((b) => b.id).toList();
           _importBatchId++;

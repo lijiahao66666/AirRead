@@ -22,7 +22,8 @@ class BookshelfPage extends StatefulWidget {
   State<BookshelfPage> createState() => _BookshelfPageState();
 }
 
-class _BookshelfPageState extends State<BookshelfPage> {
+class _BookshelfPageState extends State<BookshelfPage>
+    with WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
@@ -31,6 +32,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // System UI mode handled globally in main.dart to ensure consistency
     // 延迟检查应用更新（Android）
     Future.delayed(const Duration(seconds: 3), () {
@@ -42,10 +44,21 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    final booksProvider = Provider.of<BooksProvider>(context, listen: false);
+    unawaited(booksProvider.loadBooks());
+    if (!kIsWeb) {
+      unawaited(_checkInitialEpub());
+    }
+  }
+
   Future<void> _checkInitialEpub() async {
     if (!mounted) return;
     try {
-      final path = await _intentChannel.invokeMethod<String>('getInitialEpubPath');
+      final path =
+          await _intentChannel.invokeMethod<String>('getInitialEpubPath');
       if (path == null || path.isEmpty || !mounted) return;
       final booksProvider = Provider.of<BooksProvider>(context, listen: false);
       final book = await booksProvider.importFromPath(path);
@@ -55,14 +68,17 @@ class _BookshelfPageState extends State<BookshelfPage> {
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
                 ReaderPage(bookId: book.id),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
               const begin = Offset(0.0, 1.0);
               const end = Offset.zero;
               const curve = Curves.easeInOutCubic;
-              var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+              var tween =
+                  Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
               return FadeTransition(
                 opacity: animation,
-                child: SlideTransition(position: animation.drive(tween), child: child),
+                child: SlideTransition(
+                    position: animation.drive(tween), child: child),
               );
             },
             transitionDuration: const Duration(milliseconds: 500),
@@ -76,6 +92,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
   }
@@ -226,13 +243,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                 child: TextField(
                                   controller: _searchController,
                                   onChanged: _onSearchChanged,
-                                  style:
-                                      TextStyle(color: scheme.onSurface),
-                                  contextMenuBuilder: (context, editableTextState) {
-                                    final List<ContextMenuButtonItem> buttonItems =
-                                        editableTextState.contextMenuButtonItems;
+                                  style: TextStyle(color: scheme.onSurface),
+                                  contextMenuBuilder:
+                                      (context, editableTextState) {
+                                    final List<ContextMenuButtonItem>
+                                        buttonItems = editableTextState
+                                            .contextMenuButtonItems;
                                     // 仅保留基础编辑功能，过滤掉 Android 可能出现的 Share/SearchWeb 等
-                                    buttonItems.removeWhere((ContextMenuButtonItem buttonItem) {
+                                    buttonItems.removeWhere(
+                                        (ContextMenuButtonItem buttonItem) {
                                       return buttonItem.type !=
                                               ContextMenuButtonType.cut &&
                                           buttonItem.type !=
@@ -242,8 +261,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                           buttonItem.type !=
                                               ContextMenuButtonType.selectAll;
                                     });
-                                    return AdaptiveTextSelectionToolbar.buttonItems(
-                                      anchors: editableTextState.contextMenuAnchors,
+                                    return AdaptiveTextSelectionToolbar
+                                        .buttonItems(
+                                      anchors:
+                                          editableTextState.contextMenuAnchors,
                                       buttonItems: buttonItems,
                                     );
                                   },
@@ -346,8 +367,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                               ),
                             )
                           : GridView.builder(
-                              padding:
-                                  const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
                               gridDelegate:
                                   SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: crossAxisCount,
