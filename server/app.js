@@ -151,9 +151,13 @@ const USERS_DIR = path.join(__dirname, 'data', 'users');
 const SMS_DIR = path.join(__dirname, 'data', 'sms');
 const TOKENS_DIR = path.join(__dirname, 'data', 'tokens');
 const STATS_DIR = path.join(__dirname, 'data', 'stats', 'daily');
-[USERS_DIR, SMS_DIR, TOKENS_DIR, STATS_DIR].forEach(d => {
+const STATS_ARCHIVE_DIR = path.join(__dirname, 'data', 'stats', 'archive');
+[USERS_DIR, SMS_DIR, TOKENS_DIR, STATS_DIR, STATS_ARCHIVE_DIR].forEach(d => {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 });
+const STATS_FLUSH_INTERVAL_MS = Math.max(1000, Number(process.env.STATS_FLUSH_INTERVAL_MS || 5000));
+const STATS_RETENTION_DAYS = Math.max(7, Number(process.env.STATS_RETENTION_DAYS || 90));
+const STATS_CLEANUP_INTERVAL_MS = Math.max(10 * 60 * 1000, Number(process.env.STATS_CLEANUP_INTERVAL_MS || (6 * 60 * 60 * 1000)));
 
 // --- 短信能力：腾讯云 SMS API ---
 function _smsFile(phone) {
@@ -376,27 +380,177 @@ function _statsFile(date) {
   return path.join(STATS_DIR, `${date}.json`);
 }
 
-function recordActivity({ userId, platform, action }) {
-  const today = new Date().toISOString().substring(0, 10);
-  const file = _statsFile(today);
-  let stats;
+let _statsCacheDate = null;
+let _statsCache = null;
+let _statsActiveUsers = new Set();
+let _statsDirty = false;
+let _statsFlushTimer = null;
+
+function _todayDate() {
+  return new Date().toISOString().substring(0, 10);
+}
+
+function _daysAgoDate(days) {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().substring(0, 10);
+}
+
+function _parseStatsFileName(name) {
+  const m = /^(\d{4}-\d{2}-\d{2})\.json$/.exec(String(name || ''));
+  if (!m) return null;
+  return { date: m[1], yearMonth: m[1].substring(0, 7) };
+}
+
+function _archiveOldStatsFiles() {
   try {
-    if (fs.existsSync(file)) {
-      stats = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    if (!fs.existsSync(STATS_DIR)) return;
+    const cutoffDate = _daysAgoDate(STATS_RETENTION_DAYS);
+    const entries = fs.readdirSync(STATS_DIR);
+    let archived = 0;
+    for (const name of entries) {
+      const parsed = _parseStatsFileName(name);
+      if (!parsed) continue;
+      if (parsed.date >= cutoffDate) continue;
+      const src = path.join(STATS_DIR, name);
+      const monthDir = path.join(STATS_ARCHIVE_DIR, parsed.yearMonth);
+      if (!fs.existsSync(monthDir)) fs.mkdirSync(monthDir, { recursive: true });
+      const dst = path.join(monthDir, name);
+      if (fs.existsSync(dst)) {
+        try {
+          fs.unlinkSync(src);
+          archived++;
+        } catch (_) {}
+        continue;
+      }
+      fs.renameSync(src, dst);
+      archived++;
     }
-  } catch (_) {}
-  if (!stats) {
-    stats = { date: today, activeUsers: [], newUsers: 0, platformBreakdown: {}, totalApiCalls: 0, totalPointsUsed: 0 };
+    if (archived > 0) {
+      console.log(`[stats] archived ${archived} file(s), keepDays=${STATS_RETENTION_DAYS}`);
+    }
+  } catch (e) {
+    console.error('[stats] archive failed:', e && e.message ? e.message : e);
   }
-  if (!stats.activeUsers.includes(userId)) {
-    stats.activeUsers.push(userId);
+}
+
+function _newStats(date) {
+  return {
+    date,
+    activeUsers: [],
+    dau: 0,
+    newUsers: 0,
+    platformBreakdown: {},
+    totalApiCalls: 0,
+    totalPointsUsed: 0,
+  };
+}
+
+function _normalizeStats(date, raw) {
+  if (!raw || typeof raw !== 'object') return _newStats(date);
+  const safe = _newStats(date);
+  if (typeof raw.date === 'string') safe.date = raw.date;
+  if (Number.isFinite(Number(raw.newUsers))) safe.newUsers = Number(raw.newUsers);
+  if (Number.isFinite(Number(raw.totalApiCalls))) safe.totalApiCalls = Number(raw.totalApiCalls);
+  if (Number.isFinite(Number(raw.totalPointsUsed))) safe.totalPointsUsed = Number(raw.totalPointsUsed);
+  if (Array.isArray(raw.activeUsers)) {
+    const seen = new Set();
+    for (const item of raw.activeUsers) {
+      const uid = String(item || '').trim();
+      if (!uid || seen.has(uid)) continue;
+      seen.add(uid);
+      safe.activeUsers.push(uid);
+    }
   }
-  stats.dau = stats.activeUsers.length;
-  if (platform) {
-    stats.platformBreakdown[platform] = (stats.platformBreakdown[platform] || 0) + 1;
+  safe.dau = safe.activeUsers.length;
+  if (raw.platformBreakdown && typeof raw.platformBreakdown === 'object') {
+    for (const key of Object.keys(raw.platformBreakdown)) {
+      const n = Number(raw.platformBreakdown[key]);
+      safe.platformBreakdown[key] = Number.isFinite(n) && n > 0 ? n : 0;
+    }
   }
-  if (action === 'api_call') stats.totalApiCalls = (stats.totalApiCalls || 0) + 1;
-  fs.writeFileSync(file, JSON.stringify(stats, null, 2), 'utf-8');
+  return safe;
+}
+
+function _loadStats(date) {
+  const file = _statsFile(date);
+  try {
+    if (!fs.existsSync(file)) return _newStats(date);
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    return _normalizeStats(date, raw);
+  } catch (_) {
+    return _newStats(date);
+  }
+}
+
+function _flushStatsSync() {
+  if (!_statsDirty || !_statsCache || !_statsCacheDate) return;
+  _statsCache.dau = _statsActiveUsers.size;
+  const file = _statsFile(_statsCacheDate);
+  try {
+    fs.writeFileSync(file, JSON.stringify(_statsCache, null, 2), 'utf-8');
+    _statsDirty = false;
+  } catch (e) {
+    console.error('[stats] flush failed:', e && e.message ? e.message : e);
+  }
+}
+
+function _scheduleStatsFlush() {
+  _statsDirty = true;
+  if (_statsFlushTimer) return;
+  _statsFlushTimer = setTimeout(() => {
+    _statsFlushTimer = null;
+    _flushStatsSync();
+  }, STATS_FLUSH_INTERVAL_MS);
+  if (_statsFlushTimer && typeof _statsFlushTimer.unref === 'function') {
+    _statsFlushTimer.unref();
+  }
+}
+
+function _ensureTodayStats() {
+  const today = _todayDate();
+  if (_statsCacheDate !== today || !_statsCache) {
+    _flushStatsSync();
+    _statsCacheDate = today;
+    _statsCache = _loadStats(today);
+    _statsActiveUsers = new Set(_statsCache.activeUsers);
+    _statsCache.dau = _statsActiveUsers.size;
+  }
+  return _statsCache;
+}
+
+function recordActivity({ userId, platform, action }) {
+  const uid = String(userId || '').trim();
+  if (!uid) return;
+  const stats = _ensureTodayStats();
+  if (!_statsActiveUsers.has(uid)) {
+    _statsActiveUsers.add(uid);
+    stats.activeUsers.push(uid);
+  }
+  stats.dau = _statsActiveUsers.size;
+  const platformKey = String(platform || '').trim();
+  if (platformKey) {
+    stats.platformBreakdown[platformKey] = (stats.platformBreakdown[platformKey] || 0) + 1;
+  }
+  if (action === 'api_call') {
+    stats.totalApiCalls = (stats.totalApiCalls || 0) + 1;
+  }
+  _scheduleStatsFlush();
+}
+
+process.on('beforeExit', _flushStatsSync);
+process.on('exit', _flushStatsSync);
+
+function _runStatsMaintenance() {
+  _flushStatsSync();
+  _archiveOldStatsFiles();
+}
+
+_runStatsMaintenance();
+const _statsCleanupTimer = setInterval(_runStatsMaintenance, STATS_CLEANUP_INTERVAL_MS);
+if (_statsCleanupTimer && typeof _statsCleanupTimer.unref === 'function') {
+  _statsCleanupTimer.unref();
 }
 
 function _pointsFile(deviceId) {
@@ -1177,14 +1331,11 @@ const server = http.createServer(async (req, res) => {
   // GET /stats/today：查询今日 DAU 统计（管理用）
   if (req.method === 'GET' && req.url === '/stats/today') {
     if (!verifyApiKey(req)) return sendJson(res, 401, { error: 'Unauthorized' });
-    const today = new Date().toISOString().substring(0, 10);
-    const file = _statsFile(today);
-    if (!fs.existsSync(file)) return sendJson(res, 200, { date: today, dau: 0, activeUsers: [], totalApiCalls: 0 });
     try {
-      const stats = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      const stats = _ensureTodayStats();
       return sendJson(res, 200, stats);
     } catch (_) {
-      return sendJson(res, 200, { date: today, dau: 0 });
+      return sendJson(res, 200, { date: _todayDate(), dau: 0, activeUsers: [], totalApiCalls: 0 });
     }
   }
 
