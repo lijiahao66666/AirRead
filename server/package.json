@@ -1,0 +1,13 @@
+{
+  "name": "airread-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AirRead server",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
