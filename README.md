@@ -1,48 +1,81 @@
-# AirRead（爱阅）
+# AirRead (智能阅读器)
 
-AirRead 是一款 AI 驱动的阅读应用，旨在提供智能、便捷的阅读体验。它结合了本地 LLM 能力和云端 AI 服务，支持多种电子书格式，并提供沉浸式的阅读环境。
+AirRead 是一款集成了 AI 能力的现代电子书阅读器，专为提升阅读体验而生。它不仅支持 EPUB 格式的流畅阅读，还通过集成大模型和语音合成技术，提供智能对话、辅助阅读和沉浸式听书功能。
 
-## 项目结构
+## ✨ 核心功能
 
-本项目采用统一的结构设计：
+- **📚 沉浸式阅读**: 支持 EPUB 格式电子书，提供舒适的排版和翻页体验。
+- **🤖 AI 辅助**:
+  - **智能对话**: 集成腾讯混元大模型 (Hunyuan) 和本地大模型 (Local LLM)，可随时与 AI 探讨书中内容。
+  - **辅助阅读**: AI 帮你总结章节大意、解释难懂词汇。
+- **🎧 听书模式**: 集成腾讯云 TTS (语音合成)，提供自然流畅的语音朗读服务，解放双眼。
+- **🌍 多语言支持**: 内置翻译功能，轻松阅读外文书籍。
+- **🎨 跨平台体验**: 基于 Flutter 开发，支持 Android、iOS、Web 和 Windows 多端运行。
 
-- **client/**: Flutter 客户端源代码。包含 Android, iOS, Web, Windows, Linux, macOS 的跨平台实现。
-  - `lib/`: 核心代码逻辑。
-  - `android/`, `ios/`, `web/` 等: 平台特定配置。
-- **server/**: Node.js 后端服务代码。负责业务逻辑和数据处理。
-- **scripts/**: 项目构建和部署脚本。
+## 🛠️ 技术栈
 
-## 技术栈
+### 客户端 (Client)
+- **框架**: Flutter
+- **语言**: Dart
+- **核心库**:
+  - `provider`: 状态管理
+  - `epubx`: EPUB 解析与渲染
+  - `sqflite`: 本地数据存储
+  - `flutter_animate`: UI 动画效果
+  - `audioplayers`: 音频播放
+  - `http`: 网络请求
 
-- **客户端**: Flutter
-  - 状态管理: `provider`
-  - 动画: `flutter_animate`
-  - 阅读引擎: `epubx`, `flutter_widget_from_html_core`, `page_flip`
-  - AI 能力: 
-    - 本地: MNN (Mobile Neural Network) 端侧推理
-    - 云端: 腾讯云 TTS (语音合成), TMT (机器翻译), Hunyuan (混元大模型)
-- **服务端**: Node.js
-- **部署**: 宝塔面板, Nginx, PM2
+### 服务端 (Server)
+- **运行环境**: Node.js
+- **功能**: 提供轻量级的数据接口和鉴权服务。
 
-## 部署指南
+## 📂 目录结构
 
-### Web 端部署
+```
+AirRead/
+├── client/           # Flutter 客户端源代码
+│   ├── lib/
+│   │   ├── ai/       # AI 功能模块 (Hunyuan, TTS, Local LLM)
+│   │   ├── core/     # 核心组件与配置
+│   │   ├── data/     # 数据层 (Database, Models)
+│   │   └── presentation/ # UI 层 (Pages, Widgets)
+│   └── pubspec.yaml
+├── server/           # Node.js 服务端源代码
+│   ├── app.js
+│   └── package.json
+├── scripts/          # 构建与部署脚本
+└── README.md         # 项目说明文档
+```
 
-1. 运行构建脚本：
-   ```powershell
-   ./scripts/build_web_release.ps1
+## 🚀 快速开始
+
+### 客户端运行
+1. 进入客户端目录:
+   ```bash
+   cd client
    ```
-2. 构建产物位于 `client/build/web` (或脚本输出目录)。
-3. 将构建产物上传至云服务器宝塔面板的 HTML 站点目录。
-4. 访问域名：[read.air-inc.top](https://read.air-inc.top)
+2. 安装依赖:
+   ```bash
+   flutter pub get
+   ```
+3. 运行应用:
+   ```bash
+   flutter run
+   ```
 
-### 服务端部署
+### 服务端运行
+1. 进入服务端目录:
+   ```bash
+   cd server
+   ```
+2. 安装依赖:
+   ```bash
+   npm install
+   ```
+3. 启动服务:
+   ```bash
+   npm start
+   ```
 
-1. 将 `server/` 目录上传至服务器。
-2. 在服务器上运行 `npm install` 安装依赖。
-3. 使用 PM2 启动服务：`pm2 start ecosystem.config.cjs` (如果存在) 或 `npm start`。
-4. 配置 Nginx 反向代理 (参考 `server/nginx.read.air-inc.top.conf`)。
-
-### 移动端/桌面端
-
-使用 `scripts/` 目录下的相应脚本进行构建 (如 `build_android_apk_arm64_release.ps1`)。
+## 📝 开发规范
+请参考根目录下的 `product_rule.md` 了解详细的开发与部署规范。
