@@ -1,411 +1,46 @@
-# AirRead闁挎稑鐗忔导鎺楁⒓閸滃啰绀?
+﻿# AirRead 灵阅
 
-AirRead 闁哄嫷鍨粩瀛樼▔椤忓嫮鍞ㄥù?Flutter 闁?AI 閺夊牆鎳庢慨顏堟偨闂堟稓鎽嶅☉鏃撶畵濡插嫮鎷犵拠鍙夌彜闁挎稑鏈弫顕€骞?Android / iOS / Web 濞戞挸顦遍顒勫Υ閸屾氨鏆婇柟缁樺姃缁剁數绮欓崘鑼毎闁?EPUB/TXT 闂傚啫鎳撻鐗堟媴閹捐崵宕ｉ柨娑樿嫰閼荤喓浜搁崱娆戝€抽悹鍥ㄥ灟閳ь兛妞掗崡宕囨嫚婵犳碍锛栫紒娑欐煣缁楀矂寮靛Δ鍕靛殺闁煎疇妫勬慨蹇涘极閺夋垶鍊ら柛鎺嶅嵆濡插嫮鎷犵紒妯笺偊缂佸顑勯懙鎴﹀Υ?
+AirRead 是一款 Flutter 多端阅读应用，提供 EPUB/TXT 阅读与朗读能力，并配套轻量服务端用于配置/状态输出。
 
-![Platform](https://img.shields.io/badge/Platform-Android%20|%20iOS%20|%20Web-blue)
-![Flutter](https://img.shields.io/badge/Flutter-%3E%3D3.22.0-02569B)
-![License](https://img.shields.io/badge/License-MIT-green)
+## Features
+- EPUB/TXT 阅读
+- TTS 朗读
+- Flutter 多端（Android/iOS/Web）
+- 轻量 Node.js 服务端（配置/健康检查）
 
----
-
-## 闁告梻鍠曢崗妯侯潡閸屾繍娼?
-
-- 闂傚啫鎳撻鐗堟媴閹捐崵宕ｉ柨娑欑閺侇噣骞?EPUB/TXT闁挎稑濂旂€靛本锛愬Ο鍦憿閻庢稒銇炵紞瀣媼閸撗呮瀭闁挎稑鐡楤K 缂傚倹鐗滈悥婊堟嚊椤忓嫬袟閻犲洤妫楅崺?
-- 濞戞棑闄勯悘锔界▔鎼粹槅鍤ら柛蹇嬪劵缁变即寮崶锔筋偨閻庣數鍘ч崣鍡涘Υ娴ｅ嘲濮涢柡瀣椤撴悂鎮堕崱鎰ㄥ亾娓氣偓濡插嫮鎷犻弰蹇曠閹艰揪缂氱粭宀勫嫉椤掆偓濠€瀵糕偓娑櫭崑?
-- 缂傚牊妲掗惁褔鏁嶅顓犵劷婵炲顭堢槐锛勭礄閺勫繒妲柨娑樼墛濠р偓闁革絻鍔庨悙鏇犳嫚?/ 濠㈠爢鍕€渚€宕圭€ｎ剛鍊抽悹鍥ㄥ煀缁辨岸鏁嶇仦鐐殰闁归晲绶氬Σ锕傚礆濡炲墽鐟㈢紓鍌涙尭閻°劑鏁嶅畝鍕ㄥ亾閸岀偛甯抽梻鍐ㄦ嚀椤曚即宕烽悜妯荤彲
-- 濞磋偐顥愰浼存⒒椤斿墽鎽曢柨娑欒壘閻斺偓濞存粌绨堕埀顒佺矊缂嶅宕滃澶嬵潐閻犲洩顔婄粭鍌涚▔鐎ｎ偅鐎柍銉︾箘濞堟垿姊婚鍓ф憰濞戞挸娴烽悵鐑芥嚍閸屾繂鍘撮柛鏃€鍐荤槐娆愪繆閸屾稈鍋撻懡銈囨尝闁靛棔鐒﹁ぐ渚€宕ｉ弽顒夋矗闁绘劗娅㈢槐?
-- 闁圭粯甯掑ù姗€鎮介悢绋跨亣闁挎稒鐭粩鎾煥椤旂厧鐎婚柡瀣姇缂嶅宕滃鍥╁娇闁煎搫鍊搁崬瀵糕偓鍦缁辨繈鎳涢鍕楅柟缁樺姇瑜板洭宕烽悜妯荤彲妤犵偛澧庨弫鎾诲箣閹邦喚缈辩紓鍥у瑜板啴宕堕幘鍛闁衡偓椤栨稑鐦柛銉ょ矙椤ユ捇濡存担瑙勫瘻濠⒀佸妸閳ь兛鐒﹀Λ鈺侇煶椤愩倗鎼煎鑸垫皑椤帗顦版惔銏㈠闁挎稑顧€缁辨繈骞撻幇顏嗚繑闁告瑯鍨甸～瀣礌閺嶎厽顫夐悹鍥唺缂嶅顨?
-- 闁哄牊顨夐浼存晬濮橆厽鏆滈柟闀愮濠€顏嗙棯閹稿孩绠烽悹鍥︾串缁辨瑩鎳欓幑鎰靛數濞?TTS闁挎稑顦埀顑垮珐OS/Android 閻犱焦鍎抽ˇ顒勬嚊椤忓嫮鏁ㄩ柡鍫燁殙椤曚即鏁嶉崼銏ゅ厙缂?TTS闁挎稑顦粭?Web 闁哄牜鍓欏﹢鎾嫉濡ゅ嫷鍤㈤柨娑樼墛缁佽崵鎲撮崼婵囩彜 SpeechSynthesis闁挎稑顧€缁辨繈鐛懜闈涚倒濞撴碍绋掑﹢鏇犳嫚閺勫繒娈堕幖?濡澘瀚ぐ鍥嚄閽樺顫?
-- 闁哄牜鍓欏﹢瀛樺緞瑜庤啯闁搞劌顑戠槐娆戔偓鍦仱閻涙瑩鏁嶆径娑氱獥iOS/Android 缂佹棏鍨跺▔锕傚箣?MNN LLM闁挎稑鏈ぐ浣圭瑹濞戞瑨绌块柛蹇撳枦缁辨│unyuan闁挎稑顦遍柈鎾礆濡や汲渚€宕圭€ｂ晝鐟撻弶鐐舵閹绮嬮懡銈呮疇闁规亽鍔庨幃?
-- 闁告埈鍘藉畵浣圭▔鎼达紕鏆旈柛蹇ｇ厜缁变即寮ㄩ娑樼槷闁烩晝顥愮换娑㈡晬閸粓鍤嬪ù婊冩惈閻︽垿鏌﹂妷顖滅濞戞挸绨奸崬顒勬偠閸☆厾绀勯柤濂変簻缂傛捇寮靛鍛潳闁挎稑顦悮杈╃矓瀹ュ牏娈堕柣顫妽閺岀喎顕?
-
-## 妤犵偛鍟胯ぐ瀛樼▔鎼淬劍顎欓柛?
-
-- Android闁挎稒鐭划銊︽償閹捐甯崇紓鍐惧枙缁酣骞嶉幘鍐茬樁 `arm64-v8a`闁挎稑鐗呯粭澶愬绩椤栨稑鐦?x86 婵☆垪鍓濈€氭瑩宕抽…鎺旂闁挎稑鐭傚〒鑸垫媴鐠恒劍鏆忛柣顏嗗枑濠р偓闁?ARM64 婵☆垪鍓濈€氭瑩宕?
-- iOS闁挎稒纰嶅﹢浼村捶閺夎￥浜ｆ俊顖椻偓宕団偓閿嬬閸涱喗鏆滈柟?arm64 閻犱焦鍎抽ˇ?婵☆垪鍓濈€氭瑩宕抽…鎺斿耿Intel 婵☆垪鍓濈€氭瑩宕抽妸銈囩憹闁衡偓椤栨稑鐦柡鍫墮濠€鏉懳熼垾宕団偓?
-- Web闁挎稒纰嶅﹢浼村捶閻楀牊绠烽悹鍥唺缁堕鎸ч弽銊с偦閻熸瑥鐗嗗▍?SpeechSynthesis闁挎稑鑻ぐ鍫澝硅箛姘兼綌闁革絻鍔庨悺銉╂偩?闂傚﹤鐤囨竟濠囧矗椤栨粍鏆忛柟顑啫顨涢柛婵嗙▌缁遍亶寮甸鈧﹢瀛樺緞瑜庤啯闁搞劌顑嗙敮褰掓偠閸℃ɑ鐣☉鎾崇У閺侇噣骞?
-
----
-
-## 妫ｅ啯鐣?闊浂鍋婇埀顒傚枍缁楀倿骞?(Quick Start)
-
-濠碘€冲€归悘澶嬫媴閻樺啿鍘掗煫鍥跺亰閳ь剛鍠曠换宥囨偘?AirRead闁挎稑鐭侀顒勫箰婢跺苯寮惧ù鐘劙缁楀懎顫㈤妷鈺娾偓鍐箼瀹ュ嫮绋婇柕?
-
-### 1. 闁绘粠鍨伴。銊╁礄閸℃妲?(Prerequisites)
-
-缁绢収鍠曠换姘媴閻樺灚鐣辩€殿喒鍋撻柛娆愬灩楠炲棙鏅堕崘銊ュ殥閻庣懓顦抽ˉ濠囨晬?
-*   **Flutter SDK**: 闁绘鐗婂﹢?`>= 3.22.0`
-*   **Dart SDK**: 闂佹澘绉撮〃婊堟偋閸喐鎷?
-*   **Android Studio / VS Code** (闁活潿鍔嬬花顒€顕ｉ埀顒勫矗?
-*   **Xcode** + **CocoaPods**: iOS 鐎殿喒鍋撻柛娆愬灥缁烩偓闂傚洠鍋撻柨娑樼墔缁酣姊?macOS闁挎稑鐣璼udo gem install cocoapods`闁?
-
-### 2. 闁兼儳鍢茶ぐ鍥ㄧ閿濆洨鍨?
-
+## Quick Start
+### App
 ```bash
-git clone https://github.com/lijiahao66666/AirRead.git
-cd AirRead
 flutter pub get
+flutter run
 ```
 
-### 3. 闂佹澘绉堕悿?API 閻庨潧妫濋幐?(闂佹彃绉烽々?
-AirRead 闁汇劌瀚﹢顏嗙棯?AI 闁煎疇妫勬慨蹇涙晬閸縿浜ｆ俊顖椻偓宕団偓鐑芥⒒椤斿墽鎽?缂傚牊妲掗惁褔濡存担鍛婅含缂?TTS 缂佹稑顧€缁辨碍绗熷┑濠勵洬闁煎灚宕橀鍡樼閹寸偞绠涢柛鏂呮壋鍋撻崒娆戠☉闁告瑯鍨禍鎺楁焻婢跺顏?**闊浂鍋婇埀顒傚枍缂嶅顨ョ仦鐏镐礁顕?* 闁?**閻庣懓顦崣蹇涙焾閵娧嗩唹婵☆垪鈧磭纭€**闁?
-
-#### 妫ｅ啫褰忛柨?闊浂鍋婇埀顒傚枍缂嶅顨ョ仦鐏镐礁顕?(闁规亽鍔忓畷妯侯嚕閳ь剟宕ｉ幋锝傚亾閸涱剟鍤嬪ù婊嗘〃婵炲洭鎮?
-闁烩晛鐡ㄧ敮鎾捶?App 閻犱礁澧介悿鍡樼▔椤擄紕缈婚柛蹇嬪劚閻︽垿鏌﹂妷顖滅闁哄啰濞€濞撳爼鏌堥妸褑顔夐柛姘捣椤忣剟濡?
-
-1.  婵炲鍔岄崬?[闁煎灚宕橀鍡樼閹达絽顦╅柛娆戯功(https://cloud.tencent.com/) 妤犵偠娉涚槐鎴︽焻?**婵烇絽鍢查崢鎾村緞瑜庤啯闁?* 闁?*閻犲浂鍙冮悡鍫曞触閸喎鐏?(TTS)** 闁?**闁煎灚宕橀鍡涘嫉閸濆嫭鐝ょ紓鍫熸閻?* 闁哄牆绉存慨鐔煎Υ?
-2.  闁兼儳鍢茶ぐ鍥ㄦ媴閻樺灚鐣?`SecretId` 闁?`SecretKey` ([閻犱礁娼″Λ鍓佲偓闈涙閹告粓骞掕閸╂宕ｉ惂?https://console.cloud.tencent.com/cam/capi))闁?
-3.  缂傚倹鐗為惁褔鐛幆鎵閻?App (閻熸瑤妞掔粭鍛村棘?闁?
-4.  闁瑰灚鎸哥槐?App闁挎稑鐭佺换姗€宕?**閻犱礁澧介悿?-> API 閻犱礁澧介悿?*闁挎稑鑻敐鐐哄礂閵夈倗绋戦柣?`SecretId` 闁?`SecretKey` 闁告鍟胯ぐ鑼博鐎ｎ亜绁ù锝堟硶閺併倝濡?
-
-#### 妫ｅ啫褰欓柨?閻庣懓顦崣蹇涙焾閵娧嗩唹婵☆垪鈧磭纭€ (闁规亽鍔忓畷姗€宕楅鈧槐鎴﹀礆閸℃绲哄ù锝堟硶閺?
-濠碘€冲€归悘澶嬫媴閻樹警鍚€闁告帗甯掗惃?App 闁告帒妫楄ぐ鍌滅磼濞嗗海閾傚ù婊嗘〃婵炲洭鎮介…鎺旂鐎点倝缂氶鍛存焻濮樺磭绠栭柛姘捣椤忣剚绂掗敐鍥ㄥ€為柡鍫濈Т婵喖姊鹃幇顖涱棏閻庨潧妫濋幐婊堟晬鐏炲€熷珯闁革负鍔庣槐顏嗘嫚閹寸偞顦ф繛澶堝妼閸欏棙绂掗敐鍥ㄥ€為柛锔芥緲濞煎啴濡?
-*閻犲洤鍢插顒勬嚀閸愩劍鍊甸柡鍌氭川濞?[闁虫垝绶ょ粭?闁告艾娴烽顒勫嫉瀹ュ懎顫(#-闁告艾娴烽顒勫嫉瀹ュ懎顫?server) 缂佹梻濮炬俊顓㈠Υ?
-
----
-
-### 4. 缂傚倹鐗為惁褎绋夋惔銈囩閻?(Run on Device)
-
-闁宠法濯寸粭?**婵炲鍔嶉崜?*闁挎稒姘ㄩ弫杈ㄧ鎼淬劍鑲犻柟瀛樺姃缁?MNN 闁哄牜鍓欏﹢瀛樺緞瑜庤啯闁搞劌顑呯花閬嶆晬瀹€鈧簺闁告柣鍔庨顒佺閸涱喗鏆滈柟?**ARM64 闁哄鍩栭悗?* 闁汇劌瀚鏇熷緞閸ャ儮鍋?
-
-#### 妫ｅ喚妯?Android
-
-1.  鐎殿喒鍋撻柛姘煎灡婢ф粓寮甸搹瑙勭暠 **鐎殿喒鍋撻柛娆愬灱閳ь剙鎳忚啯鐎?* 妤犵偠娉涢幆搴ㄦ偨?**USB 閻犲鍟抽惁?*闁?
-2.  閺夆晝鍋炵敮鎾箥鐎ｎ偅绨氶柛鎺撳閺佹悂鎳橀幋娆屽亾?
-3.  閺夆晜鍔橀、鎴﹀川閹存帗濮㈤柨?
-    ```bash
-    flutter run
-    ```
-    Release 闁瑰灚鎸哥€垫鎷犲畡鏉挎闁兼澘鍟╃粭鍛村棘閸モ晜鐣?[妫ｅ啯鎲?闁瑰灚鎸哥€垫﹢宕ｉ幋婵堫伌](#-闁瑰灚鎸哥€垫﹢宕ｉ幋婵堫伌-release-build)闁?
-
-#### 妫ｅ啫纾?iOS
-
-1.  閺夆晜绋戦崣?iOS 闁烩晩鍠栫紞宥団偓鐟邦槼椤ュ﹥绗熷┑濠勵洬闁?
-    ```bash
-    cd ios
-    pod install
-    cd ..
-    ```
-2.  濞达綀娉曢弫?Xcode 闁瑰灚鎸哥槐?`ios/Runner.xcworkspace`闁?
-3.  闂佹澘绉堕悿鍡欑驳閹勫€?(Signing)闁?
-    *   闁绘劗鎳撻崵顔碱啅閿旀寧娅?`Runner` 濡炪倕婀卞ú?-> `TARGETS Runner` -> `Signing & Capabilities`闁?
-    *   闁?`Team` 濞戞挸顑嗘刊鍝勵浖閸℃洝鍘梺顐㈩槹鐎氥劍鎷呴悩鍨暠 Apple ID (濠碘€冲€归悘澶愬及椤栨瑩鍤嬪ù婊冩惈缁辨垿宕ｉ幋锝傚亾閸滃啰绀夐柛娆樺灥閸忔﹢妫侀埀顒傛啺娴ｇ晫绠鹃柟鎭掑劤濠€锟犲嫉閸濆嫯瀚欏ǎ鍥ｂ偓鍙夊床閻犲洣妞掗崝?闁?
-4.  閺夆晝鍋炵敮?iPhone闁挎稑鐭傞埀顒€顦扮€氥劍鎷呴悩鍨暠閻犱焦鍎抽ˇ顒佹媴濠娾偓鐠愮喐娼婚幇顖ｆ斀闁烩晩鍠楅悥锝夊Υ?
-5.  闁绘劗鎳撻崵?Xcode 濡炪倕鐖奸崕鎾儍?闁虫槒顔愮粭?閺夆晜鍔橀、鎴﹀箰婢舵劖灏﹂柨娑樻湰閸ㄣ劑宕烽妸褏鐭掔紒鏃戝灡婢х晫鎮板畝瀣獥
-    ```bash
-    flutter run
-    ```
-    *(濡絾鐗楅濂稿捶閵娧勫焸闁哄牓缂氱换宥囨偘鐏炶棄璁查柤鍏呯矙濞撳墎鎲版担鍛婅含闁归潧顑嗗┃鈧?"閻犱礁澧介悿?-> 闂侇偅姘ㄩ弫?-> VPN濞戞挸姘﹂鏇熷緞閸モ晩鍚€闁? 濞戞搩鍘烘穱濠冪鐠佸磭绋戦柣銊ュ缁辨垿宕ｉ幋锝傚亾閸涙壆妲堝☉?*
-
----
-
-## 妫ｅ啯鎲?闁瑰灚鎸哥€垫﹢宕ｉ幋婵堫伌 (Release Build)
-
-濡炪倕婀卞ú鎵焊閸℃鍩楅柣顫妿濞?Release 闁瑰灚鎸哥€垫﹢宕ｉ崒娑欐闁衡偓閼稿灚娈愰柛鎺楊暒缁?`scripts/` 闁烩晩鍠栫紞宥夋儍閸曨喖澹栭柡鍫厸閼垫垿鏁嶉崼婵嗙樁闁?`--obfuscate`闁靛棔姊?-split-debug-info` 濞寸姰鍎卞?API 濞寸媴绲块幃濠囧捶閺夋寧绲绘繛澶堝妼閸欏棛绮垫径娑氱闁?
-
-> **缂備胶鍠嶇粩鎾煀瀹ュ洨鏋?*闁挎稒鐡檈b / Android / iOS 闁稿繗浜弫?`scripts/build_config.ps1`闁靛棗鍊搁ˇ顒€顩奸崼婵嗩枀閻?`$UseIpMode = $true`闁挎稑鑻ˇ顒€顩奸崼婵囧€靛☉?`$false`闁靛棔鍫狾S 闁?`build_ios_ipa_release.sh` 闁?`USE_IP_MODE` 闂傚洠鍋撻柛姘湰椤掔偞绌遍鑺ユ毉闁?
-
-### Android
-
-*   **ARM64 APK (Windows / PowerShell)**闁?
-    ```powershell
-    pwsh ./scripts/build_android_apk_arm64_release.ps1
-    ```
-*   **AAB (Windows / PowerShell)**闁?
-    ```powershell
-    pwsh ./scripts/build_android_aab_release.ps1
-    ```
-    > 闂傚洠鍋撻悷?PowerShell 7闁挎稑娼塸wsh`闁挎稑顦埀?
-
-### iOS
-
-*   **IPA (macOS / bash)**闁?
-    ```bash
-    bash ./scripts/build_ios_ipa_release.sh
-    ```
-    > iOS 闁瑰灚鎸哥€垫ɑ绂掑澶嬩粯閻熸洑绀佸﹢?Xcode 濞戞搩鍘奸悾顒勫箣閹邦噮鍔柛姘Ч閸樸倗绱旈琛″亾?
-
-### Web
-
-*   **Web (Windows / PowerShell)**闁?
-    ```powershell
-    pwsh ./scripts/build_web_release.ps1
-    ```
-    濞存籂鍛挅闁?`build/web/`闁挎稑鐭傞崕瀵哥磾閹绘帒鐓傚ù鐘电帛閸撲即妫冨▎鎰ㄥ亾娴ｇ懓顫ㄧ紒鐘偓鍐茬ギ闁告瑯鍨埀?
-
----
-
-## 妫ｅ啯绀堥柨?闁瑰灈鍋撻柡鍫灣缁繘鎳?(Tech Details)
-
-### 闁瑰灈鍋撻柡鍫灡閻?
-*   **Framework**: Flutter (Dart)
-*   **State Management**: Provider
-*   **Database**: Sqflite (Android/iOS/Web)
-*   **Native Modules**:
-    *   **C++**: 闂傚棗妫欓崹?MNN (Mobile Neural Network) 闁规亽鍔庨幃濠傤嚕閺囩喐鎯?
-    *   **JNI / FFI**: Dart 濞?Native 閻忕偛鍊诲▓鎴烆殗濡粯娅忛梺顐ｇ煯娣?
-
-### 闁烩晩鍠栫紞宥囩磼閹惧鈧?
-```
-lib/
-闁宠澹曢弨銏ゅ煘閳?ai/                 # AI 闁哄秶顭堢缓鎯熼垾铏仴 (Tencent Hunyuan Online, TTS, Local MNN)
-闁宠澹曢弨銏ゅ煘閳?core/               # 闁稿繈鍔岄惇顒勬煀瀹ュ洨鏋?(Theme, Constants)
-闁宠澹曢弨銏ゅ煘閳?data/               # 闁轰胶澧楀畵浣轰沪?(Database, Models, Parsers)
-闁宠澹曢弨銏ゅ煘閳?presentation/       # UI 閻?
-闁?  闁宠澹曢弨銏ゅ煘閳?pages/          # 濡炪倗鏁诲?(濞戞棑闄勯悘? 闂傚啫鎳撻浼村闯?
-闁?  闁宠澹曢弨銏ゅ煘閳?widgets/        # 闂侇偅姘ㄩ弫銈囩磼閸曨亝顐?
-闁?  闁宠鏌￠弨銏ゅ煘閳?providers/      # 闁绘鍩栭埀顑胯兌椤撴悂鎮?
-闁宠鏌￠弨銏ゅ煘閳?main.dart           # App 闁稿繈鍎辫ぐ?
-```
-
----
-
-## 闁虫垝绶ょ粭?闁告艾娴烽顒勫嫉瀹ュ懎顫?(Server)
-
-AirRead 闁告艾娴烽顒勫及椤栨瑧顏卞☉鎿冧海娴溿倝鏌?Node.js 闁哄牆绉存慨?(`server/app.js`)闁挎稑鐭傞崕瀵哥磾閹绘帗韬柤鍨礃椤斿棙绂嶉幋锝勬唉闂佹彃绻戝﹢鍥礉閳ヨ櫕鐝ゅ☉鎾愁煭缁辨繈骞撻幇顏嗚繑濞寸姰鍎扮粭鍛存嚄閽樺顫旈柨?
-
-| 缂佹棏鍨抽崑?| 闁哄倽顫夌涵?| 閻犲洤鐡ㄥΣ?|
-|------|------|------|
-| `/` `/health` | GET | 闁稿鍎遍幃宥呂涢埀顒勫蓟?|
-| `/config` | GET | 閺夆晜绮庨埢濂告煀瀹ュ洨鏋傞柨娑樼墢椤掔兘宕氶弶璺ㄧ；闁稿繒鍋ㄩ埀顑胯兌婢ф寮甸浣圭函闁哄倹澹嗛悺鎴︽晬?|
-| `/points/init` | POST | 闁告帗绻傞～鎰板礌閺嶎剦鍟庡璺烘川琚ч柛鎺戞４缁辨瑦锛冮弽顭戝仹閻犙呭█閳ь兛绶ょ槐婵嬪嫉瀹ュ懎顫ょ紒鏃戝灦濡插鏌屽鍜佹Щ闁?|
-| `/points/balance` | POST | 闁哄被鍎撮妤冪矓椤栨艾鐎诲ù锝嗙懇椤?|
-| `/checkin` | POST | 婵絽绻戝Λ鈺冪驳閹冪厒闁挎稑鐗婂﹢鍥礉閿涘嫷浼傞梻鍐╃叀閸ｅ憡寰勫蹇曠 |
-| `/checkin/status` | POST | 闁哄被鍎撮妤佺婵犲啯锛夌紒娑欏劤閸╁矂鎮╅懜纰樺亾?|
-| `/auth/sms/send` | POST | 闁告瑦鍨块埀顑胯兌閻擃厽绌遍敓鐘靛矗閻犲洣鑳堕悥婊堟晬?0s闂傚嫭鍔欓。鍫曟晬鐏炲墽妲ㄩ柡?0闁哄鈧尙鐟愰梻鍕姧缁?|
-| `/auth/sms/verify` | POST | 濡ょ姴鐭侀惁澶愭儘娴ｇ儤顏㈢憸?婵炲鍔岄崬浠嬫晬閸絽娈伴柛鏂诲姀缁鸿偐绮旂猾鈺iceId缂佸鍨伴崹搴ㄥ礆閻ㄥ炒erId闁?|
-| `/auth/profile` | POST | 闁兼儳鍢茶ぐ鍥偨閵婏箑鐓曞ǎ鍥ｅ墲娴煎懘鏁嶉崼銉︿粯token闁?|
-| `/auth/logout` | POST | 闂侇偀鍋撻柛鎴ｆ濞呫儴銇愰弴顏嗙闁告艾锕弨顣歰ken闁?|
-| `/stats/today` | GET | 濞寸姴锕ュΛ鈺呭籍閵夛附銇熺紓浣哄枙椤撴悂鏁嶉崼銏╁悁闁荤偛妫涢弫銈夋晬?|
-| `/` | POST | API 濞寸媴绲块幃濠囨晬閸喕绌块柛?TMT/TTS闁挎稑顧€缁辨繈宕ラ銇版繈宕氶崱妯衡拸閻?|
-
-### 闂佹潙鐡ㄥ?
-
-- 閻庡箍鍨洪崺娑氱博椤栨繍鍤炴慨鐟板€搁妵?`X-Api-Key` 闁圭厧鎼悽顐︽濞嗘劏鍋?API Key
-- 閻庡箍鍨洪崺娑氱博椤栨繍鍤炴慨鐟板€搁妵?`X-Device-Id` 闁圭厧鎼悽顐ゆ媼閹屾У闁哥儐鍨粩鎾冀閸ヮ亞妲曢柨娑樻箯ndroid: ANDROID_ID, iOS: identifierForVendor, Web: UUID闁?
-- 閻庡箍鍨洪崺娑氱博椤栨繍鍤炴慨鐟板€搁妵?`X-Auth-Token` 闁圭厧鎼悽顐︽儌鐠囪尙绉縯oken闁挎稑鐗忓▍銉ㄣ亹閺囩偞鍊甸柤濂変簻婵晛鈻旈妸銉ュ汲闁?
-- 闁哄牆绉存慨鐔虹博椤栫偐鍋撳宕囩畺 `process.env.API_KEY` 闁哄稄绻濋悰娆撴晬鐏炶偐鐟濋柛鏍х秺閸樸倖娼婚弬鎸庣 401
-- 缂佸鍨伴崹搴㈠濡搫甯ョ紓浣瑰灥閻?userId闁挎稑鐗婂鐢告嚊閻氱磤ken闁挎稑顧€缁辨紵allback 闁?deviceId
-
-### 闁活潿鍔嶉崺娑㈡儌鐠囪尙绉垮ù锝嗘尵闁?
-
-- 闁归潧顑嗗┃鈧柛?+ 闁活収鍘烘穱濠冾殽瀹€鍐闁活喕鑳跺▍銉ㄣ亹閺囶亞绀勯柤鍨礃椤斿棙绂?SMS闁?
-- 闁哄牜浜濋弫鐐哄礃鐏炴儳顤侀柡鍫濇惈瑜板潡鎳涢鍕楅柛鎺撶☉缂傛挾鎷归敃鈧ぐ?
-- 闁谎嗩嚙缂嶅秹宕ユ惔锛版繈宕氶崱娆戞嫧閻庤鑹鹃崺?userId闁挎稑鏈弫顕€骞愭担鑺ョ《閻犱焦鍎抽ˇ顒勫触鐏炵虎鍔?
-- 濡絾鐗楅濂告儌鐠囪尙绉块柤濂変簻婵晝浜?deviceId 濞戞挸锕﹀▓鎴犵矓椤栨艾鐎婚弶鈺€鑳朵簺闁?userId
-- 濞达綀娉曢弫銈嗙▔椤忓啯鐪介悗闈涙閹告粓鎯冮崟顓熸殢闁规挳鏀卞Λ銈夋閳ь剟鎯傜拠鑼Э
-
-### 缂佸鍨伴崹搴㈡媴閹惧爼鍏?
-
-- 缂佸鍨伴崹搴ㄥ极閻楀牆绁﹂悗娑櫭崑宥夊捶閵婏附绠涢柛鏂衡偓铏彜 `server/data/points/{userId闁瑰瓨娼別viceId}.json`
-- 闁告帗绻傞～鎰矓椤栨艾鐎婚悹褏濞€閳ь兛闄嶉埀顑胯兌椤掔兘宕氶弶娆炬闁告柧绌堕埀顑胯兌閻愭洜鎷?闂傚偆鍠氶悺鐔煎箥閿濆牆鐎柛褍娲ㄩ弫閬嶅嫉瀹ュ懎顫ょ紒鏃戝灡鐢爼宕?
-- 闁告鐡曞ù鍥煂瀹ュ牜妫呭☉鎾崇С缁辨壆鈧絻澹堥崵褏绮旈姘€婚梺鎻掔Ф閻ゅ棝骞嬮弽顓炴濠㈣泛绉风粋鎺楁焻娓氬﹦绀凙ndroid/iOS 濞达綀娉曢弫銈囨兜椤戞寧顐?ID闁?
-- 闁谎嗩嚙缂嶅秹宕ユ惔锛版繈宕氶崱姘《閻犱焦鍎抽ˇ顒勫触鐏炵虎鍔?
-
-### 闁轰胶澧楀畵浣衡偓娑櫭崑宥夋晬閸喐鐎ù鐘插闁绱掗悤鍌滅
-
-| 闁烩晩鍠栫紞?| 闁告劕鎳庨?|
-|------|------|
-| `data/points/{id}.json` | 缂佸鍨伴崹搴㈡媴濞嗘搩鏉洪柛婊冪灱椤掔兘宕氶幏宀婂敹鐟?|
-| `data/users/{phone}.json` | 闁活潿鍔嶉崺娑欑┍閳╁啩绱?|
-| `data/tokens/{token}.json` | token闁愁偅濮磗erId 闁哄嫮濮撮惃?|
-| `data/sms/{phone}.json` | 濡ょ姴鐭侀惁澶愭儘娴ｅ嘲顦查柡鍐硾閻°劑宕?|
-| `data/stats/daily/{date}.json` | 闁哄啨鍎插璺ㄧ磼閻旀椿鍚€ |
-
-### 闁哄牆绉存慨鐔煎闯?.env 闂佹澘绉堕悿?
-
+### Server
 ```bash
-PORT=9000
-TENCENT_SECRET_ID=濞达絿濮峰▓鎴︽嚈閹规劦鍞靛ù婊勫弨ecretId
-TENCENT_SECRET_KEY=濞达絿濮峰▓鎴︽嚈閹规劦鍞靛ù婊勫弨ecretKey
-API_KEY=f56dc8fc812647992db74ee0a419b3b2b7171b669cb2046caa53e19f3c564c73
-
-# 闁活収鍘烘穱濠囨儌鐠囪尙绉块柨娑樼墣閸氭鎷嬮娆戦殬SMS闁?
-SMS_APP_ID=濞达絿濮峰▓鎴︽儗椤撴繀绻嗛幖瀛樻⒒閺侇棷D闁挎稑鐗嗛々?400xxxxxx闁?
-SMS_SIGN=闁诲繒鏁诲Σ?
-SMS_TEMPLATE_ID=濞达絿濮峰▓鎴︽儗椤撴繀绻嗘俊顖楀墲濠㈡キD闁挎稑鐗嗛々?234567闁?
+cd server
+cp .env.example .env
+npm install --omit=dev
+pm2 start ecosystem.config.cjs
 ```
 
-### 闂侇喓鍔庣拋鍙夌▔鎼淬垺绾柡鍌滃缁侊妇绮?
+## Build
+- Web: `scripts/build_web_release.ps1`
+- Android: `scripts/build_android_apk_arm64_release.ps1`
+- iOS: `scripts/build_ios_ipa_release.sh`
 
-```bash
-# 1. 濞戞挸锕ｇ槐?server/app.js 闁告帞澧楀﹢鍥礉閳ヨ櫕鐝?
-scp -r server root@air-inc.top:/www/airread/
+## Deploy
+- Web: 将 `build/web/` 上传到站点目录
+- Server: 将 `server/` 上传到 `/www/airread/`，并运行 `pm2 start ecosystem.config.cjs`
+- Nginx: `server/nginx.read.air-inc.top.conf`
 
-# 2. 闂佹彃绉撮幆搴ㄥ嫉瀹ュ懎顫?
-ssh root@air-inc.top "pm2 restart airread"
+## Project Structure (Unified)
+- `server/`: Node backend, env template, config, PM2 config, Nginx config
+- `scripts/`: build/release scripts
+- `web/` or `build/web/`: static web build output
+- `docs/`: product and deployment notes (optional)
 
-# 3. 濡ょ姴鐭侀惁?
-curl http://read.air-inc.top/api/health   # 閹煎瓨妫佺换鎴﹀炊?OK
-curl http://read.air-inc.top/api/config   # 閹煎瓨妫佺换鎴﹀炊?JSON 闂佹澘绉堕悿?```
+Nginx config location:
+- `server/nginx.<domain>.conf`
 
-### 閺夆晜绮庨埢濂告煀瀹ュ洨鏋?(config.json)
-
-闁哄牆绉存慨鐔虹博?`server/config.json` 闁硅矇鍐ㄧ厬 App 閻炴稑濂旂拹鐔兼晬瀹€鍕垫禃婵炲棌鈧櫕鍎欓柛鏂诲姀閸ゆ粓宕濋妸褎鏅搁柟瀛樺姍缁垳鎷嬮妶鍛亾绾绐?
-
-```json
-{
-  "checkin_enabled": true,
-  "checkin_points": 5000,
-  "initial_grant_points": 500000,
-  "ad_enabled": false,
-  "ad_reward_points": 2000,
-  "ad_daily_limit": 10,
-  "purchase_enabled": false,
-  "latest_version": "1.0.0",
-  "min_version": "1.0.0",
-  "update_url": "",
-  "update_message": "",
-  "force_update": false,
-  "announcement": ""
-}
-```
-
-濞ｅ浂鍠楅弫鐓庮潰閵堝棙鐎ù鐘烘硾閹寮悩缁樹粯闂佹彃绉撮幆搴ㄥ嫉瀹ュ懎顫ら柨娑樺缁楀懎鈻庨檱椤曨剙效?`/config` 濞村吋淇洪崵婊堝礉閵婎煈鍤㈤柛娆愮墬閺屽﹪宕愮粭琛″亾?
-
----
-
-## 妫ｅ啫顕?闁糕晝鍠庨幃鏇熺▔鎼存繄鐧岀紒鐙欏啰鍘甸柛姘Х椤宕?
-
-濞戞捁顕ч悡娆撳触瀹ュ繒绐梎air-inc.top`
-
-| 濞存粌鐬兼鍥春閻旈攱鍊?| 闁活潿鍔戦埀?| 闁圭娲ら幃?|
-|----------|------|------|
-| `read.air-inc.top/api` | AirRead 闁告艾娴烽?API闁挎稑鐗嗛幃鎾斥攦閹板墎绀?| 閺夌偛顭烽崳鐑樼閹寸偞绠涢柛鏂衡偓铏彜 IP闁挎稑鐗嗛幃鎾剁博?/api 闁告瑥绉撮幃婊勭閿濆洦鍊為柛?:9000闁?|
-| `translate.air-inc.top/api` | AirTranslate 闁告艾娴烽?API闁挎稑鐗嗛幃鎾斥攦閹板墎绀?| 閺夌偛顭烽崳鐑樼閹寸偞绠涢柛鏂衡偓铏彜 IP闁挎稑鐗嗛幃鎾剁博?/api 闁告瑥绉撮幃婊勭閿濆洦鍊為柛?:9001闁?|
-| `read.air-inc.top` | AirRead Web 闁?| 闂傚牊鐟﹂埀顑跨劍婢ь厾绮婚埥鍛Nginx / 閻庤绻傞、娆撴晬?|
-| `translate.air-inc.top` | AirTranslate Web 闁?| 闂傚牊鐟﹂埀顑跨劍婢ь厾绮?|
-| `www.air-inc.top` | 濞戞捁宕甸悵?闁解偓閽樺鍕惧銈囶暜缁辨瑩宕ｉ鐐╁亾婢舵稓绀?| 闁告艾濂旂粭?|
-
-### 闂佹澘绉堕悿鍡楊潰閵夆晩鈧?
-
-#### 1. 闁煎灚宕橀鍡樼?DNS 閻熸瑱绲鹃悗钘壡庣拠鎻掝潱閻犱焦婢樼紞?
-
-闁谎嗩嚙缂?[闁煎灚宕橀鍡樼?DNS 閻熸瑱绲鹃悗浠嬪箳瑜嶉崺妤呭矗閻?https://console.cloud.tencent.com/cns)闁挎稑濂旂拹?`air-inc.top` 婵烇綀顕ф慨鐐寸閵夈倗鐟?A 閻犱焦婢樼紞宥夋晬?
-
-| 濞戞挾绮┃鈧悹浣规緲缂?| 閻犱焦婢樼紞宥囩尵鐠囪尙鈧?| 閻犱焦婢樼紞宥夊磹?| 閻犲洤鐡ㄥΣ?|
-|----------|----------|--------|------|
-| `read` | A | `濞达絿濮峰▓鎴﹀嫉瀹ュ懎顫ら柛锝傚晱P` | AirRead Web |
-| `translate` | A | `濞达絿濮峰▓鎴﹀嫉瀹ュ懎顫ら柛锝傚晱P` | AirTranslate Web |
-
-#### 2. 閻庤绻傞、娆撴閵忊剝绶查梺鏉跨Ф閻?Nginx 闁告瑥绉撮幃婊勭閿濆洦鍊?
-
-濞戞挾鍎ら惁鈩冪▔椤忓嫭鍊电紒鏃戝灡濠€鍥礉閳ュ啿鐎婚柛鎺濆亰閸樸倗绱旈鐓庡唨闁告碍鍨抽崬顒勬偠閸☆厾绐?
-
-**AirRead 闁告艾娴烽顒勬晬閸у墔ead.air-inc.top/api` 闁?`:9000`闁?*
-
-闁革负鍔岄悿鍌涚箙閺冨牊妗ㄩ柡澶娿仒閼垫垿寮弶璺ㄧ处缂傚啯鍨归悵?`read.air-inc.top`闁?*閻犱礁澧介悿?闁?闁告瑥绉撮幃婊勭閿濆洦鍊?*闁挎稑鐗愰惌鎯ь嚗?`/api`闁挎稑顧€缁?- 闁烩晩鍠楅悥?URL闁挎稒鐡猦ttp://127.0.0.1:9000`
-- 闁汇垹鐤囬?SSL 閻犲洣妞掗崝鐔兼晬鐏炶姤鍎欓柣?HTTPS
-
-**AirTranslate 闁告艾娴烽顒勬晬閸у墖ranslate.air-inc.top/api` 闁?`:9001`闁?*
-
-闁告艾濂旂粭鍌炲棘閺夎法绱︾紓鍐╁灩閻?`translate.air-inc.top`闁挎稑鑻﹢顏堝触瀹€鈧悵顖滀焊?`/api` 闁告瑥绉撮幃婊勭閿濆洦鍊為柛?`:9001`闁?
-Nginx 闂佹澘绉堕悿鍡欑矆鏉炴壆浼愰柨娑樼墔娴?AirRead 濞戞捁妗ㄧ欢銉╂晬婢舵稓绐?
-
-```nginx
-server {
-    listen 80;
-    listen 443 ssl http2;
-    server_name read.air-inc.top;
-
-    # SSL 閻犲洣妞掗崝鐔兼晬閸繄鏉哄┑澶嬫閸ゆ粓宕濋妸褜鍚€闁荤偛妫欓崹銊╁箥鐎ｎ亜袟闂佹澘绉堕悿鍡涙晬?
-    # ssl_certificate    /path/to/fullchain.pem;
-    # ssl_certificate_key /path/to/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:9000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-AirTranslate 闁告艾鐬奸幃濠囨晬鐏炴儳惟 `server_name` 闁衡偓闁稖绀?`translate.air-inc.top`闁挎稑鐣璸roxy_pass` 闁衡偓闁稖绀?`:9001`闁?
-#### 3. 閻庤绻傞、娆撴閵忊剝绶查梺鏉跨Ф閻ゅ棝妫冨▎鎰ㄥ亾娴ｈ櫣绉圭紒鏃€鐟辩槐妾檈ad.air-inc.top闁?
-
-1. 閻庤绻傞、娆撳棘閺夎法绱︾紓鍐╁灩閻?`read.air-inc.top`闁挎稑鐬肩紞澶岀博濞嗘垶绐楃憸鐗堟礃鐎垫岸宕ラ幋婵愭搐 `/www/wwwroot/read.air-inc.top`
-2. 閻?`build/web/` 闁烩晩鍠栫紞宥夋儍閸曨剙顣查柡鍫濐槹閺嬪啯绂掗張鐢电憪濞磋偐濮撮崺宀€鎷犻妷褎绐楃憸?
-3. 闁汇垹鐤囬?SSL 閻犲洣妞掗崝鐔兼晬鐏炶姤鍎欓柣?HTTPS
-
-#### 4. 闁瑰灚鎸哥€垫﹢鏌婂鍥╂瀭
-
-Web / Android / iOS 闁稿繗浜弫?`scripts/build_config.ps1`闁?
-- **濠㈣泛娲﹂、宥夊触?*闁挎稒鐡?UseIpMode = $false`闁挎稑鐗撶划顖滄媼閵堝繒绀嗛柨娑樺婵炲洭鎮?`read.air-inc.top/api`
-- **濠㈣泛娲﹂、宥夊礈?*闁挎稒鐡?UseIpMode = $true`闁挎稑濂旀繛鍥偨?`122.51.10.98/api`
-- iOS 闂傚洠鍋撻柛姘湰椤掔偞绌遍鑺ユ毉 `build_ios_ipa_release.sh` 濞戞搩鍘惧▓?`USE_IP_MODE`
-
----
-
-## 妫ｅ啯鎯?闁哄啨鍎遍悥鑸垫交閹邦喗妯?Checklist
-
-### 闁哄洤鐡ㄩ弻濠囧触鎼达綆浼傚ù鐙呯悼閻?
-
-1. 濞ｅ浂鍠楅弫?`server/app.js`
-2. 濞戞挸锕ｇ槐鍫曞礆閻楀牊绠涢柛鏂衡偓铏彜闁挎稒鐡猻cp -r server root@air-inc.top:/www/airread/`
-3. 闂佹彃绉撮幆搴ㄦ晬濮濇sh root@air-inc.top "pm2 restart airread"`
-
-### 闁告瑦鍨电粩?Android 闁哄倹澹嗘晶妤呭嫉?
-
-1. 濞ｅ浂鍠楅弫?`pubspec.yaml` 濞戞搩鍘惧▓?`version`
-2. 闁哄洤鐡ㄩ弻?`scripts/build_config.ps1` 濞戞搩鍘惧▓?`$APP_VERSION`闁挎稑鐗嗚ぐ鏌ユ焻婢舵稓绀?
-3. 閺夆晜鍔橀、?`pwsh ./scripts/build_android_apk_arm64_release.ps1`
-4. APK 濞存籂鍛挅闁?`build/app/outputs/flutter-apk/app-release.apk`
-5. 闁哄洤鐡ㄩ弻?`server/config.json` 濞戞搩鍘惧▓?`latest_version`
-
-### 闁告瑦鍨电粩?iOS 闁哄倹澹嗘晶妤呭嫉?
-
-1. 闁告艾濂旂粭鍌涚┍椤旇姤鏆柣妤€鐗婂﹢浼村矗?
-2. 闁?macOS 濞戞挸锕ㄧ换宥囨偘?`bash ./scripts/build_ios_ipa_release.sh`
-3. 濞达綀娉曢弫?Xcode / Transporter 濞戞挸锕ｇ槐鍫曟嚊?App Store Connect
-
-### 闁告瑦鍨电粩?Web 闁哄倹澹嗘晶妤呭嫉?
-
-1. 閺夆晜鍔橀、?`pwsh ./scripts/build_web_release.ps1`
-2. 閻?`build/web/` 闁告劕鎳庨鎰▔婵犱胶鐐婇柛?`read.air-inc.top` 閻庣數鎳撶花鏌ユ儎椤旇偐绉?
-3. 闁告帡鏀遍弻?CDN 缂傚倹鎸搁悺銊╂晬閸繍娲ゅù锝堟硶閺併倝鏁?
-
-### 濞ｅ浂鍠楅弫鍏兼交濠婂應鏌ら梺鏉跨Ф閻?
-
-闁烩晛鐡ㄧ敮瀵哥磽閺嶎剛甯嗛柡鍫濈Т婵喖宕抽妸銈囩憪闁?`/www/airread/server/config.json`闁挎稑鏈Λ銈夋閳ь剟鏌屽鍛剻闁?
-
----
-
-## 闁?濠㈣泛娲﹂、宥囨嫚鐎涙ɑ顫?
-
-### App 濠㈣泛娲﹂、?
-
-- Android/iOS App 濞戞挸锕ラ悘锔芥償閺冨倹鏆忛柛鐔锋缁ㄧ敻妫侀埀顒傛啺娴ｇ甯ラ悗鐟版湰閸?App 濠㈣泛娲﹂、?
-- 鐎圭寮惰ぐ浣圭閵堝拋妲垫俊妤€鐗炵槐婵堢驳婢跺﹦绐￠悗鍏夊墲閻?
-
-### 缂傚啯鍨归悵顖涘緞閸ヮ煈鏀?
-
-- 闁糕晝鍠庨幃?`air-inc.top` 濠碘€冲€归悘澶愬捶閵娿儲绂囬柛鎰噺濠€鍥礉閳ヨ櫕鐝ゅ☉鎾筹攻瑜颁焦绗?**Web 缂傚啯鍨归悵?*闁挎稑鐭傚〒鍓佹啺娴ｅ摜鏆氶柟?ICP 濠㈣泛娲﹂、?
-- **濠㈣泛娲﹂、宥夊礈?*闁挎稒鑹鹃惃?`build_config.ps1` 濞?`$UseIpMode = $true`闁挎稑鐡慞I 缂?HTML 缂佹梹鐟ч崑?`/api` 濞寸媴绲块幃濠囨晬閸儲浠橀柛?Nginx 濞戞搩鍙冮崢銈囩磾椤曞棛绀夐悷?`docs/nginx_html_site_with_api.conf`闁?
-- **濠㈣泛娲﹂、宥吤规担琛℃煠**闁挎稒鑹惧﹢顏堟嚈閹规劦鍞靛ù婊勫灦鐢爼宕氱捄鍝勯叡闁圭粯鍔掑?ICP 濠㈣泛娲﹂、宥夋偨鐎圭媭鍤為柨娑樺缁旀挳鎳?7-20 濞戞搩浜滄导鎰媴濠婂嫭锛?
-- **婵炲鍔嶉崜?*闁挎稒鑹鹃ˇ顒€顩奸崼鐔稿焸闂傚倹娼欓悡娆撳触瀹ュ嫮鐟濋柤鍐测偓鐔滄帡寮搁幇顒€鐓傜紓鍐╁灩閻濐垶鏁嶇仦绛嬫У婵℃鐗撻埀顒佷亢缁诲啴宕ユ惔銏狀枀闁告瑯鍨遍婊冾嚕韫囧海鐟愮紒?
-- 缂?API 闁规亽鍎辫ぐ娑㈠嫉瀹ュ懎顫ら柨娑樻綁api.air-inc.top`闁挎稑顦卞ú浼村礈瀹ュ鍋撳宕囩畺 IP + 缂佹棏鍨拌ぐ娑氭媼閸ф锛栭柨娑樼搼pp 缂佹棏鍨粭澶愬矗濡ゅ啰绉圭紒鏃€鐟ラˇ顒€顩奸崼婵嗩殯闁?
-
----
-
-## 妫ｅ啯鎯?閻犱胶顭堣ぐ鑼嫚?(License)
-
-闁哄牜鍓熼妴宥夋儎椤旇偐鍞ㄥù?[MIT License](LICENSE) 鐎殿喒鍋撴繝褎鍔戦埀?
-
-## 閺堝秴濮熺粩顖滄窗瑜版洜绮烘稉鈧敍?026-03閿?
-AirRead 閻ㄥ嫭婀囬崝锛勵伂閺傚洣娆㈤悳鏉挎躬缂佺喍绔撮弨鎯ф躬 `server/` 閻╊喖缍嶆稉瀣剁礉閹恒劏宕橀幐澶夌瑓闂堛垺鏌熷蹇涘劥缂冭绱?
-```bash
-scp -r server root@air-inc.top:/www/airread/
-ssh root@air-inc.top "cd /www/airread/server && pm2 start ecosystem.config.cjs"
-ssh root@air-inc.top "pm2 save"
-```
-
-閸氬海鐢婚弴瀛樻煀閺堝秴濮熺粩顖涙閿涘瞼娲块幒銉ょ瑐娴?`/www/airread/server/` 娑撳顕惔鏃€鏋冩禒璁圭礉閻掕泛鎮楅幍褑顢戦敍?
-```bash
-ssh root@air-inc.top "pm2 restart airread"
-```
-
-閺堝秴濮熺粩顖濈箥鐞涘瞼娲拌ぐ鏇窗`/www/airread/server`
-閺堝秴濮熺粩顖欏瘜闁板秶鐤嗛敍姝?www/airread/server/config.json`
-閺堝秴濮熺粩顖滃箚婢у啫褰夐柌蹇ョ窗`/www/airread/server/.env`
+Env template:
+- `server/.env.example`
