@@ -53,6 +53,14 @@ npm install
 node app.js
 ```
 
+## Deployment
+
+- Web build: run `scripts/build_web_release.ps1`.
+- Output: `client/build/web/` and `airread-web.zip` in repo root.
+- Web deploy: upload the zip or `client/build/web/` to your static HTML site.
+- Server deploy: upload `server/`, run `npm install`, then `pm2 start app.js --name airread`.
+- Config: edit `scripts/build_config.ps1` before building.
+
 ## 参考
 
 项目规范请查看 `product_rule.md`。
