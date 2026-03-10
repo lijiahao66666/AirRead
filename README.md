@@ -1,81 +1,58 @@
-# AirRead (智能阅读器)
+﻿# AirRead（灵阅）
 
-AirRead 是一款集成了 AI 能力的现代电子书阅读器，专为提升阅读体验而生。它不仅支持 EPUB 格式的流畅阅读，还通过集成大模型和语音合成技术，提供智能对话、辅助阅读和沉浸式听书功能。
+AirRead 是一款基于 Flutter 的电子书阅读器，面向 EPUB 阅读场景，内置 AI 伴读与朗读能力。客户端以书架与阅读器为核心界面，服务端提供腾讯云 AI 能力代理、积分与配置下发。
 
-## ✨ 核心功能
+## 功能概览
 
-- **📚 沉浸式阅读**: 支持 EPUB 格式电子书，提供舒适的排版和翻页体验。
-- **🤖 AI 辅助**:
-  - **智能对话**: 集成腾讯混元大模型 (Hunyuan) 和本地大模型 (Local LLM)，可随时与 AI 探讨书中内容。
-  - **辅助阅读**: AI 帮你总结章节大意、解释难懂词汇。
-- **🎧 听书模式**: 集成腾讯云 TTS (语音合成)，提供自然流畅的语音朗读服务，解放双眼。
-- **🌍 多语言支持**: 内置翻译功能，轻松阅读外文书籍。
-- **🎨 跨平台体验**: 基于 Flutter 开发，支持 Android、iOS、Web 和 Windows 多端运行。
+- 书架管理与阅读器：导入 EPUB、展示封面与作者信息、进入阅读页面。
+- AI 伴读面板：支持问答、总结、要点提取、插画提示词生成。
+- 翻译能力：支持机器翻译与大模型翻译两种模式。
+- 朗读能力：支持本地朗读与腾讯云 TTS 在线朗读。
+- 积分与登录：支持短信验证码登录、积分初始化、签到与积分查询。
 
-## 🛠️ 技术栈
+## 客户端功能细节
 
-### 客户端 (Client)
-- **框架**: Flutter
-- **语言**: Dart
-- **核心库**:
-  - `provider`: 状态管理
-  - `epubx`: EPUB 解析与渲染
-  - `sqflite`: 本地数据存储
-  - `flutter_animate`: UI 动画效果
-  - `audioplayers`: 音频播放
-  - `http`: 网络请求
+- EPUB 解析：使用 `epubx` 读取 EPUB，解析元数据与封面。
+- 翻译引擎：
+  - 机器翻译：Azure 翻译 (Edge Token) 与腾讯 TMT。
+  - 大模型翻译：腾讯混元翻译引擎。
+- AI 模型：
+  - 在线：腾讯混元文本/生图能力。
+  - 本地：MNN 本地模型推理（问答/插画）。
+- 朗读：
+  - 本地 TTS：通过 `MethodChannel` 与 `EventChannel` 驱动原生朗读。
+  - 在线 TTS：腾讯云 TTS。
 
-### 服务端 (Server)
-- **运行环境**: Node.js
-- **功能**: 提供轻量级的数据接口和鉴权服务。
+## 服务端功能
 
-## 📂 目录结构
+- 代理腾讯云 API（混元 / TTS / TMT），统一签名与请求转发。
+- 积分系统（本地 JSON 存储）。
+- 远程配置接口 `/config`。
+- 登录与管理接口（短信验证码、积分查询与赠送）。
 
+## 目录结构
+
+- client/：Flutter 客户端
+- server/：Node.js 服务端
+- scripts/：构建与部署脚本
+- README.md：项目说明
+
+## 本地运行
+
+客户端：
 ```
-AirRead/
-├── client/           # Flutter 客户端源代码
-│   ├── lib/
-│   │   ├── ai/       # AI 功能模块 (Hunyuan, TTS, Local LLM)
-│   │   ├── core/     # 核心组件与配置
-│   │   ├── data/     # 数据层 (Database, Models)
-│   │   └── presentation/ # UI 层 (Pages, Widgets)
-│   └── pubspec.yaml
-├── server/           # Node.js 服务端源代码
-│   ├── app.js
-│   └── package.json
-├── scripts/          # 构建与部署脚本
-└── README.md         # 项目说明文档
+cd client
+flutter pub get
+flutter run
 ```
 
-## 🚀 快速开始
+服务端：
+```
+cd server
+npm install
+node app.js
+```
 
-### 客户端运行
-1. 进入客户端目录:
-   ```bash
-   cd client
-   ```
-2. 安装依赖:
-   ```bash
-   flutter pub get
-   ```
-3. 运行应用:
-   ```bash
-   flutter run
-   ```
+## 参考
 
-### 服务端运行
-1. 进入服务端目录:
-   ```bash
-   cd server
-   ```
-2. 安装依赖:
-   ```bash
-   npm install
-   ```
-3. 启动服务:
-   ```bash
-   npm start
-   ```
-
-## 📝 开发规范
-请参考根目录下的 `product_rule.md` 了解详细的开发与部署规范。
+项目规范请查看 `product_rule.md`。
