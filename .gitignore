@@ -1,8 +1,9 @@
-# Force Ignore Gradle Caches
+# Force Ignore Caches & Build Artifacts
 **/.gradle/
 **/.gradle-cache/
 **/build/
 **/.dart_tool/
+**/node_modules/
 
 # General
 .DS_Store
@@ -15,40 +16,38 @@
 __pycache__/
 .trae/
 
-# Node
-node_modules/
+# Node.js
 npm-debug.log
 yarn-error.log
 
-# Flutter/Dart (Global)
+# Flutter/Dart
 .flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
+flutter-web-run.log
 
 # Android
-**/.gradle/
-**/.gradle-cache/
 **/local.properties
 **/key.properties
 **/*.jks
 **/*.keystore
 
-# Web
-flutter-web-run.log
-
-# Environment & Secrets
+# Secrets & Configs
 **/.env
 **/config.json
+server/.env
+server/config.json
 
-# Temp & Cache
+# Temp & Generated
 .tmp_appdata/
 .tmp_localappdata/
+.tmp_home/
 client/.metadata
 
-# Specific
-test/*.epub
-软著材料/
+# Large Data & Models
+models/
 logs/
 data/
-models/
+test/*.epub
+软著材料/
