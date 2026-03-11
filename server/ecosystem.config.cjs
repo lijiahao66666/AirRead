@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'airread',
       script: 'app.js',
-      cwd: '/www/airread/server',
+      cwd: '/www/airread',
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
