@@ -1,4 +1,4 @@
-. "$PSScriptRoot\build_config.ps1"
+﻿. "$PSScriptRoot\build_config.ps1"
 
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\client")
 $pubspecPath = Join-Path $projectRoot "pubspec.yaml"
@@ -11,7 +11,8 @@ Push-Location $projectRoot
 try {
   $env:GRADLE_USER_HOME = "$projectRoot\android\.gradle-cache"
 
-  flutter build appbundle --release `
+  flutter build appbundle --release 
+    --build-number $BUILD_NUMBER 
     --dart-define=AIRREAD_CONFIG_URL=$CONFIG_URL `
     --dart-define=AIRREAD_API_PROXY_URL=$PROXY_URL `
     --dart-define=AIRREAD_API_KEY=$API_KEY `
@@ -31,3 +32,4 @@ Write-Host ""
 Write-Host "AAB build done." -ForegroundColor Green
 Write-Host "  config: scripts/build_config.ps1 (UseIpMode=$UseIpMode)"
 Write-Host "  output: client/build/app/outputs/bundle/release/app-release.aab"
+
