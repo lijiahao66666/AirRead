@@ -1,4 +1,4 @@
-# Force Ignore Caches & Build Artifacts
+﻿# Force Ignore Caches & Build Artifacts
 **/.gradle/
 **/.gradle-cache/
 **/build/
