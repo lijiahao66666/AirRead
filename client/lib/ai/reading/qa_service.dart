@@ -5,6 +5,12 @@ import '../hunyuan/hunyuan_text_client.dart';
 import '../local_llm/llm_client.dart';
 import '../tencentcloud/tencent_credentials.dart';
 
+String _getCurrentDateInfo() {
+  final now = DateTime.now();
+  final weekday = ['一', '二', '三', '四', '五', '六', '日'][now.weekday - 1];
+  return '${now.year}年${now.month}月${now.day}日（周$weekday）';
+}
+
 class ReadingContextService {
   final Map<int, String> chapterContentCache;
   final int currentChapterIndex;
@@ -97,14 +103,21 @@ String _buildGeneralQaPrompt(
 }) {
   final content = contextService.getCurrentChapterContent().trim();
   final historyText = (history ?? '').trim();
+  final dateInfo = _getCurrentDateInfo();
 
   final buffer = StringBuffer()
-    ..writeln('你是阅读助手。请仅基于【当前阅读内容】与【历史问答】作答。')
+    ..writeln('你是阅读助手。请基于【当前阅读内容】与【历史问答】作答，必要时可联网搜索补充信息。')
+    ..writeln()
+    ..writeln('当前日期：$dateInfo')
+    ..writeln()
     ..writeln('要求：')
     ..writeln('1) 优先在内容中定位答案并直接回答。')
     ..writeln('2) 必要时引用原文短句作为依据（可简短摘录）。')
-    ..writeln('3) 不要编造；只有确实找不到再说“文中未提及/需要更多上下文”。')
-    ..writeln('4) 【历史问答】可能包含错误或过时信息：仅用于理解代词指代、上下文与用户偏好；一旦与【当前阅读内容】冲突，以【当前阅读内容】为准，并忽略历史中的矛盾结论。')
+    ..writeln('3) 不要编造；只有确实找不到再说"文中未提及/需要更多上下文"。')
+    ..writeln(
+        '4) 【历史问答】可能包含错误或过时信息：仅用于理解代词指代、上下文与用户偏好；一旦与【当前阅读内容】冲突，以【当前阅读内容】为准，并忽略历史中的矛盾结论。')
+    ..writeln('5) 涉及时间判断时，以当前日期为准。')
+    ..writeln('6) 如用户询问实时信息（如天气、新闻、汇率等），请联网搜索后回答。')
     ..writeln()
     ..writeln('【当前阅读内容】')
     ..writeln(content.isEmpty ? '（当前阅读内容为空）' : content)
@@ -173,12 +186,13 @@ String _buildGeneralQaPromptLocal(
 }) {
   final contentText = _squashSpaces(contextService.getCurrentChapterContent());
   final historyText = _squashSpaces((history ?? '').trim());
+  final dateInfo = _getCurrentDateInfo();
 
   final clippedHistory = historyText.isEmpty ? '' : _tailText(historyText, 900);
   const totalBudget = 3000;
   final reservedForMeta = 400;
-  final available = (totalBudget - reservedForMeta - clippedHistory.length)
-      .clamp(800, 2400);
+  final available =
+      (totalBudget - reservedForMeta - clippedHistory.length).clamp(800, 2400);
   final clippedContent = _tailText(
     contentText.isEmpty ? '（当前阅读内容为空）' : contentText,
     available,
@@ -186,11 +200,16 @@ String _buildGeneralQaPromptLocal(
 
   final buffer = StringBuffer()
     ..writeln('你是阅读助手。请仅基于【当前阅读内容】与【历史问答】作答。')
+    ..writeln()
+    ..writeln('当前日期：$dateInfo')
+    ..writeln()
     ..writeln('要求：')
     ..writeln('1) 优先在内容中定位答案并直接回答。')
     ..writeln('2) 必要时引用原文短句作为依据（可简短摘录）。')
     ..writeln('3) 不要编造；只有确实找不到再说“文中未提及/需要更多上下文”。')
-    ..writeln('4) 【历史问答】可能包含错误或过时信息：仅用于理解代词指代、上下文与用户偏好；一旦与【当前阅读内容】冲突，以【当前阅读内容】为准，并忽略历史中的矛盾结论。')
+    ..writeln(
+        '4) 【历史问答】可能包含错误或过时信息：仅用于理解代词指代、上下文与用户偏好；一旦与【当前阅读内容】冲突，以【当前阅读内容】为准，并忽略历史中的矛盾结论。')
+    ..writeln('5) 涉及时间判断时，以当前日期为准；如需最新实时信息，请明确告知用户你无法获取。')
     ..writeln()
     ..writeln('【当前阅读内容（已截断）】')
     ..writeln(clippedContent)
