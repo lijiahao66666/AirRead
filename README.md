@@ -1,65 +1,290 @@
-﻿# AirRead（灵阅）
+# AirRead（灵阅）
 
-AirRead 是一款基于 Flutter 的电子书阅读器，面向 EPUB 阅读场景，内置 AI 伴读与朗读能力。客户端以书架与阅读器为核心界面，服务端提供腾讯云 AI 能力代理、积分与配置下发。
+## 应用信息
+
+**应用名称**：AirRead（灵阅）
+
+**应用分类**：电子书阅读
+
+**精简标题**：AI 伴读电子书阅读器
+
+**应用简介**：支持 EPUB/TXT 导入与书架管理、基础阅读器、AI 问答伴读、章节要点总结、机器翻译（Azure/腾讯TMT）与大模型翻译（腾讯混元）、本地 TTS 与腾讯云 TTS 朗读、AI 插画生成、短信验证码登录、每日签到、积分系统、用户数据统计的电子书阅读器。
 
 ## 功能概览
 
-- 书架管理与阅读器：导入 EPUB、展示封面与作者信息、进入阅读页面。
-- AI 伴读面板：支持问答、总结、要点提取、插画提示词生成。
-- 翻译能力：支持机器翻译与大模型翻译两种模式。
-- 朗读能力：支持本地朗读与腾讯云 TTS 在线朗读。
-- 积分与登录：支持短信验证码登录、积分初始化、签到与积分查询。
+- **书架管理**：导入 EPUB/TXT 文件、展示封面与作者信息、书籍列表管理
+- **阅读器**：翻页、字体调整、进度记忆、段落选中
+- **AI 伴读**：选中文字后提问、内容总结、要点提取、支持本地 MNN 模型推理
+- **翻译能力**：机器翻译（Azure Edge/腾讯TMT）、大模型翻译（腾讯混元）
+- **朗读能力**：本地 TTS 朗读、腾讯云 TTS 在线朗读
+- **AI 插画**：根据文本生成插画提示词、提交生图任务
+- **用户系统**：短信验证码登录、积分初始化、每日签到、积分查询
 
-## 客户端功能细节
+## 技术架构
 
-- EPUB 解析：使用 `epubx` 读取 EPUB，解析元数据与封面。
-- 翻译引擎：
-  - 机器翻译：Azure 翻译 (Edge Token) 与腾讯 TMT。
-  - 大模型翻译：腾讯混元翻译引擎。
-- AI 模型：
-  - 在线：腾讯混元文本/生图能力。
-  - 本地：MNN 本地模型推理（问答/插画）。
-- 朗读：
-  - 本地 TTS：通过 `MethodChannel` 与 `EventChannel` 驱动原生朗读。
-  - 在线 TTS：腾讯云 TTS。
+**客户端**：Flutter（支持 Android/iOS/Web）
+- EPUB 解析：`epubx` 库
+- AI 模型：腾讯混元在线 API + MNN 本地推理（可选）
+- 状态管理：Provider
+- 本地存储：SharedPreferences + SQLite
 
-## 服务端功能
+**服务端**：Node.js + PM2
+- 端口：9000
+- 代理腾讯云 API（混元/TTS/TMT/AIArt），服务端完成签名
+- 本地 JSON 存储积分、用户数据、统计数据
+- 短信验证码登录（腾讯云 SMS）
 
-- 代理腾讯云 API（混元 / TTS / TMT），统一签名与请求转发。
-- 积分系统（本地 JSON 存储）。
-- 远程配置接口 `/config`。
-- 登录与管理接口（短信验证码、积分查询与赠送）。
+## 部署说明
 
-## 目录结构
+### 一、服务器部署（腾讯云 + 宝塔面板）
 
-- client/：Flutter 客户端
-- server/：Node.js 服务端
-- scripts/：构建与部署脚本
-- README.md：项目说明
+#### 1. Web 端部署
 
-## 本地运行
+**步骤 1：构建 Web 产物**
 
-客户端：
-```
-cd client
-flutter pub get
-flutter run
+在本地项目根目录执行：
+```powershell
+cd scripts
+./build_web_release.ps1
 ```
 
-服务端：
+构建产物位于 `client/build/web/` 目录。
+
+**步骤 2：上传 Web 产物**
+
+将 `client/build/web/` 目录下的所有文件上传到服务器：
 ```
+/www/wwwroot/read.air-inc.top/
+```
+
+**步骤 3：宝塔面板配置**
+
+1. 登录宝塔面板
+2. 点击【网站】→【添加站点】
+3. 选择【HTML站点】，填写：
+   - 域名：`read.air-inc.top`
+   - 根目录：`/www/wwwroot/read.air-inc.top`
+4. 点击【提交】创建站点
+
+**步骤 4：配置 Nginx**
+
+1. 在宝塔面板点击站点名称 →【设置】→【配置文件】
+2. 将 `server/nginx.read.air-inc.top.conf` 的内容复制进去
+3. 关键配置说明：
+   - `root /www/wwwroot/read.air-inc.top;` - Web 根目录
+   - `/api` 代理到 `http://127.0.0.1:9000` - 服务端端口
+4. 点击【保存】
+
+**步骤 5：申请 SSL 证书（可选）**
+
+在宝塔面板点击【SSL】→【Let's Encrypt】→ 申请免费证书
+
+#### 2. 服务端部署
+
+**步骤 1：上传服务端代码**
+
+将 `server/` 目录上传到服务器：
+```
+/www/airread/
+```
+
+**步骤 2：安装依赖**
+
+SSH 登录服务器后执行：
+```bash
+cd /www/airread
+npm install
+```
+
+**步骤 3：配置环境变量**
+
+创建 `.env` 文件：
+```bash
+cp .env.example .env
+nano .env
+```
+
+填写以下配置：
+```bash
+TENCENT_SECRET_ID=你的腾讯云SecretId
+TENCENT_SECRET_KEY=你的腾讯云SecretKey
+SMS_APP_ID=短信应用AppId
+SMS_SIGN=短信签名
+SMS_TEMPLATE_ID=短信模板Id
+SMS_TEMPLATE_PARAM_COUNT=1
+API_KEY=你的API密钥（可选）
+PORT=9000
+```
+
+**步骤 4：创建配置文件**
+
+创建 `config.json`：
+```json
+{
+  "checkin_enabled": true,
+  "checkin_points": 5000,
+  "initial_grant_points": 500000,
+  "ad_enabled": false,
+  "ad_reward_points": 2000,
+  "ad_daily_limit": 10,
+  "purchase_enabled": false,
+  "latest_version": "1.0.0",
+  "min_version": "1.0.0",
+  "update_url": "",
+  "update_message": "",
+  "force_update": false,
+  "announcement": ""
+}
+```
+
+**步骤 5：使用 PM2 启动服务**
+
+```bash
+cd /www/airread
+pm2 start ecosystem.config.cjs --env production
+```
+
+或直接启动：
+```bash
+pm2 start app.js --name airread
+```
+
+**步骤 6：设置开机自启**
+
+```bash
+pm2 save
+pm2 startup
+```
+
+**步骤 7：验证服务**
+
+```bash
+pm2 status
+curl http://127.0.0.1:9000/health
+```
+
+### 二、本地部署
+
+#### 1. Web 端部署
+
+**步骤 1：构建 Web 产物**
+
+```powershell
+cd scripts
+./build_web_release.ps1
+```
+
+**步骤 2：启动本地静态服务器**
+
+方法一：使用 http-server
+```bash
+npm install -g http-server
+http-server client/build/web -p 8080
+```
+
+方法二：使用 Python
+```bash
+cd client/build/web
+python -m http.server 8080
+```
+
+**步骤 3：访问应用**
+
+浏览器打开 `http://localhost:8080`
+
+#### 2. 服务端部署
+
+**步骤 1：安装依赖**
+
+```bash
 cd server
 npm install
+```
+
+**步骤 2：配置环境变量**
+
+创建 `.env` 文件（同服务器部署）
+
+**步骤 3：启动服务**
+
+```bash
 node app.js
 ```
 
-## Deployment
+或使用 PM2：
+```bash
+pm2 start app.js --name airread-local
+```
 
-- Web build: run `scripts/build_web_release.ps1`.
-- Output: `client/build/web/` and `airread-web.zip` in repo root.
-- Web deploy: upload the zip or `client/build/web/` to your static HTML site.
-- Server deploy: upload `server/`, run `npm install`, then `pm2 start app.js --name airread`.
-- Config: edit `scripts/build_config.ps1` before building.
+服务运行在 `http://localhost:9000`
+
+**步骤 4：配置 Web 端 API 地址**
+
+如果 Web 端和服务端不在同一端口，需要修改构建配置：
+```powershell
+# 编辑 scripts/build_config.ps1
+$apiBaseUrl = "http://localhost:9000"
+```
+
+然后重新构建 Web 产物。
+
+## 目录结构
+
+```
+AirRead/
+├── client/                    # Flutter 客户端
+│   ├── android/               # Android 原生代码
+│   ├── ios/                   # iOS 原生代码
+│   ├── lib/                   # Dart 源代码
+│   │   ├── ai/                # AI 相关服务
+│   │   │   ├── config/        # 认证、签到、配置
+│   │   │   ├── hunyuan/       # 腾讯混元 API
+│   │   │   ├── local_llm/     # MNN 本地推理
+│   │   │   ├── reading/       # 问答服务
+│   │   │   ├── tencent_tts/   # TTS 朗读
+│   │   │   ├── tencentcloud/  # 腾讯云通用
+│   │   │   └── translation/   # 翻译服务
+│   │   ├── core/              # 核心主题
+│   │   └── presentation/      # UI 页面
+│   ├── web/                   # Web 资源
+│   └── scripts/               # 构建脚本
+├── server/                    # Node.js 服务端
+│   ├── app.js                 # 主服务入口
+│   ├── ecosystem.config.cjs   # PM2 配置
+│   ├── nginx.*.conf           # Nginx 配置示例
+│   ├── config.json            # 远程配置
+│   └── data/                  # 数据目录
+├── scripts/                   # 构建脚本
+└── README.md
+```
+
+## 常用命令
+
+```bash
+# 查看 PM2 服务状态
+pm2 status
+
+# 查看日志
+pm2 logs airread
+
+# 重启服务
+pm2 restart airread
+
+# 停止服务
+pm2 stop airread
+
+# 重新部署 Web
+cd scripts && ./build_web_release.ps1
+# 然后上传 client/build/web/ 到服务器
+```
+
+## 注意事项
+
+- 首次部署前需申请腾讯云 API 密钥（SecretId/SecretKey）
+- 短信登录需开通腾讯云 SMS 服务
+- 生产环境建议配置 `API_KEY` 进行接口鉴权
+- 移动端打包需配置签名证书
+- 本地部署时注意跨域问题
 
 ## 参考
 
