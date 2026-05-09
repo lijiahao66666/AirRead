@@ -1,0 +1,423 @@
+
+--- 第1页 ---
+智能电⼦书阅读软件设计与⽤⼾说明书
+AirRead
+第⼀章 引⾔
+编写⽬的
+1.1
+本⽂档旨在全⾯描述 AirRead 智能电⼦书阅读软件（以下简称“本软件”）的设计思路、系统架构、功能模块、
+数据库设计及⽤⼾操作⽅法，为软件的开发、测试、维护及⽤⼾使⽤提供详细的指导和依据。
+软件概述
+1.2
+AirRead 是⼀款结合了前沿⼈⼯智能技术的现代化电⼦书阅读软件。它基于 Flutter 跨平台框架开发，⽀持
+Android 和 iOS 双端运⾏。软件不仅具备 EPUB、TXT 等主流格式电⼦书的解析与渲染能⼒，更深度集成了腾
+讯混元⼤模型及本地轻量级⼤模型（MNN），为⽤⼾提供实时翻译、内容润⾊、智能问答、AI 听书（TTS）及
+AI 插图⽣成等创新功能，旨在解决跨语⾔阅读障碍，提升阅读效率与沉浸式体验。
+运⾏环境
+1.3
+硬件环境：
+CPU：四核 2.0GHz 及以上
+内存：4GB RAM 及以上
+存储：⾄少 2GB 可⽤空间
+软件环境：
+操作系统：Android 5.0+ / iOS 11.0+
+⽹络环境：Wi-Fi 或 4G/5G 移动⽹络（部分 AI 功能依赖云端服务）
+第⼆章 系统架构设计
+总体架构
+2.1
+本软件采⽤典型的分层架构设计，⾃下⽽上分为：数据层（Data Layer）、领域层（Domain Layer）和表现层
+（Presentation Layer）。
+系统架构图：
+--- 第2页 ---
+表现层 (Presentation Layer)
+UI 界⾯ / Widgets
+状态管理 / Provider
+领域层 (Domain Layer)
+业务服务 (阅读/AI/TTS)
+数据层 (Data Layer)
+数据仓库 实体模型 (Book/Config)
+⽂件系统 ⽹络 API (腾讯云/Azure)
+SQLite 数据库
+1. 表现层 (Presentation Layer)：
+负责 UI 界⾯展⽰与⽤⼾交互。
+采⽤ Flutter 框架构建，使⽤ Widget 树描述界⾯。
+通过 Provider 进⾏状态管理，实现 UI 与业务逻辑的解耦。
+主要模块：书架⻚⾯、阅读器⻚⾯、AI 伴读⾯板、设置⾯板等。
+2. 领域层 (Domain Layer)：
+包含核⼼业务逻辑和实体模型。
+定义了
+Book
+（书籍）、
+TranslationConfig
+（翻译配置）、
+AiModel
+（AI 模型）等核⼼实体。
+实现了阅读引擎、翻译引擎、TTS 引擎等业务服务。
+3. 数据层 (Data Layer)：
+负责数据的持久化存储与⽹络通信。
+本地存储：使⽤
+sqflite
+数据库存储书籍元数据和⽤⼾设置；使⽤⽂件系统存储电⼦书⽂件和缓存⽂
+件。
+⽹络通信：封装了 http 客⼾端，对接腾讯云 API（混元⼤模型、TTS、机器翻译）及 Azure 翻译服
+务。
+关键技术栈
+2.2
+开发语⾔：Dart
+UI 框架：Flutter
+--- 第3页 ---
+状态管理：Provider
+数据库：SQLite (via sqflite package)
+电⼦书解析： epubx (EPUB 解析), ⾃研 TXT 分章算法
+AI 推理：
+云端：腾讯云 Hunyuan API, Tencent TTS
+端侧：MNN (Mobile Neural Network) 轻量级推理引擎
+核⼼类设计
+2.3
+为了保证系统的可维护性与扩展性，核⼼业务逻辑通过以下关键类实现：
+BooksProvider
+TranslationProvider
++List<Book> books
++TranslationConfig config
++importBooks()
++translate(text)
++deleteBook()
++prefetchParagraphs()
++updateBookProgress()
+manages uses uses
+Book
++String id DatabaseHelper AiModelProvider
++String title
++String filePath +int pointsBalance
++int currentPage +insertBook() +AiModelSource source
++double readingProgress +getAllBooks()
++updateBook() +generate(prompt)
++toMap()
++fromMap()
+第三章 功能模块设计
+书架管理模块
+3.1
+功能描述：负责书籍的导⼊、存储、展⽰与管理，⽀持 EPUB 和 TXT 格式。
+核⼼类：
+BooksProvider
+：核⼼状态管理类，负责维护书籍列表
+_books
+，提供
+importBooks
+、
+deleteBook
+、
+pinSelectedBooks
+等业务⽅法。
+--- 第4页 ---
+BookImporter ：负责⽂件导⼊逻辑。对于 Web 端调⽤ BookImporterWeb ，移动端调⽤
+。
+BookImporterIO
+：负责解析书籍元数据（封⾯、标题）。
+BookParser
+DatabaseHelper ：封装 SQLite 操作，提供 insertBook 、 getAllBooks 、 updateBook 等 CRUD 接
+⼝。
+详细实现逻辑：
+i. 导⼊流程：
+⽤⼾触发导⼊，
+BooksProvider
+调⽤
+FilePicker
+获取⽂件。
+BookImporter
+根据⽂件扩展名（
+.epub
+或
+.txt
+）选择解析策略。
+调⽤ BookParser 提取元数据（如从 EPUB 的 content.opf 中提取封⾯和作者，TXT 则使⽤⽂件
+名）。
+⽣成 Book 实体对象，通过 DatabaseHelper 存⼊ SQLite 数据库的 books 表。
+将封⾯图⽚缓存到应⽤私有⽬录（ ）。
+ApplicationDocumentsDirectory
+notifyListeners 通知 UI 刷新 GridView 。
+ii. 数据持久化：
+SQLite 表结构包含 reading_progress 、 last_read 等字段，确保阅读进度实时保存。
+⽀持批量删除和置顶操作，置顶通过更新
+import_date
+字段实现。
+书籍导⼊流程图：
+⽤⼾ 书架界⾯ (BookshelfPage) BooksProvider BookImporter BookParser DatabaseHelper
+点击导⼊按钮
+importBooks()
+打开⽂件选择器 (FilePicker)
+选择 EPUB/TXT ⽂件
+processFile(path)
+parseMetadata(file)
+Book 对象 (标题/封⾯/作者)
+insertBook(book)
+插⼊成功
+返回导⼊结果
+notifyListeners()
+刷新书架列表
+⽤⼾ 书架界⾯ (BookshelfPage) BooksProvider BookImporter BookParser DatabaseHelper
+阅读引擎模块
+3.2
+功能描述：负责电⼦书内容的解析、分⻚计算、渲染与交互控制。
+--- 第5页 ---
+核⼼类：
+ReaderPage
+：阅读器主⻚⾯，管理
+PageController
+和章节跳转逻辑。
+ReaderParagraph
+：⾃定义 Widget，负责⽂本段落的精细渲染。
+BookParser
+：提供
+_buildTxtChaptersFast
+等算法进⾏章节切分。
+详细实现逻辑：
+i. 格式解析：
+EPUB：使⽤ epubx 库读取容器，解析 NCX/OPF 获取⽬录树，渲染 HTML 内容。
+TXT：采⽤正则扫描算法，识别 第[一二三...0-9]+章 等模式。为提⾼性能，采⽤分块读取
+（Chunk Reading）策略，避免⼀次性加载超⼤⽂件导致 OOM。
+ii. 分⻚算法：
+由于移动端屏幕尺⼨各异，系统需动态计算分⻚。
+使⽤
+TextPainter
+模拟测量：给定屏幕宽度和字体样式，计算⽂本在当前⾼度下能容纳的字符
+数。
+⽀持异步分⻚：在后台线程计算章节⻚数，避免阻塞主线程 UI。
+iii. 渲染与交互：
+使⽤
+PageView
+实现左右平滑翻⻚。
+⽀持样式定制：动态调整
+fontSize
+、
+lineHeight
+和背景⾊（⽇间/夜间模式）。
+⼿势处理：集成
+GestureDetector
+，⽀持单击呼出菜单、左右滑动翻⻚、⻓按选词。
+智能服务模块
+3.3 AI
+功能描述：提供翻译、润⾊、问答、插图等 AI 辅助功能。
+核⼼类：
+TranslationService
+：翻译服务⼊⼝，管理
+TranslationCache
+（LRU 缓存）和任务队列。
+TencentTtsClient ：封装腾讯云 TTS WebSocket 协议。
+IllustrationService ：管理 AI 插图⽣成的轮询与状态。
+：处理流式问答响应。
+QaService
+详细实现逻辑：
+i. 智能翻译：
+⽀持 Local (本地词典/模型) 和 Online (腾讯 TMT/Azure) 两种后端。
+并发控制：使⽤
+TranslationTaskQueue
+，在线请求限制并发数为 3，本地请求限制为 1，防⽌
+API 频率超限。
+缓存策略：构建唯⼀的 CacheKey（
+engineId_source_target_textHash
+），优先读取本地缓存，减
+少⽹络开销。
+ii. AI 插图：
+⽂本分析：调⽤ LLM（混元/Local）分析当前章节，提取关键场景描述（Prompt）。
+图像⽣成：调⽤⽂⽣图 API，任务提交后进⼊轮询模式（Polling），每隔 3 秒检查任务状态，直到
+⽣成完成或超时（最⼤ 40 次）。
+iii. 语⾳合成 (TTS)：
+建⽴ WebSocket ⻓连接，发送⽂本帧。
+--- 第6页 ---
+接收⼆进制⾳频流（Opus/PCM），使⽤
+AudioPlayer
+进⾏流式播放，实现“边下边播”的低延迟体
+验。
+AI 辅助功能交互流程：
+Yes
+点击翻译 TranslationService Check Cache 有缓存?
+No 腾讯/Azure API 流式更新 UI
+⽤⼾选中各⽂本 弹出划线菜单 点击解释 QaService 腾讯混元 LLM Stream
+点击插图 IllustrationService Analyze 提取 Prompt 提交⽣图任务 Polling 轮询状态 Completed 展⽰插图
+本地模型管理模块
+3.4
+功能描述：管理端侧⼤模型（MNN 格式）的下载、加载与推理。
+核⼼类：
+：负责多⽂件断点续传。
+MnnModelDownloader
+LlmClientMnn ：MNN 引擎的 Dart 封装层。
+：全局状态管理，监控下载进度与模型加载状态。
+AiModelProvider
+详细实现逻辑：
+i. 断点续传下载：
+模型⽂件通常较⼤（如 1GB+），
+MnnModelDownloader
+⽀持分块下载。
+使⽤
+Range
+头请求⽂件⽚段，记录已下载字节数到
+_receivedBytesByFile
+。
+通过
+StreamController
+⼴播下载进度（Progress）和状态（Status）。
+ii. 引擎加载：
+LlmClientMnn
+初始化时检查本地⽂件完整性。
+通过 FFI (Foreign Function Interface) 调⽤底层 C++ MNN 库加载模型。
+提供
+generate
+和
+generateStream
+接⼝，⽀持流式输出 token。
+iii. 降级策略：
+若本地模型未下载或加载失败，系统⾃动降级为调⽤云端 API，确保功能可⽤性。
+第四章 数据库设计
+本软件使⽤ SQLite 数据库存储核⼼数据，数据库⽂件名为 airread.db 。
+书籍表
+4.1 (books)
+⽤于存储已导⼊的书籍信息及阅读进度。
+--- 第7页 ---
+字段名 类型 约束 描述
+id TEXT PRIMARY KEY 书籍唯⼀标识 (UUID)
+title TEXT NOT NULL 书籍标题
+author TEXT 作者姓名
+cover_path TEXT 封⾯图⽚本地路径
+file_path TEXT NOT NULL 书籍⽂件本地路径
+format TEXT NOT NULL ⽂件格式 (epub/txt)
+total_pages INTEGER DEFAULT 0 总⻚数（估算值）
+import_date INTEGER NOT NULL 导⼊时间戳
+current_page INTEGER DEFAULT 0 当前阅读⻚码
+percentage REAL DEFAULT 0.0 阅读进度百分⽐
+reading_chapter INTEGER DEFAULT 0 当前阅读章节索引
+reading_progress REAL DEFAULT 0.0 章节内阅读进度 (0.0-1.0)
+设置表
+4.2 (settings)
+⽤于存储全局应⽤设置（Key-Value 结构）。
+字段名 类型 约束 描述
+key TEXT PRIMARY KEY 配置项键名
+value TEXT 配置项值
+常⽤ Key 说明：
+fontSize : 阅读字号
+lineHeight : ⾏⾼倍数
+ai_illustration_enabled : 是否开启插图功能
+--- 第8页 ---
+第五章 ⽤⼾操作⼿册
+启动与初始化
+5.1
+⽤⼾点击桌⾯图标启动应⽤。⾸次启动时，系统会请求存储权限以便读取本地书籍⽂件。应⽤初始化完成后，
+直接进⼊“书架”主界⾯。
+书架管理
+5.2
+导⼊书籍：
+点击书架界⾯右上⻆的 "+" 按钮，或当书架为空时点击屏幕中央的 "导⼊书籍" 按钮。
+在弹出的⽂件选择器中，选择⼿机存储中的 EPUB 或 TXT ⽂件。
+导⼊成功后，书籍封⾯将出现在书架列表中。
+阅读书籍：点击封⾯即可打开书籍，⾃动跳转⾄上次阅读位置。
+管理书籍：
+点击右上⻆的列表图标进⼊编辑模式。
+选中书籍后，可执⾏“置顶”或“删除”操作。
+--- 第10页 ---
+阅读界⾯操作
+5.3
+翻⻚：左右滑动屏幕或点击屏幕左右边缘进⾏翻⻚。
+菜单呼出：点击屏幕中央，显⽰顶部导航栏和底部设置栏。
+⽬录跳转：点击底部“⽬录”图标，浏览章节列表并点击跳转。
+个性化设置：点击底部 "Aa" 图标，调整亮度、字号、⾏距及背景主题（⽇间/夜间/护眼）。
+--- 第15页 ---
+辅助功能使⽤
+5.4 AI
+划线交互：
+⻓按⽂本并拖动光标选中段落。
+翻译：点击菜单中的“翻译”，底部弹出译⽂⾯板，⽀持中英互译。
+AI 解释：点击“解释”，AI 助⼿将分析选段含义或背景。
+⽣成插图：点击“插图”，AI 将根据选段内容⾃动绘制场景图。
+AI 伴读⾯板：
+点击底部菜单栏的机器⼈图标。
+智能问答：在输⼊框发送问题，与 AI 讨论剧情或⼈物。
+听书设置：选择朗读⾳⾊（如“智斌-阅读男声”、“智兰-资讯⼥声”）。
+--- 第24页 ---
+听书与插图
+5.5
+听书模式：点击阅读⻚右下⻆的⽿机悬浮按钮开启 TTS 朗读。播放时⽂字会⾃动⾼亮跟随。
+全书插图：点击阅读⻚右下⻆的㬵囊按钮，选择“⾃动分析”，AI 将扫描当前章节，⾃动在关键情节处插⼊
+配图。
+--- 第27页 ---
+第六章 接⼝设计与外部集成
+腾讯混元 集成
+6.1 API
+接⼝地址：
+https://hunyuan.tencentcloudapi.com
+认证⽅式：采⽤腾讯云 TC3-HMAC-SHA256 签名算法。
+功能调⽤：
+ChatCompletions : ⽤于 AI 问答、⽂本润⾊、内容分析。
+TextToImage : ⽤于 AI 插图⽣成。
+语⾳合成接⼝
+6.2
+接⼝地址：
+wss://tts.cloud.tencent.com/stream_ws
+协议：WebSocket
+数据流：客⼾端发送⽂本请求帧，服务端实时返回 Opus/PCM ⾳频流，实现低延迟播放。
+--- 第28页 ---
+异常处理机制
+6.3
+⽹络异常：当 API 调⽤失败时，系统会⾃动重试 3 次；若仍失败，UI 层显⽰ Toast 提⽰⽤⼾检查⽹络。
+模型异常：若本地模型加载失败，系统会⾃动降级尝试使⽤云端模型（需联⽹），并提⽰⽤⼾重新下载模型
+⽂件。
+第七章 系统测试与验证
+测试环境
+7.1
+测试设备：
+Google Pixel 6 (Android 14)
+iPhone 13 (iOS 17.2)
+Xiaomi 14 (Android 14, HyperOS)
+⽹络环境：Wi-Fi 6 (500Mbps), 5G 移动⽹络
+测试⼯具：Flutter Integration Test, MNN Benchmark
+功能测试⽤例
+7.2
+模块 测试项 预置条件 测试步骤 预期结果 测试结果
+⼿机内存中有 1. 点击导⼊按钮 1. 提⽰导⼊成功
+书架 本地导⼊ 通过
+epub ⽂件 2. 选择⽂件 2. 书架显⽰封⾯
+1.
+打开⼀本 1. ⻚⾯切换⽆卡顿
+阅读 翻⻚流畅性 快速连续点击翻⻚ 通过
+5MB 的书籍 2. 跳转响应<500ms
+2. 拖动进度条跳转
+1. 选中⼀段英⽂ 1. 底部弹出⾯板
+AI 划线翻译 联⽹状态 通过
+2. 点击“翻译” 2. 显⽰准确中⽂译⽂
+1. 输⼊
+AI
+AI 智能问答 联⽹状态 “本书主⻆是谁？” 通过
+返回基于书籍内容的准确回答
+2. 发送
+--- 第29页 ---
+模块 测试项 预置条件 测试步骤 预期结果 测试结果
+1.
+AI 插图⽣成 联⽹/有积分 选中描写⻛景的段落 ⽣成符合段落意境的图⽚ 通过
+2. 点击“插图”
+1. 点击⽿机图标 语⾳⾃然，
+TTS 语⾳朗读 联⽹状态 通过
+2. 播放 ⽂字⾼亮随语⾳移动
+性能测试
+7.3
+冷启动时间：Android 平均 800ms，iOS 平均 600ms。
+内存占⽤：阅读模式下平均占⽤ 150MB，峰值不超过 350MB。
+AI 响应速度：
+⽂本翻译：< 1.5s
+流式问答⾸字延迟：< 1.0s
+本地模型推理 (MNN)：⽂本⽣成速率 > 15 token/s (Snapdragon 8 Gen 2)
+第⼋章 性能优化与安全设计
+性能优化
+8.1
+1. 列表懒加载：书架及阅读章节采⽤ ListView.builder 实现懒加载，仅渲染可⻅区域，⼤幅降低内存消耗。
+2. 图⽚缓存：使⽤ CachedNetworkImage 及本地⽂件缓存策略，避免重复下载封⾯及 AI 插图，节省⽤⼾流
+量。
+3. 异步计算：复杂的⽂本排版计算 ( TextPainter.layout ) 及 AI 推理任务均在后台 Isolate 或异步线程中执
+⾏，确保主线程 UI 始终保持 60fps 流畅度。
+4. 预加载机制：在阅读当前章节时，后台⾃动预加载下⼀章节的翻译内容和⾳频数据，减少翻⻚等待时间。
+安全与隐私
+8.2
+1. 数据沙箱：应⽤遵循 Android/iOS 沙箱机制，所有书籍⽂件和数据库仅限应⽤内部访问，防⽌恶意程序窃
+取。
+2. API 密钥安全：⽤⼾的腾讯云 API Key 存储于加密的 SharedPreferences (使⽤ flutter_secure_storage
+或类似机制) 或本地数据库中，传输过程全程 HTTPS 加密。
+3. 本地模型隐私：⽀持下载 MNN 本地模型，断⽹状态下即可完成基础的⽂本分析和问答，确保⽤⼾阅读数
+据不上云，彻底保护隐私。
