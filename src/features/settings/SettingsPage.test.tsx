@@ -18,6 +18,17 @@ describe('SettingsPage', () => {
     expect(screen.getByText('免费翻译')).toBeInTheDocument();
     expect(screen.getByText('当前使用')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '删除 免费翻译' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('免费翻译线路')).toHaveValue('mymemory');
+  });
+
+  it('persists the selected free translation route', () => {
+    const store = new ProviderProfileStore(localStorage);
+    render(<SettingsPage store={store} />);
+
+    fireEvent.change(screen.getByLabelText('免费翻译线路'), { target: { value: 'google' } });
+
+    expect(store.getFreeRoute()).toBe('google');
+    expect(screen.getByText('免费翻译线路已切换为Google Translate（需要 VPN）')).toBeInTheDocument();
   });
 
   it('persists translation direction and speech speed in reading preferences', () => {

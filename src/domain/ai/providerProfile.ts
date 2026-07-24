@@ -1,4 +1,5 @@
 export type ProviderKind = 'free' | 'openai-compatible' | 'tencent-tmt' | 'azure-translator';
+export type FreeTranslationRoute = 'mymemory' | 'google' | 'azure-edge' | 'auto';
 
 export type ProviderProfile = {
   id: string;
@@ -8,6 +9,7 @@ export type ProviderProfile = {
   model?: string;
   apiKey?: string;
   region?: string;
+  freeRoute?: FreeTranslationRoute;
   enabled: boolean;
   builtIn?: true;
 };
@@ -21,6 +23,7 @@ export const BUILT_IN_FREE_PROFILE: ProviderProfile = Object.freeze({
   id: 'builtin-free',
   name: '免费翻译',
   kind: 'free',
+  freeRoute: 'mymemory',
   enabled: true,
   builtIn: true,
 });

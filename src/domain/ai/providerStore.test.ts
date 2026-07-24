@@ -33,6 +33,17 @@ describe('ProviderProfileStore', () => {
     expect(reloaded.get(profile.id)).toBeUndefined();
   });
 
+  it('persists the selected free translation route separately from provider selection', () => {
+    const store = new ProviderProfileStore(localStorage);
+    store.setFreeRoute('google');
+
+    const reloaded = new ProviderProfileStore(localStorage);
+    expect(reloaded.getFreeRoute()).toBe('google');
+    expect(reloaded.list()[0]).toMatchObject({ id: BUILT_IN_FREE_PROFILE.id, freeRoute: 'google' });
+    expect(reloaded.selected()).toMatchObject({ id: BUILT_IN_FREE_PROFILE.id, freeRoute: 'google' });
+    expect(() => reloaded.setFreeRoute('invalid' as never)).toThrow('免费翻译线路无效');
+  });
+
   it('protects the built-in profile and rejects invalid profiles', () => {
     const store = new ProviderProfileStore(localStorage);
     expect(() => store.remove(BUILT_IN_FREE_PROFILE.id)).toThrow('内置免费翻译不能删除');

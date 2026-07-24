@@ -40,6 +40,7 @@ export function ProviderEditor({ profile, validationProfile, onChange, onSave, o
       <label className={needsRegion ? '' : 'settings-form-grid__wide'}>API Key<input aria-label="API Key" type={secretVisible ? 'text' : 'password'} value={profile.apiKey ?? ''} onChange={(event) => update({ apiKey: event.target.value })} placeholder="只保存在当前浏览器" /><button type="button" className="secret-toggle" onClick={() => setSecretVisible((visible) => !visible)}>{secretVisible ? <><EyeOff size={15} /> 隐藏密钥</> : <><Eye size={15} /> 显示密钥</>}</button></label>
       {needsRegion && <label>{profile.kind === 'tencent-tmt' ? '腾讯云地域' : 'Azure 区域（可选）'}<input aria-label={profile.kind === 'tencent-tmt' ? '腾讯云地域' : 'Azure 区域（可选）'} value={profile.region ?? ''} onChange={(event) => update({ region: event.target.value })} placeholder={profile.kind === 'tencent-tmt' ? 'ap-guangzhou' : 'eastasia'} /></label>}
     </div>
+    {profile.kind === 'azure-translator' && <p className="provider-editor__hint">Azure Translator F0 每月提供 200 万字符免费额度，但仍需要你自己的 Azure Translator 资源、Key 和账户额度；这不是 AirRead 提供的公共额度。</p>}
     {error && <div className="settings-alert" role="alert">{error}</div>}
     <div className="settings-editor__actions"><button type="button" className="secondary-button" onClick={onCancel}>取消</button><button type="button" className="secondary-button" onClick={onTest} disabled={testing || !valid}><FlaskConical size={16} /> {testing ? '测试中…' : '测试连接'}</button><button type="submit" className="primary-action" disabled={!valid}><Save size={16} /> 保存配置</button></div>
   </form>;

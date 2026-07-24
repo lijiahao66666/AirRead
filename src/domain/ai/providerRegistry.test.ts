@@ -57,6 +57,19 @@ describe('translation provider registry', () => {
     await expect(engine.translate(request)).rejects.toBeInstanceOf(ProviderRequestError);
   });
 
+  it('supports the legacy Azure Edge free route without a user key', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('edge-token', { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ translations: [{ text: '早上好' }] }]), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const engine = createTranslationEngine({ id: 'builtin-free', name: '免费翻译', kind: 'free', freeRoute: 'azure-edge', enabled: true });
+    await expect(engine.translate(request)).resolves.toBe('早上好');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://edge.microsoft.com/translate/auth');
+    expect(fetchMock.mock.calls[1][0]).toContain('https://api-edge.cognitive.microsofttranslator.com/translate');
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ Authorization: 'Bearer edge-token' });
+  });
+
   it('calls an OpenAI-compatible chat completion endpoint', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: '早上好' } }],

@@ -5,11 +5,14 @@ import {
   validateProviderProfile,
   type ProviderKind,
   type ProviderProfile,
+  type FreeTranslationRoute,
 } from './providerProfile';
 
 const PROFILES_KEY = 'airread.providerProfiles.v1';
 const SELECTED_KEY = 'airread.selectedProvider.v1';
 const PROVIDER_KINDS: ProviderKind[] = ['free', 'openai-compatible', 'tencent-tmt', 'azure-translator'];
+const FREE_ROUTE_KEY = 'airread.freeTranslationRoute.v1';
+const FREE_ROUTES: FreeTranslationRoute[] = ['mymemory', 'google', 'azure-edge', 'auto'];
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -27,7 +30,7 @@ export class ProviderProfileStore {
   constructor(private readonly storage: StorageLike = window.localStorage) {}
 
   list(): ProviderProfile[] {
-    return [BUILT_IN_FREE_PROFILE, ...this.readCustomProfiles()];
+    return [{ ...BUILT_IN_FREE_PROFILE, freeRoute: this.getFreeRoute() }, ...this.readCustomProfiles()];
   }
 
   get(id: string): ProviderProfile | undefined {
@@ -37,7 +40,17 @@ export class ProviderProfileStore {
   selected(): ProviderProfile {
     const selectedId = this.storage.getItem(SELECTED_KEY);
     const selected = selectedId ? this.get(selectedId) : undefined;
-    return selected?.enabled ? selected : BUILT_IN_FREE_PROFILE;
+    return selected?.enabled ? selected : this.list()[0];
+  }
+
+  getFreeRoute(): FreeTranslationRoute {
+    const route = this.storage.getItem(FREE_ROUTE_KEY);
+    return route && FREE_ROUTES.includes(route as FreeTranslationRoute) ? route as FreeTranslationRoute : BUILT_IN_FREE_PROFILE.freeRoute!;
+  }
+
+  setFreeRoute(route: FreeTranslationRoute): void {
+    if (!FREE_ROUTES.includes(route)) throw new Error('免费翻译线路无效');
+    this.storage.setItem(FREE_ROUTE_KEY, route);
   }
 
   select(id: string): void {

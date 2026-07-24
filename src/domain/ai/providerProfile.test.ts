@@ -13,6 +13,7 @@ describe('provider profiles', () => {
       id: 'builtin-free',
       name: '免费翻译',
       kind: 'free',
+      freeRoute: 'mymemory',
       enabled: true,
       builtIn: true,
     });
