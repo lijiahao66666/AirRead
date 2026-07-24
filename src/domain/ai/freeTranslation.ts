@@ -1,6 +1,7 @@
 import {
   ProviderConnectionError,
   ProviderRequestError,
+  fetchWithTimeout,
   type TranslationEngine,
   type TranslationRequest,
 } from './translationTypes';
@@ -65,7 +66,7 @@ const readAzureEdgeResponse = (json: unknown): string | undefined => {
 
 const getAzureEdgeToken = async (): Promise<string> => {
   if (azureEdgeToken && azureEdgeToken.expiresAt > Date.now()) return azureEdgeToken.value;
-  const response = await fetch('https://edge.microsoft.com/translate/auth', { method: 'GET' });
+  const response = await fetchWithTimeout('https://edge.microsoft.com/translate/auth', { method: 'GET' });
   if (!response.ok) throw new Error(`Azure Edge token HTTP ${response.status}`);
   const value = (await response.text()).trim();
   if (!value) throw new Error('Azure Edge token empty');
@@ -83,22 +84,23 @@ export class FreeTranslationEngine implements TranslationEngine {
   async translate(input: TranslationRequest): Promise<string> {
     const source = input.text.trim();
     let receivedProviderResponse = false;
-    const routes: FreeTranslationRoute[] = this.route === 'auto' ? ['mymemory', 'google'] : [this.route];
+    const routes: FreeTranslationRoute[] = this.route === 'auto' ? ['mymemory', 'azure-edge', 'google'] : [this.route];
     for (const route of routes) {
       try {
         const endpoint = endpoints.find((candidate) => candidate.route === route);
         const response = route === 'azure-edge'
-          ? await fetch(`https://api-edge.cognitive.microsofttranslator.com/translate?${new URLSearchParams({ 'api-version': '3.0', to: languageForAzureEdge(input.targetLanguage), ...(input.sourceLanguage ? { from: languageForAzureEdge(input.sourceLanguage) } : {}) })}`, {
+          ? await fetchWithTimeout(`https://api-edge.cognitive.microsofttranslator.com/translate?${new URLSearchParams({ 'api-version': '3.0', to: languageForAzureEdge(input.targetLanguage), ...(input.sourceLanguage ? { from: languageForAzureEdge(input.sourceLanguage) } : {}) })}`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${await getAzureEdgeToken()}`, 'Content-Type': 'application/json' },
             body: JSON.stringify([{ Text: input.text }]),
           })
-          : await fetch(endpoint!.buildUrl(input), { method: 'GET' });
+          : await fetchWithTimeout(endpoint!.buildUrl(input), { method: 'GET' });
         receivedProviderResponse = true;
         if (!response.ok) continue;
         const translated = route === 'azure-edge' ? readAzureEdgeResponse(await response.json()) : endpoint!.read(await response.json())?.trim();
         if (translated && translated !== source) return translated;
       } catch {
+        if (route === 'azure-edge') azureEdgeToken = undefined;
         // Continue through the free endpoint chain.
       }
     }

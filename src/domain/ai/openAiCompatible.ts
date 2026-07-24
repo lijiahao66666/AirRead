@@ -4,6 +4,7 @@ import {
   connectionError,
   createTranslationPrompt,
   ProviderRequestError,
+  fetchWithTimeout,
   type TranslationEngine,
   type TranslationRequest,
 } from './translationTypes';
@@ -23,7 +24,7 @@ export class OpenAiCompatibleEngine implements TranslationEngine {
   async translate(input: TranslationRequest): Promise<string> {
     let response: Response;
     try {
-      response = await fetch(endpointUrl(this.profile.baseUrl!), {
+      response = await fetchWithTimeout(endpointUrl(this.profile.baseUrl!), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

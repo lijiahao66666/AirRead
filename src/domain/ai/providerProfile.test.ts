@@ -13,7 +13,7 @@ describe('provider profiles', () => {
       id: 'builtin-free',
       name: '免费翻译',
       kind: 'free',
-      freeRoute: 'mymemory',
+      freeRoute: 'auto',
       enabled: true,
       builtIn: true,
     });
@@ -53,6 +53,28 @@ describe('provider profiles', () => {
       id: 'azure', name: 'Azure', kind: 'azure-translator', enabled: true,
       apiKey: 'azure-key',
     }).valid).toBe(true);
+
+    expect(validateProviderProfile({
+      id: 'youdao', name: '有道', kind: 'youdao', enabled: true,
+      apiKey: 'app-key', appSecret: 'app-secret',
+    }).valid).toBe(true);
+
+    expect(validateProviderProfile({
+      id: 'deepl', name: 'DeepL', kind: 'deepl', enabled: true,
+      apiKey: 'deepl-key',
+    }).valid).toBe(true);
+  });
+
+  it('requires both credentials for Youdao and a key for DeepL', () => {
+    expect(validateProviderProfile({ id: 'youdao', name: '有道', kind: 'youdao', enabled: true, apiKey: 'app-key' }).errors).toContain('请输入有道应用密钥（App Secret）');
+    expect(validateProviderProfile({ id: 'youdao', name: '有道', kind: 'youdao', enabled: true, appSecret: 'app-secret' }).errors).toContain('请输入有道应用 ID（App Key）');
+    expect(validateProviderProfile({ id: 'deepl', name: 'DeepL', kind: 'deepl', enabled: true }).errors).toContain('请输入 DeepL API Key');
+  });
+
+  it('masks both provider secrets', () => {
+    const masked = maskProviderProfile({ id: 'youdao', name: '有道', kind: 'youdao', enabled: true, apiKey: 'app-key-value', appSecret: 'app-secret-value' });
+    expect(masked.apiKey).toBe('app••••••••••lue');
+    expect(masked.appSecret).toBe('app••••••••••lue');
   });
 
   it('rejects Tencent credentials with more than one separator', () => {

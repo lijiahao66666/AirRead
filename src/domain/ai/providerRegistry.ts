@@ -1,8 +1,10 @@
 import { AzureTranslatorEngine } from './azureTranslator';
+import { DeepLTranslatorEngine } from './deeplTranslator';
 import { FreeTranslationEngine } from './freeTranslation';
 import { OpenAiCompatibleEngine } from './openAiCompatible';
 import { validateProviderProfile, type ProviderProfile } from './providerProfile';
 import { TencentTmtEngine } from './tencentTmt';
+import { YoudaoTranslatorEngine } from './youdaoTranslator';
 import type { TranslationEngine } from './translationTypes';
 
 export const createTranslationEngine = (profile: ProviderProfile): TranslationEngine => {
@@ -14,5 +16,7 @@ export const createTranslationEngine = (profile: ProviderProfile): TranslationEn
     case 'openai-compatible': return new OpenAiCompatibleEngine(profile);
     case 'tencent-tmt': return new TencentTmtEngine(profile);
     case 'azure-translator': return new AzureTranslatorEngine(profile);
+    case 'youdao': return new YoudaoTranslatorEngine(profile);
+    case 'deepl': return new DeepLTranslatorEngine(profile);
   }
 };

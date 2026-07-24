@@ -3,6 +3,7 @@ import {
   assertSuccessfulResponse,
   connectionError,
   ProviderRequestError,
+  fetchWithTimeout,
   type TranslationEngine,
   type TranslationRequest,
 } from './translationTypes';
@@ -66,7 +67,7 @@ export class TencentTmtEngine implements TranslationEngine {
 
     let response: Response;
     try {
-      response = await fetch(`https://${HOST}`, {
+      response = await fetchWithTimeout(`https://${HOST}`, {
         method: 'POST',
         headers: {
           Authorization: authorization,

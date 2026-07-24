@@ -3,6 +3,7 @@ import {
   assertSuccessfulResponse,
   connectionError,
   ProviderRequestError,
+  fetchWithTimeout,
   type TranslationEngine,
   type TranslationRequest,
 } from './translationTypes';
@@ -33,7 +34,7 @@ export class AzureTranslatorEngine implements TranslationEngine {
       if (this.profile.region?.trim()) {
         headers['Ocp-Apim-Subscription-Region'] = this.profile.region.trim();
       }
-      response = await fetch(`${baseUrl}/translate?${query}`, {
+      response = await fetchWithTimeout(`${baseUrl}/translate?${query}`, {
         method: 'POST',
         headers,
         body: JSON.stringify([{ text: input.text }]),

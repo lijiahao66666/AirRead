@@ -18,7 +18,7 @@ describe('SettingsPage', () => {
     expect(screen.getByText('免费翻译')).toBeInTheDocument();
     expect(screen.getByText('当前使用')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '删除 免费翻译' })).not.toBeInTheDocument();
-    expect(screen.getByLabelText('免费翻译线路')).toHaveValue('mymemory');
+    expect(screen.getByLabelText('免费翻译线路')).toHaveValue('auto');
   });
 
   it('persists the selected free translation route', () => {
@@ -125,5 +125,37 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '添加翻译服务' }));
     expect(screen.getByRole('button', { name: '保存配置' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '测试连接' })).toBeDisabled();
+  });
+
+  it('groups dedicated translation APIs and persists Youdao credentials', async () => {
+    const store = new ProviderProfileStore(localStorage);
+    const testConnection = vi.fn().mockResolvedValue(undefined);
+    render(<SettingsPage store={store} testConnection={testConnection} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '添加翻译服务' }));
+    expect(screen.getByRole('option', { name: 'OpenAI 兼容协议' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '有道智云文本翻译' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'DeepL API' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('服务名称'), { target: { value: '我的有道' } });
+    fireEvent.change(screen.getByLabelText('服务类型'), { target: { value: 'youdao' } });
+    fireEvent.change(screen.getByLabelText('App Key'), { target: { value: 'app-key' } });
+    fireEvent.change(screen.getByLabelText('App Secret'), { target: { value: 'app-secret' } });
+    expect(screen.getByRole('button', { name: '保存配置' })).not.toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+    await waitFor(() => expect(testConnection).toHaveBeenCalledWith(expect.objectContaining({ appSecret: 'app-secret' })));
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    expect(store.list()).toEqual(expect.arrayContaining([expect.objectContaining({ name: '我的有道', kind: 'youdao', apiKey: 'app-key', appSecret: 'app-secret' })]));
+    fireEvent.click(screen.getByRole('button', { name: '编辑 我的有道' }));
+    expect(screen.getByLabelText('App Secret')).toHaveValue('app••••••••••ret');
+  });
+
+  it('prefills the DeepL Free endpoint for a dedicated API', () => {
+    render(<SettingsPage store={new ProviderProfileStore(localStorage)} />);
+    fireEvent.click(screen.getByRole('button', { name: '添加翻译服务' }));
+    fireEvent.change(screen.getByLabelText('服务类型'), { target: { value: 'deepl' } });
+
+    expect(screen.getByLabelText('Base URL')).toHaveValue('https://api-free.deepl.com');
+    expect(screen.getByLabelText('API Key')).toBeInTheDocument();
   });
 });

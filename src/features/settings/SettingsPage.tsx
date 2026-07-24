@@ -26,10 +26,19 @@ export type SettingsPageProps = {
 
 const testRequest: TranslationRequest = { text: 'AirRead', sourceLanguage: 'en', targetLanguage: 'zh-CN' };
 const freeRouteLabels: Record<FreeTranslationRoute, string> = {
-  mymemory: 'MyMemory（默认）',
+  mymemory: 'MyMemory',
   google: 'Google Translate（需要 VPN）',
   'azure-edge': 'Azure Edge（免费，无 Key）',
-  auto: '自动切换（MyMemory → Google）',
+  auto: '自动切换（MyMemory → Azure Edge → Google）',
+};
+
+const providerKindLabels: Record<ProviderProfile['kind'], string> = {
+  free: '免费翻译',
+  'openai-compatible': '大语言模型翻译',
+  'tencent-tmt': '腾讯云翻译 TMT',
+  'azure-translator': 'Azure AI Translator',
+  youdao: '有道智云文本翻译',
+  deepl: 'DeepL API',
 };
 
 export function SettingsPage({ store = new ProviderProfileStore(), readerStore, testConnection = async (profile) => { await createTranslationEngine(profile).translate(testRequest); } }: SettingsPageProps) {
@@ -55,7 +64,11 @@ export function SettingsPage({ store = new ProviderProfileStore(), readerStore, 
   const refresh = () => { setProfiles(store.list()); setSelectedId(store.selected().id); setFreeRoute(store.getFreeRoute()); };
   const startCreate = () => { setError(undefined); setNotice(undefined); setEditingOriginal(undefined); setEditing({ id: `provider-${Date.now()}`, name: '', kind: 'openai-compatible', enabled: true }); };
   const startEdit = (profile: ProviderProfile) => { setError(undefined); setNotice(undefined); setEditingOriginal(profile); setEditing(maskProviderProfile(profile)); };
-  const resolvedEditing = editing && isMaskedSecret(editing.apiKey) ? { ...editing, apiKey: editingOriginal?.apiKey } : editing;
+  const resolvedEditing = editing ? {
+    ...editing,
+    ...(isMaskedSecret(editing.apiKey) ? { apiKey: editingOriginal?.apiKey } : {}),
+    ...(isMaskedSecret(editing.appSecret) ? { appSecret: editingOriginal?.appSecret } : {}),
+  } : undefined;
   const save = () => {
     if (!editing) return;
     try { store.save(editing); setEditing(undefined); setEditingOriginal(undefined); setError(undefined); setNotice('配置已保存'); refresh(); } catch (cause) { setNotice(undefined); setError(cause instanceof Error ? cause.message : '保存配置失败'); }
@@ -105,7 +118,7 @@ export function SettingsPage({ store = new ProviderProfileStore(), readerStore, 
       </div>
       <p className="settings-reading-preferences__hint">默认会按源语言自动匹配系统声音。声音质量由浏览器和操作系统提供；如果觉得声音生硬，可以在系统语音设置中安装增强或高级语音，再回到这里选择。</p>
     </section>
-    <section className="settings-card"><div className="settings-card__heading"><div><p className="eyebrow">翻译服务</p><h3>服务配置</h3></div><button type="button" className="primary-action" onClick={startCreate}><Plus size={17} /> 添加翻译服务</button></div><div className="provider-list">{profiles.map((profile) => <article className={`provider-row ${profile.id === selectedId ? 'provider-row--selected' : ''}`} key={profile.id}><div className="provider-row__main"><span className="provider-row__icon">{profile.id === BUILT_IN_FREE_PROFILE.id ? <Check size={17} /> : <Power size={17} />}</span><div><h4>{profile.name}</h4><p>{profile.builtIn ? `免费 · ${freeRouteLabels[profile.freeRoute ?? freeRoute]}` : profile.kind === 'openai-compatible' ? `${profile.model || '未设置模型'} · ${profile.baseUrl || '未设置地址'}` : profile.kind === 'tencent-tmt' ? '腾讯云翻译 TMT' : 'Azure 翻译'}</p></div></div><div className="provider-row__status">{profile.enabled ? <span className="provider-enabled">{profile.id === selectedId ? '当前使用' : '已启用'}</span> : <span className="provider-disabled">已停用</span>}</div><div className="provider-row__actions">{profile.enabled && profile.id !== selectedId && <button type="button" className="text-button" onClick={() => select(profile)} aria-label={`设为当前 ${profile.name}`}>设为当前</button>}{!profile.builtIn && <><button type="button" className="icon-button" onClick={() => startEdit(profile)} aria-label={`编辑 ${profile.name}`}><Pencil size={16} /></button><button type="button" className="icon-button" onClick={() => toggle(profile)} aria-label={`${profile.enabled ? '停用' : '启用'} ${profile.name}`}><Power size={16} /></button><button type="button" className="icon-button" onClick={() => remove(profile)} aria-label={`删除 ${profile.name}`}><Trash2 size={16} /></button></>}</div></article>)}</div><div className="free-route-settings"><label>免费翻译线路<select aria-label="免费翻译线路" value={freeRoute} onChange={(event) => updateFreeRoute(event.target.value as FreeTranslationRoute)}>{Object.entries(freeRouteLabels).map(([route, label]) => <option value={route} key={route}>{label}</option>)}</select></label><p>只在选择“免费翻译”时生效。Google 线路依赖可访问 Google 的网络环境；Azure Edge 是无 Key 的非官方接口，可能随时变化。</p></div></section>
+    <section className="settings-card"><div className="settings-card__heading"><div><p className="eyebrow">翻译服务</p><h3>服务配置</h3><p className="settings-card__description">免费翻译无需密钥；自定义服务的密钥只保存在当前浏览器。</p></div><button type="button" className="primary-action" onClick={startCreate}><Plus size={17} /> 添加翻译服务</button></div><div className="provider-list">{profiles.map((profile) => <article className={`provider-row ${profile.id === selectedId ? 'provider-row--selected' : ''}`} key={profile.id}><div className="provider-row__main"><span className="provider-row__icon">{profile.id === BUILT_IN_FREE_PROFILE.id ? <Check size={17} /> : <Power size={17} />}</span><div><h4>{profile.name}</h4><p>{profile.builtIn ? `免费 · ${freeRouteLabels[profile.freeRoute ?? freeRoute]}` : providerKindLabels[profile.kind]}</p></div></div><div className="provider-row__status">{profile.enabled ? <span className="provider-enabled">{profile.id === selectedId ? '当前使用' : '已启用'}</span> : <span className="provider-disabled">已停用</span>}</div><div className="provider-row__actions">{profile.enabled && profile.id !== selectedId && <button type="button" className="text-button" onClick={() => select(profile)} aria-label={`设为当前 ${profile.name}`}>设为当前</button>}{!profile.builtIn && <><button type="button" className="icon-button" onClick={() => startEdit(profile)} aria-label={`编辑 ${profile.name}`}><Pencil size={16} /></button><button type="button" className="icon-button" onClick={() => toggle(profile)} aria-label={`${profile.enabled ? '停用' : '启用'} ${profile.name}`}><Power size={16} /></button><button type="button" className="icon-button" onClick={() => remove(profile)} aria-label={`删除 ${profile.name}`}><Trash2 size={16} /></button></>}</div></article>)}</div><div className="free-route-settings"><label>免费翻译线路<select aria-label="免费翻译线路" value={freeRoute} onChange={(event) => updateFreeRoute(event.target.value as FreeTranslationRoute)}>{Object.entries(freeRouteLabels).map(([route, label]) => <option value={route} key={route}>{label}</option>)}</select></label><p>默认自动尝试 MyMemory、Azure Edge、Google。Google 线路依赖可访问 Google 的网络环境；Azure Edge 是无 Key 的非官方接口，可能随时变化。</p></div></section>
     {editing && <section className="settings-card"><ProviderEditor profile={editing} validationProfile={resolvedEditing} mode={editingOriginal ? 'edit' : 'create'} onChange={setEditing} onSave={save} onCancel={() => { setEditing(undefined); setEditingOriginal(undefined); setError(undefined); }} onTest={test} testing={testing} error={error} /></section>}
     <section className="settings-card settings-guidance"><div><p className="eyebrow">请求如何发送</p><h3>浏览器直接连接</h3><p>翻译请求由当前浏览器直接发送到所选服务。部分服务不允许网页直接连接；若测试失败，请改用支持浏览器访问的地址，或在自己的设备上运行中转服务。</p></div><CircleOff size={28} aria-hidden="true" /></section>
   </section>;

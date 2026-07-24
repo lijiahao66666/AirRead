@@ -21,13 +21,14 @@ describe('translation provider registry', () => {
   it('uses the first non-empty, non-echo result from the free chain', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ responseStatus: 200, responseData: { translatedText: 'Good morning' } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([[['早上好', 'Good morning', null, null, 10]], null, 'en']), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const engine = createTranslationEngine({ id: 'builtin-free', name: '免费翻译', kind: 'free', enabled: true });
     await expect(engine.translate(request)).resolves.toBe('早上好');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const fallbackUrl = new URL(fetchMock.mock.calls[1][0] as string);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const fallbackUrl = new URL(fetchMock.mock.calls[2][0] as string);
     expect(`${fallbackUrl.origin}${fallbackUrl.pathname}`).toBe('https://translate.googleapis.com/translate_a/single');
     expect(Object.fromEntries(fallbackUrl.searchParams)).toMatchObject({
       client: 'gtx', sl: 'en', tl: 'zh-CN', dt: 't', q: 'Good morning',
@@ -39,6 +40,7 @@ describe('translation provider registry', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({
         responseStatus: '403', responseData: { translatedText: 'MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS' },
       }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([[['早上好', 'Good morning']]]), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -68,6 +70,25 @@ describe('translation provider registry', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('https://edge.microsoft.com/translate/auth');
     expect(fetchMock.mock.calls[1][0]).toContain('https://api-edge.cognitive.microsofttranslator.com/translate');
     expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ Authorization: 'Bearer edge-token' });
+  });
+
+  it('tries free routes in MyMemory, Azure Edge, then Google order', async () => {
+    const actualNow = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(actualNow + 8 * 60 * 1000);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ responseStatus: 429 }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('edge-token', { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ translations: [{ text: 'Good morning' }] }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([[['早上好']]]), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const engine = createTranslationEngine({ id: 'builtin-free', name: '免费翻译', kind: 'free', enabled: true });
+    await expect(engine.translate(request)).resolves.toBe('早上好');
+    expect(fetchMock.mock.calls).toHaveLength(4);
+    expect(fetchMock.mock.calls[0][0]).toContain('api.mymemory.translated.net');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://edge.microsoft.com/translate/auth');
+    expect(fetchMock.mock.calls[2][0]).toContain('api-edge.cognitive.microsofttranslator.com');
+    expect(fetchMock.mock.calls[3][0]).toContain('translate.googleapis.com');
   });
 
   it('calls an OpenAI-compatible chat completion endpoint', async () => {
@@ -202,6 +223,35 @@ describe('translation provider registry', () => {
 
     const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
     expect(headers['Ocp-Apim-Subscription-Region']).toBeUndefined();
+  });
+
+  it('calls Youdao with v3 signed form fields', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ translation: ['早上好'] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const engine = createTranslationEngine({ id: 'youdao', name: '有道', kind: 'youdao', enabled: true, apiKey: 'app-key', appSecret: 'app-secret' });
+
+    await expect(engine.translate(request)).resolves.toBe('早上好');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://openapi.youdao.com/api');
+    const body = new URLSearchParams(init.body as string);
+    expect(body.get('appKey')).toBe('app-key');
+    expect(body.get('signType')).toBe('v3');
+    expect(body.get('curtime')).toBeTruthy();
+    expect(body.get('salt')).toBeTruthy();
+    expect(body.get('sign')).toMatch(/^[a-f0-9]{64}$/);
+    expect(String(init.body)).not.toContain('app-secret');
+  });
+
+  it('calls DeepL Free with its auth header and target language', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ translations: [{ text: '早上好' }] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const engine = createTranslationEngine({ id: 'deepl', name: 'DeepL', kind: 'deepl', enabled: true, apiKey: 'deepl-secret' });
+
+    await expect(engine.translate(request)).resolves.toBe('早上好');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api-free.deepl.com/v2/translate');
+    expect(init.headers).toMatchObject({ Authorization: 'DeepL-Auth-Key deepl-secret' });
+    expect(new URLSearchParams(init.body as string).get('target_lang')).toBe('ZH');
   });
 
   it('reports direct-browser CORS failures and never leaks keys or response bodies', async () => {

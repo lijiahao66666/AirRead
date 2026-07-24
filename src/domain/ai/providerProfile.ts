@@ -1,4 +1,4 @@
-export type ProviderKind = 'free' | 'openai-compatible' | 'tencent-tmt' | 'azure-translator';
+export type ProviderKind = 'free' | 'openai-compatible' | 'tencent-tmt' | 'azure-translator' | 'youdao' | 'deepl';
 export type FreeTranslationRoute = 'mymemory' | 'google' | 'azure-edge' | 'auto';
 
 export type ProviderProfile = {
@@ -8,6 +8,7 @@ export type ProviderProfile = {
   baseUrl?: string;
   model?: string;
   apiKey?: string;
+  appSecret?: string;
   region?: string;
   freeRoute?: FreeTranslationRoute;
   enabled: boolean;
@@ -23,7 +24,7 @@ export const BUILT_IN_FREE_PROFILE: ProviderProfile = Object.freeze({
   id: 'builtin-free',
   name: '免费翻译',
   kind: 'free',
-  freeRoute: 'mymemory',
+  freeRoute: 'auto',
   enabled: true,
   builtIn: true,
 });
@@ -52,6 +53,7 @@ export const isMaskedSecret = (secret?: string): boolean => {
 export const maskProviderProfile = (profile: ProviderProfile): ProviderProfile => ({
   ...profile,
   apiKey: maskSecret(profile.apiKey),
+  appSecret: maskSecret(profile.appSecret),
 });
 
 export const validateProviderProfile = (profile: ProviderProfile): ProviderValidationResult => {
@@ -59,6 +61,7 @@ export const validateProviderProfile = (profile: ProviderProfile): ProviderValid
   if (!profile.id.trim()) errors.push('请输入配置 ID');
   if (!profile.name.trim()) errors.push('请输入服务名称');
   if (isMaskedSecret(profile.apiKey)) errors.push('API Key 不能是掩码，请输入真实密钥');
+  if (isMaskedSecret(profile.appSecret)) errors.push('应用密钥不能是掩码，请输入真实密钥');
 
   if (profile.kind === 'openai-compatible') {
     if (!profile.baseUrl?.trim()) errors.push('请输入 Base URL');
@@ -80,6 +83,15 @@ export const validateProviderProfile = (profile: ProviderProfile): ProviderValid
     if (profile.baseUrl?.trim() && !isSafeProviderUrl(profile.baseUrl)) {
       errors.push('Base URL 必须使用 HTTPS（本地开发可使用 HTTP localhost）');
     }
+  }
+
+  if (profile.kind === 'youdao') {
+    if (!profile.apiKey?.trim()) errors.push('请输入有道应用 ID（App Key）');
+    if (!profile.appSecret?.trim()) errors.push('请输入有道应用密钥（App Secret）');
+  }
+
+  if (profile.kind === 'deepl' && !profile.apiKey?.trim()) {
+    errors.push('请输入 DeepL API Key');
   }
 
   return { valid: errors.length === 0, errors };

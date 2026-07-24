@@ -25,6 +25,18 @@ export class ProviderRequestError extends Error {
   }
 }
 
+export const PROVIDER_REQUEST_TIMEOUT_MS = 15_000;
+
+export const fetchWithTimeout = async (input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = PROVIDER_REQUEST_TIMEOUT_MS): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
 export const assertSuccessfulResponse = (response: Response, providerName: string): void => {
   if (!response.ok) throw new ProviderRequestError(providerName, response.status);
 };

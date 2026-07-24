@@ -10,7 +10,7 @@ import {
 
 const PROFILES_KEY = 'airread.providerProfiles.v1';
 const SELECTED_KEY = 'airread.selectedProvider.v1';
-const PROVIDER_KINDS: ProviderKind[] = ['free', 'openai-compatible', 'tencent-tmt', 'azure-translator'];
+const PROVIDER_KINDS: ProviderKind[] = ['free', 'openai-compatible', 'tencent-tmt', 'azure-translator', 'youdao', 'deepl'];
 const FREE_ROUTE_KEY = 'airread.freeTranslationRoute.v1';
 const FREE_ROUTES: FreeTranslationRoute[] = ['mymemory', 'google', 'azure-edge', 'auto'];
 
@@ -72,6 +72,12 @@ export class ProviderProfileStore {
         throw new Error('掩码密钥不能用于新配置，请输入真实 API Key');
       }
       saved.apiKey = existing.apiKey;
+    }
+    if (isMaskedSecret(saved.appSecret)) {
+      if (!existing?.appSecret || saved.appSecret !== maskSecret(existing.appSecret)) {
+        throw new Error('掩码应用密钥不能用于新配置，请输入真实应用密钥');
+      }
+      saved.appSecret = existing.appSecret;
     }
 
     const validation = validateProviderProfile(saved);
