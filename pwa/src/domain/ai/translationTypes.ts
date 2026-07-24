@@ -1,0 +1,49 @@
+export type TranslationRequest = {
+  text: string;
+  sourceLanguage?: string;
+  targetLanguage: string;
+  prompt?: string;
+  glossary?: Record<string, string>;
+};
+
+export interface TranslationEngine {
+  readonly cacheIdentity: string;
+  translate(input: TranslationRequest): Promise<string>;
+}
+
+export class ProviderConnectionError extends Error {
+  constructor(providerName: string) {
+    super(`${providerName}：浏览器无法直接连接。请检查网络、服务的 CORS 设置和 Base URL。AirRead 不会代你转发请求。`);
+    this.name = 'ProviderConnectionError';
+  }
+}
+
+export class ProviderRequestError extends Error {
+  constructor(providerName: string, status?: number) {
+    super(`${providerName} 请求失败${status ? `（HTTP ${status}）` : ''}，请检查本地 Provider 配置。`);
+    this.name = 'ProviderRequestError';
+  }
+}
+
+export const assertSuccessfulResponse = (response: Response, providerName: string): void => {
+  if (!response.ok) throw new ProviderRequestError(providerName, response.status);
+};
+
+export const connectionError = (providerName: string): ProviderConnectionError => (
+  new ProviderConnectionError(providerName)
+);
+
+export const createTranslationPrompt = (request: TranslationRequest): string => {
+  const glossary = Object.entries(request.glossary ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([source, target]) => `${source} => ${target}`)
+    .join('\n');
+  const instructions = request.prompt?.trim() || '准确、自然地翻译，保留原文段落结构，只返回译文。';
+  return [
+    instructions,
+    `源语言：${request.sourceLanguage || '自动识别'}`,
+    `目标语言：${request.targetLanguage}`,
+    glossary ? `术语表：\n${glossary}` : '',
+    `原文：\n${request.text}`,
+  ].filter(Boolean).join('\n\n');
+};

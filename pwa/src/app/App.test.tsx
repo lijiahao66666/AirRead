@@ -1,0 +1,28 @@
+import { render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+
+import App from '../App';
+
+describe('AirRead application shell', () => {
+  it('renders the product name, primary navigation, and import action', () => {
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'AirRead 灵阅' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '书架' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '书籍工作室' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '设置' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '导入书籍' })).toBeInTheDocument();
+  });
+
+  it('starts locally without auth, points, check-in, or device bootstrap', async () => {
+    window.localStorage.clear();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: '导入书籍' })).toBeInTheDocument());
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(Object.keys(window.localStorage)).toEqual([]);
+    fetchSpy.mockRestore();
+  });
+});

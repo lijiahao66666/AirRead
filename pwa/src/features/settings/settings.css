@@ -1,0 +1,31 @@
+.settings-page { width: min(100%, 70rem); margin: 0 auto; }
+.settings-page__header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; padding: .7rem 0 1.75rem; color: var(--teal-800); }
+.settings-page__header svg { flex: none; }
+.settings-card { margin-bottom: 1rem; border: 1px solid var(--paper-200); border-radius: var(--radius-lg); padding: clamp(1.25rem, 3vw, 2rem); background: var(--paper-50); box-shadow: var(--shadow-card); }
+.settings-card__heading, .settings-editor__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--paper-200); padding-bottom: 1rem; }
+.settings-card h3, .provider-editor h3 { margin: 0; color: var(--teal-950); font-size: 1.35rem; letter-spacing: -.035em; }
+.settings-privacy { display: flex; align-items: flex-start; gap: .6rem; color: var(--teal-800); }
+.settings-privacy p { margin: 0; line-height: 1.65; font-size: .86rem; }
+.settings-notice, .settings-alert { margin-bottom: 1rem; border: 1px solid var(--mint-400); border-radius: .65rem; padding: .75rem .9rem; background: var(--mint-100); color: var(--teal-800); font-size: .8rem; }
+.settings-alert { border-color: #e4aaa0; background: #fff5f2; color: #9b3c2d; }
+.provider-list { display: grid; gap: .6rem; margin-top: 1rem; }
+.provider-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; min-height: 4.25rem; align-items: center; gap: .75rem; border: 1px solid var(--paper-200); border-radius: var(--radius-md); padding: .8rem .9rem; }
+.provider-row--selected { border-color: var(--mint-400); background: var(--mint-100); }
+.provider-row__main { display: flex; align-items: center; gap: .7rem; min-width: 0; }
+.provider-row__icon { display: grid; flex: none; width: 2rem; height: 2rem; place-items: center; border-radius: .5rem; background: var(--teal-950); color: var(--mint-400); }
+.provider-row h4 { overflow: hidden; margin: 0 0 .2rem; color: var(--teal-950); font-size: .94rem; text-overflow: ellipsis; white-space: nowrap; }
+.provider-row p { overflow: hidden; margin: 0; color: var(--ink-700); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
+.provider-row__status { font-size: .76rem; font-weight: 750; white-space: nowrap; }
+.provider-enabled { color: var(--teal-800); }
+.provider-disabled { color: var(--ink-700); }
+.provider-row__actions { display: flex; align-items: center; gap: .2rem; }
+.provider-row__actions .icon-button { margin: 0; }
+.settings-form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .8rem; margin-top: 1.2rem; }
+.settings-form-grid label { position: relative; display: grid; gap: .45rem; color: var(--ink-700); font-size: .82rem; font-weight: 750; }
+.settings-form-grid__wide { grid-column: 1 / -1; }
+.settings-form-grid input, .settings-form-grid select { width: 100%; border: 1px solid var(--paper-300); border-radius: var(--radius-sm); padding: .72rem .75rem; background: var(--paper-50); color: var(--ink-900); font: inherit; }
+.secret-toggle { display: inline-flex; align-items: center; gap: .25rem; width: max-content; margin-top: -.15rem; border: 0; padding: 0; background: transparent; color: var(--blue-700); cursor: pointer; font-size: .7rem; font-weight: 750; }
+.settings-editor__actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.2rem; }
+.settings-guidance { display: flex; justify-content: space-between; gap: 1rem; color: var(--teal-800); }
+.settings-guidance p:not(.eyebrow) { max-width: 46rem; margin: .75rem 0 0; color: var(--ink-700); font-size: .86rem; line-height: 1.75; }
+@media (max-width: 42rem) { .settings-page__header { align-items: flex-start; } .settings-page__header > svg { display: none; } .settings-card__heading { align-items: stretch; flex-direction: column; } .settings-card__heading .primary-action { align-self: flex-start; } .provider-row { grid-template-columns: 1fr auto; } .provider-row__status { grid-column: 1; grid-row: 2; padding-left: 2.7rem; } .provider-row__actions { grid-column: 2; grid-row: 2; } .settings-form-grid { grid-template-columns: 1fr; } .settings-form-grid__wide { grid-column: auto; } .settings-editor__actions { flex-wrap: wrap; } .settings-editor__actions > * { flex: 1; } }

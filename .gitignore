@@ -1,54 +1,17 @@
-﻿# Force Ignore Caches & Build Artifacts
-**/.gradle/
-**/.gradle-cache/
-**/build/
-**/.dart_tool/
-**/node_modules/
-
-# General
+# Editor and OS files
 .DS_Store
 .idea/
 .vscode/
 *.iml
 *.log
-*.zip
-*.tar.gz
-__pycache__/
 .trae/
 
-# Node.js
+# Web build and package caches
+**/node_modules/
+**/dist/
 npm-debug.log
 yarn-error.log
 
-# Flutter/Dart
-.flutter-plugins
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-flutter-web-run.log
-
-# Android
-**/local.properties
-**/key.properties
-**/*.jks
-**/*.keystore
-
-# Secrets & Configs
+# Local secrets
 **/.env
-**/config.json
-server/.env
-server/config.json
-
-# Temp & Generated
-.tmp_appdata/
-.tmp_localappdata/
-.tmp_home/
-client/.metadata
-
-# Large Data & Models
-models/
-logs/
-data/
-test/*.epub
-软著材料/
-requirements
+!**/.env.example

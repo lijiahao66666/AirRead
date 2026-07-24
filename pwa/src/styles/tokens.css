@@ -1,0 +1,26 @@
+:root {
+  --paper-50: #fffefa;
+  --paper-100: #f6f1e8;
+  --paper-200: #e5dccf;
+  --paper-300: #d5c9b9;
+  --ink-900: #172725;
+  --ink-700: #52615f;
+  --ink-600: #657370;
+  --teal-950: #103d39;
+  --teal-800: #24675f;
+  --teal-700: #2f786d;
+  --mint-400: #88ceb5;
+  --mint-100: #dcefe6;
+  --blue-600: var(--teal-700);
+  --blue-700: var(--teal-800);
+  --danger-700: #963f33;
+  --danger-100: #fff1ed;
+  --shadow-card: 0 16px 38px rgb(16 61 57 / 9%);
+  --shadow-raised: 0 10px 24px rgb(16 61 57 / 14%);
+  --radius-sm: .625rem;
+  --radius-md: .875rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
+  --motion-fast: 150ms;
+  --rail-width: 16.75rem;
+}
