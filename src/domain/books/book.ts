@@ -1,5 +1,14 @@
 export type BookFormat = 'epub' | 'txt';
 
+export type BookTranslationPreferences = {
+  sourceLanguage?: string;
+  targetLanguage?: string;
+};
+
+export type BookSelectionPreferences = {
+  targetLanguage?: string;
+};
+
 export type Book = {
   id: string;
   title: string;
@@ -13,6 +22,8 @@ export type Book = {
   readingChapter: number;
   readingProgress: number;
   generatedBilingual: boolean;
+  translationPreferences?: BookTranslationPreferences;
+  selectionPreferences?: BookSelectionPreferences;
 };
 
 export type Chapter = {

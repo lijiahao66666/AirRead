@@ -41,7 +41,7 @@ export function BookshelfPage({ books, loading = false, error, onImport, onOpen,
         <div>
           <p className="eyebrow">阅读空间</p>
           <h2 id="bookshelf-title">我的书架</h2>
-          <p className="page-lede">导入 EPUB 或 TXT，在当前设备继续阅读、记录进度和翻译选中的内容。</p>
+          <p className="page-lede">导入 EPUB 或 TXT，在当前设备继续阅读、生成本章双语、划词翻译或朗读原文。</p>
         </div>
         <div className="bookshelf-page__actions">
           <button className="primary-action import-action" type="button" onClick={() => inputRef.current?.click()}><Upload size={17} /> 导入书籍</button>

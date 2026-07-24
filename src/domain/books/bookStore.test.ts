@@ -46,6 +46,19 @@ describe('book store', () => {
     await store.deleteBook('progress');
     expect(await store.listBooks()).toEqual([]);
   });
+
+  it('persists per-book translation preferences', async () => {
+    const database = new MemoryBookDatabase();
+    const store = createBookStore(async () => database);
+    await store.saveBook(makeBook('preferences', 400, [1]));
+
+    await store.updateBook('preferences', { translationPreferences: { sourceLanguage: 'auto', targetLanguage: 'ja' }, selectionPreferences: { targetLanguage: 'en' } });
+
+    expect((await store.listBooks())[0]).toMatchObject({
+      translationPreferences: { sourceLanguage: 'auto', targetLanguage: 'ja' },
+      selectionPreferences: { targetLanguage: 'en' },
+    });
+  });
 });
 
 class MemoryBookDatabase implements BookDatabase {

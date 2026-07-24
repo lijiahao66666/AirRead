@@ -66,6 +66,14 @@ export default function App() {
     await bookStore.updateBook(bookId, progress);
     setBooks((current) => current.map((book) => book.id === bookId ? { ...book, ...progress } : book));
   };
+  const updateTranslationPreferences = async (bookId: string, translationPreferences: Book['translationPreferences']) => {
+    await bookStore.updateBook(bookId, { translationPreferences });
+    setBooks((current) => current.map((book) => book.id === bookId ? { ...book, translationPreferences } : book));
+  };
+  const updateSelectionPreferences = async (bookId: string, selectionPreferences: Book['selectionPreferences']) => {
+    await bookStore.updateBook(bookId, { selectionPreferences });
+    setBooks((current) => current.map((book) => book.id === bookId ? { ...book, selectionPreferences } : book));
+  };
   const saveGeneratedBook = async (book: Book) => {
     await bookStore.saveBook(book);
     setBooks((current) => [book, ...current.filter((candidate) => candidate.id !== book.id)]);
@@ -74,7 +82,7 @@ export default function App() {
   let content;
   if (location.route === 'reader') {
     content = loading ? <div className="state-card" role="status">正在读取书籍</div> : activeBook
-      ? <ReaderPage key={activeBook.id} book={activeBook} onProgress={(progress) => updateProgress(activeBook.id, progress)} onBack={() => { window.location.hash = 'bookshelf'; }} />
+      ? <ReaderPage key={activeBook.id} book={activeBook} onProgress={(progress) => updateProgress(activeBook.id, progress)} onTranslationPreferencesChange={(preferences) => updateTranslationPreferences(activeBook.id, preferences)} onSelectionPreferencesChange={(preferences) => updateSelectionPreferences(activeBook.id, preferences)} onBack={() => { window.location.hash = 'bookshelf'; }} />
       : <MissingBookPage />;
   } else if (location.route === 'studio') {
     content = <BookStudioPage books={books} providerStore={providerStore} onSaveBook={saveGeneratedBook} />;
@@ -87,7 +95,7 @@ export default function App() {
   return <div className="app-shell" data-route={location.route}>
     <aside className="app-rail">
       <header className="brand"><h1><a href="#bookshelf" aria-label="AirRead 灵阅">AirRead <span>灵阅</span></a></h1><p>沉浸式双语阅读</p></header>
-      <nav className="primary-navigation" aria-label="主导航">{primaryNavigation.map(({ label, route: navRoute, icon: Icon }) => <a key={navRoute} href={`#${navRoute}`} aria-current={location.route === navRoute ? 'page' : undefined}><Icon size={18} /> <span>{label}</span></a>)}</nav>
+      <nav className="primary-navigation" aria-label="主导航">{primaryNavigation.map(({ label, route: navRoute, icon: Icon }) => <a key={navRoute} href={`#${navRoute}`} aria-current={location.route === navRoute || (location.route === 'reader' && navRoute === 'bookshelf') ? 'page' : undefined}><Icon size={18} /> <span>{label}</span></a>)}</nav>
       <div className="rail-footer"><BookOpen size={16} /> 本地存储 · 可离线阅读</div>
     </aside>
     <main>{content}</main>

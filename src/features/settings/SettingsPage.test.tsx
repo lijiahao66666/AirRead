@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BUILT_IN_FREE_PROFILE } from '../../domain/ai/providerProfile';
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
 import { ProviderConnectionError } from '../../domain/ai/translationTypes';
+import { ReaderPreferencesStore } from '../reader/readerPreferences';
 import { SettingsPage } from './SettingsPage';
 
 describe('SettingsPage', () => {
@@ -12,11 +13,24 @@ describe('SettingsPage', () => {
   it('shows exact local privacy guidance and protects the built-in free profile', () => {
     render(<SettingsPage store={new ProviderProfileStore(localStorage)} />);
 
-    expect(screen.getByText('书籍和服务密钥只保存在当前浏览器。使用第三方翻译时，选中的文本会直接发送到该服务。')).toBeInTheDocument();
+    expect(screen.getByText('书籍和服务密钥只保存在当前浏览器。使用第三方翻译时，待翻译文本会直接发送到该服务。')).toBeInTheDocument();
     expect(screen.getByText('翻译请求由当前浏览器直接发送到所选服务。部分服务不允许网页直接连接；若测试失败，请改用支持浏览器访问的地址，或在自己的设备上运行中转服务。')).toBeInTheDocument();
     expect(screen.getByText('免费翻译')).toBeInTheDocument();
     expect(screen.getByText('当前使用')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '删除 免费翻译' })).not.toBeInTheDocument();
+  });
+
+  it('persists translation direction and speech speed in reading preferences', () => {
+    const readerStore = new ReaderPreferencesStore(localStorage);
+    render(<SettingsPage store={new ProviderProfileStore(localStorage)} readerStore={readerStore} />);
+
+    fireEvent.change(screen.getByLabelText('翻译源语言'), { target: { value: 'ja' } });
+    fireEvent.change(screen.getByLabelText('翻译目标语言'), { target: { value: 'en' } });
+    fireEvent.change(screen.getByLabelText('朗读速度'), { target: { value: '1.2' } });
+
+    expect(readerStore.get()).toMatchObject({ sourceLanguage: 'ja', targetLanguage: 'en', speechRate: 1.2 });
+    expect(screen.getByLabelText('翻译源语言')).toHaveValue('ja');
+    expect(screen.getByLabelText('翻译目标语言')).toHaveValue('en');
   });
 
   it('validates, creates, edits, enables, disables, selects, and deletes a profile', async () => {
