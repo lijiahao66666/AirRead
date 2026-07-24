@@ -33,7 +33,7 @@ npm run build
 
 免费翻译服务的可用性和配额由第三方决定。Google 线路需要可访问 Google 的网络环境；Azure Edge 是微软 Edge 使用的非官方无 Key 接口，可能随时变化。重要书籍建议配置自己的翻译服务，并在导出前抽样校对译文。
 
-Azure Translator 也有官方 F0 免费层：每月 200 万字符，但需要用户自己的 Azure Translator 资源、Key 和账户额度；它不是匿名公共翻译线路。DeepL API Free（每月 50 万字符）同样需要用户 Key，LibreTranslate 则更适合自行部署，暂不作为 AirRead 的公共默认服务。
+Azure Translator 也有官方 F0 免费层：每月 200 万字符，但需要用户自己的 Azure Translator 资源、Key 和账户额度；它不是匿名公共翻译线路。
 
 章节朗读使用当前浏览器和操作系统提供的语音能力，不上传音频，也不依赖 AirRead 服务。可在“设置 → 阅读偏好”选择声音和速度；可用声音与朗读效果由设备决定，声音较少时可以先在系统语音设置中安装增强或高级语音。
 
