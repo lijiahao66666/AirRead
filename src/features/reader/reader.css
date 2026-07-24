@@ -30,4 +30,5 @@
 .reader-footer { display: flex; align-items: center; gap: .65rem; padding: 1.1rem .2rem; color: var(--ink-700); font-size: .8rem; }
 .reader-footer input { flex: 1; accent-color: var(--blue-600); }
 .reader-empty { color: var(--ink-700); text-align: center; }
+@media (max-width: 59.999rem) { .selection-actions { bottom: 5.25rem; } }
 @media (max-width: 42rem) { .reader-page { min-height: calc(100dvh - 7rem); } .reader-toolbar { top: -.1rem; } .reader-toolbar__title { text-align: left; } .reader-back span { display: none; } .reader-canvas { margin-inline: -1rem; border-inline: 0; border-radius: 0; box-shadow: none; } }
