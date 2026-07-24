@@ -17,28 +17,24 @@ export type ProviderEditorProps = {
 
 const kindLabels: Record<ProviderKind, string> = {
   free: '免费翻译',
-  'openai-compatible': 'OpenAI 兼容协议',
+  'openai-compatible': 'OpenAI 兼容协议（Chat Completions）',
+  'openai-responses': 'OpenAI Responses API',
+  'anthropic-messages': 'Anthropic Messages API',
   'tencent-tmt': '腾讯云翻译 TMT',
   'azure-translator': 'Azure AI Translator',
   youdao: '有道智云文本翻译',
   deepl: 'DeepL API',
 };
 
-const deepLFreeEndpoint = 'https://api-free.deepl.com';
-
 export function ProviderEditor({ profile, validationProfile, onChange, onSave, onCancel, onTest, mode = 'edit', error, testing = false }: ProviderEditorProps) {
   const [secretVisible, setSecretVisible] = useState(false);
   const [appSecretVisible, setAppSecretVisible] = useState(false);
   const update = (patch: Partial<ProviderProfile>) => onChange({ ...profile, ...patch });
   const handleKindChange = (kind: ProviderKind) => {
-    onChange({
-      ...profile,
-      kind,
-      ...(kind === 'deepl' && !profile.baseUrl ? { baseUrl: deepLFreeEndpoint } : {}),
-    });
+    onChange({ id: profile.id, name: profile.name, kind, enabled: profile.enabled });
   };
-  const needsModel = profile.kind === 'openai-compatible';
-  const needsUrl = profile.kind === 'openai-compatible' || profile.kind === 'azure-translator' || profile.kind === 'deepl';
+  const needsModel = profile.kind === 'openai-compatible' || profile.kind === 'openai-responses' || profile.kind === 'anthropic-messages';
+  const needsUrl = profile.kind === 'openai-compatible' || profile.kind === 'openai-responses' || profile.kind === 'anthropic-messages' || profile.kind === 'azure-translator' || profile.kind === 'deepl';
   const needsRegion = profile.kind === 'tencent-tmt' || profile.kind === 'azure-translator';
   const needsAppSecret = profile.kind === 'youdao';
   const valid = validateProviderProfile(validationProfile ?? profile).valid;
@@ -48,10 +44,10 @@ export function ProviderEditor({ profile, validationProfile, onChange, onSave, o
     <div className="settings-form-grid">
       <label>服务名称<input aria-label="服务名称" value={profile.name} onChange={(event) => update({ name: event.target.value })} placeholder="例如：我的模型服务" /></label>
       <label>服务类型<select aria-label="服务类型" value={profile.kind} onChange={(event) => handleKindChange(event.target.value as ProviderKind)}>
-        <optgroup label="大语言模型翻译"><option value="openai-compatible">{kindLabels['openai-compatible']}</option></optgroup>
+        <optgroup label="大语言模型翻译"><option value="openai-compatible">{kindLabels['openai-compatible']}</option><option value="openai-responses">{kindLabels['openai-responses']}</option><option value="anthropic-messages">{kindLabels['anthropic-messages']}</option></optgroup>
         <optgroup label="专用翻译 API"><option value="tencent-tmt">{kindLabels['tencent-tmt']}</option><option value="azure-translator">{kindLabels['azure-translator']}</option><option value="youdao">{kindLabels.youdao}</option><option value="deepl">{kindLabels.deepl}</option></optgroup>
       </select></label>
-      {needsUrl && <label className="settings-form-grid__wide">Base URL{profile.kind === 'deepl' && <span className="field-hint">留空使用 DeepL API Free</span>}<input aria-label="Base URL" value={profile.baseUrl ?? ''} onChange={(event) => update({ baseUrl: event.target.value })} placeholder={profile.kind === 'deepl' ? deepLFreeEndpoint : 'https://...'} /></label>}
+      {needsUrl && <label className="settings-form-grid__wide">Base URL{(profile.kind === 'anthropic-messages' || profile.kind === 'deepl') && <span className="field-hint">可留空使用官方默认地址</span>}<input aria-label="Base URL" value={profile.baseUrl ?? ''} onChange={(event) => update({ baseUrl: event.target.value })} placeholder={profile.kind === 'anthropic-messages' ? 'https://api.anthropic.com' : profile.kind === 'deepl' ? 'https://api-free.deepl.com' : 'https://...'} /></label>}
       {needsModel && <label>模型名称<input aria-label="模型名称" value={profile.model ?? ''} onChange={(event) => update({ model: event.target.value })} placeholder="模型名称" /></label>}
       <label className={needsRegion ? '' : 'settings-form-grid__wide'}>{profile.kind === 'youdao' ? 'App Key' : 'API Key'}<input aria-label={profile.kind === 'youdao' ? 'App Key' : 'API Key'} type={secretVisible ? 'text' : 'password'} value={profile.apiKey ?? ''} onChange={(event) => update({ apiKey: event.target.value })} placeholder={profile.kind === 'tencent-tmt' ? 'SecretId:SecretKey' : '只保存在当前浏览器'} /><button type="button" className="secret-toggle" onClick={() => setSecretVisible((visible) => !visible)}>{secretVisible ? <><EyeOff size={15} /> 隐藏密钥</> : <><Eye size={15} /> 显示密钥</>}</button></label>
       {needsAppSecret && <label className="settings-form-grid__wide">App Secret<input aria-label="App Secret" type={appSecretVisible ? 'text' : 'password'} value={profile.appSecret ?? ''} onChange={(event) => update({ appSecret: event.target.value })} placeholder="只保存在当前浏览器" /><button type="button" className="secret-toggle" onClick={() => setAppSecretVisible((visible) => !visible)}>{appSecretVisible ? <><EyeOff size={15} /> 隐藏密钥</> : <><Eye size={15} /> 显示密钥</>}</button></label>}

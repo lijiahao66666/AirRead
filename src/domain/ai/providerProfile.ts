@@ -1,4 +1,4 @@
-export type ProviderKind = 'free' | 'openai-compatible' | 'tencent-tmt' | 'azure-translator' | 'youdao' | 'deepl';
+export type ProviderKind = 'free' | 'openai-compatible' | 'openai-responses' | 'anthropic-messages' | 'tencent-tmt' | 'azure-translator' | 'youdao' | 'deepl';
 export type FreeTranslationRoute = 'mymemory' | 'google' | 'azure-edge' | 'auto';
 
 export type ProviderProfile = {
@@ -66,6 +66,23 @@ export const validateProviderProfile = (profile: ProviderProfile): ProviderValid
   if (profile.kind === 'openai-compatible') {
     if (!profile.baseUrl?.trim()) errors.push('请输入 Base URL');
     else if (!isSafeProviderUrl(profile.baseUrl)) errors.push('Base URL 必须使用 HTTPS（本地开发可使用 HTTP localhost）');
+    if (!profile.model?.trim()) errors.push('请输入模型名称');
+    if (!profile.apiKey?.trim()) errors.push('请输入 API Key');
+  }
+
+  if (profile.kind === 'openai-responses') {
+    if (!profile.baseUrl?.trim()) errors.push('请输入 Base URL');
+    else if (!isSafeProviderUrl(profile.baseUrl)) {
+      errors.push('Base URL 必须使用 HTTPS（本地开发可使用 HTTP localhost）');
+    }
+    if (!profile.model?.trim()) errors.push('请输入模型名称');
+    if (!profile.apiKey?.trim()) errors.push('请输入 API Key');
+  }
+
+  if (profile.kind === 'anthropic-messages') {
+    if (profile.baseUrl?.trim() && !isSafeProviderUrl(profile.baseUrl)) {
+      errors.push('Base URL 必须使用 HTTPS（本地开发可使用 HTTP localhost）');
+    }
     if (!profile.model?.trim()) errors.push('请输入模型名称');
     if (!profile.apiKey?.trim()) errors.push('请输入 API Key');
   }

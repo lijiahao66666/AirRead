@@ -133,7 +133,9 @@ describe('SettingsPage', () => {
     render(<SettingsPage store={store} testConnection={testConnection} />);
 
     fireEvent.click(screen.getByRole('button', { name: '添加翻译服务' }));
-    expect(screen.getByRole('option', { name: 'OpenAI 兼容协议' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'OpenAI 兼容协议（Chat Completions）' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'OpenAI Responses API' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Anthropic Messages API' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '有道智云文本翻译' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'DeepL API' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('服务名称'), { target: { value: '我的有道' } });
@@ -150,12 +152,28 @@ describe('SettingsPage', () => {
     expect(screen.getByLabelText('App Secret')).toHaveValue('app••••••••••ret');
   });
 
-  it('prefills the DeepL Free endpoint for a dedicated API', () => {
+  it('clears protocol-specific fields when switching model protocols', () => {
+    render(<SettingsPage store={new ProviderProfileStore(localStorage)} />);
+    fireEvent.click(screen.getByRole('button', { name: '添加翻译服务' }));
+    fireEvent.change(screen.getByLabelText('服务名称'), { target: { value: '模型配置' } });
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://models.example/v1' } });
+    fireEvent.change(screen.getByLabelText('模型名称'), { target: { value: 'reader-model' } });
+    fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'openai-secret' } });
+    fireEvent.change(screen.getByLabelText('服务类型'), { target: { value: 'anthropic-messages' } });
+
+    expect(screen.getByLabelText('Base URL')).toHaveValue('');
+    expect(screen.getByLabelText('模型名称')).toHaveValue('');
+    expect(screen.getByLabelText('API Key')).toHaveValue('');
+    expect(screen.getByLabelText('Base URL')).toHaveAttribute('placeholder', 'https://api.anthropic.com');
+  });
+
+  it('uses the official DeepL Free address as a placeholder', () => {
     render(<SettingsPage store={new ProviderProfileStore(localStorage)} />);
     fireEvent.click(screen.getByRole('button', { name: '添加翻译服务' }));
     fireEvent.change(screen.getByLabelText('服务类型'), { target: { value: 'deepl' } });
 
-    expect(screen.getByLabelText('Base URL')).toHaveValue('https://api-free.deepl.com');
+    expect(screen.getByLabelText('Base URL')).toHaveValue('');
+    expect(screen.getByLabelText('Base URL')).toHaveAttribute('placeholder', 'https://api-free.deepl.com');
     expect(screen.getByLabelText('API Key')).toBeInTheDocument();
   });
 });

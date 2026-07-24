@@ -127,6 +127,34 @@ describe('translation provider registry', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('https://models.example/v1/chat/completions');
   });
 
+  it('calls Anthropic Messages with browser-safe headers and content blocks', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ content: [{ type: 'text', text: '早上好' }] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const engine = createTranslationEngine({ id: 'anthropic', name: 'Claude', kind: 'anthropic-messages', enabled: true, model: 'claude-3-5-sonnet', apiKey: 'anthropic-secret' });
+
+    await expect(engine.translate(request)).resolves.toBe('早上好');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.anthropic.com/v1/messages');
+    expect(init.headers).toMatchObject({
+      'x-api-key': 'anthropic-secret',
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    });
+    expect(JSON.parse(init.body as string)).toMatchObject({ model: 'claude-3-5-sonnet', max_tokens: 2048 });
+  });
+
+  it('calls OpenAI Responses with the Responses input shape', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ output_text: '早上好' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const engine = createTranslationEngine({ id: 'responses', name: 'OpenAI Responses', kind: 'openai-responses', enabled: true, baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini', apiKey: 'responses-secret' });
+
+    await expect(engine.translate(request)).resolves.toBe('早上好');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.openai.com/v1/responses');
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer responses-secret' });
+    expect(JSON.parse(init.body as string)).toMatchObject({ model: 'gpt-4.1-mini', temperature: 0 });
+  });
+
   it('keeps API keys out of cache identity while tracking profile and model changes', () => {
     const base: ProviderProfile = {
       id: 'profile-a', name: 'OpenAI', kind: 'openai-compatible', enabled: true,

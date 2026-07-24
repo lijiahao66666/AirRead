@@ -10,7 +10,7 @@ import {
 
 const PROFILES_KEY = 'airread.providerProfiles.v1';
 const SELECTED_KEY = 'airread.selectedProvider.v1';
-const PROVIDER_KINDS: ProviderKind[] = ['free', 'openai-compatible', 'tencent-tmt', 'azure-translator', 'youdao', 'deepl'];
+const PROVIDER_KINDS: ProviderKind[] = ['free', 'openai-compatible', 'openai-responses', 'anthropic-messages', 'tencent-tmt', 'azure-translator', 'youdao', 'deepl'];
 const FREE_ROUTE_KEY = 'airread.freeTranslationRoute.v1';
 const FREE_ROUTES: FreeTranslationRoute[] = ['mymemory', 'google', 'azure-edge', 'auto'];
 

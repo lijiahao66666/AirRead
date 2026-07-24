@@ -63,12 +63,24 @@ describe('provider profiles', () => {
       id: 'deepl', name: 'DeepL', kind: 'deepl', enabled: true,
       apiKey: 'deepl-key',
     }).valid).toBe(true);
+
+    expect(validateProviderProfile({
+      id: 'anthropic', name: 'Claude', kind: 'anthropic-messages', enabled: true,
+      model: 'claude-3-5-sonnet', apiKey: 'anthropic-key',
+    }).valid).toBe(true);
+
+    expect(validateProviderProfile({
+      id: 'responses', name: 'OpenAI Responses', kind: 'openai-responses', enabled: true,
+      baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini', apiKey: 'responses-key',
+    }).valid).toBe(true);
   });
 
   it('requires both credentials for Youdao and a key for DeepL', () => {
     expect(validateProviderProfile({ id: 'youdao', name: '有道', kind: 'youdao', enabled: true, apiKey: 'app-key' }).errors).toContain('请输入有道应用密钥（App Secret）');
     expect(validateProviderProfile({ id: 'youdao', name: '有道', kind: 'youdao', enabled: true, appSecret: 'app-secret' }).errors).toContain('请输入有道应用 ID（App Key）');
     expect(validateProviderProfile({ id: 'deepl', name: 'DeepL', kind: 'deepl', enabled: true }).errors).toContain('请输入 DeepL API Key');
+    expect(validateProviderProfile({ id: 'anthropic', name: 'Claude', kind: 'anthropic-messages', enabled: true, apiKey: 'key' }).errors).toContain('请输入模型名称');
+    expect(validateProviderProfile({ id: 'responses', name: 'OpenAI Responses', kind: 'openai-responses', enabled: true, model: 'gpt-4.1-mini', apiKey: 'key' }).errors).toContain('请输入 Base URL');
   });
 
   it('masks both provider secrets', () => {
