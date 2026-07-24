@@ -1,5 +1,6 @@
 import { AzureTranslatorEngine } from './azureTranslator';
 import { AnthropicMessagesEngine } from './anthropicMessages';
+import { CustomHttpTranslatorEngine } from './customHttpTranslator';
 import { DeepLTranslatorEngine } from './deeplTranslator';
 import { FreeTranslationEngine } from './freeTranslation';
 import { OpenAiCompatibleEngine } from './openAiCompatible';
@@ -18,6 +19,7 @@ export const createTranslationEngine = (profile: ProviderProfile): TranslationEn
     case 'openai-compatible': return new OpenAiCompatibleEngine(profile);
     case 'openai-responses': return new OpenAiResponsesEngine(profile);
     case 'anthropic-messages': return new AnthropicMessagesEngine(profile);
+    case 'custom-http': return new CustomHttpTranslatorEngine(profile);
     case 'tencent-tmt': return new TencentTmtEngine(profile);
     case 'azure-translator': return new AzureTranslatorEngine(profile);
     case 'youdao': return new YoudaoTranslatorEngine(profile);

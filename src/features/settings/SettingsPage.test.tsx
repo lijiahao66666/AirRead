@@ -28,7 +28,7 @@ describe('SettingsPage', () => {
     fireEvent.change(screen.getByLabelText('免费翻译线路'), { target: { value: 'google' } });
 
     expect(store.getFreeRoute()).toBe('google');
-    expect(screen.getByText('免费翻译线路已切换为Google Translate（需要 VPN）')).toBeInTheDocument();
+    expect(screen.getByText('免费翻译线路已切换为Google Translate')).toBeInTheDocument();
   });
 
   it('persists translation direction and speech speed in reading preferences', () => {
@@ -52,11 +52,12 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '添加翻译服务' }));
     expect(screen.getByRole('heading', { name: '添加翻译服务' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('服务类型'), { target: { value: 'openai-compatible' } });
-    expect(screen.getByRole('button', { name: '保存配置' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '保存配置' })).not.toBeDisabled();
 
     fireEvent.change(screen.getByLabelText('服务名称'), { target: { value: '我的模型' } });
     fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://models.example/v1' } });
     fireEvent.change(screen.getByLabelText('模型名称'), { target: { value: 'reader-model' } });
+    fireEvent.change(screen.getByLabelText('翻译提示词'), { target: { value: '采用自然、克制的出版级中文。' } });
     fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'sk-local-secret' } });
     expect(screen.getByLabelText('API Key')).toHaveAttribute('type', 'password');
     expect(document.body.textContent).not.toContain('sk-local-secret');
@@ -66,6 +67,7 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
 
     expect(screen.getByText('我的模型')).toBeInTheDocument();
+    expect(store.list()).toEqual(expect.arrayContaining([expect.objectContaining({ prompt: '采用自然、克制的出版级中文。' })]));
     fireEvent.click(screen.getByRole('button', { name: '设为当前 我的模型' }));
     expect(store.selected().name).toBe('我的模型');
     fireEvent.click(screen.getByRole('button', { name: '停用 我的模型' }));
@@ -120,11 +122,15 @@ describe('SettingsPage', () => {
     expect(store.get('masked-edit')?.apiKey).toBe('sk-original-secret');
   });
 
-  it('disables save and connection test until a profile passes validation', () => {
+  it('explains validation problems instead of silently disabling save', () => {
     render(<SettingsPage store={new ProviderProfileStore(localStorage)} />);
     fireEvent.click(screen.getByRole('button', { name: '添加翻译服务' }));
-    expect(screen.getByRole('button', { name: '保存配置' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '保存配置' })).not.toBeDisabled();
     expect(screen.getByRole('button', { name: '测试连接' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('请输入 Base URL');
+    expect(screen.getByRole('alert')).toHaveTextContent('请输入模型名称');
+    expect(screen.getByRole('alert')).toHaveTextContent('请输入 API Key');
   });
 
   it('groups dedicated translation APIs and persists Youdao credentials', async () => {
@@ -136,6 +142,7 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('option', { name: 'OpenAI 兼容协议（Chat Completions）' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'OpenAI Responses API' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Anthropic Messages API' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '自定义 HTTP 翻译（JSON）' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '有道智云文本翻译' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'DeepL API' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('服务名称'), { target: { value: '我的有道' } });
@@ -159,11 +166,13 @@ describe('SettingsPage', () => {
     fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://models.example/v1' } });
     fireEvent.change(screen.getByLabelText('模型名称'), { target: { value: 'reader-model' } });
     fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'openai-secret' } });
+    fireEvent.change(screen.getByLabelText('翻译提示词'), { target: { value: '使用文学化表达' } });
     fireEvent.change(screen.getByLabelText('服务类型'), { target: { value: 'anthropic-messages' } });
 
     expect(screen.getByLabelText('Base URL')).toHaveValue('');
     expect(screen.getByLabelText('模型名称')).toHaveValue('');
     expect(screen.getByLabelText('API Key')).toHaveValue('');
+    expect(screen.getByLabelText('翻译提示词')).toHaveValue('');
     expect(screen.getByLabelText('Base URL')).toHaveAttribute('placeholder', 'https://api.anthropic.com');
   });
 
@@ -175,5 +184,28 @@ describe('SettingsPage', () => {
     expect(screen.getByLabelText('Base URL')).toHaveValue('');
     expect(screen.getByLabelText('Base URL')).toHaveAttribute('placeholder', 'https://api-free.deepl.com');
     expect(screen.getByLabelText('API Key')).toBeInTheDocument();
+  });
+
+  it('shows the free route explanation behind a compact help button', () => {
+    render(<SettingsPage store={new ProviderProfileStore(localStorage)} />);
+    const help = screen.getByRole('button', { name: '免费线路说明' });
+    expect(screen.getByLabelText('免费翻译线路')).toHaveValue('auto');
+    expect(help).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(help);
+    expect(screen.getByRole('note')).toHaveTextContent('按 MyMemory → Azure Edge → Google Translate 顺序尝试，返回第一个有效译文。');
+    fireEvent.change(screen.getByLabelText('免费翻译线路'), { target: { value: 'google' } });
+    expect(screen.getByRole('note')).toHaveTextContent('Google Translate GTX 线路，需要当前网络可以访问 Google。');
+  });
+
+  it('saves a custom HTTP translation profile with its documented contract', () => {
+    const store = new ProviderProfileStore(localStorage);
+    render(<SettingsPage store={store} />);
+    fireEvent.click(screen.getByRole('button', { name: '添加翻译服务' }));
+    fireEvent.change(screen.getByLabelText('服务类型'), { target: { value: 'custom-http' } });
+    fireEvent.change(screen.getByLabelText('翻译接口 URL'), { target: { value: 'https://translate.example.test/api' } });
+    fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'custom-key' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    expect(store.list()).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'custom-http', baseUrl: 'https://translate.example.test/api', apiKey: 'custom-key' })]));
   });
 });

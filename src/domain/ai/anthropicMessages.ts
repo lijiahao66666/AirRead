@@ -20,7 +20,7 @@ export class AnthropicMessagesEngine implements TranslationEngine {
   readonly cacheIdentity: string;
 
   constructor(private readonly profile: ProviderProfile) {
-    this.cacheIdentity = [profile.kind, profile.id, profile.baseUrl ?? defaultEndpoint, profile.model ?? '', ''].join('|');
+    this.cacheIdentity = [profile.kind, profile.id, profile.baseUrl ?? defaultEndpoint, profile.model ?? '', profile.prompt ?? ''].join('|');
   }
 
   async translate(input: TranslationRequest): Promise<string> {
@@ -38,7 +38,7 @@ export class AnthropicMessagesEngine implements TranslationEngine {
           model: this.profile.model,
           max_tokens: 2048,
           temperature: 0,
-          messages: [{ role: 'user', content: createTranslationPrompt(input) }],
+          messages: [{ role: 'user', content: createTranslationPrompt(input, this.profile.prompt) }],
         }),
       });
     } catch {

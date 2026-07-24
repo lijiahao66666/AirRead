@@ -11,7 +11,11 @@
 .settings-alert { border-color: #e4aaa0; background: #fff5f2; color: #9b3c2d; }
 .provider-list { display: grid; gap: .6rem; margin-top: 1rem; }
 .free-route-settings { display: grid; grid-template-columns: minmax(14rem, 22rem) minmax(0, 1fr); align-items: end; gap: 1rem; margin-top: 1rem; border-top: 1px solid var(--paper-200); padding-top: 1rem; }
-.free-route-settings label { display: grid; gap: .45rem; color: var(--ink-700); font-size: .82rem; font-weight: 750; }
+.free-route-field { display: grid; gap: .45rem; color: var(--ink-700); font-size: .82rem; font-weight: 750; }
+.settings-field-title { position: relative; display: inline-flex; align-items: center; gap: .35rem; }
+.settings-help { display: inline-grid; width: 1.05rem; height: 1.05rem; place-items: center; border: 1px solid var(--paper-300); border-radius: 50%; padding: 0; background: var(--paper-100); color: var(--ink-700); cursor: help; font-size: .68rem; font-weight: 800; line-height: 1; }
+.settings-help:hover { border-color: var(--mint-400); background: var(--mint-100); color: var(--teal-950); }
+.settings-help-popover { position: absolute; z-index: 5; top: calc(100% + .45rem); left: 0; width: min(20rem, calc(100vw - 4rem)); border: 1px solid var(--paper-300); border-radius: .65rem; padding: .65rem .75rem; background: var(--paper-50); box-shadow: var(--shadow-card); color: var(--ink-700); font-size: .74rem; font-weight: 500; line-height: 1.65; }
 .free-route-settings select { width: 100%; border: 1px solid var(--paper-300); border-radius: var(--radius-sm); padding: .72rem .75rem; background: var(--paper-50); color: var(--ink-900); font: inherit; }
 .free-route-settings p, .provider-editor__hint { margin: 0; color: var(--ink-700); font-size: .76rem; line-height: 1.7; }
 .provider-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; min-height: 4.25rem; align-items: center; gap: .75rem; border: 1px solid var(--paper-200); border-radius: var(--radius-md); padding: .8rem .9rem; }
@@ -26,9 +30,11 @@
 .provider-row__actions { display: flex; align-items: center; gap: .2rem; }
 .provider-row__actions .icon-button { margin: 0; }
 .settings-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: .8rem; margin-top: 1.2rem; }
+.settings-form-grid__service-row { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(12rem, .85fr) minmax(0, 1.45fr); gap: .8rem; }
 .settings-form-grid label { position: relative; display: grid; align-content: start; gap: .45rem; min-width: 0; color: var(--ink-700); font-size: .82rem; font-weight: 750; }
 .settings-form-grid__wide { grid-column: 1 / -1; }
-.settings-form-grid input, .settings-form-grid select { box-sizing: border-box; width: 100%; min-height: 2.85rem; margin: 0; border: 1px solid var(--paper-300); border-radius: var(--radius-sm); padding: .72rem .75rem; background: var(--paper-50); color: var(--ink-900); font: inherit; line-height: 1.35; }
+.settings-form-grid input, .settings-form-grid select, .settings-form-grid textarea { box-sizing: border-box; width: 100%; min-height: 2.85rem; margin: 0; border: 1px solid var(--paper-300); border-radius: var(--radius-sm); padding: .72rem .75rem; background: var(--paper-50); color: var(--ink-900); font: inherit; line-height: 1.5; }
+.settings-form-grid textarea { min-height: 7rem; resize: vertical; }
 .settings-form-grid select:disabled { cursor: not-allowed; opacity: .62; }
 .settings-reading-preferences__form { align-items: end; }
 .settings-reading-preferences__preview { display: flex; min-height: 4.25rem; align-items: center; gap: .65rem; padding-top: 1.35rem; }
@@ -36,7 +42,9 @@
 .settings-reading-preferences__hint { margin: 1rem 0 0; border-top: 1px solid var(--paper-200); padding-top: .85rem; color: var(--ink-700); font-size: .76rem; line-height: 1.7; }
 .secret-toggle { display: inline-flex; align-items: center; gap: .25rem; width: max-content; margin: 0; border: 0; padding: 0; background: transparent; color: var(--blue-700); cursor: pointer; font-size: .7rem; font-weight: 750; }
 .field-hint { color: var(--ink-600); font-size: .7rem; font-weight: 500; }
+.provider-editor__validation { margin: 1rem 0 0; border: 1px solid #e4aaa0; border-radius: .65rem; padding: .7rem .9rem .7rem 2rem; background: #fff5f2; color: #9b3c2d; font-size: .76rem; line-height: 1.7; }
+.provider-editor__hint code { border-radius: .25rem; padding: .1rem .25rem; background: var(--paper-200); color: var(--teal-950); font-size: .72rem; }
 .settings-editor__actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.2rem; }
 .settings-guidance { display: flex; justify-content: space-between; gap: 1rem; color: var(--teal-800); }
 .settings-guidance p:not(.eyebrow) { max-width: 46rem; margin: .75rem 0 0; color: var(--ink-700); font-size: .86rem; line-height: 1.75; }
-@media (max-width: 42rem) { .settings-page__header { align-items: flex-start; } .settings-page__header > svg { display: none; } .settings-card__heading { align-items: stretch; flex-direction: column; } .settings-card__heading .primary-action { align-self: flex-start; } .provider-row { grid-template-columns: 1fr auto; } .provider-row__status { grid-column: 1; grid-row: 2; padding-left: 2.7rem; } .provider-row__actions { grid-column: 2; grid-row: 2; } .settings-form-grid { grid-template-columns: 1fr; } .settings-form-grid__wide { grid-column: auto; } .settings-reading-preferences__preview { align-items: flex-start; flex-direction: column; padding-top: 0; } .free-route-settings { grid-template-columns: 1fr; } .settings-editor__actions { flex-wrap: wrap; } .settings-editor__actions > * { flex: 1; } }
+@media (max-width: 42rem) { .settings-page__header { align-items: flex-start; } .settings-page__header > svg { display: none; } .settings-card__heading { align-items: stretch; flex-direction: column; } .settings-card__heading .primary-action { align-self: flex-start; } .provider-row { grid-template-columns: 1fr auto; } .provider-row__status { grid-column: 1; grid-row: 2; padding-left: 2.7rem; } .provider-row__actions { grid-column: 2; grid-row: 2; } .settings-form-grid, .settings-form-grid__service-row { grid-template-columns: 1fr; } .settings-form-grid__wide { grid-column: auto; } .settings-reading-preferences__preview { align-items: flex-start; flex-direction: column; padding-top: 0; } .free-route-settings { grid-template-columns: 1fr; } .settings-editor__actions { flex-wrap: wrap; } .settings-editor__actions > * { flex: 1; } }

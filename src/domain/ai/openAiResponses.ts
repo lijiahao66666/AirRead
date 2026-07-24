@@ -23,7 +23,7 @@ export class OpenAiResponsesEngine implements TranslationEngine {
   readonly cacheIdentity: string;
 
   constructor(private readonly profile: ProviderProfile) {
-    this.cacheIdentity = [profile.kind, profile.id, profile.baseUrl ?? '', profile.model ?? '', ''].join('|');
+    this.cacheIdentity = [profile.kind, profile.id, profile.baseUrl ?? '', profile.model ?? '', profile.prompt ?? ''].join('|');
   }
 
   async translate(input: TranslationRequest): Promise<string> {
@@ -38,7 +38,7 @@ export class OpenAiResponsesEngine implements TranslationEngine {
         body: JSON.stringify({
           model: this.profile.model,
           temperature: 0,
-          input: createTranslationPrompt(input),
+          input: createTranslationPrompt(input, this.profile.prompt),
         }),
       });
     } catch {

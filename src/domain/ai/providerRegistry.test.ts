@@ -99,6 +99,7 @@ describe('translation provider registry', () => {
     const profile: ProviderProfile = {
       id: 'openai', name: 'OpenAI', kind: 'openai-compatible', enabled: true,
       baseUrl: 'https://models.example/v1/', model: 'air-model', apiKey: 'sk-secret-value',
+      prompt: '采用自然、克制的出版级中文。',
     };
 
     const engine = createTranslationEngine(profile);
@@ -107,8 +108,12 @@ describe('translation provider registry', () => {
       method: 'POST',
       headers: expect.objectContaining({ Authorization: 'Bearer sk-secret-value' }),
     }));
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string) as { temperature: number };
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string) as { temperature: number; messages: Array<{ content: string }> };
     expect(body.temperature).toBe(0);
+    expect(body.messages[0].content).toContain('采用自然、克制的出版级中文。');
+    expect(body.messages[0].content).toContain('附加要求：保持文学语气');
+    expect(body.messages[0].content).toContain('目标语言：zh-CN');
+    expect(body.messages[0].content).toContain('原文：\nGood morning');
     expect(engine.cacheIdentity).not.toContain('sk-secret-value');
   });
 
@@ -130,7 +135,7 @@ describe('translation provider registry', () => {
   it('calls Anthropic Messages with browser-safe headers and content blocks', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ content: [{ type: 'text', text: '早上好' }] }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
-    const engine = createTranslationEngine({ id: 'anthropic', name: 'Claude', kind: 'anthropic-messages', enabled: true, model: 'claude-3-5-sonnet', apiKey: 'anthropic-secret' });
+    const engine = createTranslationEngine({ id: 'anthropic', name: 'Claude', kind: 'anthropic-messages', enabled: true, model: 'claude-3-5-sonnet', apiKey: 'anthropic-secret', prompt: '使用简洁中文。' });
 
     await expect(engine.translate(request)).resolves.toBe('早上好');
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -140,19 +145,23 @@ describe('translation provider registry', () => {
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
     });
-    expect(JSON.parse(init.body as string)).toMatchObject({ model: 'claude-3-5-sonnet', max_tokens: 2048 });
+    const body = JSON.parse(init.body as string) as { model: string; max_tokens: number; messages: Array<{ content: string }> };
+    expect(body).toMatchObject({ model: 'claude-3-5-sonnet', max_tokens: 2048 });
+    expect(body.messages[0].content).toContain('使用简洁中文。');
   });
 
   it('calls OpenAI Responses with the Responses input shape', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ output_text: '早上好' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
-    const engine = createTranslationEngine({ id: 'responses', name: 'OpenAI Responses', kind: 'openai-responses', enabled: true, baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini', apiKey: 'responses-secret' });
+    const engine = createTranslationEngine({ id: 'responses', name: 'OpenAI Responses', kind: 'openai-responses', enabled: true, baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini', apiKey: 'responses-secret', prompt: '使用准确中文。' });
 
     await expect(engine.translate(request)).resolves.toBe('早上好');
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://api.openai.com/v1/responses');
     expect(init.headers).toMatchObject({ Authorization: 'Bearer responses-secret' });
-    expect(JSON.parse(init.body as string)).toMatchObject({ model: 'gpt-4.1-mini', temperature: 0 });
+    const body = JSON.parse(init.body as string) as { model: string; temperature: number; input: string };
+    expect(body).toMatchObject({ model: 'gpt-4.1-mini', temperature: 0 });
+    expect(body.input).toContain('使用准确中文。');
   });
 
   it('keeps API keys out of cache identity while tracking profile and model changes', () => {
@@ -165,6 +174,7 @@ describe('translation provider registry', () => {
     expect(createTranslationEngine({ ...base, apiKey: 'second-secret' }).cacheIdentity).toBe(identity);
     expect(createTranslationEngine({ ...base, id: 'profile-b' }).cacheIdentity).not.toBe(identity);
     expect(createTranslationEngine({ ...base, model: 'model-b' }).cacheIdentity).not.toBe(identity);
+    expect(createTranslationEngine({ ...base, prompt: '改用直译' }).cacheIdentity).not.toBe(identity);
     expect(identity).not.toContain('first-secret');
   });
 
@@ -280,6 +290,18 @@ describe('translation provider registry', () => {
     expect(url).toBe('https://api-free.deepl.com/v2/translate');
     expect(init.headers).toMatchObject({ Authorization: 'DeepL-Auth-Key deepl-secret' });
     expect(new URLSearchParams(init.body as string).get('target_lang')).toBe('ZH');
+  });
+
+  it('calls custom HTTP translation with the documented JSON contract', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ translatedText: '早上好' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const engine = createTranslationEngine({ id: 'custom-http', name: '自定义翻译', kind: 'custom-http', enabled: true, baseUrl: 'https://translate.example/api', apiKey: 'custom-secret' });
+
+    await expect(engine.translate(request)).resolves.toBe('早上好');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://translate.example/api');
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer custom-secret' });
+    expect(JSON.parse(init.body as string)).toEqual({ text: 'Good morning', sourceLanguage: 'en', targetLanguage: 'zh-CN' });
   });
 
   it('reports direct-browser CORS failures and never leaks keys or response bodies', async () => {

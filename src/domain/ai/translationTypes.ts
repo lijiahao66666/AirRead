@@ -45,14 +45,18 @@ export const connectionError = (providerName: string): ProviderConnectionError =
   new ProviderConnectionError(providerName)
 );
 
-export const createTranslationPrompt = (request: TranslationRequest): string => {
+export const DEFAULT_TRANSLATION_INSTRUCTIONS = '你是一名专业翻译。请准确、自然地翻译，保留原文的含义、语气和段落结构，不添加解释，只返回译文。';
+
+export const createTranslationPrompt = (request: TranslationRequest, providerInstructions?: string): string => {
   const glossary = Object.entries(request.glossary ?? {})
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([source, target]) => `${source} => ${target}`)
     .join('\n');
-  const instructions = request.prompt?.trim() || '准确、自然地翻译，保留原文段落结构，只返回译文。';
+  const instructions = providerInstructions?.trim() || DEFAULT_TRANSLATION_INSTRUCTIONS;
+  const taskInstructions = request.prompt?.trim();
   return [
     instructions,
+    taskInstructions ? `附加要求：${taskInstructions}` : '',
     `源语言：${request.sourceLanguage || '自动识别'}`,
     `目标语言：${request.targetLanguage}`,
     glossary ? `术语表：\n${glossary}` : '',

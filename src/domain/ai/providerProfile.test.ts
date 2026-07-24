@@ -73,6 +73,11 @@ describe('provider profiles', () => {
       id: 'responses', name: 'OpenAI Responses', kind: 'openai-responses', enabled: true,
       baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini', apiKey: 'responses-key',
     }).valid).toBe(true);
+
+    expect(validateProviderProfile({
+      id: 'custom-http', name: '自定义翻译', kind: 'custom-http', enabled: true,
+      baseUrl: 'https://translate.example/api', apiKey: 'custom-key',
+    }).valid).toBe(true);
   });
 
   it('requires both credentials for Youdao and a key for DeepL', () => {
@@ -81,6 +86,7 @@ describe('provider profiles', () => {
     expect(validateProviderProfile({ id: 'deepl', name: 'DeepL', kind: 'deepl', enabled: true }).errors).toContain('请输入 DeepL API Key');
     expect(validateProviderProfile({ id: 'anthropic', name: 'Claude', kind: 'anthropic-messages', enabled: true, apiKey: 'key' }).errors).toContain('请输入模型名称');
     expect(validateProviderProfile({ id: 'responses', name: 'OpenAI Responses', kind: 'openai-responses', enabled: true, model: 'gpt-4.1-mini', apiKey: 'key' }).errors).toContain('请输入 Base URL');
+    expect(validateProviderProfile({ id: 'custom-http', name: '自定义翻译', kind: 'custom-http', enabled: true, apiKey: 'key' }).errors).toContain('请输入翻译接口 URL');
   });
 
   it('masks both provider secrets', () => {
@@ -96,5 +102,13 @@ describe('provider profiles', () => {
     });
     expect(result.valid).toBe(false);
     expect(result.errors).toContain('腾讯云密钥格式应为 SecretId:SecretKey');
+  });
+
+  it('rejects an excessively long model translation prompt', () => {
+    const result = validateProviderProfile({
+      id: 'openai-prompt', name: 'OpenAI', kind: 'openai-compatible', enabled: true,
+      baseUrl: 'https://example.com/v1', model: 'reader', apiKey: 'secret', prompt: '译'.repeat(4_001),
+    });
+    expect(result.errors).toContain('翻译提示词不能超过 4000 个字符');
   });
 });
