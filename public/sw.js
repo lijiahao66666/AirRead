@@ -1,4 +1,4 @@
-const cacheVersion = 'v2';
+const cacheVersion = 'v3';
 const shellCacheName = `airread-shell-${cacheVersion}`;
 const runtimeCacheName = `airread-runtime-${cacheVersion}`;
 const appShell = ['/', '/index.html', '/manifest.webmanifest'];

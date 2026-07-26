@@ -15,7 +15,7 @@ describe('ReaderPreferencesStore', () => {
     const store = new ReaderPreferencesStore(localStorage);
     expect(store.get()).toEqual(DEFAULT_READER_PREFERENCES);
     store.update({ sourceLanguage: 'ja', targetLanguage: 'en', speechRate: 1.2, voiceURI: 'voice-ja' });
-    expect(store.get()).toEqual({ sourceLanguage: 'ja', targetLanguage: 'en', speechRate: 1.2, voiceURI: 'voice-ja' });
+    expect(store.get()).toEqual({ sourceLanguage: 'ja', targetLanguage: 'en', speechRate: 1.2, voiceURI: 'voice-ja', fontFamily: 'serif', fontSize: 'medium', lineHeight: 'comfortable', readingMode: 'paged', theme: 'paper' });
   });
 
   it('ignores invalid stored values instead of breaking reading', () => {

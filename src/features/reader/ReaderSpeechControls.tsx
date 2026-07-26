@@ -18,7 +18,7 @@ type ReaderSpeechControlsProps = {
 
 export function ReaderSpeechControls({ supported, state, currentIndex, totalCount, rate, error, onStart, onPause, onResume, onStop, onRateChange }: ReaderSpeechControlsProps) {
   if (state === 'idle') return <div className="reader-listen-entry">
-    <button type="button" className="reader-listen-button" onClick={onStart} disabled={!supported || totalCount === 0} aria-label={supported ? '朗读本章' : '当前浏览器不支持朗读'}><Volume2 size={16} /> 朗读</button>
+    <button type="button" className="reader-listen-button" onClick={onStart} disabled={!supported || totalCount === 0} aria-label={supported ? '朗读本章' : '当前浏览器不支持朗读'}><Volume2 size={16} /><span className="reader-speech-label">朗读</span></button>
     {error && <span className="reader-speech-error" role="alert">{error}</span>}
   </div>;
 

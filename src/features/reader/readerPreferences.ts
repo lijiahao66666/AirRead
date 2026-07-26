@@ -5,6 +5,11 @@ export type ReaderPreferences = {
   targetLanguage: Exclude<ReaderLanguage, 'auto'>;
   voiceURI: string;
   speechRate: number;
+  fontFamily: 'serif' | 'sans';
+  fontSize: 'small' | 'medium' | 'large' | 'x-large';
+  lineHeight: 'compact' | 'comfortable' | 'relaxed';
+  readingMode: 'paged' | 'scroll';
+  theme: 'paper' | 'sepia' | 'night';
 };
 
 export const READER_LANGUAGE_OPTIONS: Array<{ value: ReaderLanguage; label: string }> = [
@@ -27,6 +32,11 @@ export const DEFAULT_READER_PREFERENCES: ReaderPreferences = {
   targetLanguage: 'zh-CN',
   voiceURI: '',
   speechRate: 1,
+  fontFamily: 'serif',
+  fontSize: 'medium',
+  lineHeight: 'comfortable',
+  readingMode: 'paged',
+  theme: 'paper',
 };
 
 const PREFERENCES_KEY = 'airread.readerPreferences.v1';
@@ -55,11 +65,21 @@ export class ReaderPreferencesStore {
       const speechRate = typeof parsed.speechRate === 'number' && SPEECH_RATE_OPTIONS.includes(parsed.speechRate as typeof SPEECH_RATE_OPTIONS[number])
         ? parsed.speechRate
         : DEFAULT_READER_PREFERENCES.speechRate;
+      const fontFamily = parsed.fontFamily === 'sans' || parsed.fontFamily === 'serif' ? parsed.fontFamily : DEFAULT_READER_PREFERENCES.fontFamily;
+      const fontSize = parsed.fontSize === 'small' || parsed.fontSize === 'medium' || parsed.fontSize === 'large' || parsed.fontSize === 'x-large' ? parsed.fontSize : DEFAULT_READER_PREFERENCES.fontSize;
+      const lineHeight = parsed.lineHeight === 'compact' || parsed.lineHeight === 'comfortable' || parsed.lineHeight === 'relaxed' ? parsed.lineHeight : DEFAULT_READER_PREFERENCES.lineHeight;
+      const readingMode = parsed.readingMode === 'scroll' || parsed.readingMode === 'paged' ? parsed.readingMode : DEFAULT_READER_PREFERENCES.readingMode;
+      const theme = parsed.theme === 'sepia' || parsed.theme === 'night' || parsed.theme === 'paper' ? parsed.theme : DEFAULT_READER_PREFERENCES.theme;
       return {
         sourceLanguage,
         targetLanguage,
         voiceURI: typeof parsed.voiceURI === 'string' ? parsed.voiceURI : DEFAULT_READER_PREFERENCES.voiceURI,
         speechRate,
+        fontFamily,
+        fontSize,
+        lineHeight,
+        readingMode,
+        theme,
       };
     } catch {
       return { ...DEFAULT_READER_PREFERENCES };

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title>AirRead</title>
+  <rect width="512" height="512" fill="#e1f0e6"/>
+  <circle cx="256" cy="256" r="172" fill="#fffdf8"/>
+  <path d="M112 164c0-18 14-32 32-32h50c25 0 47 8 62 24 15-16 37-24 62-24h50c18 0 32 14 32 32v190c0 18-14 32-32 32h-47c-29 0-50 8-65 24-15-16-36-24-65-24h-47c-18 0-32-14-32-32z" fill="#fffdf8" stroke="#153f3a" stroke-width="20" stroke-linejoin="round"/>
+  <path d="M256 159v227" fill="none" stroke="#153f3a" stroke-width="16" stroke-linecap="round"/>
+  <path d="M157 205h55M157 251h55M300 205h55M300 251h55" fill="none" stroke="#91cdb3" stroke-width="15" stroke-linecap="round"/>
+  <path d="M157 297h38M317 297h38" fill="none" stroke="#2f7165" stroke-width="15" stroke-linecap="round"/>
+</svg>

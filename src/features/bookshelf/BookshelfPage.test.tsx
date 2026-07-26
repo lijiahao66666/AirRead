@@ -22,7 +22,7 @@ describe('BookshelfPage', () => {
     expect(screen.getAllByText('继续阅读').length).toBeGreaterThan(0);
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索书架' }), { target: { value: 'prince' } });
     expect(screen.getAllByText('The Little Prince').length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: '打开 The Little Prince' }));
+    fireEvent.click(screen.getByRole('link', { name: '阅读 The Little Prince，进度 35%' }));
     expect(onOpen).toHaveBeenCalledWith('book-1');
     fireEvent.click(screen.getByRole('button', { name: '删除 The Little Prince' }));
     expect(onDelete).toHaveBeenCalledWith('book-1');
@@ -31,6 +31,19 @@ describe('BookshelfPage', () => {
     const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
     fireEvent.change(input, { target: { files: [file] } });
     await waitFor(() => expect(onImport).toHaveBeenCalledWith(file));
+  });
+
+  it('opens from the whole book card while keeping delete separate', () => {
+    const onOpen = vi.fn();
+    const onDelete = vi.fn();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<BookshelfPage books={[book]} onImport={vi.fn()} onOpen={onOpen} onDelete={onDelete} />);
+
+    fireEvent.click(screen.getByText('Antoine de Saint-Exupéry'));
+    expect(onOpen).toHaveBeenCalledWith('book-1');
+    fireEvent.click(screen.getByRole('button', { name: '删除 The Little Prince' }));
+    expect(onDelete).toHaveBeenCalledWith('book-1');
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
   it('continues a book with a saved last-read timestamp and honors delete confirmation', () => {
@@ -44,6 +57,15 @@ describe('BookshelfPage', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     fireEvent.click(screen.getByRole('button', { name: '删除 The Little Prince' }));
     expect(onDelete).toHaveBeenCalledWith('book-1');
+  });
+
+  it('falls back to a book placeholder when the cover image cannot load', () => {
+    const { container } = render(<BookshelfPage books={[{ ...book, coverDataUrl: 'data:image/png;base64,broken' }]} onImport={vi.fn()} onOpen={vi.fn()} onDelete={vi.fn()} />);
+    const image = container.querySelector('.book-card__cover img');
+    expect(image).toBeInTheDocument();
+    fireEvent.error(image as HTMLImageElement);
+    expect(container.querySelector('.book-card__cover img')).not.toBeInTheDocument();
+    expect(container.querySelector('.book-cover-placeholder')).toBeInTheDocument();
   });
 
   it('shows empty and error states', () => {

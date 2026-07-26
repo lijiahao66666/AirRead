@@ -44,7 +44,7 @@ export function BookshelfPage({ books, loading = false, error, onImport, onOpen,
           <p className="page-lede">导入 EPUB 或 TXT，在当前设备继续阅读、生成本章双语、划词翻译或朗读原文。</p>
         </div>
         <div className="bookshelf-page__actions">
-          <button className="primary-action import-action" type="button" onClick={() => inputRef.current?.click()}><Upload size={17} /> 导入书籍</button>
+          <button className="primary-action import-action" type="button" aria-label="导入书籍" onClick={() => inputRef.current?.click()}><Upload size={17} /><span className="import-action__label">导入书籍</span><span className="import-action__compact-label">导入</span></button>
           <input ref={inputRef} className="import-input" type="file" accept=".epub,.txt,application/epub+zip,text/plain" onChange={handleImport} aria-label="导入 EPUB 或 TXT" />
         </div>
       </div>
