@@ -16,6 +16,7 @@ const mockSelection = (text: string) => vi.spyOn(window, 'getSelection').mockRet
   toString: () => text,
   removeAllRanges: vi.fn(),
 } as unknown as Selection);
+const openTranslationPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开翻译与显示' }));
 
 describe('ReaderPage', () => {
   afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -42,11 +43,12 @@ describe('ReaderPage', () => {
     await waitFor(() => expect(onProgress).toHaveBeenCalled());
   });
 
-  it('supports chapter controls and a narrow reader toolbar', () => {
+  it('keeps one compact set of reader controls', () => {
     render(<ReaderPage book={book} engine={{ cacheIdentity: 'test', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
-    expect(screen.getAllByRole('button', { name: '返回书架' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('button', { name: '上一章' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('button', { name: '下一章' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: '返回书架' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '打开目录' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '打开阅读设置' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: '上一章' })).not.toBeInTheDocument();
   });
 
   it('does not treat an ordinary paragraph click as translation intent', () => {
@@ -65,11 +67,15 @@ describe('ReaderPage', () => {
     const engine = { cacheIdentity: 'chapter-mode', translate } satisfies TranslationEngine;
     render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
+    openTranslationPanel();
     fireEvent.click(screen.getByRole('button', { name: '生成本章双语' }));
     expect(await screen.findByText('The first paragraph. · 译文')).toBeInTheDocument();
     expect(await screen.findByText('The second paragraph. · 译文')).toBeInTheDocument();
     expect(translate).toHaveBeenCalledTimes(2);
 
+    fireEvent.click(screen.getByRole('button', { name: '显示本章纯译文' }));
+    expect(screen.queryByText('The first paragraph.')).not.toBeInTheDocument();
+    expect(screen.getByText('The first paragraph. · 译文')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '切换到原文' }));
     expect(screen.queryByText('The first paragraph. · 译文')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '显示本章双语' }));
@@ -82,9 +88,10 @@ describe('ReaderPage', () => {
     const engine = { cacheIdentity: 'stop-chapter', translate } satisfies TranslationEngine;
     render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
+    openTranslationPanel();
     fireEvent.click(screen.getByRole('button', { name: '生成本章双语' }));
     await waitFor(() => expect(translate).toHaveBeenCalledTimes(2));
-    fireEvent.click(screen.getByRole('button', { name: '停止生成本章双语' }));
+    fireEvent.click(screen.getByRole('button', { name: '停止本章翻译' }));
     await act(async () => { resolvers.forEach((resolve) => resolve('不应写入')); });
 
     expect(screen.queryByText('不应写入')).not.toBeInTheDocument();
@@ -95,6 +102,7 @@ describe('ReaderPage', () => {
     const engine = { cacheIdentity: 'failed-chapter', translate: vi.fn().mockRejectedValue(new Error('offline')) } satisfies TranslationEngine;
     render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
+    openTranslationPanel();
     fireEvent.click(screen.getByRole('button', { name: '生成本章双语' }));
     expect(await screen.findByText('2 段未完成')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重试未完成段落' })).toBeInTheDocument();
@@ -138,6 +146,20 @@ describe('ReaderPage', () => {
     expect(screen.getByRole('button', { name: '朗读本章' })).toBeInTheDocument();
   });
 
+  it('turns paged content with a horizontal swipe and hides reading chrome', () => {
+    const longBook = { ...book, id: 'swipe-book', text: 'A long reading sentence with enough words. '.repeat(80) };
+    const { container } = render(<ReaderPage book={longBook} engine={{ cacheIdentity: 'swipe', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+    const article = screen.getByRole('article', { name: '原文阅读内容' });
+
+    expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled();
+    fireEvent.touchStart(article, { touches: [{ clientX: 300 }] });
+    fireEvent.touchEnd(article, { changedTouches: [{ clientX: 20 }] });
+
+    expect(screen.getByRole('button', { name: '上一页' })).not.toBeDisabled();
+    expect(container.querySelector('.reader-page')).not.toHaveClass('reader-page--chrome-visible');
+    expect(container.querySelector('.reader-page-content')).toHaveClass('reader-page-content--next');
+  });
+
   it('uses the saved translation direction and selected speech voice', async () => {
     localStorage.setItem('airread.readerPreferences.v1', JSON.stringify({ sourceLanguage: 'ja', targetLanguage: 'en', voiceURI: 'ja-enhanced', speechRate: 1 }));
     const translate = vi.fn().mockResolvedValue('English translation');
@@ -173,6 +195,7 @@ describe('ReaderPage', () => {
     const engine = { cacheIdentity: 'same-language', translate } satisfies TranslationEngine;
     render(<ReaderPage book={chineseBook} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
+    openTranslationPanel();
     expect(screen.getByRole('status', { name: '当前内容已是简体中文，无需翻译' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成本章双语' })).toBeDisabled();
     mockSelection('这是第一段中文。');
@@ -188,6 +211,7 @@ describe('ReaderPage', () => {
     const engine = { cacheIdentity: 'book-target', translate } satisfies TranslationEngine;
     render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onTranslationPreferencesChange={onTranslationPreferencesChange} onBack={vi.fn()} />);
 
+    openTranslationPanel();
     const targetSelect = screen.getByLabelText('本书翻译目标语言');
     expect(targetSelect).toHaveValue('');
     fireEvent.change(targetSelect, { target: { value: 'ja' } });
@@ -241,7 +265,8 @@ describe('ReaderPage', () => {
     fireEvent.mouseUp(screen.getByText('The first paragraph begins the AirRead test.'));
     fireEvent.click(screen.getByRole('button', { name: '翻译选中文本' }));
     await waitFor(() => expect(engine.translate).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole('button', { name: '下一章' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开目录' }));
+    fireEvent.click(screen.getByRole('button', { name: /Chapter Two/ }));
     resolveTranslation('过期译文');
     await waitFor(() => expect(screen.queryByText('过期译文')).not.toBeInTheDocument());
   });
@@ -273,6 +298,7 @@ describe('ReaderPage', () => {
   it('keeps paragraph translations when the parent updates metadata on the same book id', async () => {
     const engine = { cacheIdentity: 'metadata-rerender', translate: vi.fn().mockResolvedValue('保留译文') } satisfies TranslationEngine;
     const view = render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+    openTranslationPanel();
     fireEvent.click(screen.getByRole('button', { name: '生成本章双语' }));
     await waitFor(() => expect(screen.getAllByText('保留译文')).toHaveLength(2));
     view.rerender(<ReaderPage book={{ ...book, readingProgress: 0.6, lastReadAt: 900 }} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);

@@ -8,6 +8,7 @@ export type ReaderPageBlock = {
 };
 
 export type ReaderPage = ReaderPageBlock[];
+export type ReaderContentMode = 'original' | 'bilingual' | 'translation';
 
 const splitAtWordBoundary = (text: string, parts: number): string[] => {
   if (parts <= 1 || text.length === 0) return [text];
@@ -26,9 +27,14 @@ const splitAtWordBoundary = (text: string, parts: number): string[] => {
   return chunks.filter(Boolean);
 };
 
-const blocksForParagraph = (paragraph: ReaderParagraph, blockCapacity: number, showTranslations: boolean): ReaderPageBlock[] => {
-  const translationWeight = showTranslations && paragraph.translation ? paragraph.translation.length * 0.82 : 0;
-  const parts = Math.max(1, Math.ceil((paragraph.original.length + translationWeight + 48) / blockCapacity));
+const visibleWeight = (paragraph: ReaderParagraph, contentMode: ReaderContentMode): number => {
+  if (contentMode === 'original') return paragraph.original.length;
+  if (contentMode === 'translation') return (paragraph.translation?.length ?? paragraph.original.length) * 0.82;
+  return paragraph.original.length + (paragraph.translation?.length ?? 0) * 0.82;
+};
+
+const blocksForParagraph = (paragraph: ReaderParagraph, blockCapacity: number, contentMode: ReaderContentMode): ReaderPageBlock[] => {
+  const parts = Math.max(1, Math.ceil((visibleWeight(paragraph, contentMode) + 48) / blockCapacity));
   const originalParts = splitAtWordBoundary(paragraph.original, parts);
   const translationParts = paragraph.translation ? splitAtWordBoundary(paragraph.translation, originalParts.length) : [];
   return originalParts.map((original, index) => ({
@@ -39,13 +45,13 @@ const blocksForParagraph = (paragraph: ReaderParagraph, blockCapacity: number, s
   }));
 };
 
-export function paginateReaderParagraphs(paragraphs: ReaderParagraph[], options: { blockCapacity: number; showTranslations: boolean }): ReaderPage[] {
+export function paginateReaderParagraphs(paragraphs: ReaderParagraph[], options: { blockCapacity: number; contentMode: ReaderContentMode }): ReaderPage[] {
   const pages: ReaderPage[] = [];
   let page: ReaderPage = [];
   let used = 0;
   paragraphs.forEach((paragraph) => {
-    blocksForParagraph(paragraph, options.blockCapacity, options.showTranslations).forEach((block) => {
-      const weight = block.original.length + (options.showTranslations && block.translation ? block.translation.length * 0.82 : 0) + 48;
+    blocksForParagraph(paragraph, options.blockCapacity, options.contentMode).forEach((block) => {
+      const weight = visibleWeight(block, options.contentMode) + 48;
       if (page.length > 0 && used + weight > options.blockCapacity) {
         pages.push(page);
         page = [];
