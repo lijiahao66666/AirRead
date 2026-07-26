@@ -5,12 +5,12 @@ import { TranslationCache } from '../../domain/ai/translationCache';
 import { createTranslationEngine } from '../../domain/ai/providerRegistry';
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
 import type { TranslationEngine } from '../../domain/ai/translationTypes';
-import type { Book, BookSelectionPreferences, BookTranslationPreferences } from '../../domain/books/book';
+import type { Book, BookSelectionPreferences, BookTranslationPreferences, Chapter } from '../../domain/books/book';
 import { ReaderSpeechControls, type SpeechPlaybackState } from './ReaderSpeechControls';
 import { ReaderToolbar } from './ReaderToolbar';
 import { ReaderTranslationControls } from './ReaderTranslationControls';
 import { SelectionActions } from './SelectionActions';
-import { chaptersForBook, paragraphsForChapter, type ReaderParagraph } from './readerState';
+import { paragraphsForChapter, type ReaderParagraph } from './readerState';
 import { availableSpeechVoices, findSpeechVoice, languageLabel, READER_LANGUAGE_OPTIONS, ReaderPreferencesStore, speechLocaleForText, textMatchesTargetLanguage, type ReaderLanguage, type ReaderPreferences } from './readerPreferences';
 import { paginateReaderParagraphs, type ReaderContentMode, type ReaderPageBlock } from './readerPagination';
 import './reader.css';
@@ -19,7 +19,8 @@ type ProgressUpdate = Pick<Book, 'readingChapter' | 'readingProgress' | 'lastRea
 type TargetLanguage = Exclude<ReaderLanguage, 'auto'>;
 type SelectionActionState = { paragraphId: string; source: string; targetLanguage: TargetLanguage; anchor: { x: number; y: number }; translation?: string; error?: string; notice?: string; loading: boolean; copied?: boolean };
 type ChapterTranslationState = { running: boolean; completed: number; total: number; failed: number };
-export type ReaderPageProps = { book: Book; engine?: TranslationEngine; onProgress: (progress: ProgressUpdate) => void | Promise<void>; onTranslationPreferencesChange?: (preferences?: BookTranslationPreferences) => void | Promise<void>; onSelectionPreferencesChange?: (preferences?: BookSelectionPreferences) => void | Promise<void>; onBack: () => void };
+type SpeechQueueItem = { paragraphId: string; text: string; language: 'source' | 'target' };
+export type ReaderPageProps = { book: Book; chapters: Chapter[]; engine?: TranslationEngine; onProgress: (progress: ProgressUpdate) => void | Promise<void>; onTranslationPreferencesChange?: (preferences?: BookTranslationPreferences) => void | Promise<void>; onSelectionPreferencesChange?: (preferences?: BookSelectionPreferences) => void | Promise<void>; onBack: () => void };
 
 const errorMessage = (cause: unknown, fallback: string): string => cause instanceof Error && cause.message.trim() ? cause.message : fallback;
 const emptyChapterTranslation = (): ChapterTranslationState => ({ running: false, completed: 0, total: 0, failed: 0 });
@@ -36,8 +37,7 @@ function ReaderSheet({ title, children, onClose }: ReaderSheetProps) {
   </div>;
 }
 
-export function ReaderPage({ book, engine, onProgress, onTranslationPreferencesChange, onSelectionPreferencesChange, onBack }: ReaderPageProps) {
-  const chapters = useMemo(() => chaptersForBook(book), [book.id, book.format, book.bytes, book.text]);
+export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPreferencesChange, onSelectionPreferencesChange, onBack }: ReaderPageProps) {
   const initialChapter = Math.min(book.readingChapter, Math.max(0, chapters.length - 1));
   const [chapterIndex, setChapterIndex] = useState(initialChapter);
   const [paragraphs, setParagraphs] = useState<ReaderParagraph[]>(() => paragraphsForChapter(chapters[initialChapter] ?? { id: 'empty', title: '暂无章节', href: '', content: '' }));
@@ -290,7 +290,15 @@ export function ReaderPage({ book, engine, onProgress, onTranslationPreferencesC
   const translatableParagraphs = paragraphs.filter((paragraph) => hasTranslatableContent(paragraph.original));
   const translationParagraphs = translatableParagraphs.filter((paragraph) => !translationIsUnnecessary(paragraph.original));
   const translatedCount = translationParagraphs.filter((paragraph) => paragraph.translation).length;
-  const speechParagraphs = translatableParagraphs;
+  const speechParagraphs = translatableParagraphs.flatMap<SpeechQueueItem>((paragraph) => {
+    const source = { paragraphId: paragraph.id, text: paragraph.original, language: 'source' as const };
+    const target = paragraph.translation
+      ? { paragraphId: paragraph.id, text: paragraph.translation, language: 'target' as const }
+      : undefined;
+    if (contentMode === 'original') return [source];
+    if (contentMode === 'translation') return target ? [target] : [];
+    return target ? [source, target] : [source];
+  });
   const chapterLanguageNotice = translatableParagraphs.length > 0 && translationParagraphs.length === 0 ? `当前内容已是${languageLabel(bookTargetLanguage)}，无需翻译` : undefined;
   const pages = useMemo(() => paginateReaderParagraphs(paragraphs, { blockCapacity: pageCapacityFor(readerPreferences), contentMode }), [paragraphs, readerPreferences.fontSize, contentMode]);
   const pageCount = pages.length;
@@ -315,18 +323,18 @@ export function ReaderPage({ book, engine, onProgress, onTranslationPreferencesC
       if (speechRunSequence.current !== runId || readerIdentityRef.current !== requestIdentity) return;
       const paragraph = speechParagraphs[index];
       if (!paragraph) { setSpeechState('idle'); setSpeechParagraphId(undefined); setSpeechParagraphIndex(0); return; }
-      const utterance = new SpeechSynthesisUtterance(paragraph.original);
-      const locale = speechLocaleForText(paragraph.original, bookSourceLanguage);
-      const voice = findSpeechVoice(availableSpeechVoices(), readerPreferences.voiceURI, locale);
+      const utterance = new SpeechSynthesisUtterance(paragraph.text);
+      const locale = speechLocaleForText(paragraph.text, paragraph.language === 'target' ? bookTargetLanguage : bookSourceLanguage);
+      const voice = findSpeechVoice(availableSpeechVoices(), paragraph.language === 'source' ? readerPreferences.voiceURI : '', locale);
       utterance.lang = voice?.lang ?? locale;
       if (voice) utterance.voice = voice;
       utterance.rate = rate;
       utterance.onend = () => speakAt(index + 1);
       utterance.onerror = () => { if (speechRunSequence.current === runId && readerIdentityRef.current === requestIdentity) { setSpeechState('idle'); setSpeechParagraphId(undefined); setSpeechError('朗读中断，请重试'); } };
       setSpeechState('playing');
-      setSpeechParagraphId(paragraph.id);
+      setSpeechParagraphId(paragraph.paragraphId);
       setSpeechParagraphIndex(index);
-      const speakingPage = pages.findIndex((page) => page.some((block) => block.paragraphId === paragraph.id));
+      const speakingPage = pages.findIndex((page) => page.some((block) => block.paragraphId === paragraph.paragraphId));
       if (speakingPage >= 0) setPageIndex(speakingPage);
       window.speechSynthesis.speak(utterance);
     };
@@ -357,6 +365,7 @@ export function ReaderPage({ book, engine, onProgress, onTranslationPreferencesC
     if (key === 'readingMode') setPageIndex(0);
   };
   const changeContentMode = (mode: ReaderContentMode) => {
+    stopSpeech();
     setContentMode(mode);
     setPageIndex(0);
     if (mode !== 'original' && !chapterTranslation.running && translatedCount < translationParagraphs.length) void translateChapter();
@@ -445,7 +454,7 @@ export function ReaderPage({ book, engine, onProgress, onTranslationPreferencesC
       </div>
       <div className="reader-dock__actions">
         <button type="button" className="reader-dock__action" onClick={() => { setContentsOpen(true); setChromeVisible(true); }} aria-label="打开目录"><List size={18} /><span>目录</span></button>
-        <ReaderSpeechControls supported={speechSupported} state={speechState} currentIndex={speechParagraphIndex} totalCount={speechParagraphs.length} rate={speechRate} error={speechError} onStart={() => startSpeech()} onPause={pauseSpeech} onResume={resumeSpeech} onStop={stopSpeech} onRateChange={changeSpeechRate} />
+        <ReaderSpeechControls supported={speechSupported} state={speechState} contentLabel={modeLabel} currentIndex={speechParagraphIndex} totalCount={speechParagraphs.length} rate={speechRate} error={speechError} onStart={() => startSpeech()} onPause={pauseSpeech} onResume={resumeSpeech} onStop={stopSpeech} onRateChange={changeSpeechRate} />
         <button type="button" className="reader-dock__action" onClick={() => { setTranslationOpen(true); setChromeVisible(true); }} aria-label="打开翻译与显示"><Languages size={18} /><span>{modeLabel}</span></button>
         <button type="button" className="reader-dock__action" onClick={() => { setSettingsOpen(true); setChromeVisible(true); }} aria-label="打开阅读设置"><Settings2 size={18} /><span>设置</span></button>
       </div>

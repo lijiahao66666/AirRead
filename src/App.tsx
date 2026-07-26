@@ -3,9 +3,10 @@ import { ArrowLeft, BookOpen, LibraryBig, Settings2, Sparkles } from 'lucide-rea
 
 import { parseBook } from './domain/books/bookParser';
 import { createBookStore } from './domain/books/bookStore';
-import type { Book } from './domain/books/book';
+import type { Book, Chapter } from './domain/books/book';
 import { BookshelfPage } from './features/bookshelf/BookshelfPage';
 import { ReaderPage } from './features/reader/ReaderPage';
+import { loadBookChapters } from './features/reader/readerChapterLoader';
 import { BookStudioPage } from './features/studio/BookStudioPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { ProviderProfileStore } from './domain/ai/providerStore';
@@ -20,6 +21,7 @@ const primaryNavigation: Array<{ label: string; route: Exclude<AppRoute, 'reader
 ];
 const bookStore = createBookStore();
 const providerStore = new ProviderProfileStore();
+type ReaderPreparation = { bookId: string; chapters?: Chapter[]; error?: string };
 
 function locationFromHash(): AppLocation {
   const [rawRoute, bookId] = window.location.hash.slice(1).split('/');
@@ -36,6 +38,7 @@ export default function App() {
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
+  const [readerPreparation, setReaderPreparation] = useState<ReaderPreparation>();
   const activeBook = useMemo(() => books.find((book) => book.id === location.bookId), [books, location.bookId]);
 
   useEffect(() => {
@@ -49,6 +52,35 @@ export default function App() {
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
   }, [location.route]);
+
+  useEffect(() => {
+    if (loading || location.route !== 'bookshelf' || books.length === 0) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const recentBooks = [...books]
+        .sort((left, right) => (right.lastReadAt ?? right.importedAt) - (left.lastReadAt ?? left.importedAt))
+        .slice(0, 2);
+      void recentBooks.reduce(async (previous, book) => {
+        await previous;
+        if (!cancelled) await loadBookChapters(book).catch(() => undefined);
+      }, Promise.resolve());
+    }, 0);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [books, loading, location.route]);
+
+  useEffect(() => {
+    if (location.route !== 'reader' || !activeBook) return;
+    let cancelled = false;
+    if (readerPreparation?.bookId !== activeBook.id || readerPreparation.error) {
+      setReaderPreparation({ bookId: activeBook.id });
+    }
+    void loadBookChapters(activeBook).then((chapters) => {
+      if (!cancelled) setReaderPreparation({ bookId: activeBook.id, chapters });
+    }).catch((cause) => {
+      if (!cancelled) setReaderPreparation({ bookId: activeBook.id, error: cause instanceof Error ? cause.message : '无法打开书籍' });
+    });
+    return () => { cancelled = true; };
+  }, [activeBook?.bytes, activeBook?.id, location.route]);
 
   const importBook = async (file: File) => {
     setError(undefined);
@@ -87,7 +119,11 @@ export default function App() {
   let content;
   if (location.route === 'reader') {
     content = loading ? <div className="state-card" role="status">正在读取书籍</div> : activeBook
-      ? <ReaderPage key={activeBook.id} book={activeBook} onProgress={(progress) => updateProgress(activeBook.id, progress)} onTranslationPreferencesChange={(preferences) => updateTranslationPreferences(activeBook.id, preferences)} onSelectionPreferencesChange={(preferences) => updateSelectionPreferences(activeBook.id, preferences)} onBack={() => { window.location.hash = 'bookshelf'; }} />
+      ? readerPreparation?.bookId === activeBook.id && readerPreparation.chapters
+        ? <ReaderPage key={activeBook.id} book={activeBook} chapters={readerPreparation.chapters} onProgress={(progress) => updateProgress(activeBook.id, progress)} onTranslationPreferencesChange={(preferences) => updateTranslationPreferences(activeBook.id, preferences)} onSelectionPreferencesChange={(preferences) => updateSelectionPreferences(activeBook.id, preferences)} onBack={() => { window.location.hash = 'bookshelf'; }} />
+        : readerPreparation?.bookId === activeBook.id && readerPreparation.error
+          ? <div className="state-card state-card--error" role="alert">{readerPreparation.error}</div>
+          : <div className="state-card" role="status">正在打开书籍</div>
       : <MissingBookPage />;
   } else if (location.route === 'studio') {
     content = <BookStudioPage books={books} providerStore={providerStore} onSaveBook={saveGeneratedBook} />;

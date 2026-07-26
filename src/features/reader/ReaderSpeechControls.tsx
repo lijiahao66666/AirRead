@@ -5,6 +5,7 @@ export type SpeechPlaybackState = 'idle' | 'playing' | 'paused';
 type ReaderSpeechControlsProps = {
   supported: boolean;
   state: SpeechPlaybackState;
+  contentLabel: '原文' | '双语' | '译文';
   currentIndex: number;
   totalCount: number;
   rate: number;
@@ -16,21 +17,22 @@ type ReaderSpeechControlsProps = {
   onRateChange: () => void;
 };
 
-export function ReaderSpeechControls({ supported, state, currentIndex, totalCount, rate, error, onStart, onPause, onResume, onStop, onRateChange }: ReaderSpeechControlsProps) {
+export function ReaderSpeechControls({ supported, state, contentLabel, currentIndex, totalCount, rate, error, onStart, onPause, onResume, onStop, onRateChange }: ReaderSpeechControlsProps) {
+  const startLabel = contentLabel === '原文' ? '朗读本章' : `朗读本章${contentLabel}`;
   if (state === 'idle') return <div className="reader-listen-entry">
-    <button type="button" className="reader-listen-button" onClick={onStart} disabled={!supported || totalCount === 0} aria-label={supported ? '朗读本章' : '当前浏览器不支持朗读'}><Volume2 size={16} /><span className="reader-speech-label">朗读</span></button>
+    <button type="button" className="reader-listen-button" onClick={onStart} disabled={!supported || totalCount === 0} aria-label={supported ? startLabel : '当前浏览器不支持朗读'}><Volume2 size={16} /><span className="reader-speech-label">朗读</span></button>
     {error && <span className="reader-speech-error" role="alert">{error}</span>}
   </div>;
 
   const progress = totalCount > 0 ? ((currentIndex + 1) / totalCount) * 100 : 0;
   return <>
     <div className="reader-listen-entry">
-      <button type="button" className="reader-listen-button is-active" onClick={state === 'playing' ? onPause : onResume} aria-label={state === 'playing' ? '正在朗读' : '朗读已暂停'}><Volume2 size={16} /><span className="reader-speech-label">朗读</span></button>
+      <button type="button" className="reader-listen-button is-active" onClick={state === 'playing' ? onPause : onResume} aria-label={state === 'playing' ? `正在朗读${contentLabel}` : `${contentLabel}朗读已暂停`}><Volume2 size={16} /><span className="reader-speech-label">朗读</span></button>
     </div>
-    <aside className="reader-speech-player" aria-label="章节朗读" aria-live="polite">
+    <aside className="reader-speech-player" aria-label={`章节${contentLabel}朗读`} aria-live="polite">
       <span className="reader-speech-player__icon"><Volume2 size={20} /></span>
       <div className="reader-speech-player__body">
-        <strong>{state === 'paused' ? '朗读已暂停' : '正在朗读'} {currentIndex + 1}/{totalCount}</strong>
+        <strong>{state === 'paused' ? '朗读已暂停' : '正在朗读'} · {contentLabel} {currentIndex + 1}/{totalCount}</strong>
         <div className="reader-speech-player__track" aria-hidden="true"><span style={{ width: `${progress}%` }} /></div>
       </div>
       <div className="reader-speech-player__actions">

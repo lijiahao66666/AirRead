@@ -5,6 +5,7 @@ import type { Book } from '../../domain/books/book';
 import type { TranslationEngine } from '../../domain/ai/translationTypes';
 import { ReaderPage } from './ReaderPage';
 import { buildMinimalEpub } from '../../domain/books/bookFixtures';
+import { chaptersForBook } from './readerState';
 
 const book: Book = {
   id: 'book-1', title: 'A Quiet Book', author: 'AirRead', format: 'txt',
@@ -27,7 +28,7 @@ describe('ReaderPage', () => {
       .mockResolvedValueOnce('第二段译文');
     const engine = { cacheIdentity: 'test', translate } satisfies TranslationEngine;
     const onProgress = vi.fn();
-    render(<ReaderPage book={book} engine={engine} onProgress={onProgress} onBack={vi.fn()} />);
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={onProgress} onBack={vi.fn()} />);
 
     expect(screen.getByRole('heading', { name: 'A Quiet Book' })).toBeInTheDocument();
     expect(screen.getByText('The first paragraph.')).toBeInTheDocument();
@@ -44,7 +45,7 @@ describe('ReaderPage', () => {
   });
 
   it('keeps one compact set of reader controls', () => {
-    render(<ReaderPage book={book} engine={{ cacheIdentity: 'test', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'test', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
     expect(screen.getAllByRole('button', { name: '返回书架' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开目录' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开阅读设置' })).toHaveLength(1);
@@ -54,7 +55,7 @@ describe('ReaderPage', () => {
   it('does not treat an ordinary paragraph click as translation intent', () => {
     const translate = vi.fn().mockResolvedValue('不应出现');
     const engine = { cacheIdentity: 'ordinary-click', translate } satisfies TranslationEngine;
-    render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
     mockSelection('');
     const paragraph = screen.getByText('The first paragraph.');
     fireEvent.mouseUp(paragraph);
@@ -65,7 +66,7 @@ describe('ReaderPage', () => {
   it('translates the current chapter and lets readers hide or show bilingual text', async () => {
     const translate = vi.fn<TranslationEngine['translate']>((request) => Promise.resolve(`${request.text} · 译文`));
     const engine = { cacheIdentity: 'chapter-mode', translate } satisfies TranslationEngine;
-    render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
     openTranslationPanel();
     fireEvent.click(screen.getByRole('button', { name: '生成本章双语' }));
@@ -86,7 +87,7 @@ describe('ReaderPage', () => {
     const resolvers: Array<(value: string) => void> = [];
     const translate = vi.fn<TranslationEngine['translate']>(() => new Promise<string>((resolve) => { resolvers.push(resolve); }));
     const engine = { cacheIdentity: 'stop-chapter', translate } satisfies TranslationEngine;
-    render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
     openTranslationPanel();
     fireEvent.click(screen.getByRole('button', { name: '生成本章双语' }));
@@ -100,7 +101,7 @@ describe('ReaderPage', () => {
 
   it('makes a fully failed chapter translation retryable', async () => {
     const engine = { cacheIdentity: 'failed-chapter', translate: vi.fn().mockRejectedValue(new Error('offline')) } satisfies TranslationEngine;
-    render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
     openTranslationPanel();
     fireEvent.click(screen.getByRole('button', { name: '生成本章双语' }));
@@ -124,12 +125,12 @@ describe('ReaderPage', () => {
     const cancel = vi.fn();
     vi.stubGlobal('SpeechSynthesisUtterance', MockSpeechUtterance);
     vi.stubGlobal('speechSynthesis', { speak, pause, resume, cancel });
-    render(<ReaderPage book={book} engine={{ cacheIdentity: 'speech', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'speech', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: '朗读本章' }));
     expect(speak).toHaveBeenCalledTimes(1);
     expect((speak.mock.calls[0][0] as MockSpeechUtterance).text).toBe('The first paragraph.');
-    expect(screen.getByText('正在朗读 1/2')).toBeInTheDocument();
+    expect(screen.getByText('正在朗读 · 原文 1/2')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '暂停朗读' }));
     expect(pause).toHaveBeenCalledTimes(1);
@@ -139,16 +140,96 @@ describe('ReaderPage', () => {
     const firstUtterance = speak.mock.calls[0][0] as MockSpeechUtterance;
     act(() => { firstUtterance.onend?.call(firstUtterance as unknown as SpeechSynthesisUtterance, new Event('end') as SpeechSynthesisEvent); });
     expect(speak).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('正在朗读 2/2')).toBeInTheDocument();
+    expect(screen.getByText('正在朗读 · 原文 2/2')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '停止朗读' }));
     expect(cancel).toHaveBeenCalled();
     expect(screen.getByRole('button', { name: '朗读本章' })).toBeInTheDocument();
   });
 
+  it('reads translated text while pure translation mode is active', async () => {
+    class MockSpeechUtterance {
+      text: string;
+      lang = '';
+      rate = 1;
+      onend: SpeechSynthesisUtterance['onend'] = null;
+      onerror: SpeechSynthesisUtterance['onerror'] = null;
+
+      constructor(text: string) { this.text = text; }
+    }
+    const speak = vi.fn();
+    vi.stubGlobal('SpeechSynthesisUtterance', MockSpeechUtterance);
+    vi.stubGlobal('speechSynthesis', { speak, pause: vi.fn(), resume: vi.fn(), cancel: vi.fn() });
+    const engine = { cacheIdentity: 'translated-speech', translate: vi.fn<TranslationEngine['translate']>((request) => Promise.resolve(`译文：${request.text}`)) } satisfies TranslationEngine;
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    openTranslationPanel();
+    fireEvent.click(screen.getByRole('button', { name: '生成本章纯译文' }));
+    expect(await screen.findByText('译文：The first paragraph.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '朗读本章译文' }));
+
+    expect((speak.mock.calls[0][0] as MockSpeechUtterance).text).toBe('译文：The first paragraph.');
+  });
+
+  it('alternates source and translated text while bilingual mode is active', async () => {
+    class MockSpeechUtterance {
+      text: string;
+      lang = '';
+      rate = 1;
+      onend: SpeechSynthesisUtterance['onend'] = null;
+      onerror: SpeechSynthesisUtterance['onerror'] = null;
+
+      constructor(text: string) { this.text = text; }
+    }
+    const speak = vi.fn();
+    vi.stubGlobal('SpeechSynthesisUtterance', MockSpeechUtterance);
+    vi.stubGlobal('speechSynthesis', { speak, pause: vi.fn(), resume: vi.fn(), cancel: vi.fn() });
+    const engine = { cacheIdentity: 'bilingual-speech', translate: vi.fn<TranslationEngine['translate']>((request) => Promise.resolve(`译文：${request.text}`)) } satisfies TranslationEngine;
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    openTranslationPanel();
+    fireEvent.click(screen.getByRole('button', { name: '生成本章双语' }));
+    expect(await screen.findByText('译文：The first paragraph.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '朗读本章双语' }));
+    const firstUtterance = speak.mock.calls[0][0] as MockSpeechUtterance;
+    expect(firstUtterance.text).toBe('The first paragraph.');
+
+    act(() => { firstUtterance.onend?.call(firstUtterance as unknown as SpeechSynthesisUtterance, new Event('end') as SpeechSynthesisEvent); });
+    expect((speak.mock.calls[1][0] as MockSpeechUtterance).text).toBe('译文：The first paragraph.');
+  });
+
+  it('uses a target-language voice for translated speech', async () => {
+    localStorage.setItem('airread.readerPreferences.v1', JSON.stringify({ sourceLanguage: 'en', targetLanguage: 'zh-CN', voiceURI: 'english-voice', speechRate: 1 }));
+    class MockSpeechUtterance {
+      text: string;
+      lang = '';
+      rate = 1;
+      voice: SpeechSynthesisVoice | null = null;
+      onend: SpeechSynthesisUtterance['onend'] = null;
+      onerror: SpeechSynthesisUtterance['onerror'] = null;
+
+      constructor(text: string) { this.text = text; }
+    }
+    const speak = vi.fn();
+    const englishVoice = { name: 'English', lang: 'en-US', voiceURI: 'english-voice', default: true, localService: true } as SpeechSynthesisVoice;
+    const chineseVoice = { name: '中文', lang: 'zh-CN', voiceURI: 'chinese-voice', default: true, localService: true } as SpeechSynthesisVoice;
+    vi.stubGlobal('SpeechSynthesisUtterance', MockSpeechUtterance);
+    vi.stubGlobal('speechSynthesis', { speak, pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), getVoices: () => [englishVoice, chineseVoice] });
+    const engine = { cacheIdentity: 'translated-voice', translate: vi.fn().mockResolvedValue('第一段译文。') } satisfies TranslationEngine;
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    openTranslationPanel();
+    fireEvent.click(screen.getByRole('button', { name: '生成本章纯译文' }));
+    expect(await screen.findAllByText('第一段译文。')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: '朗读本章译文' }));
+
+    expect((speak.mock.calls[0][0] as MockSpeechUtterance).voice).toBe(chineseVoice);
+    expect((speak.mock.calls[0][0] as MockSpeechUtterance).lang).toBe('zh-CN');
+  });
+
   it('turns paged content with a horizontal swipe and hides reading chrome', () => {
     const longBook = { ...book, id: 'swipe-book', text: 'A long reading sentence with enough words. '.repeat(80) };
-    const { container } = render(<ReaderPage book={longBook} engine={{ cacheIdentity: 'swipe', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+    const { container } = render(<ReaderPage book={longBook} chapters={chaptersForBook(longBook)} engine={{ cacheIdentity: 'swipe', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
     const article = screen.getByRole('article', { name: '原文阅读内容' });
 
     expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled();
@@ -178,7 +259,7 @@ describe('ReaderPage', () => {
     vi.stubGlobal('SpeechSynthesisUtterance', MockSpeechUtterance);
     vi.stubGlobal('speechSynthesis', { speak, pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), getVoices: () => [voice] });
     const engine = { cacheIdentity: 'preferences', translate } satisfies TranslationEngine;
-    render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
     mockSelection('The first paragraph.');
     fireEvent.mouseUp(screen.getByText('The first paragraph.'));
@@ -193,7 +274,7 @@ describe('ReaderPage', () => {
     const chineseBook: Book = { ...book, id: 'chinese-book', title: '中文书', text: '这是第一段中文。\n\n这是第二段中文。' };
     const translate = vi.fn().mockResolvedValue('不应请求');
     const engine = { cacheIdentity: 'same-language', translate } satisfies TranslationEngine;
-    render(<ReaderPage book={chineseBook} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+    render(<ReaderPage book={chineseBook} chapters={chaptersForBook(chineseBook)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
     openTranslationPanel();
     expect(screen.getByRole('status', { name: '当前内容已是简体中文，无需翻译' })).toBeInTheDocument();
@@ -209,7 +290,7 @@ describe('ReaderPage', () => {
     const translate = vi.fn<TranslationEngine['translate']>((request) => Promise.resolve(`${request.targetLanguage} translation`));
     const onTranslationPreferencesChange = vi.fn().mockResolvedValue(undefined);
     const engine = { cacheIdentity: 'book-target', translate } satisfies TranslationEngine;
-    render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onTranslationPreferencesChange={onTranslationPreferencesChange} onBack={vi.fn()} />);
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onTranslationPreferencesChange={onTranslationPreferencesChange} onBack={vi.fn()} />);
 
     openTranslationPanel();
     const targetSelect = screen.getByLabelText('本书翻译目标语言');
@@ -228,7 +309,7 @@ describe('ReaderPage', () => {
     const onTranslationPreferencesChange = vi.fn().mockResolvedValue(undefined);
     const onSelectionPreferencesChange = vi.fn().mockResolvedValue(undefined);
     const engine = { cacheIdentity: 'selection-target', translate } satisfies TranslationEngine;
-    render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onTranslationPreferencesChange={onTranslationPreferencesChange} onSelectionPreferencesChange={onSelectionPreferencesChange} onBack={vi.fn()} />);
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onTranslationPreferencesChange={onTranslationPreferencesChange} onSelectionPreferencesChange={onSelectionPreferencesChange} onBack={vi.fn()} />);
 
     mockSelection('The first paragraph.');
     fireEvent.mouseUp(screen.getByText('The first paragraph.'));
@@ -245,7 +326,7 @@ describe('ReaderPage', () => {
     const translate = vi.fn<TranslationEngine['translate']>((request) => Promise.resolve(`${request.targetLanguage} selection`));
     const bookWithJapaneseTarget: Book = { ...book, id: 'independent-targets', translationPreferences: { targetLanguage: 'ja' } };
     const engine = { cacheIdentity: 'independent-targets', translate } satisfies TranslationEngine;
-    render(<ReaderPage book={bookWithJapaneseTarget} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+    render(<ReaderPage book={bookWithJapaneseTarget} chapters={chaptersForBook(bookWithJapaneseTarget)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
     mockSelection('The first paragraph.');
     fireEvent.mouseUp(screen.getByText('The first paragraph.'));
@@ -260,7 +341,7 @@ describe('ReaderPage', () => {
     let resolveTranslation!: (value: string) => void;
     const engine = { cacheIdentity: 'stale', translate: vi.fn(() => new Promise<string>((resolve) => { resolveTranslation = resolve; })) } satisfies TranslationEngine;
     const epubBook: Book = { ...book, id: 'epub-book', format: 'epub', bytes: buildMinimalEpub(), text: undefined };
-    render(<ReaderPage book={epubBook} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+    render(<ReaderPage book={epubBook} chapters={chaptersForBook(epubBook)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
     mockSelection('The first paragraph begins the AirRead test.');
     fireEvent.mouseUp(screen.getByText('The first paragraph begins the AirRead test.'));
     fireEvent.click(screen.getByRole('button', { name: '翻译选中文本' }));
@@ -274,7 +355,7 @@ describe('ReaderPage', () => {
   it('debounces rapid progress changes and shows persistence errors', async () => {
     vi.useFakeTimers();
     const onProgress = vi.fn().mockRejectedValue(new Error('无法保存阅读进度'));
-    render(<ReaderPage book={book} engine={{ cacheIdentity: 'progress', translate: vi.fn() }} onProgress={onProgress} onBack={vi.fn()} />);
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'progress', translate: vi.fn() }} onProgress={onProgress} onBack={vi.fn()} />);
     onProgress.mockClear();
     const slider = screen.getByRole('slider', { name: '阅读进度' });
     fireEvent.change(slider, { target: { value: '0.2' } });
@@ -289,19 +370,19 @@ describe('ReaderPage', () => {
 
   it('resets chapter state when the book identity changes', () => {
     const secondBook = { ...book, id: 'book-2', title: 'Another Book', text: 'A fresh paragraph.' };
-    const view = render(<ReaderPage book={book} engine={{ cacheIdentity: 'reset', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
-    view.rerender(<ReaderPage book={secondBook} engine={{ cacheIdentity: 'reset', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+    const view = render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'reset', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+    view.rerender(<ReaderPage book={secondBook} chapters={chaptersForBook(secondBook)} engine={{ cacheIdentity: 'reset', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
     expect(screen.getByRole('heading', { name: 'Another Book' })).toBeInTheDocument();
     expect(screen.getByText('A fresh paragraph.')).toBeInTheDocument();
   });
 
   it('keeps paragraph translations when the parent updates metadata on the same book id', async () => {
     const engine = { cacheIdentity: 'metadata-rerender', translate: vi.fn().mockResolvedValue('保留译文') } satisfies TranslationEngine;
-    const view = render(<ReaderPage book={book} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+    const view = render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
     openTranslationPanel();
     fireEvent.click(screen.getByRole('button', { name: '生成本章双语' }));
     await waitFor(() => expect(screen.getAllByText('保留译文')).toHaveLength(2));
-    view.rerender(<ReaderPage book={{ ...book, readingProgress: 0.6, lastReadAt: 900 }} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
+    view.rerender(<ReaderPage book={{ ...book, readingProgress: 0.6, lastReadAt: 900 }} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
     expect(screen.getAllByText('保留译文')).toHaveLength(2);
   });
 });
