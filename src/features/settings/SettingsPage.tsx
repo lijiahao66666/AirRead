@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Pencil, Plus, Power, ShieldCheck, Trash2 } from 'lucide-react';
+import { Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 
 import { createTranslationEngine } from '../../domain/ai/providerRegistry';
-import { BUILT_IN_FREE_PROFILE, isMaskedSecret, maskProviderProfile, type FreeTranslationRoute, type ProviderProfile } from '../../domain/ai/providerProfile';
+import { isMaskedSecret, maskProviderProfile, type FreeTranslationRoute, type ProviderProfile } from '../../domain/ai/providerProfile';
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
 import { ProviderConnectionError, type TranslationRequest } from '../../domain/ai/translationTypes';
 import { ProviderEditor } from './ProviderEditor';
@@ -50,9 +50,10 @@ export function SettingsPage({ store = new ProviderProfileStore(), testConnectio
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ tone: 'success' | 'error'; message: string }>();
   const refresh = () => { setProfiles(store.list()); setSelectedId(store.selected().id); setFreeRoute(store.getFreeRoute()); };
-  const startCreate = () => { setError(undefined); setNotice(undefined); setEditingOriginal(undefined); setEditing({ id: `provider-${Date.now()}`, name: '我的翻译服务', kind: 'openai-compatible', enabled: true }); };
-  const startEdit = (profile: ProviderProfile) => { setError(undefined); setNotice(undefined); setEditingOriginal(profile); setEditing(maskProviderProfile(profile)); };
+  const startCreate = () => { setError(undefined); setNotice(undefined); setTestResult(undefined); setEditingOriginal(undefined); setEditing({ id: `provider-${Date.now()}`, name: '我的翻译服务', kind: 'openai-compatible', enabled: true }); };
+  const startEdit = (profile: ProviderProfile) => { setError(undefined); setNotice(undefined); setTestResult(undefined); setEditingOriginal(profile); setEditing(maskProviderProfile(profile)); };
   const resolvedEditing = editing ? {
     ...editing,
     ...(isMaskedSecret(editing.apiKey) ? { apiKey: editingOriginal?.apiKey } : {}),
@@ -60,17 +61,16 @@ export function SettingsPage({ store = new ProviderProfileStore(), testConnectio
   } : undefined;
   const save = () => {
     if (!editing) return;
-    try { store.save(editing); setEditing(undefined); setEditingOriginal(undefined); setError(undefined); setNotice('配置已保存'); refresh(); } catch (cause) { setNotice(undefined); setError(cause instanceof Error ? cause.message : '保存配置失败'); }
+    try { store.save(editing); setEditing(undefined); setEditingOriginal(undefined); setError(undefined); setTestResult(undefined); setNotice('配置已保存'); refresh(); } catch (cause) { setNotice(undefined); setError(cause instanceof Error ? cause.message : '保存配置失败'); }
   };
   const select = (profile: ProviderProfile) => { try { store.select(profile.id); refresh(); setNotice(`已选择 ${profile.name}`); } catch (cause) { setError(cause instanceof Error ? cause.message : '选择 Provider 失败'); } };
-  const toggle = (profile: ProviderProfile) => { try { store.save({ ...profile, enabled: !profile.enabled }); refresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : '更新 Provider 失败'); } };
   const remove = (profile: ProviderProfile) => { try { store.remove(profile.id); refresh(); setNotice('配置已删除'); } catch (cause) { setError(cause instanceof Error ? cause.message : '删除 Provider 失败'); } };
   const updateFreeRoute = (route: FreeTranslationRoute) => { try { store.setFreeRoute(route); setFreeRoute(route); setNotice(`免费翻译线路已切换为${freeRouteLabels[route]}`); } catch (cause) { setError(cause instanceof Error ? cause.message : '保存免费翻译线路失败'); } };
   const test = async () => {
     if (!resolvedEditing) return;
-    setTesting(true); setError(undefined); setNotice(undefined);
-    try { await testConnection(resolvedEditing); setNotice('连接成功'); }
-    catch (cause) { setError(cause instanceof ProviderConnectionError ? '该翻译服务不允许浏览器直接连接。请使用支持网页调用的地址，或运行你自己的本地中转服务' : '连接测试失败，请检查翻译服务配置'); }
+    setTesting(true); setError(undefined); setTestResult(undefined);
+    try { await testConnection(resolvedEditing); setTestResult({ tone: 'success', message: '连接成功' }); }
+    catch (cause) { setTestResult({ tone: 'error', message: cause instanceof ProviderConnectionError ? '该翻译服务不允许浏览器直接连接。请使用支持网页调用的地址，或运行你自己的本地中转服务' : '连接测试失败，请检查翻译服务配置' }); }
     finally { setTesting(false); }
   };
   useEffect(() => {
@@ -83,8 +83,8 @@ export function SettingsPage({ store = new ProviderProfileStore(), testConnectio
     <header className="settings-page__header"><div><p className="eyebrow">本地翻译</p><h2 id="translation-settings-title">翻译服务</h2><p className="page-lede">选择免费线路，或连接自己的大模型与专业翻译服务。</p></div><ShieldCheck size={40} strokeWidth={1.35} aria-hidden="true" /></header>
     {notice && <div className="settings-notice" role="status">{notice}</div>}
     {error && !editing && <div className="settings-alert" role="alert">{error}</div>}
-    <section className="settings-card settings-services"><div className="settings-card__heading"><div><p className="eyebrow">翻译服务</p><h3>服务与线路</h3></div><button type="button" className="primary-action" onClick={startCreate}><Plus size={17} /> 添加翻译服务</button></div><div className="provider-list">{profiles.map((profile) => <article className={`provider-row ${profile.id === selectedId ? 'provider-row--selected' : ''}`} key={profile.id}><div className="provider-row__main"><span className="provider-row__icon">{profile.id === BUILT_IN_FREE_PROFILE.id ? <Check size={17} /> : <Power size={17} />}</span><div><h4>{profile.name}</h4><p>{profile.builtIn ? `免费 · ${freeRouteLabels[profile.freeRoute ?? freeRoute]}` : providerKindLabels[profile.kind]}</p></div></div><div className="provider-row__status">{profile.enabled ? <span className="provider-enabled">{profile.id === selectedId ? '当前使用' : '已启用'}</span> : <span className="provider-disabled">已停用</span>}</div><div className="provider-row__actions">{profile.enabled && profile.id !== selectedId && <button type="button" className="text-button" onClick={() => select(profile)} aria-label={`设为当前 ${profile.name}`}>设为当前</button>}{!profile.builtIn && <><button type="button" className="icon-button" onClick={() => startEdit(profile)} aria-label={`编辑 ${profile.name}`}><Pencil size={16} /></button><button type="button" className="icon-button" onClick={() => toggle(profile)} aria-label={`${profile.enabled ? '停用' : '启用'} ${profile.name}`}><Power size={16} /></button><button type="button" className="icon-button" onClick={() => remove(profile)} aria-label={`删除 ${profile.name}`}><Trash2 size={16} /></button></>}</div></article>)}</div><div className="free-route-settings"><div className="free-route-field"><div className="free-route-field__label"><label htmlFor="free-translation-route">免费翻译线路</label><button type="button" className="settings-help" aria-label="免费线路说明" aria-expanded={freeRouteHelpOpen} aria-controls="free-route-help" onClick={() => setFreeRouteHelpOpen((open) => !open)}>?</button>{freeRouteHelpOpen && <span id="free-route-help" className="settings-help-popover" role="note">{freeRouteHints[freeRoute]}</span>}</div><select id="free-translation-route" aria-label="免费翻译线路" value={freeRoute} onChange={(event) => updateFreeRoute(event.target.value as FreeTranslationRoute)}>{Object.entries(freeRouteLabels).map(([route, label]) => <option value={route} key={route}>{label}</option>)}</select></div></div></section>
-    {editing && <section className="settings-card" ref={editorRef}><ProviderEditor profile={editing} validationProfile={resolvedEditing} mode={editingOriginal ? 'edit' : 'create'} onChange={setEditing} onSave={save} onCancel={() => { setEditing(undefined); setEditingOriginal(undefined); setError(undefined); }} onTest={test} testing={testing} error={error} /></section>}
+    <section className="settings-card settings-services"><div className="settings-card__heading"><div><p className="eyebrow">翻译服务</p><h3>服务与线路</h3></div><button type="button" className="primary-action" onClick={startCreate}><Plus size={17} /> 添加翻译服务</button></div><div className="provider-list">{profiles.map((profile) => <article className={`provider-row ${profile.id === selectedId ? 'provider-row--selected' : ''}`} key={profile.id}><div className="provider-row__main"><div><h4>{profile.name}</h4><p>{profile.builtIn ? `免费 · ${freeRouteLabels[profile.freeRoute ?? freeRoute]}` : providerKindLabels[profile.kind]}</p></div></div><div className="provider-row__actions">{profile.id === selectedId ? <span className="provider-current">当前使用</span> : <button type="button" className="text-button" onClick={() => select(profile)} aria-label={`设为当前 ${profile.name}`}>设为当前</button>}{!profile.builtIn && <><button type="button" className="icon-button" onClick={() => startEdit(profile)} aria-label={`编辑 ${profile.name}`}><Pencil size={16} /></button><button type="button" className="icon-button" onClick={() => remove(profile)} aria-label={`删除 ${profile.name}`}><Trash2 size={16} /></button></>}</div></article>)}</div><div className="free-route-settings"><div className="free-route-field"><div className="free-route-field__label"><label htmlFor="free-translation-route">免费翻译线路</label><button type="button" className="settings-help" aria-label="免费线路说明" aria-expanded={freeRouteHelpOpen} aria-controls="free-route-help" onClick={() => setFreeRouteHelpOpen((open) => !open)}>?</button>{freeRouteHelpOpen && <span id="free-route-help" className="settings-help-popover" role="note">{freeRouteHints[freeRoute]}</span>}</div><select id="free-translation-route" aria-label="免费翻译线路" value={freeRoute} onChange={(event) => updateFreeRoute(event.target.value as FreeTranslationRoute)}>{Object.entries(freeRouteLabels).map(([route, label]) => <option value={route} key={route}>{label}</option>)}</select></div></div></section>
+    {editing && <section className="settings-card" ref={editorRef}><ProviderEditor profile={editing} validationProfile={resolvedEditing} mode={editingOriginal ? 'edit' : 'create'} onChange={setEditing} onSave={save} onCancel={() => { setEditing(undefined); setEditingOriginal(undefined); setError(undefined); setTestResult(undefined); }} onTest={test} testing={testing} error={error} testResult={testResult} /></section>}
     <details className="settings-disclosure"><summary>关于本地数据与连接</summary><div><p>书籍和服务密钥只保存在当前浏览器。使用第三方翻译时，待翻译文本会直接发送到该服务。</p><p>翻译请求由当前浏览器直接发送到所选服务。部分服务不允许网页直接连接；若测试失败，请改用支持浏览器访问的地址，或在自己的设备上运行中转服务。</p></div></details>
   </section>;
 }

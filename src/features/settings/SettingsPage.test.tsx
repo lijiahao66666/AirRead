@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { BUILT_IN_FREE_PROFILE } from '../../domain/ai/providerProfile';
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
 import { ProviderConnectionError } from '../../domain/ai/translationTypes';
 import { SettingsPage } from './SettingsPage';
@@ -38,7 +37,7 @@ describe('SettingsPage', () => {
     expect(screen.queryByLabelText('朗读声音')).not.toBeInTheDocument();
   });
 
-  it('validates, creates, edits, enables, disables, selects, and deletes a profile', async () => {
+  it('validates, creates, edits, selects, and deletes a profile without an enable toggle', async () => {
     const store = new ProviderProfileStore(localStorage);
     const testConnection = vi.fn().mockResolvedValue(undefined);
     render(<SettingsPage store={store} testConnection={testConnection} />);
@@ -64,21 +63,32 @@ describe('SettingsPage', () => {
     expect(store.list()).toEqual(expect.arrayContaining([expect.objectContaining({ prompt: '采用自然、克制的出版级中文。' })]));
     fireEvent.click(screen.getByRole('button', { name: '设为当前 我的模型' }));
     expect(store.selected().name).toBe('我的模型');
-    fireEvent.click(screen.getByRole('button', { name: '停用 我的模型' }));
-    expect(store.get(store.list()[1].id)?.enabled).toBe(false);
-    expect(store.selected()).toEqual(BUILT_IN_FREE_PROFILE);
-    fireEvent.click(screen.getByRole('button', { name: '启用 我的模型' }));
+    expect(screen.queryByRole('button', { name: '停用 我的模型' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '启用 我的模型' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '编辑 我的模型' }));
     expect(screen.getByRole('heading', { name: '编辑翻译服务' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('服务名称'), { target: { value: '更新模型' } });
     fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
-    await waitFor(() => expect(screen.getByText('连接成功')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('连接成功'));
+    expect(screen.getByRole('status').parentElement).toContainElement(screen.getByRole('button', { name: '测试连接' }));
     expect(testConnection).toHaveBeenCalledWith(expect.objectContaining({ name: '更新模型', apiKey: 'sk-local-secret' }));
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
 
     fireEvent.click(screen.getByRole('button', { name: '删除 更新模型' }));
     expect(screen.queryByText('更新模型')).not.toBeInTheDocument();
+  });
+
+  it('lets a legacy disabled profile become current and enables it while selecting', () => {
+    const store = new ProviderProfileStore(localStorage);
+    store.save({ id: 'legacy-disabled', name: '旧翻译服务', kind: 'openai-compatible', enabled: true, baseUrl: 'https://models.example/v1', model: 'reader', apiKey: 'legacy-secret' });
+    localStorage.setItem('airread.providerProfiles.v1', JSON.stringify([{ ...store.get('legacy-disabled')!, enabled: false }]));
+    render(<SettingsPage store={store} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '设为当前 旧翻译服务' }));
+
+    expect(store.selected().name).toBe('旧翻译服务');
+    expect(store.get('legacy-disabled')?.enabled).toBe(true);
   });
 
   it('shows browser-blocked guidance without an Air proxy or secret-bearing error', async () => {
@@ -93,6 +103,7 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '编辑 浏览器受限模型' }));
     fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('该翻译服务不允许浏览器直接连接。请使用支持网页调用的地址，或运行你自己的本地中转服务'));
+    expect(screen.getByRole('alert').parentElement).toContainElement(screen.getByRole('button', { name: '测试连接' }));
     expect(document.body.textContent).not.toContain('never-show-this-secret');
     expect(document.body.textContent).not.toContain('Air proxy');
   });

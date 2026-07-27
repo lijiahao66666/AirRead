@@ -55,7 +55,8 @@ export class ProviderProfileStore {
 
   select(id: string): void {
     const profile = this.get(id);
-    if (!profile || !profile.enabled) throw new Error('只能选择已启用的 Provider');
+    if (!profile) throw new Error('翻译服务不存在');
+    if (!profile.builtIn && !profile.enabled) this.save({ ...profile, enabled: true });
     this.storage.setItem(SELECTED_KEY, id);
   }
 
