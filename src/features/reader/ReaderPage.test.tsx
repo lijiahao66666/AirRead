@@ -79,6 +79,13 @@ describe('ReaderPage', () => {
     expect(screen.queryByRole('complementary', { name: '划词翻译' })).not.toBeInTheDocument();
   });
 
+  it('keeps the native long-press menu from competing with mobile selection actions', () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'mobile-context-menu', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    expect(fireEvent.contextMenu(screen.getByText('The first paragraph.'))).toBe(false);
+  });
+
   it('restores touch selection actions after the native selection changes', async () => {
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'native-selection', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
 

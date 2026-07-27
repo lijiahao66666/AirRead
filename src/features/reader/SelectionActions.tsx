@@ -41,8 +41,8 @@ export function SelectionActions({ source, targetLanguage, globalTargetLanguage,
     </> : <div className="selection-actions__toolbar" role="toolbar" aria-label="划词操作">
       <TargetLanguageSelect targetLanguage={targetLanguage} globalTargetLanguage={globalTargetLanguage} targetOverride={targetOverride} onChange={onTargetLanguageChange} compact />
       <button type="button" onClick={onTranslate} aria-label="翻译选中文本"><Languages size={15} /> 翻译</button>
-      <button type="button" onClick={onRead} disabled={!canRead} aria-label="朗读选中文本"><Play size={15} /> 朗读</button>
-      <button type="button" onClick={onCopy} aria-label="复制选中文本">{copied ? <Check size={15} /> : <Copy size={15} />} {copied ? '已复制' : '复制'}</button>
+      <button type="button" className="selection-actions__optional" onClick={onRead} disabled={!canRead} aria-label="朗读选中文本"><Play size={15} /> 朗读</button>
+      <button type="button" className="selection-actions__optional" onClick={onCopy} aria-label="复制选中文本">{copied ? <Check size={15} /> : <Copy size={15} />} {copied ? '已复制' : '复制'}</button>
       <button type="button" className="selection-actions__close" onClick={onDismiss} aria-label="关闭选中文本操作"><X size={15} /></button>
     </div>}
   </aside>;

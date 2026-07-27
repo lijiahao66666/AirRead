@@ -292,6 +292,9 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     });
   };
   const handleSelection = (event: ReactPointerEvent<HTMLParagraphElement>) => showSelectionActions(event.currentTarget);
+  const handleSelectionContextMenu = (event: MouseEvent<HTMLParagraphElement>) => {
+    if (window.matchMedia?.('(max-width: 42rem)').matches) event.preventDefault();
+  };
   useEffect(() => {
     const handleSelectionChange = () => {
       if (!selectionPointerDown.current) scheduleSelectionActions();
@@ -573,7 +576,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   };
   const renderBlocks = (blocks: ReaderPageBlock[]) => blocks.map((block) => (
     <div className={`reader-paragraph ${speechParagraphId === block.paragraphId ? 'reader-paragraph--speaking' : ''}`} key={block.id} aria-current={speechParagraphId === block.paragraphId ? 'true' : undefined}>
-      {contentMode !== 'translation' && <p className="reader-original" data-paragraph-id={block.paragraphId} onPointerUp={handleSelection}>{block.original}</p>}
+      {contentMode !== 'translation' && <p className="reader-original" data-paragraph-id={block.paragraphId} onPointerUp={handleSelection} onContextMenu={handleSelectionContextMenu}>{block.original}</p>}
       {contentMode !== 'original' && (block.translation
         ? <p className="reader-translation" lang={bookTargetLanguage}>{block.translation}</p>
         : <p className="reader-translation reader-translation--pending" role="status">{chapterTranslation.running ? '正在翻译本段…' : '本段暂无译文'}</p>)}
