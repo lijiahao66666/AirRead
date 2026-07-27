@@ -50,6 +50,10 @@ fi
 
 checksum="$(shasum -a 256 "$archive_path" | awk '{print $1}')"
 printf '%s  %s\n' "$checksum" "$(basename "$archive_path")" > "$archive_path.sha256"
+(
+  cd "$release_directory"
+  shasum -a 256 -c "$(basename "$archive_path").sha256" >/dev/null
+)
 
 cat <<EOF
 
