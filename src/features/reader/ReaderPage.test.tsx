@@ -18,12 +18,13 @@ const mockSelection = (text: string) => vi.spyOn(window, 'getSelection').mockRet
   toString: () => text,
   removeAllRanges: vi.fn(),
 } as unknown as Selection);
-const openTranslationPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开翻译与朗读' }));
+const openTranslationPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开翻译显示设置' }));
+const openReadingSettings = () => fireEvent.click(screen.getByRole('button', { name: '打开阅读设置' }));
 
 describe('ReaderPage', () => {
   afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-  it('shows selection actions, translates on demand, retries inline, and saves progress', async () => {
+  it('shows selection actions and translates on demand with inline retry', async () => {
     const translate = vi.fn<TranslationEngine['translate']>()
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce('第二段译文');
@@ -41,16 +42,27 @@ describe('ReaderPage', () => {
     expect(await screen.findByText('offline')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '重试划词翻译' }));
     expect(await screen.findByText('第二段译文')).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('slider', { name: '阅读进度' }), { target: { value: '0.25' } });
-    await waitFor(() => expect(onProgress).toHaveBeenCalled());
+    expect(onProgress).not.toHaveBeenCalled();
   });
 
   it('keeps one compact set of reader controls', () => {
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'test', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
     expect(screen.getAllByRole('button', { name: '返回书架' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开目录' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: '打开排版与主题' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '打开阅读设置' })).toHaveLength(1);
+    expect(screen.queryByRole('slider', { name: '阅读进度' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '上一章' })).not.toBeInTheDocument();
+    expect(screen.queryByText('阅读进度')).not.toBeInTheDocument();
+  });
+
+  it('keeps speech voice choices in reading settings, not the translation panel', () => {
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'voice-location', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    openTranslationPanel();
+    expect(screen.queryByRole('heading', { name: '朗读声音' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '关闭翻译显示' }));
+    openReadingSettings();
+    expect(screen.getByRole('heading', { name: '朗读声音' })).toBeInTheDocument();
   });
 
   it('does not treat an ordinary paragraph click as translation intent', () => {
@@ -244,7 +256,7 @@ describe('ReaderPage', () => {
     vi.stubGlobal('speechSynthesis', { speak: vi.fn(), pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), getVoices: () => [englishVoice, chineseVoice, japaneseVoice] });
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'voice-settings', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
-    openTranslationPanel();
+    openReadingSettings();
     expect(screen.getByLabelText('原文音色')).toHaveTextContent('English Natural');
     expect(screen.getByLabelText('原文音色')).not.toHaveTextContent('日本語');
     expect(screen.getByLabelText('译文音色')).toHaveTextContent('中文自然声');
@@ -259,13 +271,29 @@ describe('ReaderPage', () => {
     const { container } = render(<ReaderPage book={longBook} chapters={chaptersForBook(longBook)} engine={{ cacheIdentity: 'swipe', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
     const article = screen.getByRole('article', { name: '原文阅读内容' });
 
-    expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled();
     fireEvent.touchStart(article, { touches: [{ clientX: 300 }] });
     fireEvent.touchEnd(article, { changedTouches: [{ clientX: 20 }] });
 
-    expect(screen.getByRole('button', { name: '上一页' })).not.toBeDisabled();
     expect(container.querySelector('.reader-page')).not.toHaveClass('reader-page--chrome-visible');
     expect(container.querySelector('.reader-page-content')).toHaveClass('reader-page-content--next');
+  });
+
+  it('keeps reader controls hidden when a page turn enters the next chapter', () => {
+    const chapterBook = {
+      ...book,
+      id: 'chapter-turn-book',
+      text: '第一章 开始\nFirst chapter text.\n\n第二章 继续\nSecond chapter text.',
+    };
+    const { container } = render(<ReaderPage book={chapterBook} chapters={chaptersForBook(chapterBook)} engine={{ cacheIdentity: 'chapter-turn', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+    const article = screen.getByRole('article', { name: '原文阅读内容' });
+    vi.spyOn(article, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 100 } as DOMRect);
+
+    fireEvent.click(article, { clientX: 50 });
+    expect(container.querySelector('.reader-page')).toHaveClass('reader-page--chrome-visible');
+    fireEvent.click(article, { clientX: 90 });
+
+    expect(screen.getByText('Second chapter text.')).toBeInTheDocument();
+    expect(container.querySelector('.reader-page')).not.toHaveClass('reader-page--chrome-visible');
   });
 
   it('uses the saved translation direction and selected speech voice', async () => {
@@ -379,15 +407,15 @@ describe('ReaderPage', () => {
     await waitFor(() => expect(screen.queryByText('过期译文')).not.toBeInTheDocument());
   });
 
-  it('debounces rapid progress changes and shows persistence errors', async () => {
+  it('persists page-turn progress and shows persistence errors', async () => {
     vi.useFakeTimers();
     const onProgress = vi.fn().mockRejectedValue(new Error('无法保存阅读进度'));
-    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'progress', translate: vi.fn() }} onProgress={onProgress} onBack={vi.fn()} />);
+    const longBook = { ...book, id: 'progress-book', text: 'A long reading sentence with enough words. '.repeat(80) };
+    render(<ReaderPage book={longBook} chapters={chaptersForBook(longBook)} engine={{ cacheIdentity: 'progress', translate: vi.fn() }} onProgress={onProgress} onBack={vi.fn()} />);
     onProgress.mockClear();
-    const slider = screen.getByRole('slider', { name: '阅读进度' });
-    fireEvent.change(slider, { target: { value: '0.2' } });
-    fireEvent.change(slider, { target: { value: '0.4' } });
-    fireEvent.change(slider, { target: { value: '0.6' } });
+    const article = screen.getByRole('article', { name: '原文阅读内容' });
+    vi.spyOn(article, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 100 } as DOMRect);
+    fireEvent.click(article, { clientX: 90 });
     vi.advanceTimersByTime(200);
     await vi.runOnlyPendingTimersAsync();
     expect(onProgress).toHaveBeenCalledTimes(1);

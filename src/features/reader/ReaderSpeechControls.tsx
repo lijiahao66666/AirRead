@@ -24,7 +24,6 @@ export function ReaderSpeechControls({ supported, state, contentLabel, currentIn
     {error && <span className="reader-speech-error" role="alert">{error}</span>}
   </div>;
 
-  const progress = totalCount > 0 ? ((currentIndex + 1) / totalCount) * 100 : 0;
   return <>
     <div className="reader-listen-entry">
       <button type="button" className="reader-listen-button is-active" onClick={state === 'playing' ? onPause : onResume} aria-label={state === 'playing' ? `正在朗读${contentLabel}` : `${contentLabel}朗读已暂停`}><Volume2 size={16} /><span className="reader-speech-label">朗读</span></button>
@@ -33,7 +32,7 @@ export function ReaderSpeechControls({ supported, state, contentLabel, currentIn
       <span className="reader-speech-player__icon"><Volume2 size={20} /></span>
       <div className="reader-speech-player__body">
         <strong>{state === 'paused' ? '朗读已暂停' : '正在朗读'} · {contentLabel} {currentIndex + 1}/{totalCount}</strong>
-        <div className="reader-speech-player__track" aria-hidden="true"><span style={{ width: `${progress}%` }} /></div>
+        <span>{state === 'paused' ? '轻触继续，或调整语速' : '轻触暂停，继续沉浸阅读'}</span>
       </div>
       <div className="reader-speech-player__actions">
         {state === 'playing'

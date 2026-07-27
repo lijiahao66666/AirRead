@@ -94,7 +94,7 @@ main { padding-block: 2rem 4rem; }
 .brand-copy small { margin-top: .28rem; color: rgb(255 253 248 / 60%); font-size: .68rem; font-weight: 600; letter-spacing: .02em; }
 .brand p { display: none; }
 .brand h1 { margin: 0; }
-.brand-utility { display: inline-flex; min-height: 2.65rem; flex: none; align-items: center; justify-content: flex-start; gap: .45rem; border: 1px solid rgb(145 205 179 / 18%); border-radius: .75rem; padding: .55rem .7rem; background: rgb(255 253 248 / 6%); color: rgb(255 253 248 / 70%); font-size: .74rem; font-weight: 750; transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease; }
+.brand-utility { display: inline-flex; width: 2.65rem; min-height: 2.65rem; flex: none; align-items: center; justify-content: center; border: 1px solid rgb(145 205 179 / 18%); border-radius: .75rem; padding: 0; background: rgb(255 253 248 / 6%); color: rgb(255 253 248 / 70%); transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease; }
 .brand-utility:hover, .brand-utility[aria-current='page'] { border-color: rgb(145 205 179 / 32%); background: rgb(145 205 179 / 12%); color: var(--paper-50); }
 .brand-utility:active { transform: translateY(1px); }
 .primary-navigation { border-color: rgb(30 49 44 / 12%); background: rgb(255 253 248 / 88%); backdrop-filter: blur(18px); }

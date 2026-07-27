@@ -1,11 +1,18 @@
 import type { Book, Chapter } from '../../domain/books/book';
 import { readEpubArchive } from '../../domain/books/epubArchive';
+import { splitTextIntoChapters } from '../../domain/books/textChapters';
 
 export type ReaderParagraph = { id: string; original: string; translation?: string };
 
 export function chaptersForBook(book: Book): Chapter[] {
   if (book.format === 'txt') {
-    return [{ id: 'txt', title: book.title, href: 'book.txt', content: book.text || new TextDecoder().decode(book.bytes) }];
+    const text = book.text || new TextDecoder().decode(book.bytes);
+    return splitTextIntoChapters(text, book.title).map((chapter, index) => ({
+      id: `txt-chapter-${index + 1}`,
+      title: chapter.title,
+      href: `chapter-${index + 1}.txt`,
+      content: chapter.content,
+    }));
   }
   const chapters = readEpubArchive(book.bytes).chapters;
   const readableChapters = chapters.filter((chapter) => paragraphsForChapter(chapter).length > 0);

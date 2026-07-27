@@ -134,7 +134,7 @@ export default function App() {
 
   return <div className="app-shell" data-route={location.route}>
     <aside className="app-rail">
-      <header className="brand"><a className="brand-lockup" href="#bookshelf" aria-label="AirRead 灵阅"><span className="brand-mark" aria-hidden="true"><img src="/icons/airread-mark.svg" alt="" /></span><h1 className="brand-copy"><strong>AirRead</strong><em>灵阅</em><small aria-hidden="true">沉浸式双语阅读</small></h1></a><a className="brand-utility" href="#settings" aria-label="翻译设置" aria-current={location.route === 'settings' ? 'page' : undefined}><Settings2 size={17} /><span>翻译设置</span></a></header>
+      <header className="brand"><a className="brand-lockup" href="#bookshelf" aria-label="AirRead 灵阅"><span className="brand-mark" aria-hidden="true"><img src="/icons/airread-mark.svg" alt="" /></span><h1 className="brand-copy"><strong>AirRead</strong><em>灵阅</em><small aria-hidden="true">沉浸式双语阅读</small></h1></a><a className="brand-utility" href="#settings" aria-label="翻译设置" title="翻译设置" aria-current={location.route === 'settings' ? 'page' : undefined}><Settings2 size={17} /></a></header>
       <nav className="primary-navigation" aria-label="主导航">{primaryNavigation.map(({ label, route: navRoute, icon: Icon }) => <a key={navRoute} href={`#${navRoute}`} aria-current={location.route === navRoute || (location.route === 'reader' && navRoute === 'bookshelf') ? 'page' : undefined}><Icon size={18} /> <span>{label}</span></a>)}</nav>
       <div className="rail-footer"><BookOpen size={16} /> 本地存储 · 可离线阅读</div>
     </aside>

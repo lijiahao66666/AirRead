@@ -9,11 +9,11 @@ import { SettingsPage } from './SettingsPage';
 describe('SettingsPage', () => {
   beforeEach(() => localStorage.clear());
 
-  it('shows exact local privacy guidance and protects the built-in free profile', () => {
+  it('keeps local privacy guidance collapsed and protects the built-in free profile', () => {
     render(<SettingsPage store={new ProviderProfileStore(localStorage)} />);
 
-    expect(screen.getByText('书籍和服务密钥只保存在当前浏览器。使用第三方翻译时，待翻译文本会直接发送到该服务。')).toBeInTheDocument();
-    expect(screen.getByText('翻译请求由当前浏览器直接发送到所选服务。部分服务不允许网页直接连接；若测试失败，请改用支持浏览器访问的地址，或在自己的设备上运行中转服务。')).toBeInTheDocument();
+    expect(screen.getByText('关于本地数据与连接')).toBeInTheDocument();
+    expect(screen.queryByText('书籍和服务密钥只保存在当前浏览器。使用第三方翻译时，待翻译文本会直接发送到该服务。')).not.toBeVisible();
     expect(screen.getByText('免费翻译')).toBeInTheDocument();
     expect(screen.getByText('当前使用')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '删除 免费翻译' })).not.toBeInTheDocument();
