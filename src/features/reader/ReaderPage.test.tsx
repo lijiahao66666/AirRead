@@ -5,6 +5,7 @@ import type { Book } from '../../domain/books/book';
 import type { TranslationEngine } from '../../domain/ai/translationTypes';
 import { ReaderPage } from './ReaderPage';
 import { buildMinimalEpub } from '../../domain/books/bookFixtures';
+import { ReaderPreferencesStore } from './readerPreferences';
 import { chaptersForBook } from './readerState';
 
 const book: Book = {
@@ -17,7 +18,7 @@ const mockSelection = (text: string) => vi.spyOn(window, 'getSelection').mockRet
   toString: () => text,
   removeAllRanges: vi.fn(),
 } as unknown as Selection);
-const openTranslationPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开翻译与显示' }));
+const openTranslationPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开翻译与朗读' }));
 
 describe('ReaderPage', () => {
   afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -48,7 +49,7 @@ describe('ReaderPage', () => {
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'test', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
     expect(screen.getAllByRole('button', { name: '返回书架' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开目录' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: '打开阅读设置' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '打开排版与主题' })).toHaveLength(1);
     expect(screen.queryByRole('button', { name: '上一章' })).not.toBeInTheDocument();
   });
 
@@ -199,7 +200,7 @@ describe('ReaderPage', () => {
   });
 
   it('uses a target-language voice for translated speech', async () => {
-    localStorage.setItem('airread.readerPreferences.v1', JSON.stringify({ sourceLanguage: 'en', targetLanguage: 'zh-CN', voiceURI: 'english-voice', speechRate: 1 }));
+    localStorage.setItem('airread.readerPreferences.v1', JSON.stringify({ sourceLanguage: 'en', targetLanguage: 'zh-CN', sourceVoiceURI: 'english-voice', targetVoiceURI: 'chinese-voice', speechRate: 1 }));
     class MockSpeechUtterance {
       text: string;
       lang = '';
@@ -227,6 +228,32 @@ describe('ReaderPage', () => {
     expect((speak.mock.calls[0][0] as MockSpeechUtterance).lang).toBe('zh-CN');
   });
 
+  it('lets readers choose and persist separate source and target voices', () => {
+    class MockSpeechUtterance {
+      text: string;
+      lang = '';
+      rate = 1;
+      voice: SpeechSynthesisVoice | null = null;
+
+      constructor(text: string) { this.text = text; }
+    }
+    const englishVoice = { name: 'English Natural', lang: 'en-US', voiceURI: 'english-natural', default: true, localService: true } as SpeechSynthesisVoice;
+    const chineseVoice = { name: '中文自然声', lang: 'zh-CN', voiceURI: 'chinese-natural', default: true, localService: true } as SpeechSynthesisVoice;
+    const japaneseVoice = { name: '日本語', lang: 'ja-JP', voiceURI: 'japanese', default: true, localService: true } as SpeechSynthesisVoice;
+    vi.stubGlobal('SpeechSynthesisUtterance', MockSpeechUtterance);
+    vi.stubGlobal('speechSynthesis', { speak: vi.fn(), pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), getVoices: () => [englishVoice, chineseVoice, japaneseVoice] });
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'voice-settings', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    openTranslationPanel();
+    expect(screen.getByLabelText('原文音色')).toHaveTextContent('English Natural');
+    expect(screen.getByLabelText('原文音色')).not.toHaveTextContent('日本語');
+    expect(screen.getByLabelText('译文音色')).toHaveTextContent('中文自然声');
+    fireEvent.change(screen.getByLabelText('原文音色'), { target: { value: 'english-natural' } });
+    fireEvent.change(screen.getByLabelText('译文音色'), { target: { value: 'chinese-natural' } });
+
+    expect(new ReaderPreferencesStore(localStorage).get()).toMatchObject({ sourceVoiceURI: 'english-natural', targetVoiceURI: 'chinese-natural' });
+  });
+
   it('turns paged content with a horizontal swipe and hides reading chrome', () => {
     const longBook = { ...book, id: 'swipe-book', text: 'A long reading sentence with enough words. '.repeat(80) };
     const { container } = render(<ReaderPage book={longBook} chapters={chaptersForBook(longBook)} engine={{ cacheIdentity: 'swipe', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
@@ -242,7 +269,7 @@ describe('ReaderPage', () => {
   });
 
   it('uses the saved translation direction and selected speech voice', async () => {
-    localStorage.setItem('airread.readerPreferences.v1', JSON.stringify({ sourceLanguage: 'ja', targetLanguage: 'en', voiceURI: 'ja-enhanced', speechRate: 1 }));
+    localStorage.setItem('airread.readerPreferences.v1', JSON.stringify({ sourceLanguage: 'ja', targetLanguage: 'en', sourceVoiceURI: 'ja-enhanced', speechRate: 1 }));
     const translate = vi.fn().mockResolvedValue('English translation');
     const speak = vi.fn();
     const voice = { name: 'Japanese Enhanced', lang: 'ja-JP', voiceURI: 'ja-enhanced', default: false, localService: true } as SpeechSynthesisVoice;

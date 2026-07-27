@@ -7,11 +7,12 @@ import { ProviderProfileStore } from '../../domain/ai/providerStore';
 import type { TranslationEngine } from '../../domain/ai/translationTypes';
 import type { Book, BookSelectionPreferences, BookTranslationPreferences, Chapter } from '../../domain/books/book';
 import { ReaderSpeechControls, type SpeechPlaybackState } from './ReaderSpeechControls';
+import { ReaderSpeechPreferences } from './ReaderSpeechPreferences';
 import { ReaderToolbar } from './ReaderToolbar';
 import { ReaderTranslationControls } from './ReaderTranslationControls';
 import { SelectionActions } from './SelectionActions';
 import { paragraphsForChapter, type ReaderParagraph } from './readerState';
-import { availableSpeechVoices, findSpeechVoice, languageLabel, READER_LANGUAGE_OPTIONS, ReaderPreferencesStore, speechLocaleForText, textMatchesTargetLanguage, type ReaderLanguage, type ReaderPreferences } from './readerPreferences';
+import { availableSpeechVoices, findSpeechVoice, languageLabel, READER_LANGUAGE_OPTIONS, ReaderPreferencesStore, speechLocaleForLanguage, speechLocaleForText, speechPreviewText, SPEECH_RATE_OPTIONS, textMatchesTargetLanguage, type ReaderLanguage, type ReaderPreferences } from './readerPreferences';
 import { paginateReaderParagraphs, type ReaderContentMode, type ReaderPageBlock } from './readerPagination';
 import './reader.css';
 
@@ -55,6 +56,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const [pageDirection, setPageDirection] = useState<-1 | 1>(1);
   const preferencesStore = useMemo(() => new ReaderPreferencesStore(), []);
   const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>(() => preferencesStore.get());
+  const [speechVoices, setSpeechVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [bookTranslationPreferences, setBookTranslationPreferences] = useState<BookTranslationPreferences>(() => book.translationPreferences ?? {});
   const [selectionPreferences, setSelectionPreferences] = useState<BookSelectionPreferences>(() => book.selectionPreferences ?? {});
   const [speechError, setSpeechError] = useState<string>();
@@ -67,6 +69,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const speechRunSequence = useRef(0);
   const progressTimer = useRef<number | undefined>(undefined);
   const touchStartX = useRef<number | undefined>(undefined);
+  const touchStartY = useRef<number | undefined>(undefined);
   const touchHandled = useRef(false);
   const chapterEntry = useRef<'start' | 'end'>('start');
   const progressQueue = useRef(Promise.resolve());
@@ -130,6 +133,15 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, [preferencesStore]);
+
+  useEffect(() => {
+    const speechSynthesis = window.speechSynthesis;
+    if (!speechSupported || !speechSynthesis) return undefined;
+    const refreshVoices = () => setSpeechVoices(availableSpeechVoices());
+    refreshVoices();
+    speechSynthesis.addEventListener?.('voiceschanged', refreshVoices);
+    return () => speechSynthesis.removeEventListener?.('voiceschanged', refreshVoices);
+  }, [speechSupported]);
 
   useEffect(() => {
     setParagraphs(paragraphsForChapter(chapter ?? { id: 'empty', title: '暂无章节', href: '', content: '' }));
@@ -299,6 +311,10 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     if (contentMode === 'translation') return target ? [target] : [];
     return target ? [source, target] : [source];
   });
+  const sourcePreviewText = translatableParagraphs[0]?.original ?? book.title;
+  const targetPreviewText = translatableParagraphs.find((paragraph) => paragraph.translation)?.translation ?? speechPreviewText(bookTargetLanguage);
+  const sourceSpeechLocale = speechLocaleForText(sourcePreviewText, bookSourceLanguage);
+  const targetSpeechLocale = speechLocaleForLanguage(bookTargetLanguage) ?? speechLocaleForText(targetPreviewText, bookTargetLanguage);
   const chapterLanguageNotice = translatableParagraphs.length > 0 && translationParagraphs.length === 0 ? `当前内容已是${languageLabel(bookTargetLanguage)}，无需翻译` : undefined;
   const pages = useMemo(() => paginateReaderParagraphs(paragraphs, { blockCapacity: pageCapacityFor(readerPreferences), contentMode }), [paragraphs, readerPreferences.fontSize, contentMode]);
   const pageCount = pages.length;
@@ -325,7 +341,8 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
       if (!paragraph) { setSpeechState('idle'); setSpeechParagraphId(undefined); setSpeechParagraphIndex(0); return; }
       const utterance = new SpeechSynthesisUtterance(paragraph.text);
       const locale = speechLocaleForText(paragraph.text, paragraph.language === 'target' ? bookTargetLanguage : bookSourceLanguage);
-      const voice = findSpeechVoice(availableSpeechVoices(), paragraph.language === 'source' ? readerPreferences.voiceURI : '', locale);
+      const voiceURI = paragraph.language === 'source' ? readerPreferences.sourceVoiceURI : readerPreferences.targetVoiceURI;
+      const voice = findSpeechVoice(availableSpeechVoices(), voiceURI, locale);
       utterance.lang = voice?.lang ?? locale;
       if (voice) utterance.voice = voice;
       utterance.rate = rate;
@@ -343,17 +360,18 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const pauseSpeech = () => { if (!speechSupported || speechState !== 'playing') return; window.speechSynthesis.pause(); setSpeechState('paused'); };
   const resumeSpeech = () => { if (!speechSupported || speechState !== 'paused') return; window.speechSynthesis.resume(); setSpeechState('playing'); };
   const changeSpeechRate = () => {
-    const rates = [0.8, 1, 1.2, 1.5] as const;
-    const nextRate = rates[(rates.indexOf(speechRate as typeof rates[number]) + 1) % rates.length];
+    const nextRate = SPEECH_RATE_OPTIONS[(SPEECH_RATE_OPTIONS.indexOf(speechRate as typeof SPEECH_RATE_OPTIONS[number]) + 1) % SPEECH_RATE_OPTIONS.length];
     setReaderPreferences(preferencesStore.update({ speechRate: nextRate }));
     if (speechState === 'playing') startSpeech(speechParagraphIndex, nextRate);
   };
   const readSelection = () => {
     if (!selectionAction || !speechSupported) return;
     stopSpeech();
-    const utterance = new SpeechSynthesisUtterance(selectionAction.source);
-    const locale = speechLocaleForText(selectionAction.source, bookSourceLanguage);
-    const voice = findSpeechVoice(availableSpeechVoices(), readerPreferences.voiceURI, locale);
+    const readingTranslation = Boolean(selectionAction.translation);
+    const text = selectionAction.translation ?? selectionAction.source;
+    const locale = speechLocaleForText(text, readingTranslation ? selectionAction.targetLanguage : bookSourceLanguage);
+    const voice = findSpeechVoice(availableSpeechVoices(), readingTranslation ? readerPreferences.targetVoiceURI : readerPreferences.sourceVoiceURI, locale);
+    const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = voice?.lang ?? locale;
     if (voice) utterance.voice = voice;
     utterance.rate = speechRate;
@@ -363,6 +381,23 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const updateReaderPreference = <K extends keyof ReaderPreferences>(key: K, value: ReaderPreferences[K]) => {
     setReaderPreferences(preferencesStore.update({ [key]: value }));
     if (key === 'readingMode') setPageIndex(0);
+  };
+  const changeSpeechVoice = (kind: 'source' | 'target', voiceURI: string) => {
+    stopSpeech();
+    updateReaderPreference(kind === 'source' ? 'sourceVoiceURI' : 'targetVoiceURI', voiceURI);
+  };
+  const previewSpeechVoice = (kind: 'source' | 'target') => {
+    if (!speechSupported) return;
+    stopSpeech();
+    const text = kind === 'source' ? sourcePreviewText : targetPreviewText;
+    const locale = kind === 'source' ? sourceSpeechLocale : targetSpeechLocale;
+    const voiceURI = kind === 'source' ? readerPreferences.sourceVoiceURI : readerPreferences.targetVoiceURI;
+    const voice = findSpeechVoice(availableSpeechVoices(), voiceURI, locale);
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = voice?.lang ?? locale;
+    if (voice) utterance.voice = voice;
+    utterance.rate = speechRate;
+    window.speechSynthesis.speak(utterance);
   };
   const changeContentMode = (mode: ReaderContentMode) => {
     stopSpeech();
@@ -387,17 +422,21 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   };
   const handleReaderTouchStart = (event: TouchEvent<HTMLElement>) => {
     touchStartX.current = event.touches[0]?.clientX;
+    touchStartY.current = event.touches[0]?.clientY;
   };
   const handleReaderTouchEnd = (event: TouchEvent<HTMLElement>) => {
-    const start = touchStartX.current;
+    const startX = touchStartX.current;
+    const startY = touchStartY.current;
     touchStartX.current = undefined;
-    if (start == null || readerPreferences.readingMode !== 'paged') return;
-    const distance = (event.changedTouches[0]?.clientX ?? start) - start;
-    if (Math.abs(distance) < 48) return;
+    touchStartY.current = undefined;
+    if (startX == null || readerPreferences.readingMode !== 'paged') return;
+    const distanceX = (event.changedTouches[0]?.clientX ?? startX) - startX;
+    const distanceY = startY == null ? 0 : (event.changedTouches[0]?.clientY ?? startY) - startY;
+    if (Math.abs(distanceX) < 44 || Math.abs(distanceX) <= Math.abs(distanceY) * 1.15) return;
     touchHandled.current = true;
     window.setTimeout(() => { touchHandled.current = false; }, 240);
     setChromeVisible(false);
-    movePage(distance > 0 ? -1 : 1);
+    movePage(distanceX > 0 ? -1 : 1);
   };
   const handleReaderClick = (event: MouseEvent<HTMLElement>) => {
     if (touchHandled.current) return;
@@ -455,13 +494,13 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
       <div className="reader-dock__actions">
         <button type="button" className="reader-dock__action" onClick={() => { setContentsOpen(true); setChromeVisible(true); }} aria-label="打开目录"><List size={18} /><span>目录</span></button>
         <ReaderSpeechControls supported={speechSupported} state={speechState} contentLabel={modeLabel} currentIndex={speechParagraphIndex} totalCount={speechParagraphs.length} rate={speechRate} error={speechError} onStart={() => startSpeech()} onPause={pauseSpeech} onResume={resumeSpeech} onStop={stopSpeech} onRateChange={changeSpeechRate} />
-        <button type="button" className="reader-dock__action" onClick={() => { setTranslationOpen(true); setChromeVisible(true); }} aria-label="打开翻译与显示"><Languages size={18} /><span>{modeLabel}</span></button>
-        <button type="button" className="reader-dock__action" onClick={() => { setSettingsOpen(true); setChromeVisible(true); }} aria-label="打开阅读设置"><Settings2 size={18} /><span>设置</span></button>
+        <button type="button" className="reader-dock__action" onClick={() => { setTranslationOpen(true); setChromeVisible(true); }} aria-label="打开翻译与朗读"><Languages size={18} /><span>{modeLabel}</span></button>
+        <button type="button" className="reader-dock__action" onClick={() => { setSettingsOpen(true); setChromeVisible(true); }} aria-label="打开排版与主题"><Settings2 size={18} /><span>排版</span></button>
       </div>
     </div>
     {progressError && <div className="reader-feedback reader-feedback--error reader-progress-error" role="alert">{progressError}</div>}
     {contentsOpen && <ReaderSheet title="目录" onClose={() => setContentsOpen(false)}><nav className="reader-toc" aria-label="章节目录">{chapters.map((item, index) => <button type="button" className={index === chapterIndex ? 'is-active' : ''} key={item.id} onClick={() => { setContentsOpen(false); if (index !== chapterIndex) changeChapter(index); }}><span>{String(index + 1).padStart(2, '0')}</span><strong>{item.title || `第 ${index + 1} 章`}</strong><ChevronRight size={16} /></button>)}</nav></ReaderSheet>}
-    {translationOpen && <ReaderSheet title="翻译与显示" onClose={() => setTranslationOpen(false)}><ReaderTranslationControls translatedCount={translatedCount} totalCount={translationParagraphs.length} running={chapterTranslation.running} failed={chapterTranslation.failed} contentMode={contentMode} targetLanguage={bookTargetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={bookTargetOverride} onModeChange={changeContentMode} onStop={stopChapterTranslation} onTargetLanguageChange={(language) => { void changeBookTargetLanguage(language); }} />{chapterLanguageNotice && <span className="reader-language-note" role="status" aria-label={chapterLanguageNotice}>{chapterLanguageNotice}</span>}</ReaderSheet>}
-    {settingsOpen && <ReaderSheet title="阅读设置" onClose={() => setSettingsOpen(false)}><div className="reader-settings-form"><section><h3>阅读模式</h3><div className="reader-setting-segment"><button type="button" className={readerPreferences.readingMode === 'paged' ? 'is-active' : ''} onClick={() => updateReaderPreference('readingMode', 'paged')}><PanelBottom size={16} /> 分页</button><button type="button" className={readerPreferences.readingMode === 'scroll' ? 'is-active' : ''} onClick={() => updateReaderPreference('readingMode', 'scroll')}><List size={16} /> 滚动</button></div></section><section><h3>字体</h3><div className="reader-setting-segment"><button type="button" className={readerPreferences.fontFamily === 'serif' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontFamily', 'serif')}>衬线</button><button type="button" className={readerPreferences.fontFamily === 'sans' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontFamily', 'sans')}>无衬线</button></div></section><section><h3>字号</h3><div className="reader-setting-segment reader-setting-segment--four"><button type="button" className={readerPreferences.fontSize === 'small' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'small')}>小</button><button type="button" className={readerPreferences.fontSize === 'medium' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'medium')}>中</button><button type="button" className={readerPreferences.fontSize === 'large' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'large')}>大</button><button type="button" className={readerPreferences.fontSize === 'x-large' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'x-large')}>特大</button></div></section><section><h3>行距</h3><div className="reader-setting-segment"><button type="button" className={readerPreferences.lineHeight === 'compact' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'compact')}>紧凑</button><button type="button" className={readerPreferences.lineHeight === 'comfortable' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'comfortable')}>舒适</button><button type="button" className={readerPreferences.lineHeight === 'relaxed' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'relaxed')}>宽松</button></div></section><section><h3>页面主题</h3><div className="reader-setting-segment reader-setting-segment--three"><button type="button" className={readerPreferences.theme === 'paper' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'paper')}><Sun size={15} /> 纸张</button><button type="button" className={readerPreferences.theme === 'sepia' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'sepia')}><BookOpen size={15} /> 柔和</button><button type="button" className={readerPreferences.theme === 'night' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'night')}><Moon size={15} /> 夜间</button></div></section></div></ReaderSheet>}
+    {translationOpen && <ReaderSheet title="翻译与朗读" onClose={() => setTranslationOpen(false)}><ReaderTranslationControls translatedCount={translatedCount} totalCount={translationParagraphs.length} running={chapterTranslation.running} failed={chapterTranslation.failed} contentMode={contentMode} targetLanguage={bookTargetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={bookTargetOverride} onModeChange={changeContentMode} onStop={stopChapterTranslation} onTargetLanguageChange={(language) => { void changeBookTargetLanguage(language); }} />{chapterLanguageNotice && <span className="reader-language-note" role="status" aria-label={chapterLanguageNotice}>{chapterLanguageNotice}</span>}<ReaderSpeechPreferences supported={speechSupported} voices={speechVoices} sourceLocale={sourceSpeechLocale} targetLocale={targetSpeechLocale} sourceVoiceURI={readerPreferences.sourceVoiceURI} targetVoiceURI={readerPreferences.targetVoiceURI} rate={speechRate} onVoiceChange={changeSpeechVoice} onRateChange={(rate) => updateReaderPreference('speechRate', rate)} onPreview={previewSpeechVoice} /></ReaderSheet>}
+    {settingsOpen && <ReaderSheet title="排版与主题" onClose={() => setSettingsOpen(false)}><div className="reader-settings-form"><section><h3>阅读模式</h3><div className="reader-setting-segment"><button type="button" className={readerPreferences.readingMode === 'paged' ? 'is-active' : ''} onClick={() => updateReaderPreference('readingMode', 'paged')}><PanelBottom size={16} /> 分页</button><button type="button" className={readerPreferences.readingMode === 'scroll' ? 'is-active' : ''} onClick={() => updateReaderPreference('readingMode', 'scroll')}><List size={16} /> 滚动</button></div></section><section><h3>字体</h3><div className="reader-setting-segment"><button type="button" className={readerPreferences.fontFamily === 'serif' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontFamily', 'serif')}>衬线</button><button type="button" className={readerPreferences.fontFamily === 'sans' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontFamily', 'sans')}>无衬线</button></div></section><section><h3>字号</h3><div className="reader-setting-segment reader-setting-segment--four"><button type="button" className={readerPreferences.fontSize === 'small' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'small')}>小</button><button type="button" className={readerPreferences.fontSize === 'medium' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'medium')}>中</button><button type="button" className={readerPreferences.fontSize === 'large' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'large')}>大</button><button type="button" className={readerPreferences.fontSize === 'x-large' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'x-large')}>特大</button></div></section><section><h3>行距</h3><div className="reader-setting-segment reader-setting-segment--three"><button type="button" className={readerPreferences.lineHeight === 'compact' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'compact')}>紧凑</button><button type="button" className={readerPreferences.lineHeight === 'comfortable' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'comfortable')}>舒适</button><button type="button" className={readerPreferences.lineHeight === 'relaxed' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'relaxed')}>宽松</button></div></section><section><h3>页面主题</h3><div className="reader-setting-segment reader-setting-segment--three"><button type="button" className={readerPreferences.theme === 'paper' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'paper')}><Sun size={15} /> 纸张</button><button type="button" className={readerPreferences.theme === 'sepia' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'sepia')}><BookOpen size={15} /> 柔和</button><button type="button" className={readerPreferences.theme === 'night' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'night')}><Moon size={15} /> 夜间</button></div></section></div></ReaderSheet>}
   </section>;
 }

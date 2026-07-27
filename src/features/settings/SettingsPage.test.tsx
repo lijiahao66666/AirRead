@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BUILT_IN_FREE_PROFILE } from '../../domain/ai/providerProfile';
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
 import { ProviderConnectionError } from '../../domain/ai/translationTypes';
-import { ReaderPreferencesStore } from '../reader/readerPreferences';
 import { SettingsPage } from './SettingsPage';
 
 describe('SettingsPage', () => {
@@ -31,17 +30,12 @@ describe('SettingsPage', () => {
     expect(screen.getByText('免费翻译线路已切换为Google Translate')).toBeInTheDocument();
   });
 
-  it('persists translation direction and speech speed in reading preferences', () => {
-    const readerStore = new ReaderPreferencesStore(localStorage);
-    render(<SettingsPage store={new ProviderProfileStore(localStorage)} readerStore={readerStore} />);
+  it('keeps reading preferences out of translation settings', () => {
+    render(<SettingsPage store={new ProviderProfileStore(localStorage)} />);
 
-    fireEvent.change(screen.getByLabelText('翻译源语言'), { target: { value: 'ja' } });
-    fireEvent.change(screen.getByLabelText('翻译目标语言'), { target: { value: 'en' } });
-    fireEvent.change(screen.getByLabelText('朗读速度'), { target: { value: '1.2' } });
-
-    expect(readerStore.get()).toMatchObject({ sourceLanguage: 'ja', targetLanguage: 'en', speechRate: 1.2 });
-    expect(screen.getByLabelText('翻译源语言')).toHaveValue('ja');
-    expect(screen.getByLabelText('翻译目标语言')).toHaveValue('en');
+    expect(screen.getByRole('heading', { name: '翻译服务' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '阅读偏好' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('朗读声音')).not.toBeInTheDocument();
   });
 
   it('validates, creates, edits, enables, disables, selects, and deletes a profile', async () => {

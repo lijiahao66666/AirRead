@@ -10,7 +10,8 @@ describe('AirRead application shell', () => {
     expect(screen.getByRole('heading', { name: 'AirRead 灵阅' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '书架' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '书籍工作室' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '设置' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '翻译设置' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: '主导航' })).not.toHaveTextContent('设置');
     expect(screen.getByRole('button', { name: '导入书籍' })).toBeInTheDocument();
   });
 

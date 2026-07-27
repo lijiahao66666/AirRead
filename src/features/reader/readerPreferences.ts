@@ -3,7 +3,8 @@ export type ReaderLanguage = 'auto' | 'en' | 'zh-CN' | 'zh-TW' | 'ja' | 'ko' | '
 export type ReaderPreferences = {
   sourceLanguage: ReaderLanguage;
   targetLanguage: Exclude<ReaderLanguage, 'auto'>;
-  voiceURI: string;
+  sourceVoiceURI: string;
+  targetVoiceURI: string;
   speechRate: number;
   fontFamily: 'serif' | 'sans';
   fontSize: 'small' | 'medium' | 'large' | 'x-large';
@@ -30,7 +31,8 @@ export const SPEECH_RATE_OPTIONS = [0.8, 1, 1.2, 1.5] as const;
 export const DEFAULT_READER_PREFERENCES: ReaderPreferences = {
   sourceLanguage: 'auto',
   targetLanguage: 'zh-CN',
-  voiceURI: '',
+  sourceVoiceURI: '',
+  targetVoiceURI: '',
   speechRate: 1,
   fontFamily: 'serif',
   fontSize: 'medium',
@@ -44,8 +46,9 @@ const languageValues = new Set<ReaderLanguage>(READER_LANGUAGE_OPTIONS.map((opti
 const targetLanguageValues = new Set<Exclude<ReaderLanguage, 'auto'>>(READER_LANGUAGE_OPTIONS.filter((option) => option.value !== 'auto').map((option) => option.value as Exclude<ReaderLanguage, 'auto'>));
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
+type StoredReaderPreferences = Partial<ReaderPreferences> & { voiceURI?: unknown };
 
-const isReaderPreferences = (value: unknown): value is Partial<ReaderPreferences> => Boolean(value) && typeof value === 'object';
+const isReaderPreferences = (value: unknown): value is StoredReaderPreferences => Boolean(value) && typeof value === 'object';
 
 export class ReaderPreferencesStore {
   constructor(private readonly storage: StorageLike = window.localStorage) {}
@@ -73,7 +76,12 @@ export class ReaderPreferencesStore {
       return {
         sourceLanguage,
         targetLanguage,
-        voiceURI: typeof parsed.voiceURI === 'string' ? parsed.voiceURI : DEFAULT_READER_PREFERENCES.voiceURI,
+        sourceVoiceURI: typeof parsed.sourceVoiceURI === 'string'
+          ? parsed.sourceVoiceURI
+          : typeof parsed.voiceURI === 'string'
+            ? parsed.voiceURI
+            : DEFAULT_READER_PREFERENCES.sourceVoiceURI,
+        targetVoiceURI: typeof parsed.targetVoiceURI === 'string' ? parsed.targetVoiceURI : DEFAULT_READER_PREFERENCES.targetVoiceURI,
         speechRate,
         fontFamily,
         fontSize,
@@ -158,12 +166,30 @@ export const availableSpeechVoices = (): SpeechSynthesisVoice[] => {
   return window.speechSynthesis.getVoices();
 };
 
+export const voicesForLocale = (voices: SpeechSynthesisVoice[], locale: string): SpeechSynthesisVoice[] => {
+  const language = locale.toLowerCase().split('-')[0];
+  return voices
+    .filter((voice) => voice.lang.toLowerCase().split('-')[0] === language)
+    .sort((left, right) => Number(right.default) - Number(left.default) || Number(right.localService) - Number(left.localService) || left.name.localeCompare(right.name));
+};
+
 export const findSpeechVoice = (voices: SpeechSynthesisVoice[], voiceURI: string, locale: string): SpeechSynthesisVoice | undefined => {
+  const language = locale.toLowerCase().split('-')[0];
   if (voiceURI) {
     const preferred = voices.find((voice) => voice.voiceURI === voiceURI);
-    if (preferred) return preferred;
+    if (preferred?.lang.toLowerCase().split('-')[0] === language) return preferred;
   }
-  const language = locale.toLowerCase().split('-')[0];
-  const matching = voices.filter((voice) => voice.lang.toLowerCase().split('-')[0] === language);
-  return matching.sort((left, right) => Number(right.default) - Number(left.default) || Number(right.localService) - Number(left.localService) || left.name.localeCompare(right.name))[0];
+  return voicesForLocale(voices, locale)[0];
 };
+
+export const speechPreviewText = (language: Exclude<ReaderLanguage, 'auto'>): string => ({
+  en: 'This is the translation voice preview.',
+  'zh-CN': '这是译文声音的试听。',
+  'zh-TW': '這是譯文聲音的試聽。',
+  ja: 'これは翻訳音声のプレビューです。',
+  ko: '번역 음성 미리 듣기입니다.',
+  fr: 'Ceci est un aperçu de la voix traduite.',
+  de: 'Dies ist eine Vorschau der Übersetzungsstimme.',
+  es: 'Esta es una vista previa de la voz traducida.',
+  ru: 'Это пример голоса перевода.',
+})[language];

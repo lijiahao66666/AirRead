@@ -13,11 +13,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .app-shell { display: grid; min-height: 100dvh; padding-bottom: 5rem; }
 .app-rail { display: contents; }
-.brand { padding: 1.3rem 1.2rem .8rem; color: var(--teal-950); }
+.brand { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1.3rem 1.2rem .8rem; color: var(--teal-950); }
 .brand h1 { margin: 0; font-size: 1.32rem; letter-spacing: -.035em; }
 .brand span { color: var(--blue-600); }
 .brand p { margin: .45rem 0 0; color: var(--ink-700); font-size: .78rem; }
-.primary-navigation { position: fixed; z-index: 5; right: .75rem; bottom: .75rem; left: .75rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: .25rem; padding: .45rem; border: 1px solid rgb(18 63 61 / 12%); border-radius: 1rem; background: var(--paper-50); box-shadow: var(--shadow-card); }
+.primary-navigation { position: fixed; z-index: 5; right: .75rem; bottom: .75rem; left: .75rem; display: grid; grid-template-columns: repeat(2, 1fr); gap: .25rem; padding: .45rem; border: 1px solid rgb(18 63 61 / 12%); border-radius: 1rem; background: var(--paper-50); box-shadow: var(--shadow-card); }
 .primary-navigation a { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .4rem; padding: .7rem .35rem; border-radius: var(--radius-sm); color: var(--ink-700); font-size: .82rem; font-weight: 700; transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease; }
 .primary-navigation a:hover { background: rgb(136 206 181 / 12%); color: var(--teal-950); }
 .primary-navigation a[aria-current='page'] { background: var(--mint-100); color: var(--teal-950); }
@@ -94,6 +94,9 @@ main { padding-block: 2rem 4rem; }
 .brand-copy small { margin-top: .28rem; color: rgb(255 253 248 / 60%); font-size: .68rem; font-weight: 600; letter-spacing: .02em; }
 .brand p { display: none; }
 .brand h1 { margin: 0; }
+.brand-utility { display: inline-flex; min-height: 2.65rem; flex: none; align-items: center; justify-content: flex-start; gap: .45rem; border: 1px solid rgb(145 205 179 / 18%); border-radius: .75rem; padding: .55rem .7rem; background: rgb(255 253 248 / 6%); color: rgb(255 253 248 / 70%); font-size: .74rem; font-weight: 750; transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) ease; }
+.brand-utility:hover, .brand-utility[aria-current='page'] { border-color: rgb(145 205 179 / 32%); background: rgb(145 205 179 / 12%); color: var(--paper-50); }
+.brand-utility:active { transform: translateY(1px); }
 .primary-navigation { border-color: rgb(30 49 44 / 12%); background: rgb(255 253 248 / 88%); backdrop-filter: blur(18px); }
 .primary-navigation a { min-height: 2.9rem; border-radius: .75rem; color: var(--ink-700); font-size: .78rem; letter-spacing: .01em; }
 .primary-navigation a[aria-current='page'] { background: var(--mint-100); color: var(--teal-950); box-shadow: inset 0 0 0 1px rgb(145 205 179 / 48%); }
@@ -136,7 +139,7 @@ h2 { color: var(--teal-950); font-size: clamp(1.85rem, 4vw, 2.8rem); letter-spac
   .brand-copy small { display: none; }
   main { padding: 1.2rem 1rem calc(6.5rem + env(safe-area-inset-bottom)); }
   .app-shell:not([data-route='reader']) { background: transparent; }
-  .primary-navigation, .app-shell[data-route='reader'] .primary-navigation { position: fixed; right: .75rem; bottom: calc(.7rem + env(safe-area-inset-bottom)); left: .75rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 1fr; align-items: stretch; height: 4.2rem; min-height: 4.2rem; gap: .25rem; border: 1px solid rgb(30 49 44 / 12%); border-radius: 1.1rem; padding: .42rem; background: rgb(255 253 248 / 94%); box-shadow: 0 14px 34px rgb(30 49 44 / 18%); transform: translateZ(0); }
+  .primary-navigation, .app-shell[data-route='reader'] .primary-navigation { position: fixed; right: .75rem; bottom: calc(.7rem + env(safe-area-inset-bottom)); left: .75rem; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: 1fr; align-items: stretch; height: 4.2rem; min-height: 4.2rem; gap: .25rem; border: 1px solid rgb(30 49 44 / 12%); border-radius: 1.1rem; padding: .42rem; background: rgb(255 253 248 / 94%); box-shadow: 0 14px 34px rgb(30 49 44 / 18%); transform: translateZ(0); }
   .primary-navigation a, .app-shell[data-route='reader'] .primary-navigation a { min-width: 0; min-height: 0; height: 100%; gap: .32rem; border-radius: .75rem; color: var(--ink-700); font-size: .74rem; line-height: 1; white-space: nowrap; }
   .primary-navigation a svg { flex: none; }
   .primary-navigation a:hover, .primary-navigation a[aria-current='page'], .app-shell[data-route='reader'] .primary-navigation a:hover, .app-shell[data-route='reader'] .primary-navigation a[aria-current='page'] { background: var(--mint-100); color: var(--teal-950); }
@@ -156,12 +159,14 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 .selection-actions__target select { background-position: calc(100% - .52rem) 50%, calc(100% - .22rem) 50% !important; background-size: .28rem .28rem !important; padding-right: 1.05rem !important; }
 
 @media (max-width: 59.999rem) {
-  .brand { min-height: 4.1rem; padding: calc(.62rem + env(safe-area-inset-top)) 1rem .62rem; }
+  .brand { min-height: 4.1rem; align-items: center; padding: calc(.62rem + env(safe-area-inset-top)) 1rem .62rem; }
   .brand-mark { width: 2.45rem; height: 2.45rem; border: 1px solid rgb(145 205 179 / 62%); background: var(--mint-100); box-shadow: 0 8px 18px rgb(30 49 44 / 10%); color: var(--teal-800); }
   .brand-copy { display: grid; align-items: start; gap: .1rem; }
   .brand-copy strong { font-size: 1.12rem; line-height: 1.1; }
   .brand-copy em { color: var(--ink-700); font-size: .68rem; letter-spacing: .08em; }
-  .primary-navigation, .app-shell[data-route='reader'] .primary-navigation { right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 1fr; align-items: stretch; height: calc(4.45rem + env(safe-area-inset-bottom)); min-height: calc(4.45rem + env(safe-area-inset-bottom)); gap: 0; border: 0; border-top: 1px solid rgb(30 49 44 / 12%); border-radius: 0; padding: .35rem .35rem env(safe-area-inset-bottom); background: rgb(255 253 248 / 96%); box-shadow: 0 -12px 32px rgb(30 49 44 / 14%); backdrop-filter: blur(18px); }
+  .brand-utility { border-color: rgb(30 49 44 / 12%); background: var(--mint-100); color: var(--teal-800); }
+  .brand-utility:hover, .brand-utility[aria-current='page'] { border-color: var(--mint-400); background: var(--mint-100); color: var(--teal-950); }
+  .primary-navigation, .app-shell[data-route='reader'] .primary-navigation { right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: 1fr; align-items: stretch; height: calc(4.45rem + env(safe-area-inset-bottom)); min-height: calc(4.45rem + env(safe-area-inset-bottom)); gap: 0; border: 0; border-top: 1px solid rgb(30 49 44 / 12%); border-radius: 0; padding: .35rem .35rem env(safe-area-inset-bottom); background: rgb(255 253 248 / 96%); box-shadow: 0 -12px 32px rgb(30 49 44 / 14%); backdrop-filter: blur(18px); }
   .primary-navigation a, .app-shell[data-route='reader'] .primary-navigation a { position: relative; min-width: 0; min-height: 0; height: 3.55rem; flex-direction: column; gap: .22rem; border-radius: .7rem; padding: .42rem .25rem .3rem; color: var(--ink-700); font-size: .68rem; line-height: 1; white-space: nowrap; }
   .primary-navigation a::before { position: absolute; top: 0; left: 50%; width: 1.55rem; height: .18rem; border-radius: 999px; background: transparent; content: ''; transform: translateX(-50%); }
   .primary-navigation a:hover, .primary-navigation a[aria-current='page'], .app-shell[data-route='reader'] .primary-navigation a:hover, .app-shell[data-route='reader'] .primary-navigation a[aria-current='page'] { background: transparent; color: var(--teal-800); box-shadow: none; }
