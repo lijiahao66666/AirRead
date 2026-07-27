@@ -575,7 +575,12 @@
   .reader-sheet { max-height: 84dvh; border-radius: 1rem; }
   .reader-setting-segment--four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .reader-sheet__body { padding-inline: .8rem; }
-  .reader-original { -webkit-touch-callout: none; }
+  .reader-original {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+  }
   .selection-actions { top: auto; right: .5rem; bottom: calc(4.25rem + env(safe-area-inset-bottom)); left: .5rem; width: auto; max-width: none; transform: none; }
   .selection-actions__toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: .25rem; width: 100%; padding: .3rem; }
   .selection-actions__target--compact { grid-column: 1 / -1; width: 100%; min-width: 0; margin: 0; }

@@ -23,7 +23,7 @@ const openReadingSettings = () => fireEvent.click(screen.getByRole('button', { n
 const openSpeechPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开朗读' }));
 
 describe('ReaderPage', () => {
-  afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  afterEach(() => { vi.useRealTimers(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
   it('shows selection actions and translates on demand with inline retry', async () => {
     const translate = vi.fn<TranslationEngine['translate']>()
@@ -84,6 +84,28 @@ describe('ReaderPage', () => {
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'mobile-context-menu', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
     expect(fireEvent.contextMenu(screen.getByText('The first paragraph.'))).toBe(false);
+  });
+
+  it('uses its own mobile long-press translation instead of native text selection', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    const translate = vi.fn().mockResolvedValue('第一');
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'mobile-long-press', translate }} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    const paragraph = screen.getByText('The first paragraph.');
+    const range = document.createRange();
+    range.setStart(paragraph.firstChild!, 5);
+    range.collapse(true);
+    Object.defineProperty(document, 'caretRangeFromPoint', { configurable: true, value: vi.fn(() => range) });
+
+    fireEvent.touchStart(paragraph, { touches: [{ clientX: 80, clientY: 160 }] });
+    act(() => { vi.advanceTimersByTime(420); });
+    fireEvent.touchEnd(paragraph, { changedTouches: [{ clientX: 80, clientY: 160 }] });
+
+    expect(screen.getByRole('complementary', { name: '选中文本操作' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '翻译选中文本' }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(translate).toHaveBeenCalledWith(expect.objectContaining({ text: 'first' }));
   });
 
   it('restores touch selection actions after the native selection changes', async () => {
