@@ -9,6 +9,7 @@
 # Web build and package caches
 **/node_modules/
 **/dist/
+releases/
 npm-debug.log
 yarn-error.log
 

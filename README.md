@@ -27,6 +27,8 @@ npm run build
 
 构建产物位于 `dist/`，可部署到 Nginx、GitHub Pages、Cloudflare Pages、Vercel 等静态托管服务。部署时需要将未知路径回退到 `index.html`。
 
+腾讯云生产站点的构建、上传、原子发布和回滚流程见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+
 ## 翻译与隐私
 
 翻译请求由浏览器直接发送到所选服务，API Key 保存在当前浏览器。第三方接口需要允许当前站点的 CORS；如果浏览器提示无法连接，应开启对应服务的网页访问能力、更换支持浏览器直连的地址，或在自己的设备上运行中转服务。
@@ -51,6 +53,7 @@ npm run build
 ```text
 AirRead/
 ├── public/          # PWA 清单、图标与 Service Worker
+├── scripts/         # 发布包与服务器原子切换脚本
 ├── src/             # 应用源码与测试
 ├── index.html       # Web 入口
 ├── package.json     # 依赖与脚本

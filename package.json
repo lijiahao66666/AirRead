@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "vitest"
+    "test": "vitest",
+    "release:package": "bash scripts/package-release.sh"
   },
   "dependencies": {
     "@testing-library/jest-dom": "^6.9.1",
