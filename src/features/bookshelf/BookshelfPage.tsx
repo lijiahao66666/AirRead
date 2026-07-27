@@ -41,11 +41,11 @@ export function BookshelfPage({ books, loading = false, error, onImport, onOpen,
         <div>
           <p className="eyebrow">阅读空间</p>
           <h2 id="bookshelf-title">我的书架</h2>
-          <p className="page-lede">导入 EPUB、TXT、Markdown、HTML 或文字型 PDF，在当前设备继续阅读、生成本章双语、划词翻译或朗读。</p>
+          <p className="page-lede">导入 EPUB、TXT、Markdown、HTML、DOCX 或文字型 PDF，在当前设备继续阅读、生成本章双语、划词翻译或朗读。</p>
         </div>
         <div className="bookshelf-page__actions">
           <button className="primary-action import-action" type="button" aria-label="导入书籍" onClick={() => inputRef.current?.click()}><Upload size={17} /><span className="import-action__label">导入书籍</span><span className="import-action__compact-label">导入</span></button>
-          <input ref={inputRef} className="import-input" type="file" accept=".epub,.txt,.md,.markdown,.html,.htm,.pdf,application/epub+zip,text/plain,text/markdown,text/html,application/pdf" onChange={handleImport} aria-label="导入书籍文件" />
+          <input ref={inputRef} className="import-input" type="file" accept=".epub,.txt,.md,.markdown,.html,.htm,.pdf,.docx,application/epub+zip,text/plain,text/markdown,text/html,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleImport} aria-label="导入书籍文件" />
         </div>
       </div>
       {continueBook && (

@@ -163,9 +163,8 @@
 .reader-page--paged .reader-canvas {
   height: 100dvh;
   overflow: hidden;
+  padding-bottom: 4.7rem;
 }
-
-.reader-page--chrome-visible.reader-page--paged .reader-canvas { padding-bottom: 4.7rem; }
 
 .reader-page-content {
   display: flow-root;
@@ -570,7 +569,7 @@
   }
 
   .reader-page--scroll .reader-canvas { padding-bottom: calc(5rem + env(safe-area-inset-bottom)); }
-  .reader-page--chrome-visible.reader-page--paged .reader-canvas { padding-bottom: calc(4.75rem + env(safe-area-inset-bottom)); }
+  .reader-page--paged .reader-canvas { padding-bottom: calc(4.75rem + env(safe-area-inset-bottom)); }
   .reader-dock { right: .5rem; bottom: max(.5rem, env(safe-area-inset-bottom)); left: .5rem; width: calc(100% - 1rem); }
   .reader-sheet-backdrop { padding: .5rem; }
   .reader-sheet { max-height: 84dvh; border-radius: 1rem; }

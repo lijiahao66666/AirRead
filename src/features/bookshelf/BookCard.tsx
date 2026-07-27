@@ -11,7 +11,7 @@ type BookCardProps = {
 
 export function BookCard({ book, onOpen, onDelete }: BookCardProps) {
   const progress = Math.round(Math.max(0, Math.min(1, book.readingProgress)) * 100);
-  const formatLabel = book.format === 'epub' ? 'EPUB 书籍' : book.format === 'txt' ? 'TXT 文本' : book.format === 'markdown' ? 'Markdown 文本' : book.format === 'html' ? 'HTML 文档' : 'PDF 文档';
+  const formatLabel = book.format === 'epub' ? 'EPUB 书籍' : book.format === 'txt' ? 'TXT 文本' : book.format === 'markdown' ? 'Markdown 文本' : book.format === 'html' ? 'HTML 文档' : book.format === 'pdf' ? 'PDF 文档' : 'DOCX 文档';
   return (
     <article className="book-card">
       <a className="book-card__open" href={`#reader/${book.id}`} onClick={(event) => { event.preventDefault(); onOpen(book.id); }} aria-label={`阅读 ${book.title}，进度 ${progress}%`}>

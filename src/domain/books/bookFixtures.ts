@@ -61,6 +61,24 @@ export const TEST_COVER_BYTES = new Uint8Array([
   137, 80, 78, 71, 13, 10, 26, 10,
 ]);
 
+export function buildMinimalDocx(): Uint8Array {
+  const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>第一章 开始阅读</w:t></w:r></w:p>
+  <w:p><w:r><w:t>AirRead 可以本地解析 DOCX 正文。</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>保留段落结构。</w:t></w:r></w:p>
+  <w:tbl><w:tr><w:tc><w:p><w:r><w:t>表格中的可读文本。</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+  <w:sectPr/>
+</w:body></w:document>`;
+  const coreProperties = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>AirRead DOCX 测试书</dc:title><dc:creator>AirRead</dc:creator></cp:coreProperties>`;
+  return zipSync({
+    '[Content_Types].xml': strToU8('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'),
+    '_rels/.rels': strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'),
+    'docProps/core.xml': strToU8(coreProperties),
+    'word/document.xml': strToU8(document),
+  });
+}
+
 export function buildMinimalEpub(): Uint8Array {
   return zipSync({
     mimetype: [strToU8('application/epub+zip'), { level: 0 }],

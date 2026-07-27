@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { parseBook } from './bookParser';
-import { buildEpub3NavFixture, buildMinimalEpub, fileFromBytes, TEST_COVER_BYTES } from './bookFixtures';
+import { buildEpub3NavFixture, buildMinimalDocx, buildMinimalEpub, fileFromBytes, TEST_COVER_BYTES } from './bookFixtures';
 import { readEpubArchive } from './epubArchive';
 import { decodeText } from './textDecoder';
+import { splitTextIntoChapters } from './textChapters';
 
 vi.mock('./pdfText', () => ({
   extractPdfText: vi.fn().mockResolvedValue({ title: 'AirRead PDF', author: 'AirRead', text: '# 第 1 页\n\nPDF reading text' }),
@@ -68,6 +69,16 @@ describe('book parsing', () => {
 
     expect(markdown).toMatchObject({ format: 'markdown', title: 'guide', text: '# 开始\n\n阅读' });
     expect(html).toMatchObject({ format: 'html', title: 'guide', text: '# 开始\n\n沉浸阅读' });
+  });
+
+  it('extracts DOCX metadata and readable paragraphs locally', async () => {
+    const book = await parseBook(fileFromBytes('fallback.docx', buildMinimalDocx()));
+
+    expect(book).toMatchObject({ format: 'docx', title: 'AirRead DOCX 测试书', author: 'AirRead' });
+    expect(book.text).toContain('# 第一章 开始阅读');
+    expect(book.text).toContain('AirRead 可以本地解析 DOCX 正文。\t保留段落结构。');
+    expect(book.text).toContain('表格中的可读文本。');
+    expect(splitTextIntoChapters(book.text || '', book.title).map((chapter) => chapter.title)).toEqual(['第一章 开始阅读']);
   });
 
   it('extracts selectable PDF text with document metadata', async () => {

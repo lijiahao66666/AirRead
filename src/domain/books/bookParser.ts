@@ -1,5 +1,6 @@
 import { readEpubArchive } from './epubArchive';
 import type { Book } from './book';
+import { extractDocxText } from './docxText';
 import { extractPdfText } from './pdfText';
 import { decodeText } from './textDecoder';
 import { htmlToText, markdownToText } from './textDocument';
@@ -10,6 +11,22 @@ export async function parseBook(file: File): Promise<Book> {
   const extension = file.name.toLowerCase().split('.').pop();
   const importedAt = Date.now();
   const id = createId();
+
+  if (extension === 'docx') {
+    const extracted = extractDocxText(bytes);
+    return {
+      id,
+      title: extracted.title || titleFromFileName(file.name),
+      author: extracted.author || '',
+      format: 'docx',
+      bytes: Uint8Array.from(bytes),
+      text: extracted.text,
+      importedAt,
+      readingChapter: 0,
+      readingProgress: 0,
+      generatedBilingual: false,
+    };
+  }
 
   if (extension === 'pdf') {
     const extracted = await extractPdfText(bytes);
@@ -44,7 +61,7 @@ export async function parseBook(file: File): Promise<Book> {
     };
   }
 
-  if (extension !== 'epub') throw new Error('仅支持 EPUB、TXT、Markdown、HTML 或包含可选文本的 PDF 文件');
+  if (extension !== 'epub') throw new Error('仅支持 EPUB、TXT、Markdown、HTML、DOCX 或包含可选文本的 PDF 文件');
   const archive = readEpubArchive(bytes);
   return {
     id,
@@ -61,7 +78,7 @@ export async function parseBook(file: File): Promise<Book> {
 }
 
 function titleFromFileName(fileName: string): string {
-  return fileName.replace(/\.(?:txt|md|markdown|html?|pdf)$/iu, '') || '未命名书籍';
+  return fileName.replace(/\.(?:txt|md|markdown|html?|pdf|docx)$/iu, '') || '未命名书籍';
 }
 
 function createId(): string {
