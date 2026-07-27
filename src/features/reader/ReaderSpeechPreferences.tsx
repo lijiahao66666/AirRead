@@ -1,6 +1,6 @@
 import { Headphones, Languages, Play, Volume2 } from 'lucide-react';
 
-import { SPEECH_RATE_OPTIONS, voicesForLocale } from './readerPreferences';
+import { SPEECH_RATE_OPTIONS, speechVoiceQualityScore, voicesForLocale } from './readerPreferences';
 
 type VoiceKind = 'source' | 'target';
 
@@ -42,7 +42,7 @@ function VoiceRow({ kind, label, locale, value, voices, supported, onChange, onP
   const Icon = kind === 'source' ? Volume2 : Languages;
   return <div className="reader-voice-row">
     <span className="reader-voice-row__icon"><Icon size={16} /></span>
-    <label><span><strong>{label}</strong><small>{languageNameForLocale(locale)}</small></span><select aria-label={`${label}音色`} value={value} onChange={(event) => onChange(kind, event.target.value)} disabled={!supported}><option value="">自动匹配（推荐）</option>{matchingVoices.map((voice) => <option value={voice.voiceURI} key={voice.voiceURI}>{voice.name}{voice.localService ? ' · 本机' : ' · 在线'}</option>)}</select></label>
+    <label><span><strong>{label}</strong><small>{languageNameForLocale(locale)}</small></span><select aria-label={`${label}音色`} value={value} onChange={(event) => onChange(kind, event.target.value)} disabled={!supported}><option value="">自动匹配（推荐）</option>{matchingVoices.map((voice) => <option value={voice.voiceURI} key={voice.voiceURI}>{voice.name}{speechVoiceQualityScore(voice) >= 2 ? ' · 推荐' : voice.localService ? ' · 本机' : ' · 在线'}</option>)}</select></label>
     <button type="button" className="reader-voice-preview" onClick={() => onPreview(kind)} disabled={!supported || matchingVoices.length === 0} aria-label={`试听${label}音色`}><Play size={15} /></button>
   </div>;
 }
@@ -50,6 +50,7 @@ function VoiceRow({ kind, label, locale, value, voices, supported, onChange, onP
 export function ReaderSpeechPreferences({ supported, voices, sourceLocale, targetLocale, sourceVoiceURI, targetVoiceURI, rate, onVoiceChange, onRateChange, onPreview }: ReaderSpeechPreferencesProps) {
   return <section className="reader-control-section reader-speech-preferences" aria-labelledby="reader-speech-preferences-title">
     <header className="reader-speech-preferences__header"><span><Headphones size={17} /></span><div><p>声音与语速</p><h3 id="reader-speech-preferences-title">朗读声音</h3></div></header>
+    {supported && <p className="reader-speech-voice-guidance">声音由当前设备提供，已隐藏效果音并优先常用人声；需要更自然的声音，可在系统“朗读”设置中下载增强音色。</p>}
     <div className="reader-voice-list">
       <VoiceRow kind="source" label="原文" locale={sourceLocale} value={sourceVoiceURI} voices={voices} supported={supported} onChange={onVoiceChange} onPreview={onPreview} />
       <VoiceRow kind="target" label="译文" locale={targetLocale} value={targetVoiceURI} voices={voices} supported={supported} onChange={onVoiceChange} onPreview={onPreview} />

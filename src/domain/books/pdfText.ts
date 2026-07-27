@@ -1,3 +1,5 @@
+import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
+
 type PdfMetadata = { info?: { Title?: string; Author?: string } };
 
 export type ExtractedPdfText = {
@@ -10,7 +12,7 @@ const cleanMetadata = (value: unknown): string | undefined => typeof value === '
 
 export async function extractPdfText(bytes: Uint8Array): Promise<ExtractedPdfText> {
   const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString();
+  GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
   const loadingTask = getDocument({ data: Uint8Array.from(bytes) });
   const pdf = await loadingTask.promise;

@@ -42,6 +42,7 @@ export function ProviderEditor({ profile, validationProfile, onChange, onSave, o
   const needsAppSecret = profile.kind === 'youdao';
   const validation = validateProviderProfile(validationProfile ?? profile);
   const valid = validation.valid;
+  const testLabel = testing ? '测试中…' : testResult?.tone === 'success' ? '测试通过' : testResult?.tone === 'error' ? '连接失败' : '测试连接';
 
   return <form className="provider-editor" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
     <div className="settings-editor__header"><div><p className="eyebrow">翻译服务</p><h3>{mode === 'create' ? '添加翻译服务' : '编辑翻译服务'}</h3></div><button type="button" className="icon-button" onClick={onCancel} aria-label="关闭编辑器"><X size={18} /></button></div>
@@ -66,6 +67,6 @@ export function ProviderEditor({ profile, validationProfile, onChange, onSave, o
     {profile.kind === 'custom-http' && <p className="provider-editor__hint">接口使用 POST JSON：<code>{'{ text, sourceLanguage, targetLanguage }'}</code>；请求头为 <code>Authorization: Bearer API Key</code>，响应返回 <code>translation</code> 或 <code>translatedText</code> 字段。</p>}
     {!valid && <ul className="provider-editor__validation" aria-label="配置校验提示">{validation.errors.map((message) => <li key={message}>{message}</li>)}</ul>}
     {error && <div className="settings-alert" role="alert">{error}</div>}
-    <div className="settings-editor__actions"><button type="button" className="secondary-button" onClick={onCancel}>取消</button><div className="provider-editor__test-action"><button type="button" className="secondary-button" onClick={onTest} disabled={testing || !valid}><FlaskConical size={16} /> {testing ? '测试中…' : '测试连接'}</button>{testResult && <span className={`provider-editor__test-result provider-editor__test-result--${testResult.tone}`} role={testResult.tone === 'error' ? 'alert' : 'status'}>{testResult.message}</span>}</div><button type="submit" className="primary-action"><Save size={16} /> 保存配置</button></div>
+    <div className="settings-editor__actions"><button type="button" className="secondary-button" onClick={onCancel}>取消</button><div className="provider-editor__test-action"><button type="button" className={`secondary-button provider-editor__test-button${testResult ? ` provider-editor__test-button--${testResult.tone}` : ''}`} onClick={onTest} disabled={testing || !valid} title={testResult?.tone === 'error' ? testResult.message : undefined}><FlaskConical size={16} /> {testLabel}</button>{testResult?.tone === 'success' && <span className="sr-only" role="status">{testResult.message}</span>}{testResult?.tone === 'error' && <span className="provider-editor__test-popover" role="alert">{testResult.message}</span>}</div><button type="submit" className="primary-action"><Save size={16} /> 保存配置</button></div>
   </form>;
 }

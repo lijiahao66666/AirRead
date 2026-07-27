@@ -31,6 +31,11 @@ type PaginationViewport = { contentWidth: number; contentHeight: number };
 const fontSizeInPixels = (fontSize: ReaderPreferences['fontSize']): number => ({ small: 15.68, medium: 17.28, large: 19.2, 'x-large': 21.12 })[fontSize];
 const lineHeightMultiplier = (lineHeight: ReaderPreferences['lineHeight']): number => ({ compact: 1.62, comfortable: 1.82, relaxed: 2.04 })[lineHeight];
 const fallbackPaginationViewport = (): PaginationViewport => ({ contentWidth: 350, contentHeight: 600 });
+const pageForReadingProgress = (readingProgress: number, chapterIndex: number, chapterCount: number, pageCount: number): number => {
+  if (pageCount <= 1 || chapterCount <= 0) return 0;
+  const chapterProgress = Math.max(0, Math.min(0.999_999, readingProgress * chapterCount - chapterIndex));
+  return Math.min(pageCount - 1, Math.floor(chapterProgress * pageCount));
+};
 
 type ReaderSheetProps = { title: string; children: ReactNode; onClose: () => void };
 function ReaderSheet({ title, children, onClose }: ReaderSheetProps) {
@@ -79,6 +84,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const touchStartY = useRef<number | undefined>(undefined);
   const touchHandled = useRef(false);
   const chapterEntry = useRef<'start' | 'end'>('start');
+  const shouldRestorePagePosition = useRef(true);
   const progressQueue = useRef(Promise.resolve());
   const [paginationViewport, setPaginationViewport] = useState<PaginationViewport>(fallbackPaginationViewport);
   const [paginationSafety, setPaginationSafety] = useState(0.96);
@@ -124,6 +130,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   useEffect(() => {
     const nextChapter = Math.min(book.readingChapter, Math.max(0, chapters.length - 1));
     if (progressTimer.current) window.clearTimeout(progressTimer.current);
+    shouldRestorePagePosition.current = true;
     setChapterIndex(nextChapter);
     setLocalProgress(book.readingProgress);
     setProgressError(undefined);
@@ -220,6 +227,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     chapterRunSequence.current += 1;
     speechRunSequence.current += 1;
     if (typeof window.speechSynthesis !== 'undefined') window.speechSynthesis.cancel();
+    shouldRestorePagePosition.current = false;
     chapterEntry.current = entry;
     setChromeVisible(false);
     setChapterIndex(bounded);
@@ -377,6 +385,10 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     }
     setPageIndex((current) => Math.min(current, Math.max(0, pageCount - 1)));
   }, [pageCount]);
+  useEffect(() => {
+    if (!shouldRestorePagePosition.current || chapterIndex !== initialChapter) return;
+    setPageIndex(pageForReadingProgress(book.readingProgress, chapterIndex, chapters.length, pageCount));
+  }, [book.readingProgress, chapterIndex, chapters.length, initialChapter, pageCount]);
 
   useLayoutEffect(() => {
     if (readerPreferences.readingMode !== 'paged') return;
@@ -390,6 +402,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     if (!speechSupported || speechParagraphs.length === 0) return;
     const runId = ++speechRunSequence.current;
     const requestIdentity = readerIdentity;
+    shouldRestorePagePosition.current = false;
     window.speechSynthesis.cancel();
     setSpeechError(undefined);
     const speakAt = (index: number) => {
@@ -431,6 +444,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   };
 
   const updateReaderPreference = <K extends keyof ReaderPreferences>(key: K, value: ReaderPreferences[K]) => {
+    shouldRestorePagePosition.current = false;
     setReaderPreferences(preferencesStore.update({ [key]: value }));
     if (key === 'readingMode') setPageIndex(0);
   };
@@ -453,12 +467,14 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   };
   const changeContentMode = (mode: ReaderContentMode) => {
     stopSpeech();
+    shouldRestorePagePosition.current = false;
     setContentMode(mode);
     setPageIndex(0);
     if (mode !== 'original' && !chapterTranslation.running && translatedCount < translationParagraphs.length) void translateChapter();
   };
   const movePage = (direction: -1 | 1) => {
     if (readerPreferences.readingMode === 'scroll') return;
+    shouldRestorePagePosition.current = false;
     setPageDirection(direction);
     const nextPage = pageIndex + direction;
     if (nextPage < 0) {

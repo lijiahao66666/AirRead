@@ -6,6 +6,7 @@ import {
   ReaderPreferencesStore,
   speechLocaleForText,
   textMatchesTargetLanguage,
+  voicesForLocale,
 } from './readerPreferences';
 
 describe('ReaderPreferencesStore', () => {
@@ -45,5 +46,21 @@ describe('speech preference helpers', () => {
     expect(textMatchesTargetLanguage('Hola, este es un libro.', 'es')).toBe(true);
     expect(textMatchesTargetLanguage('Это русская книга.', 'ru')).toBe(true);
     expect(textMatchesTargetLanguage('Bonjour tout le monde.', 'en')).toBe(false);
+  });
+
+  it('prefers higher-quality voice names for automatic selection', () => {
+    const standardVoice = { name: 'Microsoft Huihui', lang: 'zh-CN', voiceURI: 'standard', default: true, localService: true } as SpeechSynthesisVoice;
+    const naturalVoice = { name: 'Microsoft Xiaoxiao Online (Natural)', lang: 'zh-CN', voiceURI: 'natural', default: false, localService: false } as SpeechSynthesisVoice;
+
+    expect(voicesForLocale([standardVoice, naturalVoice], 'zh-CN')).toEqual([naturalVoice, standardVoice]);
+    expect(findSpeechVoice([standardVoice, naturalVoice], '', 'zh-CN')).toBe(naturalVoice);
+  });
+
+  it('does not offer effect voices when ordinary narrator voices exist', () => {
+    const effectVoice = { name: 'Albert', lang: 'en-US', voiceURI: 'effect', default: true, localService: true } as SpeechSynthesisVoice;
+    const narratorVoice = { name: 'Samantha', lang: 'en-US', voiceURI: 'samantha', default: false, localService: true } as SpeechSynthesisVoice;
+
+    expect(voicesForLocale([effectVoice, narratorVoice], 'en-US')).toEqual([narratorVoice]);
+    expect(findSpeechVoice([effectVoice, narratorVoice], '', 'en-US')).toBe(narratorVoice);
   });
 });

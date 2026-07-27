@@ -70,13 +70,15 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('heading', { name: '编辑翻译服务' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('服务名称'), { target: { value: '更新模型' } });
     fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('连接成功'));
-    expect(screen.getByRole('status').parentElement).toContainElement(screen.getByRole('button', { name: '测试连接' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '测试通过' })).toBeInTheDocument());
+    expect(screen.getByRole('status')).toHaveTextContent('连接成功');
+    fireEvent.change(screen.getByLabelText('服务名称'), { target: { value: '再次更新模型' } });
+    expect(screen.getByRole('button', { name: '测试连接' })).toBeInTheDocument();
     expect(testConnection).toHaveBeenCalledWith(expect.objectContaining({ name: '更新模型', apiKey: 'sk-local-secret' }));
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
 
-    fireEvent.click(screen.getByRole('button', { name: '删除 更新模型' }));
-    expect(screen.queryByText('更新模型')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '删除 再次更新模型' }));
+    expect(screen.queryByText('再次更新模型')).not.toBeInTheDocument();
   });
 
   it('lets a legacy disabled profile become current and enables it while selecting', () => {
@@ -103,7 +105,7 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '编辑 浏览器受限模型' }));
     fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('该翻译服务不允许浏览器直接连接。请使用支持网页调用的地址，或运行你自己的本地中转服务'));
-    expect(screen.getByRole('alert').parentElement).toContainElement(screen.getByRole('button', { name: '测试连接' }));
+    expect(screen.getByRole('alert').parentElement).toContainElement(screen.getByRole('button', { name: '连接失败' }));
     expect(document.body.textContent).not.toContain('never-show-this-secret');
     expect(document.body.textContent).not.toContain('Air proxy');
   });

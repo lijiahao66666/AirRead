@@ -36,10 +36,10 @@
 .provider-editor__validation { margin: 1rem 0 0; border: 1px solid #e4aaa0; border-radius: .65rem; padding: .7rem .9rem .7rem 2rem; background: #fff5f2; color: #9b3c2d; font-size: .76rem; line-height: 1.7; }
 .provider-editor__hint code { border-radius: .25rem; padding: .1rem .25rem; background: var(--paper-200); color: var(--teal-950); font-size: .72rem; }
 .settings-editor__actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.2rem; }
-.provider-editor__test-action { display: grid; align-content: start; gap: .35rem; }
-.provider-editor__test-result { max-width: 14rem; font-size: .72rem; font-weight: 650; line-height: 1.45; }
-.provider-editor__test-result--success { color: var(--teal-800); }
-.provider-editor__test-result--error { color: #9b3c2d; }
+.provider-editor__test-action { position: relative; min-width: 0; }
+.provider-editor__test-button--success { border-color: var(--mint-400); background: var(--mint-100); color: var(--teal-800); }
+.provider-editor__test-button--error { border-color: #e4aaa0; background: #fff5f2; color: #9b3c2d; }
+.provider-editor__test-popover { position: absolute; z-index: 3; right: 0; bottom: calc(100% + .5rem); width: min(18rem, calc(100vw - 3rem)); border: 1px solid #e4aaa0; border-radius: .65rem; padding: .55rem .65rem; background: #fff5f2; box-shadow: var(--shadow-card); color: #9b3c2d; font-size: .72rem; font-weight: 650; line-height: 1.45; }
 .settings-disclosure { margin: .35rem 0 1.2rem; border-top: 1px solid var(--paper-200); color: var(--ink-700); }
 .settings-disclosure summary { display: flex; min-height: 2.8rem; align-items: center; color: var(--ink-700); cursor: pointer; font-size: .78rem; font-weight: 750; }
 .settings-disclosure summary::marker { color: var(--teal-700); }
@@ -82,7 +82,7 @@
   .field-hint { line-height: 1.5; }
   .settings-editor__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; margin-top: 1rem; }
   .settings-editor__actions > * { width: 100%; }
-  .provider-editor__test-result { max-width: none; }
+  .provider-editor__test-popover { width: min(17rem, calc(100vw - 3rem)); }
   .settings-editor__actions .primary-action { grid-column: 1 / -1; }
   .settings-disclosure { margin-bottom: .85rem; }
   .settings-disclosure p { font-size: .74rem; line-height: 1.6; overflow-wrap: anywhere; }

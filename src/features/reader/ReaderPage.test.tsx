@@ -434,6 +434,22 @@ describe('ReaderPage', () => {
     expect(await screen.findByText('无法保存阅读进度')).toBeInTheDocument();
   });
 
+  it('restores the saved page within the current chapter', async () => {
+    const resumedBook = {
+      ...book,
+      id: 'resume-page',
+      text: Array.from({ length: 70 }, (_, index) => `Paragraph ${index + 1}. ${'A quiet sentence for pagination. '.repeat(5)}`).join('\n\n'),
+      readingProgress: 0.5,
+    };
+    const { container } = render(<ReaderPage book={resumedBook} chapters={chaptersForBook(resumedBook)} engine={{ cacheIdentity: 'resume-page', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    await waitFor(() => {
+      const indicator = container.querySelector('.reader-page-indicator');
+      const currentPage = Number(indicator?.textContent?.split('/')[0].trim());
+      expect(currentPage).toBeGreaterThan(1);
+    });
+  });
+
   it('resets chapter state when the book identity changes', () => {
     const secondBook = { ...book, id: 'book-2', title: 'Another Book', text: 'A fresh paragraph.' };
     const view = render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'reset', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);

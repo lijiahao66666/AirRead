@@ -168,9 +168,22 @@ export const availableSpeechVoices = (): SpeechSynthesisVoice[] => {
 
 export const voicesForLocale = (voices: SpeechSynthesisVoice[], locale: string): SpeechSynthesisVoice[] => {
   const language = locale.toLowerCase().split('-')[0];
-  return voices
-    .filter((voice) => voice.lang.toLowerCase().split('-')[0] === language)
-    .sort((left, right) => Number(right.default) - Number(left.default) || Number(right.localService) - Number(left.localService) || left.name.localeCompare(right.name));
+  const matchingVoices = voices.filter((voice) => voice.lang.toLowerCase().split('-')[0] === language);
+  const narratorVoices = matchingVoices.filter(isNarratorVoice);
+  return (narratorVoices.length > 0 ? narratorVoices : matchingVoices)
+    .sort((left, right) => speechVoiceQualityScore(right) - speechVoiceQualityScore(left) || Number(right.default) - Number(left.default) || Number(right.localService) - Number(left.localService) || left.name.localeCompare(right.name));
+};
+
+const highQualityVoiceName = /natural|neural|enhanced|premium|wavenet|online|自然|增强|高质量/iu;
+const commonNarratorVoiceName = /alex|samantha|daniel|moira|karen|tessa|victoria|ava|allison|serena|xiaoxiao|xiaoyi|yunxi|婷婷|美嘉|晓晓|晓伊|云希/iu;
+const effectVoiceName = /albert|bad news|bahh|bells|boing|bubbles|cellos|fred|good news|jester|junior|organ|ralph|rocko|superstar|trinoids|whisper|wobble|zarvox/iu;
+
+const isNarratorVoice = (voice: SpeechSynthesisVoice): boolean => !effectVoiceName.test(voice.name);
+
+export const speechVoiceQualityScore = (voice: SpeechSynthesisVoice): number => {
+  if (highQualityVoiceName.test(voice.name)) return 3;
+  if (commonNarratorVoiceName.test(voice.name)) return 2;
+  return voice.default ? 1 : 0;
 };
 
 export const findSpeechVoice = (voices: SpeechSynthesisVoice[], voiceURI: string, locale: string): SpeechSynthesisVoice | undefined => {
