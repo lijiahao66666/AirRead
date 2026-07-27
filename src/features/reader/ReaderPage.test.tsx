@@ -20,6 +20,7 @@ const mockSelection = (text: string) => vi.spyOn(window, 'getSelection').mockRet
 } as unknown as Selection);
 const openTranslationPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开翻译显示设置' }));
 const openReadingSettings = () => fireEvent.click(screen.getByRole('button', { name: '打开阅读设置' }));
+const openSpeechPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开朗读' }));
 
 describe('ReaderPage', () => {
   afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -49,19 +50,21 @@ describe('ReaderPage', () => {
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'test', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
     expect(screen.getAllByRole('button', { name: '返回书架' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开目录' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '打开朗读' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开阅读设置' })).toHaveLength(1);
+    expect(screen.getByLabelText('阅读控制').querySelectorAll('.reader-dock__action span')).toHaveLength(0);
     expect(screen.queryByRole('slider', { name: '阅读进度' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '上一章' })).not.toBeInTheDocument();
     expect(screen.queryByText('阅读进度')).not.toBeInTheDocument();
   });
 
-  it('keeps speech voice choices in reading settings, not the translation panel', () => {
+  it('keeps speech voice choices in the dedicated speech panel', () => {
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'voice-location', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
-    openTranslationPanel();
-    expect(screen.queryByRole('heading', { name: '朗读声音' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '关闭翻译显示' }));
     openReadingSettings();
+    expect(screen.queryByRole('heading', { name: '朗读声音' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '关闭阅读设置' }));
+    openSpeechPanel();
     expect(screen.getByRole('heading', { name: '朗读声音' })).toBeInTheDocument();
   });
 
@@ -140,6 +143,7 @@ describe('ReaderPage', () => {
     vi.stubGlobal('speechSynthesis', { speak, pause, resume, cancel });
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'speech', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
+    openSpeechPanel();
     fireEvent.click(screen.getByRole('button', { name: '朗读本章' }));
     expect(speak).toHaveBeenCalledTimes(1);
     expect((speak.mock.calls[0][0] as MockSpeechUtterance).text).toBe('The first paragraph.');
@@ -179,6 +183,8 @@ describe('ReaderPage', () => {
     openTranslationPanel();
     fireEvent.click(screen.getByRole('button', { name: '生成本章纯译文' }));
     expect(await screen.findByText('译文：The first paragraph.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '关闭翻译显示' }));
+    openSpeechPanel();
     fireEvent.click(screen.getByRole('button', { name: '朗读本章译文' }));
 
     expect((speak.mock.calls[0][0] as MockSpeechUtterance).text).toBe('译文：The first paragraph.');
@@ -203,6 +209,8 @@ describe('ReaderPage', () => {
     openTranslationPanel();
     fireEvent.click(screen.getByRole('button', { name: '生成本章双语' }));
     expect(await screen.findByText('译文：The first paragraph.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '关闭翻译显示' }));
+    openSpeechPanel();
     fireEvent.click(screen.getByRole('button', { name: '朗读本章双语' }));
     const firstUtterance = speak.mock.calls[0][0] as MockSpeechUtterance;
     expect(firstUtterance.text).toBe('The first paragraph.');
@@ -234,6 +242,8 @@ describe('ReaderPage', () => {
     openTranslationPanel();
     fireEvent.click(screen.getByRole('button', { name: '生成本章纯译文' }));
     expect(await screen.findAllByText('第一段译文。')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: '关闭翻译显示' }));
+    openSpeechPanel();
     fireEvent.click(screen.getByRole('button', { name: '朗读本章译文' }));
 
     expect((speak.mock.calls[0][0] as MockSpeechUtterance).voice).toBe(chineseVoice);
@@ -256,7 +266,7 @@ describe('ReaderPage', () => {
     vi.stubGlobal('speechSynthesis', { speak: vi.fn(), pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), getVoices: () => [englishVoice, chineseVoice, japaneseVoice] });
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'voice-settings', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
-    openReadingSettings();
+    openSpeechPanel();
     expect(screen.getByLabelText('原文音色')).toHaveTextContent('English Natural');
     expect(screen.getByLabelText('原文音色')).not.toHaveTextContent('日本語');
     expect(screen.getByLabelText('译文音色')).toHaveTextContent('中文自然声');
@@ -320,6 +330,7 @@ describe('ReaderPage', () => {
     fireEvent.mouseUp(screen.getByText('The first paragraph.'));
     fireEvent.click(screen.getByRole('button', { name: '翻译选中文本' }));
     await waitFor(() => expect(translate).toHaveBeenCalledWith({ text: 'The first paragraph.', sourceLanguage: 'ja', targetLanguage: 'en' }));
+    openSpeechPanel();
     fireEvent.click(screen.getByRole('button', { name: '朗读本章' }));
     expect((speak.mock.calls[0][0] as MockSpeechUtterance).voice).toBe(voice);
     expect((speak.mock.calls[0][0] as MockSpeechUtterance).lang).toBe('ja-JP');

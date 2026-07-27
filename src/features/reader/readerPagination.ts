@@ -10,6 +10,13 @@ export type ReaderPageBlock = {
 export type ReaderPage = ReaderPageBlock[];
 export type ReaderContentMode = 'original' | 'bilingual' | 'translation';
 
+const glyphWeight = (text: string): number => [...text].reduce((total, character) => {
+  if (/\s/u.test(character)) return total + 0.28;
+  if (/[\u1100-\u11ff\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/u.test(character)) return total + 1;
+  if (/[A-Za-z0-9À-ÖØ-öø-ÿ]/u.test(character)) return total + 0.54;
+  return total + 0.42;
+}, 0);
+
 const splitAtWordBoundary = (text: string, parts: number): string[] => {
   if (parts <= 1 || text.length === 0) return [text];
   const chunks: string[] = [];
@@ -27,14 +34,14 @@ const splitAtWordBoundary = (text: string, parts: number): string[] => {
   return chunks.filter(Boolean);
 };
 
-const visibleWeight = (paragraph: ReaderParagraph, contentMode: ReaderContentMode): number => {
-  if (contentMode === 'original') return paragraph.original.length;
-  if (contentMode === 'translation') return (paragraph.translation?.length ?? paragraph.original.length) * 0.82;
-  return paragraph.original.length + (paragraph.translation?.length ?? 0) * 0.82;
+const visibleWeight = (paragraph: Pick<ReaderParagraph, 'original' | 'translation'>, contentMode: ReaderContentMode): number => {
+  if (contentMode === 'original') return glyphWeight(paragraph.original);
+  if (contentMode === 'translation') return glyphWeight(paragraph.translation ?? paragraph.original) * 0.82;
+  return glyphWeight(paragraph.original) + glyphWeight(paragraph.translation ?? '') * 0.82;
 };
 
-const blocksForParagraph = (paragraph: ReaderParagraph, blockCapacity: number, contentMode: ReaderContentMode): ReaderPageBlock[] => {
-  const parts = Math.max(1, Math.ceil((visibleWeight(paragraph, contentMode) + 48) / blockCapacity));
+const blocksForParagraph = (paragraph: ReaderParagraph, blockCapacity: number, blockGapWeight: number, contentMode: ReaderContentMode): ReaderPageBlock[] => {
+  const parts = Math.max(1, Math.ceil((visibleWeight(paragraph, contentMode) + blockGapWeight) / blockCapacity));
   const originalParts = splitAtWordBoundary(paragraph.original, parts);
   const translationParts = paragraph.translation ? splitAtWordBoundary(paragraph.translation, originalParts.length) : [];
   return originalParts.map((original, index) => ({
@@ -45,13 +52,14 @@ const blocksForParagraph = (paragraph: ReaderParagraph, blockCapacity: number, c
   }));
 };
 
-export function paginateReaderParagraphs(paragraphs: ReaderParagraph[], options: { blockCapacity: number; contentMode: ReaderContentMode }): ReaderPage[] {
+export function paginateReaderParagraphs(paragraphs: ReaderParagraph[], options: { blockCapacity: number; blockGapWeight?: number; contentMode: ReaderContentMode }): ReaderPage[] {
   const pages: ReaderPage[] = [];
+  const blockGapWeight = options.blockGapWeight ?? 48;
   let page: ReaderPage = [];
   let used = 0;
   paragraphs.forEach((paragraph) => {
-    blocksForParagraph(paragraph, options.blockCapacity, options.contentMode).forEach((block) => {
-      const weight = visibleWeight(block, options.contentMode) + 48;
+    blocksForParagraph(paragraph, options.blockCapacity, blockGapWeight, options.contentMode).forEach((block) => {
+      const weight = visibleWeight(block, options.contentMode) + blockGapWeight;
       if (page.length > 0 && used + weight > options.blockCapacity) {
         pages.push(page);
         page = [];

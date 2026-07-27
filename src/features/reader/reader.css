@@ -150,6 +150,7 @@
 
 .reader-canvas {
   position: relative;
+  box-sizing: border-box;
   width: min(100%, 48rem);
   margin: 0 auto;
   padding: clamp(4.75rem, 9vh, 6.75rem) clamp(1.35rem, 8vw, 5.4rem) 5rem;
@@ -165,7 +166,10 @@
 }
 
 .reader-page-content {
+  display: flow-root;
+  max-height: 100%;
   min-height: 0;
+  overflow: hidden;
   animation-duration: 230ms;
   animation-timing-function: cubic-bezier(.16, .8, .24, 1);
   animation-fill-mode: both;
@@ -278,16 +282,12 @@
   padding: 0;
 }
 
-.reader-dock__action,
-.reader-listen-button {
-  display: inline-flex;
+.reader-dock__action {
+  display: inline-grid;
   width: 100%;
   min-width: 0;
   min-height: 2.75rem;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: .1rem;
+  place-items: center;
   border: 0;
   border-radius: .68rem;
   padding: .2rem .25rem;
@@ -295,17 +295,10 @@
   color: var(--ink-700);
   cursor: pointer;
   touch-action: manipulation;
-  font-size: .62rem;
-  font-weight: 750;
 }
 
-.reader-dock__action:hover,
-.reader-listen-button:hover { background: var(--mint-100); color: var(--teal-950); }
-.reader-dock__action:active,
-.reader-listen-button:active { transform: scale(.96); }
-.reader-listen-button.is-active { color: var(--teal-800); }
-.reader-listen-entry { display: flex; min-width: 0; }
-.reader-speech-error { display: none; }
+.reader-dock__action:hover { background: var(--mint-100); color: var(--teal-950); }
+.reader-dock__action:active { transform: scale(.96); }
 
 .reader-control-section {
   display: grid;
@@ -476,7 +469,6 @@
 .reader-toc button strong { overflow: hidden; color: inherit; font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
 
 .reader-settings-form { display: grid; gap: .9rem; }
-.reader-settings-form + .reader-speech-preferences { margin-top: 1.05rem; border-top: 1px solid var(--paper-200); border-bottom: 0; padding-top: 1rem; padding-bottom: 0; }
 .reader-settings-form section { display: grid; gap: .42rem; }
 .reader-settings-form h3 { margin: 0; color: var(--teal-950); font-size: .76rem; }
 .reader-setting-segment { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .3rem; }
@@ -486,37 +478,18 @@
 .reader-setting-segment button:hover { border-color: var(--mint-400); }
 .reader-setting-segment button.is-active { border-color: var(--teal-700); background: var(--teal-800); color: var(--paper-50); }
 
-.reader-speech-player {
-  position: fixed;
-  z-index: 8;
-  right: .65rem;
-  bottom: calc(6.8rem + env(safe-area-inset-bottom));
-  left: .65rem;
-  display: grid;
-  grid-template-columns: auto minmax(5rem, 1fr) auto;
-  width: min(28rem, calc(100% - 1.3rem));
-  margin-inline: auto;
-  align-items: center;
-  gap: .55rem;
-  border: 1px solid rgb(255 254 250 / 10%);
-  border-radius: .95rem;
-  padding: .55rem .6rem;
-  background: rgb(21 63 58 / 96%);
-  color: var(--paper-50);
-  box-shadow: 0 18px 42px rgb(16 61 57 / 28%);
-  transition: bottom 180ms ease;
-}
-
-.reader-page:not(.reader-page--chrome-visible) .reader-speech-player { bottom: calc(.7rem + env(safe-area-inset-bottom)); }
-.reader-speech-player__icon { display: grid; width: 2.3rem; height: 2.3rem; place-items: center; border-radius: 50%; background: var(--paper-50); color: var(--teal-800); }
-.reader-speech-player__body { display: grid; min-width: 0; gap: .18rem; }
-.reader-speech-player__body strong { overflow: hidden; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
-.reader-speech-player__body > span { overflow: hidden; color: rgb(255 254 250 / 58%); font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
-.reader-speech-player__actions { display: flex; align-items: center; gap: .12rem; }
-.reader-speech-player__actions button { display: inline-grid; min-width: 2.25rem; min-height: 2.25rem; place-items: center; border: 0; border-radius: 999px; background: transparent; color: rgb(255 254 250 / 78%); cursor: pointer; font-size: .66rem; font-weight: 750; }
-.reader-speech-player__actions button:hover { background: rgb(220 239 230 / 12%); color: var(--paper-50); }
-.reader-speech-player__actions .reader-speech-player__primary { background: var(--paper-50); color: var(--teal-950); }
-.reader-speech-player__actions button:active { transform: scale(.94); }
+.reader-speech-controls { gap: .7rem; }
+.reader-speech-controls__playback { display: flex; min-height: 3rem; align-items: center; justify-content: space-between; gap: .7rem; border: 1px solid var(--paper-300); border-radius: .8rem; padding: .5rem .55rem .5rem .7rem; background: var(--paper-100); }
+.reader-speech-controls__playback > span { min-width: 0; color: var(--ink-700); font-size: .72rem; font-weight: 700; line-height: 1.45; }
+.reader-speech-controls__actions { display: flex; flex: none; gap: .35rem; }
+.reader-speech-controls__primary,
+.reader-speech-controls__secondary { display: inline-flex; min-height: 2.35rem; align-items: center; justify-content: center; gap: .28rem; border: 1px solid transparent; border-radius: .62rem; padding: .35rem .6rem; cursor: pointer; font-size: .72rem; font-weight: 750; white-space: nowrap; }
+.reader-speech-controls__primary { flex: none; background: var(--teal-800); color: var(--paper-50); }
+.reader-speech-controls__primary:disabled { cursor: not-allowed; opacity: .46; }
+.reader-speech-controls__secondary { border-color: var(--paper-300); background: var(--paper-50); color: var(--ink-700); }
+.reader-speech-controls__primary:not(:disabled):hover { background: var(--teal-950); }
+.reader-speech-controls__secondary:hover { border-color: var(--mint-400); background: var(--mint-100); }
+.reader-speech-controls__error { margin: -.15rem 0 0; color: var(--danger-700); font-size: .72rem; font-weight: 700; }
 
 .selection-actions { position: fixed; z-index: 12; top: var(--selection-y); left: var(--selection-x); max-width: calc(100vw - 1rem); transform: translate(-50%, -100%); color: var(--ink-900); }
 .selection-actions__toolbar { display: flex; align-items: center; border: 1px solid rgb(16 61 57 / 12%); border-radius: .75rem; padding: .22rem; background: var(--paper-50); box-shadow: 0 12px 30px rgb(16 61 57 / 20%); }
@@ -540,11 +513,9 @@
 .reader-feedback--error { border: 1px solid #e7b8ae; background: #fff0ed; color: #9b3c2d; }
 .reader-progress-error { position: fixed; z-index: 18; top: 4.7rem; left: 50%; width: min(24rem, calc(100% - 1.25rem)); transform: translateX(-50%); }
 
-.reader-page--theme-night .reader-toolbar,
-.reader-page--theme-night .reader-speech-player { background: rgb(20 48 43 / 96%); }
+.reader-page--theme-night .reader-toolbar { background: rgb(20 48 43 / 96%); }
 .reader-page--theme-night .reader-dock { border-color: rgb(255 255 255 / 12%); background: rgb(30 46 42 / 96%); }
-.reader-page--theme-night .reader-dock__action,
-.reader-page--theme-night .reader-listen-button { color: #d7e3dc; }
+.reader-page--theme-night .reader-dock__action { color: #d7e3dc; }
 .reader-page--theme-night .reader-sheet { border-color: rgb(255 255 255 / 10%); background: #233532; color: #edf4ed; }
 .reader-page--theme-night .reader-sheet__header { border-color: rgb(255 255 255 / 10%); }
 .reader-page--theme-night .reader-sheet h2,
@@ -556,6 +527,9 @@
 .reader-page--theme-night .reader-rate-setting button { border-color: rgb(255 255 255 / 12%); background-color: #2b403b; color: #edf4ed; }
 .reader-page--theme-night .reader-control-section { border-color: rgb(255 255 255 / 10%); }
 .reader-page--theme-night .reader-control-section__header h3 { color: #edf4ed; }
+.reader-page--theme-night .reader-speech-controls__playback { border-color: rgb(255 255 255 / 12%); background: #2b403b; }
+.reader-page--theme-night .reader-speech-controls__playback > span { color: #d7e3dc; }
+.reader-page--theme-night .reader-speech-controls__secondary { border-color: rgb(255 255 255 / 12%); background: #2b403b; color: #edf4ed; }
 
 @media (max-width: 42rem) {
   .reader-toolbar {
@@ -583,9 +557,9 @@
 @media (max-width: 23rem) {
   .reader-canvas { padding-inline: 1rem; }
   .reader-dock { right: .35rem; left: .35rem; width: calc(100% - .7rem); }
-  .reader-dock__action, .reader-listen-button { min-height: 2.65rem; font-size: .6rem; }
-  .reader-speech-player__icon { display: none; }
-  .reader-speech-player { grid-template-columns: minmax(5rem, 1fr) auto; }
+  .reader-dock__action { min-height: 2.65rem; }
+  .reader-speech-controls__playback { align-items: flex-start; flex-direction: column; }
+  .reader-speech-controls__primary { align-self: stretch; }
   .reader-setting-segment--three, .reader-setting-segment--four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
