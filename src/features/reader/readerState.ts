@@ -5,12 +5,12 @@ import { splitTextIntoChapters } from '../../domain/books/textChapters';
 export type ReaderParagraph = { id: string; original: string; translation?: string };
 
 export function chaptersForBook(book: Book): Chapter[] {
-  if (book.format === 'txt') {
+  if (book.format !== 'epub') {
     const text = book.text || new TextDecoder().decode(book.bytes);
     return splitTextIntoChapters(text, book.title).map((chapter, index) => ({
-      id: `txt-chapter-${index + 1}`,
+      id: `${book.format}-chapter-${index + 1}`,
       title: chapter.title,
-      href: `chapter-${index + 1}.txt`,
+      href: `chapter-${index + 1}.${book.format}`,
       content: chapter.content,
     }));
   }

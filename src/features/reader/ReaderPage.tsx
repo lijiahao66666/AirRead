@@ -81,7 +81,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const chapterEntry = useRef<'start' | 'end'>('start');
   const progressQueue = useRef(Promise.resolve());
   const [paginationViewport, setPaginationViewport] = useState<PaginationViewport>(fallbackPaginationViewport);
-  const [paginationSafety, setPaginationSafety] = useState(0.9);
+  const [paginationSafety, setPaginationSafety] = useState(0.96);
   const onProgressRef = useRef(onProgress);
   onProgressRef.current = onProgress;
   const chapter = chapters[chapterIndex];
@@ -367,6 +367,9 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const pageCount = pages.length;
   const currentPage = pages[Math.min(pageIndex, pageCount - 1)] ?? [];
   useEffect(() => {
+    setPaginationSafety(0.96);
+  }, [readerIdentity, contentMode, paginationViewport.contentHeight, paginationViewport.contentWidth, readerPreferences.fontSize, readerPreferences.lineHeight]);
+  useEffect(() => {
     if (chapterEntry.current === 'end') {
       setPageIndex(Math.max(0, pageCount - 1));
       chapterEntry.current = 'start';
@@ -379,7 +382,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     if (readerPreferences.readingMode !== 'paged') return;
     const pageContent = readerPageContentRef.current;
     if (!pageContent || pageContent.scrollHeight <= pageContent.clientHeight + 1) return;
-    setPaginationSafety((current) => current <= 0.42 ? current : Number((current - 0.06).toFixed(2)));
+    setPaginationSafety((current) => current <= 0.78 ? current : Number(Math.max(0.78, current * 0.96).toFixed(3)));
   }, [currentPage, pageIndex, paginationSafety, readerPreferences.readingMode]);
 
   const stopSpeech = () => { speechRunSequence.current += 1; if (typeof window.speechSynthesis !== 'undefined') window.speechSynthesis.cancel(); setSpeechState('idle'); setSpeechParagraphId(undefined); setSpeechParagraphIndex(0); setSpeechError(undefined); };

@@ -26,4 +26,11 @@ describe('TXT chapter splitting', () => {
       { title: '第1章：真正的标题', content: '章节正文。' },
     ]);
   });
+
+  it('uses Markdown headings for the table of contents', () => {
+    expect(splitTextIntoChapters('# 序言\n\n开始阅读。\n\n## 第二部分\n\n继续阅读。', '文档')).toEqual([
+      { title: '序言', content: '开始阅读。' },
+      { title: '第二部分', content: '继续阅读。' },
+    ]);
+  });
 });

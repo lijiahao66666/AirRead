@@ -41,11 +41,11 @@ export function BookshelfPage({ books, loading = false, error, onImport, onOpen,
         <div>
           <p className="eyebrow">阅读空间</p>
           <h2 id="bookshelf-title">我的书架</h2>
-          <p className="page-lede">导入 EPUB 或 TXT，在当前设备继续阅读、生成本章双语、划词翻译或朗读原文。</p>
+          <p className="page-lede">导入 EPUB、TXT、Markdown、HTML 或文字型 PDF，在当前设备继续阅读、生成本章双语、划词翻译或朗读。</p>
         </div>
         <div className="bookshelf-page__actions">
           <button className="primary-action import-action" type="button" aria-label="导入书籍" onClick={() => inputRef.current?.click()}><Upload size={17} /><span className="import-action__label">导入书籍</span><span className="import-action__compact-label">导入</span></button>
-          <input ref={inputRef} className="import-input" type="file" accept=".epub,.txt,application/epub+zip,text/plain" onChange={handleImport} aria-label="导入 EPUB 或 TXT" />
+          <input ref={inputRef} className="import-input" type="file" accept=".epub,.txt,.md,.markdown,.html,.htm,.pdf,application/epub+zip,text/plain,text/markdown,text/html,application/pdf" onChange={handleImport} aria-label="导入书籍文件" />
         </div>
       </div>
       {continueBook && (
@@ -61,7 +61,7 @@ export function BookshelfPage({ books, loading = false, error, onImport, onOpen,
       </div>
       {loading && <div className="state-card" role="status">正在读取书架</div>}
       {error && <div className="state-card state-card--error" role="alert">{error}</div>}
-      {!loading && !error && books.length === 0 && <div className="state-card state-card--empty"><BookOpen size={28} /><strong>书架还是空的</strong><p>导入一本 EPUB 或 TXT，开始第一段双语阅读。</p><button className="primary-action" type="button" onClick={() => inputRef.current?.click()}><Upload size={17} /> 导入第一本书</button></div>}
+      {!loading && !error && books.length === 0 && <div className="state-card state-card--empty"><BookOpen size={28} /><strong>书架还是空的</strong><p>导入一本电子书或文本，开始第一段双语阅读。</p><button className="primary-action" type="button" onClick={() => inputRef.current?.click()}><Upload size={17} /> 导入第一本书</button></div>}
       {!loading && !error && books.length > 0 && filteredBooks.length === 0 && <div className="state-card">没有找到匹配的书籍</div>}
       {!loading && !error && filteredBooks.length > 0 && <div className="book-grid">{filteredBooks.map((book) => <BookCard key={book.id} book={book} onOpen={onOpen} onDelete={handleDelete} />)}</div>}
     </section>

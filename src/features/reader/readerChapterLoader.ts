@@ -8,7 +8,7 @@ const chapterCache = new Map<string, Promise<Chapter[]>>();
 const cacheKeyFor = (book: Book): string => `${book.id}:${book.importedAt}:${book.bytes.byteLength}`;
 
 const parseInWorker = (book: Book): Promise<Chapter[]> => {
-  if (book.format === 'txt' || typeof Worker === 'undefined') {
+  if (book.format !== 'epub' || typeof Worker === 'undefined') {
     return Promise.resolve().then(() => chaptersForBook(book));
   }
 

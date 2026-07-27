@@ -52,6 +52,22 @@ const blocksForParagraph = (paragraph: ReaderParagraph, blockCapacity: number, b
   }));
 };
 
+const pageWeight = (page: ReaderPageBlock[], contentMode: ReaderContentMode, blockGapWeight: number): number => page.reduce((total, block) => total + visibleWeight(block, contentMode) + blockGapWeight, 0);
+
+const rebalanceTrailingPage = (pages: ReaderPage[], blockCapacity: number, contentMode: ReaderContentMode, blockGapWeight: number): ReaderPage[] => {
+  if (pages.length < 2) return pages;
+  const trailing = pages[pages.length - 1];
+  const previous = pages[pages.length - 2];
+  while (trailing.length > 0 && previous.length > 1 && pageWeight(trailing, contentMode, blockGapWeight) < blockCapacity * 0.44) {
+    const candidate = previous[previous.length - 1];
+    const nextTrailingWeight = pageWeight([candidate, ...trailing], contentMode, blockGapWeight);
+    const remainingPreviousWeight = pageWeight(previous.slice(0, -1), contentMode, blockGapWeight);
+    if (nextTrailingWeight > blockCapacity * 0.96 || remainingPreviousWeight < blockCapacity * 0.54) break;
+    trailing.unshift(previous.pop()!);
+  }
+  return pages;
+};
+
 export function paginateReaderParagraphs(paragraphs: ReaderParagraph[], options: { blockCapacity: number; blockGapWeight?: number; contentMode: ReaderContentMode }): ReaderPage[] {
   const pages: ReaderPage[] = [];
   const blockGapWeight = options.blockGapWeight ?? 48;
@@ -70,5 +86,5 @@ export function paginateReaderParagraphs(paragraphs: ReaderParagraph[], options:
     });
   });
   if (page.length > 0) pages.push(page);
-  return pages.length > 0 ? pages : [[]];
+  return pages.length > 0 ? rebalanceTrailingPage(pages, options.blockCapacity, options.contentMode, blockGapWeight) : [[]];
 }

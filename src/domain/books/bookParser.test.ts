@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { parseBook } from './bookParser';
 import { buildEpub3NavFixture, buildMinimalEpub, fileFromBytes, TEST_COVER_BYTES } from './bookFixtures';
 import { readEpubArchive } from './epubArchive';
 import { decodeText } from './textDecoder';
+
+vi.mock('./pdfText', () => ({
+  extractPdfText: vi.fn().mockResolvedValue({ title: 'AirRead PDF', author: 'AirRead', text: '# 第 1 页\n\nPDF reading text' }),
+}));
 
 describe('book parsing', () => {
   it('reads EPUB metadata and TOC in spine order', async () => {
@@ -56,6 +60,22 @@ describe('book parsing', () => {
     const book = await parseBook(fileFromBytes('双语阅读.txt', gbkBytes));
 
     expect(book.text).toBe('双语阅读');
+  });
+
+  it('normalizes Markdown and HTML into the readable text pipeline', async () => {
+    const markdown = await parseBook(fileFromBytes('guide.md', new TextEncoder().encode('# 开始\n\n[阅读](https://air-inc.top)')));
+    const html = await parseBook(fileFromBytes('guide.html', new TextEncoder().encode('<h1>开始</h1><p>沉浸阅读</p><script>ignore()</script>')));
+
+    expect(markdown).toMatchObject({ format: 'markdown', title: 'guide', text: '# 开始\n\n阅读' });
+    expect(html).toMatchObject({ format: 'html', title: 'guide', text: '# 开始\n\n沉浸阅读' });
+  });
+
+  it('extracts selectable PDF text with document metadata', async () => {
+    const book = await parseBook(fileFromBytes('fallback.pdf', new Uint8Array([37, 80, 68, 70])));
+
+    expect(book).toMatchObject({ format: 'pdf', title: 'AirRead PDF', author: 'AirRead' });
+    expect(book.text).toContain('PDF reading text');
+    expect(book.text).toContain('# 第 1 页');
   });
 
   it('fails explicitly instead of silently corrupting GBK when gb18030 is unavailable', () => {

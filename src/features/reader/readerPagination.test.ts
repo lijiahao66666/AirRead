@@ -22,4 +22,13 @@ describe('reader pagination', () => {
     expect(pages.length).toBeGreaterThan(1);
     expect(pages.flat().map((block) => block.translation).join('')).toBe(translation);
   });
+
+  it('balances a nearly empty trailing page without losing reading order', () => {
+    const paragraphs = Array.from({ length: 12 }, (_, index) => ({ id: `p${index + 1}`, original: 'A'.repeat(25) }));
+    const pages = paginateReaderParagraphs(paragraphs, { blockCapacity: 100, blockGapWeight: 6, contentMode: 'original' });
+
+    expect(pages).toHaveLength(3);
+    expect(pages[pages.length - 1]).toHaveLength(3);
+    expect(pages.flat().map((block) => block.paragraphId)).toEqual(paragraphs.map((paragraph) => paragraph.id));
+  });
 });

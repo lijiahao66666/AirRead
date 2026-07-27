@@ -1,4 +1,4 @@
-export type BookFormat = 'epub' | 'txt';
+export type BookFormat = 'epub' | 'txt' | 'markdown' | 'html' | 'pdf';
 
 export type BookTranslationPreferences = {
   sourceLanguage?: string;

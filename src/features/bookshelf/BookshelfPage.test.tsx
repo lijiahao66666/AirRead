@@ -27,7 +27,7 @@ describe('BookshelfPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除 The Little Prince' }));
     expect(onDelete).toHaveBeenCalledWith('book-1');
 
-    const input = screen.getByLabelText('导入 EPUB 或 TXT') as HTMLInputElement;
+    const input = screen.getByLabelText('导入书籍文件') as HTMLInputElement;
     const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
     fireEvent.change(input, { target: { files: [file] } });
     await waitFor(() => expect(onImport).toHaveBeenCalledWith(file));

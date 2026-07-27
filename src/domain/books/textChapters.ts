@@ -6,22 +6,29 @@ export type TextChapter = {
 const numberedHeading = /^(?:第\s*[0-9零一二三四五六七八九十百千万两〇]+\s*(?:章|节|回|卷|部|篇|集)|(?:卷|部|篇)\s*[0-9零一二三四五六七八九十百千万两〇]+)(?:(?:\s+|\s*[:：、.．—-]\s*).+)?$/iu;
 const latinHeading = /^(?:chapter|part)\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten)(?:(?:\s+|\s*[:：.．—-]\s*).+)?$/iu;
 const standaloneHeading = /^(?:序章|楔子|前言|引子|后记|尾声|番外|附录)(?:\s*[:：、.．—-]?\s*.*)?$/u;
+const markdownHeading = /^(?:#{1,6})\s+(.+)$/u;
 
 const normalizedLines = (text: string): string[] => text
   .replace(/^\uFEFF/u, '')
   .replace(/\r\n?/gu, '\n')
   .split('\n');
 
-const isHeading = (line: string): boolean => {
+const headingTitle = (line: string): string | undefined => {
   const value = line.trim();
-  return value.length > 0 && value.length <= 72 && (numberedHeading.test(value) || latinHeading.test(value) || standaloneHeading.test(value));
+  if (value.length === 0 || value.length > 72) return undefined;
+  const markdownMatch = markdownHeading.exec(value);
+  if (markdownMatch?.[1]?.trim()) return markdownMatch[1].trim().replace(/\s+/gu, ' ');
+  return numberedHeading.test(value) || latinHeading.test(value) || standaloneHeading.test(value) ? value.replace(/\s+/gu, ' ') : undefined;
 };
 
 const chapterContent = (lines: string[]): string => lines.join('\n').replace(/^\n+|\n+$/gu, '').trim();
 
 export function splitTextIntoChapters(text: string, fallbackTitle: string): TextChapter[] {
   const lines = normalizedLines(text);
-  const headings = lines.flatMap((line, index) => isHeading(line) ? [{ index, title: line.trim().replace(/\s+/gu, ' ') }] : []);
+  const headings = lines.flatMap((line, index) => {
+    const title = headingTitle(line);
+    return title ? [{ index, title }] : [];
+  });
   if (headings.length === 0) return [{ title: fallbackTitle, content: chapterContent(lines) }];
 
   const chapters: TextChapter[] = [];
