@@ -86,7 +86,7 @@ describe('ReaderPage', () => {
     expect(fireEvent.contextMenu(screen.getByText('The first paragraph.'))).toBe(false);
   });
 
-  it('uses its own mobile long-press translation instead of native text selection', async () => {
+  it('uses its own mobile long-press selection instead of a competing native menu', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
     const translate = vi.fn().mockResolvedValue('第一');
@@ -106,6 +106,33 @@ describe('ReaderPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '翻译选中文本' }));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(translate).toHaveBeenCalledWith(expect.objectContaining({ text: 'first' }));
+  });
+
+  it('extends a mobile long-press selection to complete word boundaries', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    const translate = vi.fn().mockResolvedValue('第一段');
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'mobile-drag-selection', translate }} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    const paragraph = screen.getByText('The first paragraph.');
+    const start = document.createRange();
+    start.setStart(paragraph.firstChild!, 5);
+    start.collapse(true);
+    const end = document.createRange();
+    end.setStart(paragraph.firstChild!, 14);
+    end.collapse(true);
+    const caretRangeFromPoint = vi.fn().mockReturnValueOnce(start).mockReturnValueOnce(end);
+    Object.defineProperty(document, 'caretRangeFromPoint', { configurable: true, value: caretRangeFromPoint });
+
+    fireEvent.touchStart(paragraph, { touches: [{ clientX: 80, clientY: 160 }] });
+    act(() => { vi.advanceTimersByTime(420); });
+    fireEvent.touchMove(paragraph, { touches: [{ clientX: 160, clientY: 160 }] });
+    fireEvent.touchEnd(paragraph, { changedTouches: [{ clientX: 160, clientY: 160 }] });
+    fireEvent.click(screen.getByRole('button', { name: '翻译选中文本' }));
+
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(caretRangeFromPoint).toHaveBeenCalledTimes(2);
+    expect(translate).toHaveBeenCalledWith(expect.objectContaining({ text: 'first paragraph' }));
   });
 
   it('restores touch selection actions after the native selection changes', async () => {
@@ -442,7 +469,7 @@ describe('ReaderPage', () => {
     mockSelection('The first paragraph.');
     fireEvent.pointerUp(screen.getByText('The first paragraph.'), { pointerType: 'mouse' });
     expect(screen.getByLabelText('划词翻译目标语言')).toHaveValue('');
-    expect(screen.getByLabelText('划词翻译目标语言').textContent).toContain('跟随全局（简体中文）');
+    expect(screen.getByLabelText('划词翻译目标语言').textContent).toContain('简体中文');
     fireEvent.click(screen.getByRole('button', { name: '翻译选中文本' }));
     expect(await screen.findByText('zh-CN selection')).toBeInTheDocument();
     expect(translate).toHaveBeenCalledWith(expect.objectContaining({ targetLanguage: 'zh-CN' }));

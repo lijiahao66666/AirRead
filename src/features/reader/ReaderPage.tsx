@@ -18,10 +18,13 @@ import './reader.css';
 
 type ProgressUpdate = Pick<Book, 'readingChapter' | 'readingProgress' | 'lastReadAt'>;
 type TargetLanguage = Exclude<ReaderLanguage, 'auto'>;
-type SelectionActionState = { paragraphId: string; source: string; targetLanguage: TargetLanguage; anchor: { x: number; y: number }; translation?: string; error?: string; notice?: string; loading: boolean; copied?: boolean };
+type SelectionActionState = { paragraphId: string; source: string; targetLanguage: TargetLanguage; anchor: { x: number; y: number }; placement: 'above' | 'below'; translation?: string; error?: string; notice?: string; loading: boolean; copied?: boolean };
 type ChapterTranslationState = { running: boolean; completed: number; total: number; failed: number };
 type SpeechQueueItem = { paragraphId: string; text: string; language: 'source' | 'target' };
-type MobileLongPress = { paragraph: HTMLParagraphElement; x: number; y: number; triggered: boolean };
+type MobileSelectionPress = { paragraph: HTMLParagraphElement; x: number; y: number };
+type MobileSelection = { paragraph: HTMLParagraphElement; start: Range; range: Range; source: string; anchor: { x: number; y: number }; placement: 'above' | 'below' };
+type SelectionHighlight = { left: number; top: number; width: number; height: number };
+type RangeLayout = { left: number; top: number; right: number; bottom: number; width: number; height: number };
 type PointCaretDocument = Document & {
   caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
   caretRangeFromPoint?: (x: number, y: number) => Range | null;
@@ -42,6 +45,13 @@ const sentenceAt = (text: string, index: number): string => {
   const end = endOffset < 0 ? text.length : index + endOffset + 1;
   return text.slice(start, end).trim();
 };
+const sentenceBoundsAt = (text: string, index: number): { start: number; end: number } => {
+  const before = text.slice(0, index);
+  const after = text.slice(index);
+  const start = Math.max(before.lastIndexOf('。'), before.lastIndexOf('！'), before.lastIndexOf('？'), before.lastIndexOf('!'), before.lastIndexOf('?')) + 1;
+  const endOffset = after.search(/[。！？!?]/u);
+  return { start, end: endOffset < 0 ? text.length : index + endOffset + 1 };
+};
 const segmentAt = (text: string, index: number): string => {
   const boundedIndex = Math.max(0, Math.min(Math.max(0, text.length - 1), index));
   if (isCjkCharacter(text[boundedIndex] ?? '')) return sentenceAt(text, boundedIndex);
@@ -50,6 +60,15 @@ const segmentAt = (text: string, index: number): string => {
     if (boundedIndex >= start && boundedIndex < start + match[0].length) return match[0];
   }
   return sentenceAt(text, boundedIndex);
+};
+const segmentBoundsAt = (text: string, index: number): { start: number; end: number } => {
+  const boundedIndex = Math.max(0, Math.min(Math.max(0, text.length - 1), index));
+  if (isCjkCharacter(text[boundedIndex] ?? '')) return sentenceBoundsAt(text, boundedIndex);
+  for (const match of text.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’\-]*/gu)) {
+    const start = match.index ?? 0;
+    if (boundedIndex >= start && boundedIndex < start + match[0].length) return { start, end: start + match[0].length };
+  }
+  return sentenceBoundsAt(text, boundedIndex);
 };
 const textOffsetInParagraph = (paragraph: HTMLElement, node: Node, offset: number): number | undefined => {
   const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
@@ -62,19 +81,69 @@ const textOffsetInParagraph = (paragraph: HTMLElement, node: Node, offset: numbe
   }
   return undefined;
 };
-const sourceAtPoint = (paragraph: HTMLParagraphElement, x: number, y: number): string => {
+const rangeAtPoint = (x: number, y: number): Range | undefined => {
   const pointDocument = document as PointCaretDocument;
   const range = pointDocument.caretRangeFromPoint?.(x, y);
+  if (range) return range;
   const caretPosition = pointDocument.caretPositionFromPoint?.(x, y);
-  const position = range
-    ? { node: range.startContainer, offset: range.startOffset }
-    : caretPosition
-      ? { node: caretPosition.offsetNode, offset: caretPosition.offset }
-      : undefined;
-  const text = paragraph.textContent?.trim() ?? '';
-  if (!position || !text) return text;
-  const offset = textOffsetInParagraph(paragraph, position.node, position.offset);
-  return offset == null ? text : segmentAt(text, offset);
+  if (!caretPosition) return undefined;
+  const caretRange = document.createRange();
+  caretRange.setStart(caretPosition.offsetNode, caretPosition.offset);
+  caretRange.collapse(true);
+  return caretRange;
+};
+const rangeForTextOffsets = (paragraph: HTMLParagraphElement, start: number, end: number): Range | undefined => {
+  const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  let offset = 0;
+  let startPoint: { node: Node; offset: number } | undefined;
+  let endPoint: { node: Node; offset: number } | undefined;
+  while ((node = walker.nextNode())) {
+    const length = node.textContent?.length ?? 0;
+    if (!startPoint && start >= offset && start <= offset + length) startPoint = { node, offset: start - offset };
+    if (!endPoint && end >= offset && end <= offset + length) endPoint = { node, offset: end - offset };
+    if (startPoint && endPoint) break;
+    offset += length;
+  }
+  if (!startPoint || !endPoint) return undefined;
+  const range = document.createRange();
+  range.setStart(startPoint.node, startPoint.offset);
+  range.setEnd(endPoint.node, endPoint.offset);
+  return range;
+};
+const rangeForPointSelection = (paragraph: HTMLParagraphElement, point: Range): Range | undefined => {
+  const text = paragraph.textContent ?? '';
+  const offset = textOffsetInParagraph(paragraph, point.startContainer, point.startOffset);
+  if (offset == null || !text) return undefined;
+  const bounds = segmentBoundsAt(text, offset);
+  return rangeForTextOffsets(paragraph, bounds.start, bounds.end);
+};
+const orderedRange = (first: Range, second: Range): Range => {
+  const range = document.createRange();
+  const firstComesFirst = first.compareBoundaryPoints(Range.START_TO_START, second) <= 0;
+  const start = firstComesFirst ? first : second;
+  const end = firstComesFirst ? second : first;
+  range.setStart(start.startContainer, start.startOffset);
+  range.setEnd(end.endContainer, end.endOffset);
+  return range;
+};
+const rangeBoundingRect = (range: Range): RangeLayout => {
+  const layoutRange = range as Range & { getBoundingClientRect?: () => RangeLayout };
+  return layoutRange.getBoundingClientRect?.() ?? { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+};
+const rangeHighlights = (range: Range): SelectionHighlight[] => {
+  const layoutRange = range as Range & { getClientRects?: () => ArrayLike<RangeLayout> };
+  return Array.from(layoutRange.getClientRects?.() ?? [])
+  .filter((rect) => rect.width > 0 && rect.height > 0)
+  .map((rect) => ({ left: rect.left, top: rect.top, width: rect.width, height: rect.height }));
+};
+const selectionAnchor = (range: Range): { anchor: { x: number; y: number }; placement: 'above' | 'below' } => {
+  const rect = rangeBoundingRect(range);
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 390;
+  const panelHalfWidth = Math.min(160, Math.max(0, (viewportWidth - 16) / 2));
+  const x = Math.min(viewportWidth - panelHalfWidth, Math.max(panelHalfWidth, rect.left + rect.width / 2));
+  const placement = rect.top < window.innerHeight * .36 ? 'below' : 'above';
+  return { anchor: { x, y: placement === 'below' ? rect.bottom : rect.top }, placement };
 };
 
 const fontSizeInPixels = (fontSize: ReaderPreferences['fontSize']): number => ({ small: 15.68, medium: 17.28, large: 19.2, 'x-large': 21.12 })[fontSize];
@@ -131,8 +200,10 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const readerPageContentRef = useRef<HTMLDivElement>(null);
   const selectionFrame = useRef<number | undefined>(undefined);
   const selectionPointerDown = useRef(false);
-  const mobileLongPress = useRef<MobileLongPress | undefined>(undefined);
-  const mobileLongPressTimer = useRef<number | undefined>(undefined);
+  const mobileSelectionPress = useRef<MobileSelectionPress | undefined>(undefined);
+  const mobileSelection = useRef<MobileSelection | undefined>(undefined);
+  const mobileSelectionTimer = useRef<number | undefined>(undefined);
+  const [selectionHighlights, setSelectionHighlights] = useState<SelectionHighlight[]>([]);
   const touchStartX = useRef<number | undefined>(undefined);
   const touchStartY = useRef<number | undefined>(undefined);
   const touchHandled = useRef(false);
@@ -175,6 +246,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     setSpeechParagraphId(undefined);
     setSpeechParagraphIndex(0);
     setSpeechError(undefined);
+    setSelectionHighlights([]);
     setPageIndex(0);
     setSpeechOpen(false);
     setTranslationOpen(false);
@@ -220,7 +292,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   useEffect(() => () => {
     if (progressTimer.current) window.clearTimeout(progressTimer.current);
     if (selectionFrame.current) window.cancelAnimationFrame(selectionFrame.current);
-    if (mobileLongPressTimer.current) window.clearTimeout(mobileLongPressTimer.current);
+    if (mobileSelectionTimer.current) window.clearTimeout(mobileSelectionTimer.current);
     selectionRequestSequence.current += 1;
     chapterRunSequence.current += 1;
     speechRunSequence.current += 1;
@@ -323,19 +395,13 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     const paragraphId = paragraph.dataset.paragraphId;
     if (!source || !paragraphId) return;
     const fallbackRect = paragraph.getBoundingClientRect();
-    const rangeRect = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).getBoundingClientRect() : undefined;
+    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : undefined;
+    const rangeRect = range ? rangeBoundingRect(range) : undefined;
     const rect = rangeRect && (rangeRect.width > 0 || rangeRect.height > 0) ? rangeRect : fallbackRect;
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 390;
+    const positioned = range ? selectionAnchor(range) : { anchor: { x: Math.min((window.innerWidth || 390) - 76, Math.max(76, rect.left + rect.width / 2)), y: rect.top }, placement: rect.top < window.innerHeight * .36 ? 'below' as const : 'above' as const };
     selectionRequestSequence.current += 1;
-    setSelectionAction({ paragraphId, source, targetLanguage: selectionTargetLanguage, anchor: { x: Math.min(viewportWidth - 24, Math.max(24, rect.left + rect.width / 2)), y: Math.max(76, rect.top - 10) }, loading: false });
-  };
-  const showMobileLongPressActions = (press: MobileLongPress) => {
-    const paragraphId = press.paragraph.dataset.paragraphId;
-    const source = sourceAtPoint(press.paragraph, press.x, press.y);
-    if (!paragraphId || !source) return;
-    selectionRequestSequence.current += 1;
-    window.getSelection()?.removeAllRanges();
-    setSelectionAction({ paragraphId, source, targetLanguage: selectionTargetLanguage, anchor: { x: press.x, y: press.y }, loading: false });
+    setSelectionHighlights([]);
+    setSelectionAction({ paragraphId, source, targetLanguage: selectionTargetLanguage, ...positioned, loading: false });
   };
   const paragraphForSelection = (selection: Selection | null): HTMLParagraphElement | undefined => {
     const selectionNode = selection?.focusNode ?? selection?.anchorNode;
@@ -363,7 +429,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     document.addEventListener('selectionchange', handleSelectionChange);
     return () => document.removeEventListener('selectionchange', handleSelectionChange);
   }, [selectionTargetLanguage]);
-  const dismissSelectionActions = () => { selectionRequestSequence.current += 1; setSelectionAction(undefined); window.getSelection()?.removeAllRanges(); };
+  const dismissSelectionActions = () => { selectionRequestSequence.current += 1; setSelectionHighlights([]); setSelectionAction(undefined); window.getSelection()?.removeAllRanges(); };
   const persistSelectionPreferences = async (preferences?: BookSelectionPreferences) => {
     try { await onSelectionPreferencesChange?.(preferences); } catch { setProgressError('保存划词翻译设置失败'); }
   };
@@ -585,37 +651,63 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     const paragraph = target.closest<HTMLParagraphElement>('p.reader-original[data-paragraph-id]');
     const touch = event.touches[0];
     if (!paragraph || !touch) return;
-    const press: MobileLongPress = { paragraph, x: touch.clientX, y: touch.clientY, triggered: false };
-    mobileLongPress.current = press;
-    if (mobileLongPressTimer.current) window.clearTimeout(mobileLongPressTimer.current);
-    mobileLongPressTimer.current = window.setTimeout(() => {
-      if (mobileLongPress.current !== press || !press.paragraph.isConnected) return;
-      press.triggered = true;
-      selectionPointerDown.current = false;
-      showMobileLongPressActions(press);
+    const press: MobileSelectionPress = { paragraph, x: touch.clientX, y: touch.clientY };
+    mobileSelectionPress.current = press;
+    if (mobileSelectionTimer.current) window.clearTimeout(mobileSelectionTimer.current);
+    mobileSelectionTimer.current = window.setTimeout(() => {
+      if (mobileSelectionPress.current !== press || !press.paragraph.isConnected) return;
+      const start = rangeAtPoint(press.x, press.y);
+      if (!start || !press.paragraph.contains(start.startContainer)) return;
+      const range = rangeForPointSelection(press.paragraph, start);
+      const source = range?.toString().trim() || '';
+      if (!range || !source) return;
+      const positioned = selectionAnchor(range);
+      mobileSelection.current = { paragraph: press.paragraph, start: range, range, source, ...positioned };
+      setSelectionHighlights(rangeHighlights(range));
+      setChromeVisible(false);
     }, 420);
   };
   const handleReaderTouchMove = (event: TouchEvent<HTMLElement>) => {
-    const press = mobileLongPress.current;
+    const activeSelection = mobileSelection.current;
     const touch = event.touches[0];
-    if (!press || !touch) return;
-    if (Math.hypot(touch.clientX - press.x, touch.clientY - press.y) < 12) return;
-    if (mobileLongPressTimer.current) window.clearTimeout(mobileLongPressTimer.current);
-    mobileLongPressTimer.current = undefined;
-    mobileLongPress.current = undefined;
+    if (activeSelection && touch) {
+      event.preventDefault();
+      const endpoint = rangeAtPoint(touch.clientX, touch.clientY);
+      if (!endpoint || !activeSelection.paragraph.contains(endpoint.startContainer)) return;
+      const endpointRange = rangeForPointSelection(activeSelection.paragraph, endpoint);
+      if (!endpointRange) return;
+      const range = orderedRange(activeSelection.start, endpointRange);
+      const source = range.toString().trim();
+      if (!source) return;
+      const positioned = selectionAnchor(range);
+      mobileSelection.current = { ...activeSelection, range, source, ...positioned };
+      setSelectionHighlights(rangeHighlights(range));
+      return;
+    }
+    const press = mobileSelectionPress.current;
+    if (!press || !touch || Math.hypot(touch.clientX - press.x, touch.clientY - press.y) < 12) return;
+    if (mobileSelectionTimer.current) window.clearTimeout(mobileSelectionTimer.current);
+    mobileSelectionTimer.current = undefined;
+    mobileSelectionPress.current = undefined;
   };
   const handleReaderTouchEnd = (event: TouchEvent<HTMLElement>) => {
     const startX = touchStartX.current;
     const startY = touchStartY.current;
-    const press = mobileLongPress.current;
-    if (mobileLongPressTimer.current) window.clearTimeout(mobileLongPressTimer.current);
-    mobileLongPressTimer.current = undefined;
-    mobileLongPress.current = undefined;
+    const activeSelection = mobileSelection.current;
+    if (mobileSelectionTimer.current) window.clearTimeout(mobileSelectionTimer.current);
+    mobileSelectionTimer.current = undefined;
+    mobileSelectionPress.current = undefined;
+    mobileSelection.current = undefined;
     touchStartX.current = undefined;
     touchStartY.current = undefined;
-    if (press?.triggered) {
+    if (activeSelection) {
       touchHandled.current = true;
       window.setTimeout(() => { touchHandled.current = false; }, 240);
+      const paragraphId = activeSelection.paragraph.dataset.paragraphId;
+      if (paragraphId) {
+        selectionRequestSequence.current += 1;
+        setSelectionAction({ paragraphId, source: activeSelection.source, targetLanguage: selectionTargetLanguage, anchor: activeSelection.anchor, placement: activeSelection.placement, loading: false });
+      }
       event.preventDefault();
       return;
     }
@@ -627,6 +719,15 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     window.setTimeout(() => { touchHandled.current = false; }, 240);
     setChromeVisible(false);
     movePage(distanceX > 0 ? -1 : 1);
+  };
+  const handleReaderTouchCancel = () => {
+    if (mobileSelectionTimer.current) window.clearTimeout(mobileSelectionTimer.current);
+    mobileSelectionTimer.current = undefined;
+    mobileSelectionPress.current = undefined;
+    mobileSelection.current = undefined;
+    touchStartX.current = undefined;
+    touchStartY.current = undefined;
+    setSelectionHighlights([]);
   };
   const handleReaderPointerDown = () => { selectionPointerDown.current = true; };
   const handleReaderPointerEnd = () => {
@@ -683,7 +784,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   return <section className={`reader-page reader-page--${readerPreferences.readingMode} reader-page--theme-${readerPreferences.theme} reader-page--font-${readerPreferences.fontFamily} reader-page--font-${readerPreferences.fontSize} reader-page--line-${readerPreferences.lineHeight} ${chromeVisible ? 'reader-page--chrome-visible' : ''} ${speechState !== 'idle' ? 'reader-page--speech-active' : ''}`} aria-labelledby="reader-title">
     <ReaderToolbar title={book.title} chapterTitle={chapter?.title || '暂无章节'} chapterIndex={chapterIndex} chapterCount={chapters.length} onBack={onBack} />
     <div className="reader-reading-surface">
-      <article className="reader-canvas" ref={readerCanvasRef} aria-label={`${modeLabel}阅读内容`} onClick={handleReaderClick} onKeyDown={handleReaderKeyDown} onPointerDown={handleReaderPointerDown} onPointerUp={handleReaderPointerEnd} onPointerCancel={handleReaderPointerEnd} onTouchStart={handleReaderTouchStart} onTouchMove={handleReaderTouchMove} onTouchEnd={handleReaderTouchEnd} onTouchCancel={handleReaderTouchMove} tabIndex={0}>
+      <article className="reader-canvas" ref={readerCanvasRef} aria-label={`${modeLabel}阅读内容`} onClick={handleReaderClick} onKeyDown={handleReaderKeyDown} onPointerDown={handleReaderPointerDown} onPointerUp={handleReaderPointerEnd} onPointerCancel={handleReaderPointerEnd} onTouchStart={handleReaderTouchStart} onTouchMove={handleReaderTouchMove} onTouchEnd={handleReaderTouchEnd} onTouchCancel={handleReaderTouchCancel} tabIndex={0}>
         <h2 id="reader-title" className="sr-only">{book.title}</h2>
         {paragraphs.length === 0 && <p className="reader-empty">这一章还没有可读内容。</p>}
         {readerPreferences.readingMode === 'paged'
@@ -691,8 +792,9 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
           : <div className="reader-scroll-content">{renderBlocks(allBlocks)}</div>}
         <span className="reader-page-indicator" aria-hidden="true">{pageLabel}</span>
       </article>
+      {selectionHighlights.length > 0 && <div className="reader-selection-highlights" aria-hidden="true">{selectionHighlights.map((highlight, index) => <span className="reader-selection-highlight" key={`${highlight.left}:${highlight.top}:${index}`} style={{ left: highlight.left, top: highlight.top, width: highlight.width, height: highlight.height }} />)}</div>}
     </div>
-    {selectionAction && <SelectionActions source={selectionAction.source} targetLanguage={selectionAction.targetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={selectionTargetOverride} anchor={selectionAction.anchor} translation={selectionAction.translation} loading={selectionAction.loading} error={selectionAction.error} notice={selectionAction.notice} copied={selectionAction.copied} canRead={speechSupported} onTranslate={() => { void translateSelection(); }} onRead={readSelection} onTargetLanguageChange={changeSelectionTargetLanguage} onCopy={() => { void copySelection(); }} onDismiss={dismissSelectionActions} />}
+    {selectionAction && <SelectionActions source={selectionAction.source} targetLanguage={selectionAction.targetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={selectionTargetOverride} anchor={selectionAction.anchor} placement={selectionAction.placement} translation={selectionAction.translation} loading={selectionAction.loading} error={selectionAction.error} notice={selectionAction.notice} copied={selectionAction.copied} canRead={speechSupported} onTranslate={() => { void translateSelection(); }} onRead={readSelection} onTargetLanguageChange={changeSelectionTargetLanguage} onCopy={() => { void copySelection(); }} onDismiss={dismissSelectionActions} />}
     <div className="reader-dock" aria-label="阅读控制">
       <div className="reader-dock__actions">
         <button type="button" className="reader-dock__action" onClick={() => { setContentsOpen(true); setChromeVisible(true); }} aria-label="打开目录"><List size={19} /></button>
