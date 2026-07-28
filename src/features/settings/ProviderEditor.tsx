@@ -12,6 +12,7 @@ export type ProviderEditorProps = {
   onCancel: () => void;
   onTest: () => void;
   mode?: 'create' | 'edit';
+  showClose?: boolean;
   error?: string;
   testing?: boolean;
   testResult?: { tone: 'success' | 'error'; message: string };
@@ -29,7 +30,7 @@ const kindLabels: Record<ProviderKind, string> = {
   deepl: 'DeepL API',
 };
 
-export function ProviderEditor({ profile, validationProfile, onChange, onSave, onCancel, onTest, mode = 'edit', error, testing = false, testResult }: ProviderEditorProps) {
+export function ProviderEditor({ profile, validationProfile, onChange, onSave, onCancel, onTest, mode = 'edit', showClose = true, error, testing = false, testResult }: ProviderEditorProps) {
   const [secretVisible, setSecretVisible] = useState(false);
   const [appSecretVisible, setAppSecretVisible] = useState(false);
   const update = (patch: Partial<ProviderProfile>) => onChange({ ...profile, ...patch });
@@ -45,7 +46,7 @@ export function ProviderEditor({ profile, validationProfile, onChange, onSave, o
   const testLabel = testing ? '测试中…' : testResult?.tone === 'success' ? '测试通过' : testResult?.tone === 'error' ? '连接失败' : '测试连接';
 
   return <form className="provider-editor" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
-    <div className="settings-editor__header"><div><p className="eyebrow">翻译服务</p><h3>{mode === 'create' ? '添加翻译服务' : '编辑翻译服务'}</h3></div><button type="button" className="icon-button" onClick={onCancel} aria-label="关闭编辑器"><X size={18} /></button></div>
+    <div className="settings-editor__header"><div><p className="eyebrow">翻译服务</p><h3>{mode === 'create' ? '添加翻译服务' : '编辑翻译服务'}</h3></div>{showClose && <button type="button" className="icon-button" onClick={onCancel} aria-label="关闭编辑器"><X size={18} /></button>}</div>
     <div className="settings-form-grid">
       <div className="settings-form-grid__service-row">
         <label>服务名称<input aria-label="服务名称" value={profile.name} onChange={(event) => update({ name: event.target.value })} placeholder="例如：我的模型服务" /></label>

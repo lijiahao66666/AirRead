@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
@@ -71,8 +71,12 @@ describe('SettingsPage', () => {
     expect(screen.queryByRole('button', { name: '停用 我的模型' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '启用 我的模型' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '编辑 我的模型' }));
-    expect(screen.getByRole('heading', { name: '编辑翻译服务' })).toBeInTheDocument();
+    const modelRow = screen.getByRole('heading', { name: '我的模型' }).closest('article')!;
+    const editModel = within(modelRow).getByRole('button', { name: '编辑 我的模型' });
+    expect(editModel).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(editModel);
+    expect(within(modelRow).getByRole('button', { name: '收起 我的模型 编辑' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(modelRow).getByRole('heading', { name: '编辑翻译服务' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('服务名称'), { target: { value: '更新模型' } });
     fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
     await waitFor(() => expect(screen.getByRole('button', { name: '测试通过' })).toBeInTheDocument());
