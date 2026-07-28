@@ -63,6 +63,7 @@ describe('ReaderPage', () => {
     expect(screen.getAllByRole('button', { name: '返回书架' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开目录' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开朗读' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '打开翻译显示设置' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '开启短语取词' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开翻译与显示设置' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开阅读设置' })).toHaveLength(1);
@@ -70,6 +71,27 @@ describe('ReaderPage', () => {
     expect(screen.queryByRole('slider', { name: '阅读进度' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '上一章' })).not.toBeInTheDocument();
     expect(screen.queryByText('阅读进度')).not.toBeInTheDocument();
+  });
+
+  it('keeps chapter translation controls behind the dock translation button', () => {
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'dock-translation', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '打开翻译显示设置' }));
+
+    expect(screen.getByRole('dialog', { name: '翻译显示' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '生成本章双语' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '生成本章纯译文' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '开始短语取词' })).toBeInTheDocument();
+    expect(screen.queryByText('短语取词已开启')).not.toBeInTheDocument();
+  });
+
+  it('starts phrase selection from its visible dock action without opening translation controls', () => {
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'translation-shortcut', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '开启短语取词' }));
+
+    expect(screen.getByText('短语取词已开启')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '翻译显示' })).not.toBeInTheDocument();
   });
 
   it('keeps speech voice choices in the dedicated speech panel', () => {
@@ -156,7 +178,7 @@ describe('ReaderPage', () => {
     fireEvent.touchEnd(article, { changedTouches: [{ clientX: 20, clientY: 200 }] });
     act(() => { vi.advanceTimersByTime(300); });
 
-    expect(screen.getByText('短语精译已开启')).toBeInTheDocument();
+    expect(screen.getByText('短语取词已开启')).toBeInTheDocument();
     expect(container.querySelector('.reader-page-content')).toHaveClass('reader-page-content--next');
     expect(onProgress).not.toHaveBeenCalled();
   });
