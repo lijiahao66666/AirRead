@@ -14,10 +14,6 @@ const book: Book = {
   readingChapter: 0, readingProgress: 0, generatedBilingual: false,
 };
 
-const mockSelection = (text: string) => vi.spyOn(window, 'getSelection').mockReturnValue({
-  toString: () => text,
-  removeAllRanges: vi.fn(),
-} as unknown as Selection);
 const selectNativeText = (startNode: Node, startOffset: number, endNode: Node, endOffset: number) => {
   const selection = window.getSelection();
   const range = document.createRange();
@@ -30,11 +26,24 @@ const selectNativeText = (startNode: Node, startOffset: number, endNode: Node, e
 const openTranslationPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开翻译显示设置' }));
 const openReadingSettings = () => fireEvent.click(screen.getByRole('button', { name: '打开阅读设置' }));
 const openSpeechPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开朗读' }));
+const phraseToken = (text: string, occurrence = 0) => {
+  const tokens = screen.getAllByRole('button', { name: `选择词语 ${text}` });
+  if (!tokens[occurrence]) throw new Error(`未找到第 ${occurrence + 1} 个词语：${text}`);
+  return tokens[occurrence];
+};
+const startPhraseSelection = () => {
+  openTranslationPanel();
+  fireEvent.click(screen.getByRole('button', { name: '开始短语精译' }));
+};
+const selectPhrase = (start: string, end: string, startOccurrence = 0, endOccurrence = 0) => {
+  fireEvent.click(phraseToken(start, startOccurrence));
+  fireEvent.click(phraseToken(end, endOccurrence));
+};
 
 describe('ReaderPage', () => {
   afterEach(() => { vi.useRealTimers(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-  it('automatically translates a finished text selection and supports inline retry', async () => {
+  it('translates a phrase selected by its first and last word and supports inline retry', async () => {
     const translate = vi.fn<TranslationEngine['translate']>()
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce('第二段译文');
@@ -44,9 +53,8 @@ describe('ReaderPage', () => {
 
     expect(screen.getByRole('heading', { name: 'A Quiet Book' })).toBeInTheDocument();
     expect(screen.getByText('The first paragraph.')).toBeInTheDocument();
-    const selectionTarget = screen.getByText('The second paragraph.');
-    mockSelection('The second paragraph.');
-    fireEvent.pointerUp(selectionTarget, { pointerType: 'mouse' });
+    startPhraseSelection();
+    selectPhrase('first', 'paragraph');
     expect(await screen.findByText('offline')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '重试划词翻译' }));
     expect(await screen.findByText('第二段译文')).toBeInTheDocument();
@@ -79,58 +87,39 @@ describe('ReaderPage', () => {
     const translate = vi.fn().mockResolvedValue('不应出现');
     const engine = { cacheIdentity: 'ordinary-click', translate } satisfies TranslationEngine;
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
-    mockSelection('');
     const paragraph = screen.getByText('The first paragraph.');
     fireEvent.pointerUp(paragraph, { pointerType: 'mouse' });
     expect(translate).not.toHaveBeenCalled();
-    expect(screen.queryByRole('complementary', { name: '划词翻译' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: '选中文本操作' })).not.toBeInTheDocument();
   });
 
-  it('keeps the native long-press menu available while a mobile reader selects text', () => {
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
-    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'mobile-context-menu', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
-
-    expect(fireEvent.contextMenu(screen.getByText('The first paragraph.'))).toBe(true);
-  });
-
-  it('uses a native mobile selection without limiting the selected text', async () => {
+  it('does not use a native mobile selection as a translation trigger', () => {
     vi.useFakeTimers();
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
-    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'mobile-long-press', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+    const translate = vi.fn();
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'mobile-context-menu', translate }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
     const paragraph = screen.getByText('The first paragraph.');
     selectNativeText(paragraph.firstChild!, 4, paragraph.firstChild!, 15);
-    expect(window.getSelection()?.toString()).toBe('first parag');
-    expect(window.getSelection()?.rangeCount).toBe(1);
-    act(() => { vi.advanceTimersByTime(450); });
-
-    expect(screen.getByRole('complementary', { name: '选中文本操作' })).toBeInTheDocument();
-    expect(window.getSelection()?.toString()).toBe('');
+    act(() => { vi.advanceTimersByTime(800); });
+    expect(translate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('complementary', { name: '选中文本操作' })).not.toBeInTheDocument();
   });
 
-  it('keeps a native mobile selection across original paragraphs', async () => {
-    vi.useFakeTimers();
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+  it('selects a phrase across visible paragraphs without relying on native selection', async () => {
     const translate = vi.fn().mockResolvedValue('第一段');
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'mobile-drag-selection', translate }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
-    const paragraph = screen.getByText('The first paragraph.');
-    const nextParagraph = screen.getByText('The second paragraph.');
-    selectNativeText(paragraph.firstChild!, 4, nextParagraph.firstChild!, 14);
-    expect(window.getSelection()?.toString()).toContain('first paragraph.');
-    expect(window.getSelection()?.rangeCount).toBe(1);
-    act(() => { vi.advanceTimersByTime(450); });
-
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(translate).toHaveBeenCalledWith(expect.objectContaining({ text: 'first paragraph.\n\nThe second par' }));
+    startPhraseSelection();
+    selectPhrase('first', 'paragraph', 0, 1);
+    await waitFor(() => expect(translate).toHaveBeenCalledWith(expect.objectContaining({ text: 'first paragraph.\n\nThe second paragraph' })));
   });
 
   it('blocks page turns while the selection panel is open and closes on outside tap', () => {
     const longBook = { ...book, id: 'selection-backdrop-book', text: 'A long reading sentence with enough words. '.repeat(80) };
     const { container } = render(<ReaderPage book={longBook} chapters={chaptersForBook(longBook)} engine={{ cacheIdentity: 'selection-backdrop', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
-    const paragraph = screen.getByText(/A long reading sentence/);
-    mockSelection(paragraph.textContent ?? '');
-    fireEvent.pointerUp(paragraph, { pointerType: 'mouse' });
+    startPhraseSelection();
+    selectPhrase('A', 'long');
 
     const backdrop = container.querySelector<HTMLElement>('.selection-actions-backdrop');
     expect(backdrop).toBeInTheDocument();
@@ -141,33 +130,31 @@ describe('ReaderPage', () => {
     expect(container.querySelector('.reader-page-content')).toHaveClass('reader-page-content--next');
   });
 
-  it('does not treat the mouse-up after a text selection as a page turn', async () => {
+  it('does not treat a phrase endpoint tap as a page turn', async () => {
     vi.useFakeTimers();
     const longBook = { ...book, id: 'selection-mouse-up-book', text: 'A long reading sentence with enough words. '.repeat(80) };
     const onProgress = vi.fn();
     render(<ReaderPage book={longBook} chapters={chaptersForBook(longBook)} engine={{ cacheIdentity: 'selection-mouse-up', translate: vi.fn() }} onProgress={onProgress} onBack={vi.fn()} />);
 
-    const paragraph = screen.getByText(/A long reading sentence/);
     const article = screen.getByRole('article', { name: '原文阅读内容' });
-    mockSelection(paragraph.textContent ?? '');
-    fireEvent.pointerUp(paragraph, { pointerType: 'mouse' });
+    startPhraseSelection();
+    selectPhrase('A', 'long');
     fireEvent.click(article, { clientX: 900 });
     act(() => { vi.advanceTimersByTime(200); });
 
     expect(onProgress).not.toHaveBeenCalled();
   });
 
-  it('waits for a mobile selection to settle before showing the bottom translation card', () => {
-    vi.useFakeTimers();
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+  it('shows the bottom translation card as soon as the phrase endpoint is chosen', () => {
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'native-selection', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
-    const paragraph = screen.getByText('The first paragraph.');
-    selectNativeText(paragraph.firstChild!, 0, paragraph.firstChild!, 9);
-    act(() => { vi.advanceTimersByTime(449); });
+    startPhraseSelection();
+    fireEvent.click(phraseToken('The'));
+    expect(screen.getByText('已选起点')).toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: '选中文本操作' })).not.toBeInTheDocument();
-    act(() => { vi.advanceTimersByTime(1); });
+    fireEvent.click(phraseToken('first'));
     expect(screen.getByRole('complementary', { name: '选中文本操作' })).toBeInTheDocument();
+    expect(fireEvent.contextMenu(phraseToken('paragraph'))).toBe(false);
   });
 
   it('translates the current chapter and lets readers hide or show bilingual text', async () => {
@@ -417,9 +404,9 @@ describe('ReaderPage', () => {
     const engine = { cacheIdentity: 'preferences', translate } satisfies TranslationEngine;
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
-    mockSelection('The first paragraph.');
-    fireEvent.pointerUp(screen.getByText('The first paragraph.'), { pointerType: 'mouse' });
-    await waitFor(() => expect(translate).toHaveBeenCalledWith({ text: 'The first paragraph.', sourceLanguage: 'ja', targetLanguage: 'en' }));
+    startPhraseSelection();
+    selectPhrase('The', 'paragraph');
+    await waitFor(() => expect(translate).toHaveBeenCalledWith({ text: 'The first paragraph', sourceLanguage: 'ja', targetLanguage: 'en' }));
     openSpeechPanel();
     fireEvent.click(screen.getByRole('button', { name: '朗读本章' }));
     expect((speak.mock.calls[0][0] as MockSpeechUtterance).voice).toBe(voice);
@@ -435,8 +422,8 @@ describe('ReaderPage', () => {
     openTranslationPanel();
     expect(screen.getByRole('status', { name: '当前内容已是简体中文，无需翻译' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成本章双语' })).toBeDisabled();
-    mockSelection('这是第一段中文。');
-    fireEvent.pointerUp(screen.getByText('这是第一段中文。'), { pointerType: 'mouse' });
+    startPhraseSelection();
+    selectPhrase('这', '中');
     expect(await screen.findByText('原文已经是简体中文，无需翻译')).toBeInTheDocument();
     expect(translate).not.toHaveBeenCalled();
   });
@@ -466,14 +453,14 @@ describe('ReaderPage', () => {
     const engine = { cacheIdentity: 'selection-target', translate } satisfies TranslationEngine;
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={engine} onProgress={vi.fn()} onTranslationPreferencesChange={onTranslationPreferencesChange} onSelectionPreferencesChange={onSelectionPreferencesChange} onBack={vi.fn()} />);
 
-    mockSelection('The first paragraph.');
-    fireEvent.pointerUp(screen.getByText('The first paragraph.'), { pointerType: 'mouse' });
-    fireEvent.click(screen.getByRole('button', { name: '选择划词翻译目标语言，当前简体中文' }));
-    expect(screen.getByRole('dialog', { name: '划词翻译目标语言' })).toBeInTheDocument();
+    startPhraseSelection();
+    selectPhrase('The', 'paragraph');
+    fireEvent.click(screen.getByRole('button', { name: '选择短语翻译目标语言，当前简体中文' }));
+    expect(screen.getByRole('dialog', { name: '短语翻译目标语言' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('option', { name: '日语' }));
     expect(onSelectionPreferencesChange).toHaveBeenCalledWith({ targetLanguage: 'ja' });
     expect(onTranslationPreferencesChange).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: '选择划词翻译目标语言，当前日语' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '选择短语翻译目标语言，当前日语' })).toBeInTheDocument();
     expect(await screen.findByText('ja selection')).toBeInTheDocument();
     expect(translate).toHaveBeenLastCalledWith(expect.objectContaining({ targetLanguage: 'ja' }));
   });
@@ -484,9 +471,9 @@ describe('ReaderPage', () => {
     const engine = { cacheIdentity: 'independent-targets', translate } satisfies TranslationEngine;
     render(<ReaderPage book={bookWithJapaneseTarget} chapters={chaptersForBook(bookWithJapaneseTarget)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
 
-    mockSelection('The first paragraph.');
-    fireEvent.pointerUp(screen.getByText('The first paragraph.'), { pointerType: 'mouse' });
-    expect(screen.getByRole('button', { name: '选择划词翻译目标语言，当前简体中文' })).toBeInTheDocument();
+    startPhraseSelection();
+    selectPhrase('The', 'paragraph');
+    expect(screen.getByRole('button', { name: '选择短语翻译目标语言，当前简体中文' })).toBeInTheDocument();
     expect(await screen.findByText('zh-CN selection')).toBeInTheDocument();
     expect(translate).toHaveBeenCalledWith(expect.objectContaining({ targetLanguage: 'zh-CN' }));
   });
@@ -496,8 +483,8 @@ describe('ReaderPage', () => {
     const engine = { cacheIdentity: 'stale', translate: vi.fn(() => new Promise<string>((resolve) => { resolveTranslation = resolve; })) } satisfies TranslationEngine;
     const epubBook: Book = { ...book, id: 'epub-book', format: 'epub', bytes: buildMinimalEpub(), text: undefined };
     render(<ReaderPage book={epubBook} chapters={chaptersForBook(epubBook)} engine={engine} onProgress={vi.fn()} onBack={vi.fn()} />);
-    mockSelection('The first paragraph begins the AirRead test.');
-    fireEvent.pointerUp(screen.getByText('The first paragraph begins the AirRead test.'), { pointerType: 'mouse' });
+    startPhraseSelection();
+    selectPhrase('The', 'test');
     await waitFor(() => expect(engine.translate).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: '打开目录' }));
     fireEvent.click(screen.getByRole('button', { name: /Chapter Two/ }));

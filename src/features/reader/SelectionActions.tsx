@@ -31,8 +31,8 @@ export function SelectionActions({ source, targetLanguage, globalTargetLanguage,
   return <>
     <aside className="selection-actions" aria-label="选中文本操作">
       <header className="selection-actions__heading">
-        <span><Languages size={16} /> 划词翻译</span>
-        <button type="button" className="selection-actions__language-trigger" aria-label={`选择划词翻译目标语言，当前${selectedLanguageLabel}`} aria-haspopup="dialog" aria-expanded={languagePickerOpen} onClick={() => setLanguagePickerOpen(true)}>译为 {selectedLanguageLabel}</button>
+        <span><Languages size={16} /> 短语翻译</span>
+        <button type="button" className="selection-actions__language-trigger" aria-label={`选择短语翻译目标语言，当前${selectedLanguageLabel}`} aria-haspopup="dialog" aria-expanded={languagePickerOpen} onClick={() => setLanguagePickerOpen(true)}>译为 {selectedLanguageLabel}</button>
       </header>
       <p className="selection-actions__source">{source}</p>
       <div className="selection-actions__result" aria-live="polite">
@@ -44,8 +44,8 @@ export function SelectionActions({ source, targetLanguage, globalTargetLanguage,
       <div className="selection-actions__secondary" role="toolbar" aria-label="译文操作"><button type="button" onClick={onRead} disabled={!canRead}><Play size={15} /> 朗读</button><button type="button" onClick={onCopy}><Copy size={15} /> {copied ? '已复制' : '复制'}</button></div>
     </aside>
     {languagePickerOpen && <div className="selection-language-picker-backdrop" role="presentation" onClick={() => setLanguagePickerOpen(false)}>
-      <section className="selection-language-picker" role="dialog" aria-modal="true" aria-label="划词翻译目标语言" onClick={(event) => event.stopPropagation()}>
-        <header><span>翻译为</span><p>仅影响这本书的划词翻译</p></header>
+      <section className="selection-language-picker" role="dialog" aria-modal="true" aria-label="短语翻译目标语言" onClick={(event) => event.stopPropagation()}>
+        <header><span>翻译为</span><p>仅影响这本书的短语翻译</p></header>
         <div role="listbox" aria-label="目标语言">
           <button type="button" role="option" aria-selected={!targetOverride} className={!targetOverride ? 'is-selected' : ''} onClick={() => chooseLanguage('')}><span>跟随阅读翻译</span><strong>{languageLabel(globalTargetLanguage)}</strong></button>
           {READER_LANGUAGE_OPTIONS.filter((option) => option.value !== 'auto').map((option) => {
