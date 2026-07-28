@@ -11,6 +11,7 @@ export type ReaderPreferences = {
   lineHeight: 'compact' | 'comfortable' | 'relaxed';
   readingMode: 'paged' | 'scroll';
   theme: 'paper' | 'sepia' | 'night';
+  hasSeenReaderGestureGuide: boolean;
 };
 
 export const READER_LANGUAGE_OPTIONS: Array<{ value: ReaderLanguage; label: string }> = [
@@ -39,6 +40,7 @@ export const DEFAULT_READER_PREFERENCES: ReaderPreferences = {
   lineHeight: 'comfortable',
   readingMode: 'paged',
   theme: 'paper',
+  hasSeenReaderGestureGuide: false,
 };
 
 const PREFERENCES_KEY = 'airread.readerPreferences.v1';
@@ -73,6 +75,7 @@ export class ReaderPreferencesStore {
       const lineHeight = parsed.lineHeight === 'compact' || parsed.lineHeight === 'comfortable' || parsed.lineHeight === 'relaxed' ? parsed.lineHeight : DEFAULT_READER_PREFERENCES.lineHeight;
       const readingMode = parsed.readingMode === 'scroll' || parsed.readingMode === 'paged' ? parsed.readingMode : DEFAULT_READER_PREFERENCES.readingMode;
       const theme = parsed.theme === 'sepia' || parsed.theme === 'night' || parsed.theme === 'paper' ? parsed.theme : DEFAULT_READER_PREFERENCES.theme;
+      const hasSeenReaderGestureGuide = parsed.hasSeenReaderGestureGuide === true;
       return {
         sourceLanguage,
         targetLanguage,
@@ -88,6 +91,7 @@ export class ReaderPreferencesStore {
         lineHeight,
         readingMode,
         theme,
+        hasSeenReaderGestureGuide,
       };
     } catch {
       return { ...DEFAULT_READER_PREFERENCES };

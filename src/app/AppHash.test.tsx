@@ -1,20 +1,23 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildMinimalEpub } from '../domain/books/bookFixtures';
 
-const { firstBook, secondBook, mockStore } = vi.hoisted(() => {
+const { firstBook, secondBook, mockStore, mockLoadBookChapters } = vi.hoisted(() => {
   const firstBook = { id: 'a', title: 'Book A', author: '', format: 'txt' as const, bytes: new Uint8Array([1]), text: 'A text', importedAt: 1, readingChapter: 0, readingProgress: 0, generatedBilingual: false };
   const secondBook = { ...firstBook, id: 'b', title: 'Book B', text: 'B text' };
-  return { firstBook, secondBook, mockStore: { listBooks: vi.fn(), saveBook: vi.fn(), deleteBook: vi.fn(), updateBook: vi.fn() } };
+  const mockLoadBookChapters = vi.fn().mockResolvedValue([{ id: 'chapter-1', title: '第 1 章', href: 'chapter-1.txt', content: 'A chapter.' }]);
+  return { firstBook, secondBook, mockStore: { listBooks: vi.fn(), saveBook: vi.fn(), deleteBook: vi.fn(), updateBook: vi.fn() }, mockLoadBookChapters };
 });
 
 vi.mock('../domain/books/bookStore', () => ({ createBookStore: () => mockStore }));
+vi.mock('../features/reader/readerChapterLoader', () => ({ loadBookChapters: mockLoadBookChapters }));
 
 import App from '../App';
 
 describe('App hash reader identity', () => {
-  beforeEach(() => { window.location.hash = ''; mockStore.listBooks.mockResolvedValue([firstBook, secondBook]); });
+  beforeEach(() => { window.location.hash = ''; mockStore.listBooks.mockResolvedValue([firstBook, secondBook]); mockLoadBookChapters.mockClear(); });
+  afterEach(() => vi.useRealTimers());
 
   it('derives the active book from the current hash when switching A to B', async () => {
     window.location.hash = '#reader/a';
@@ -44,5 +47,21 @@ describe('App hash reader identity', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('正在打开书籍');
     expect(await screen.findByRole('heading', { name: 'EPUB Book' })).toBeInTheDocument();
+  });
+
+  it('waits before prewarming bookshelf chapters so the first interaction stays free', async () => {
+    vi.useFakeTimers();
+    mockStore.listBooks.mockResolvedValue([firstBook]);
+    render(<App />);
+
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(screen.getByRole('link', { name: '阅读 Book A，进度 0%' })).toBeInTheDocument();
+    expect(mockLoadBookChapters).not.toHaveBeenCalled();
+
+    await act(async () => { vi.advanceTimersByTime(1_199); });
+    expect(mockLoadBookChapters).not.toHaveBeenCalled();
+
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(mockLoadBookChapters).toHaveBeenCalledWith(firstBook);
   });
 });

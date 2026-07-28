@@ -87,6 +87,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const [pageDirection, setPageDirection] = useState<-1 | 1>(1);
   const preferencesStore = useMemo(() => new ReaderPreferencesStore(), []);
   const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>(() => preferencesStore.get());
+  const [gestureGuideVisible, setGestureGuideVisible] = useState(() => !preferencesStore.get().hasSeenReaderGestureGuide);
   const [speechVoices, setSpeechVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [bookTranslationPreferences, setBookTranslationPreferences] = useState<BookTranslationPreferences>(() => book.translationPreferences ?? {});
   const [selectionPreferences, setSelectionPreferences] = useState<BookSelectionPreferences>(() => book.selectionPreferences ?? {});
@@ -95,6 +96,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const [progressError, setProgressError] = useState<string>();
   const [bookmarks, setBookmarks] = useState<NonNullable<Book['bookmarks']>>(() => book.bookmarks ?? []);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchQueryForResults, setSearchQueryForResults] = useState('');
   const [pendingSearchAnchor, setPendingSearchAnchor] = useState<BookReadingAnchor>();
   const activeEngine = useMemo(() => engine ?? createTranslationEngine(new ProviderProfileStore().selected()), [engine]);
   const cache = useMemo(() => new TranslationCache(), []);
@@ -172,6 +174,11 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   }, [book.id]);
 
   useEffect(() => setBookmarks(book.bookmarks ?? []), [book.id, book.bookmarks]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQueryForResults(searchQuery), 160);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => { if (event.key === 'airread.readerPreferences.v1') setReaderPreferences(preferencesStore.get()); };
@@ -430,15 +437,14 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const currentPageBookmarked = Boolean(currentBookmarkId && bookmarks.some((bookmark) => bookmark.id === currentBookmarkId));
   const orderedBookmarks = useMemo(() => [...bookmarks].sort((left, right) => right.createdAt - left.createdAt), [bookmarks]);
   const searchResults = useMemo<ReaderSearchResult[]>(() => {
-    const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+    const normalizedQuery = searchQueryForResults.trim().toLocaleLowerCase();
     if (!normalizedQuery) return [];
     const results: ReaderSearchResult[] = [];
-    chapters.forEach((searchChapter, searchChapterIndex) => {
-      paragraphsForChapter(searchChapter).forEach((paragraph) => {
-        if (results.length >= 48) return;
+    for (const [searchChapterIndex, searchChapter] of chapters.entries()) {
+      for (const paragraph of paragraphsForChapter(searchChapter)) {
         const normalizedText = paragraph.original.toLocaleLowerCase();
         const matchIndex = normalizedText.indexOf(normalizedQuery);
-        if (matchIndex < 0) return;
+        if (matchIndex < 0) continue;
         results.push({
           chapter: searchChapterIndex,
           chapterTitle: searchChapter.title || `第 ${searchChapterIndex + 1} 章`,
@@ -446,10 +452,11 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
           sourceOffset: 0,
           excerpt: searchExcerpt(paragraph.original, matchIndex, normalizedQuery.length),
         });
-      });
-    });
+        if (results.length >= 48) return results;
+      }
+    }
     return results;
-  }, [chapters, searchQuery]);
+  }, [chapters, searchQueryForResults]);
 
   useLayoutEffect(() => {
     const measureHost = readerPageMeasureRef.current;
@@ -543,6 +550,10 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     shouldRestorePagePosition.current = false;
     setReaderPreferences(preferencesStore.update({ [key]: value }));
     if (key === 'readingMode') setPageIndex(0);
+  };
+  const dismissGestureGuide = () => {
+    setReaderPreferences(preferencesStore.update({ hasSeenReaderGestureGuide: true }));
+    setGestureGuideVisible(false);
   };
   const changeSpeechVoice = (kind: 'source' | 'target', voiceURI: string) => {
     stopSpeech();
@@ -777,6 +788,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
           : <div className="reader-scroll-content">{renderBlocks(allBlocks)}</div>}
         <span className="reader-page-indicator" aria-hidden="true">{pageLabel}</span>
       </article>
+      {gestureGuideVisible && <aside className="reader-gesture-guide" aria-label="阅读手势提示"><strong>轻点中央显示工具</strong><span>轻点左右区域或横向滑动，即可翻页</span><button type="button" onClick={dismissGestureGuide}>知道了</button></aside>}
     </div>
     <div className="reader-page-measure" aria-hidden="true" style={{ width: paginationViewport.contentWidth }}>
       <div className="reader-page-measure__content" ref={readerPageMeasureRef}>
@@ -807,7 +819,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
       </div>
     </div>
     {progressError && <div className="reader-feedback reader-feedback--error reader-progress-error" role="alert">{progressError}</div>}
-    {contentsOpen && <ReaderSheet title="目录" onClose={() => setContentsOpen(false)}><div className="reader-lookup"><label className="reader-search"><Search size={16} aria-hidden="true" /><span className="sr-only">搜索全书</span><input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索全书内容" aria-label="搜索全书" /></label>{searchQuery.trim() && <section className="reader-search-results" aria-live="polite"><div className="reader-lookup__heading"><h3>搜索结果</h3><span>{searchResults.length}{searchResults.length === 48 ? '+' : ''} 条</span></div>{searchResults.length > 0 ? <div>{searchResults.map((result) => <button type="button" key={`${result.chapter}:${result.paragraphId}`} onClick={() => navigateToAnchor(result)}><span>第 {result.chapter + 1} 章 · {result.chapterTitle}</span><strong>{result.excerpt}</strong><ChevronRight size={16} /></button>)}</div> : <p>没有找到匹配内容</p>}</section>}{orderedBookmarks.length > 0 && <section className="reader-bookmarks"><div className="reader-lookup__heading"><h3>书签</h3><span>{orderedBookmarks.length}</span></div><div>{orderedBookmarks.map((bookmark) => <button type="button" key={bookmark.id} onClick={() => navigateToAnchor(bookmark)}><span>第 {bookmark.chapter + 1} 章 · {chapters[bookmark.chapter]?.title || `第 ${bookmark.chapter + 1} 章`}</span><strong>回到这页</strong><ChevronRight size={16} /></button>)}</div></section>}<nav className="reader-toc" aria-label="章节目录">{chapters.map((item, index) => <button type="button" className={index === chapterIndex ? 'is-active' : ''} key={item.id} onClick={() => { setContentsOpen(false); if (index !== chapterIndex) changeChapter(index); }}><span>{String(index + 1).padStart(2, '0')}</span><strong>{item.title || `第 ${index + 1} 章`}</strong><ChevronRight size={16} /></button>)}</nav></div></ReaderSheet>}
+    {contentsOpen && <ReaderSheet title="目录" onClose={() => setContentsOpen(false)}><div className="reader-lookup"><label className="reader-search"><Search size={16} aria-hidden="true" /><span className="sr-only">搜索全书</span><input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索全书内容" aria-label="搜索全书" /></label>{searchQuery.trim() && <section className="reader-search-results" aria-live="polite"><div className="reader-lookup__heading"><h3>搜索结果</h3><span>{searchQuery !== searchQueryForResults ? '搜索中' : `${searchResults.length}${searchResults.length === 48 ? '+' : ''} 条`}</span></div>{searchQuery !== searchQueryForResults ? <p>正在搜索全书…</p> : searchResults.length > 0 ? <div>{searchResults.map((result) => <button type="button" key={`${result.chapter}:${result.paragraphId}`} onClick={() => navigateToAnchor(result)}><span>第 {result.chapter + 1} 章 · {result.chapterTitle}</span><strong>{result.excerpt}</strong><ChevronRight size={16} /></button>)}</div> : <p>没有找到匹配内容</p>}</section>}{orderedBookmarks.length > 0 && <section className="reader-bookmarks"><div className="reader-lookup__heading"><h3>书签</h3><span>{orderedBookmarks.length}</span></div><div>{orderedBookmarks.map((bookmark) => <button type="button" key={bookmark.id} onClick={() => navigateToAnchor(bookmark)}><span>第 {bookmark.chapter + 1} 章 · {chapters[bookmark.chapter]?.title || `第 ${bookmark.chapter + 1} 章`}</span><strong>回到这页</strong><ChevronRight size={16} /></button>)}</div></section>}<nav className="reader-toc" aria-label="章节目录">{chapters.map((item, index) => <button type="button" className={index === chapterIndex ? 'is-active' : ''} key={item.id} onClick={() => { setContentsOpen(false); if (index !== chapterIndex) changeChapter(index); }}><span>{String(index + 1).padStart(2, '0')}</span><strong>{item.title || `第 ${index + 1} 章`}</strong><ChevronRight size={16} /></button>)}</nav></div></ReaderSheet>}
     {translationOpen && <ReaderSheet title="翻译显示" onClose={() => setTranslationOpen(false)}><ReaderTranslationControls translatedCount={translatedCount} totalCount={translationParagraphs.length} running={chapterTranslation.running} failed={chapterTranslation.failed} contentMode={contentMode} targetLanguage={bookTargetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={bookTargetOverride} onModeChange={changeContentMode} onStop={stopChapterTranslation} onTargetLanguageChange={(language) => { void changeBookTargetLanguage(language); }} />{chapterLanguageNotice && <span className="reader-language-note" role="status" aria-label={chapterLanguageNotice}>{chapterLanguageNotice}</span>}</ReaderSheet>}
     {speechOpen && <ReaderSheet title="朗读" onClose={() => setSpeechOpen(false)}><ReaderSpeechControls supported={speechSupported} state={speechState} contentLabel={modeLabel} currentIndex={speechParagraphIndex} totalCount={speechParagraphs.length} error={speechError} onStart={() => startSpeech()} onPause={pauseSpeech} onResume={resumeSpeech} onStop={stopSpeech} /><ReaderSpeechPreferences supported={speechSupported} voices={speechVoices} sourceLocale={sourceSpeechLocale} targetLocale={targetSpeechLocale} sourceVoiceURI={readerPreferences.sourceVoiceURI} targetVoiceURI={readerPreferences.targetVoiceURI} rate={speechRate} onVoiceChange={changeSpeechVoice} onRateChange={(rate) => updateReaderPreference('speechRate', rate)} onPreview={previewSpeechVoice} /></ReaderSheet>}
     {settingsOpen && <ReaderSheet title="阅读设置" onClose={() => setSettingsOpen(false)}><div className="reader-settings-form"><section><h3>阅读模式</h3><div className="reader-setting-segment"><button type="button" className={readerPreferences.readingMode === 'paged' ? 'is-active' : ''} onClick={() => updateReaderPreference('readingMode', 'paged')}><PanelBottom size={16} /> 分页</button><button type="button" className={readerPreferences.readingMode === 'scroll' ? 'is-active' : ''} onClick={() => updateReaderPreference('readingMode', 'scroll')}><List size={16} /> 滚动</button></div></section><section><h3>字体</h3><div className="reader-setting-segment"><button type="button" className={readerPreferences.fontFamily === 'serif' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontFamily', 'serif')}>衬线</button><button type="button" className={readerPreferences.fontFamily === 'sans' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontFamily', 'sans')}>无衬线</button></div></section><section><h3>字号</h3><div className="reader-setting-segment reader-setting-segment--four"><button type="button" className={readerPreferences.fontSize === 'small' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'small')}>小</button><button type="button" className={readerPreferences.fontSize === 'medium' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'medium')}>中</button><button type="button" className={readerPreferences.fontSize === 'large' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'large')}>大</button><button type="button" className={readerPreferences.fontSize === 'x-large' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'x-large')}>特大</button></div></section><section><h3>行距</h3><div className="reader-setting-segment reader-setting-segment--three"><button type="button" className={readerPreferences.lineHeight === 'compact' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'compact')}>紧凑</button><button type="button" className={readerPreferences.lineHeight === 'comfortable' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'comfortable')}>舒适</button><button type="button" className={readerPreferences.lineHeight === 'relaxed' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'relaxed')}>宽松</button></div></section><section><h3>页面主题</h3><div className="reader-setting-segment reader-setting-segment--three"><button type="button" className={readerPreferences.theme === 'paper' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'paper')}><Sun size={15} /> 纸张</button><button type="button" className={readerPreferences.theme === 'sepia' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'sepia')}><BookOpen size={15} /> 柔和</button><button type="button" className={readerPreferences.theme === 'night' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'night')}><Moon size={15} /> 夜间</button></div></section></div></ReaderSheet>}

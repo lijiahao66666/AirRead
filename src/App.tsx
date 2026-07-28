@@ -1,14 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, BookOpen, LibraryBig, Settings2, Sparkles } from 'lucide-react';
 
-import { parseBook } from './domain/books/bookParser';
 import { createBookStore } from './domain/books/bookStore';
 import type { Book, Chapter } from './domain/books/book';
 import { BookshelfPage } from './features/bookshelf/BookshelfPage';
-import { ReaderPage } from './features/reader/ReaderPage';
-import { loadBookChapters } from './features/reader/readerChapterLoader';
-import { BookStudioPage } from './features/studio/BookStudioPage';
-import { SettingsPage } from './features/settings/SettingsPage';
 import { ProviderProfileStore } from './domain/ai/providerStore';
 import './styles/global.css';
 
@@ -21,6 +16,15 @@ const primaryNavigation: Array<{ label: string; route: Exclude<AppRoute, 'reader
 const bookStore = createBookStore();
 const providerStore = new ProviderProfileStore();
 type ReaderPreparation = { bookId: string; chapters?: Chapter[]; error?: string };
+const BOOKSHELF_PREWARM_DELAY_MS = 1_200;
+const ReaderPage = lazy(async () => ({ default: (await import('./features/reader/ReaderPage')).ReaderPage }));
+const BookStudioPage = lazy(async () => ({ default: (await import('./features/studio/BookStudioPage')).BookStudioPage }));
+const SettingsPage = lazy(async () => ({ default: (await import('./features/settings/SettingsPage')).SettingsPage }));
+
+const prepareBookChapters = async (book: Book): Promise<Chapter[]> => {
+  const { loadBookChapters } = await import('./features/reader/readerChapterLoader');
+  return loadBookChapters(book);
+};
 
 function locationFromHash(): AppLocation {
   const [rawRoute, bookId] = window.location.hash.slice(1).split('/');
@@ -61,9 +65,9 @@ export default function App() {
         .slice(0, 2);
       void recentBooks.reduce(async (previous, book) => {
         await previous;
-        if (!cancelled) await loadBookChapters(book).catch(() => undefined);
+        if (!cancelled) await prepareBookChapters(book).catch(() => undefined);
       }, Promise.resolve());
-    }, 0);
+    }, BOOKSHELF_PREWARM_DELAY_MS);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [books, loading, location.route]);
 
@@ -73,7 +77,7 @@ export default function App() {
     if (readerPreparation?.bookId !== activeBook.id || readerPreparation.error) {
       setReaderPreparation({ bookId: activeBook.id });
     }
-    void loadBookChapters(activeBook).then((chapters) => {
+    void prepareBookChapters(activeBook).then((chapters) => {
       if (!cancelled) setReaderPreparation({ bookId: activeBook.id, chapters });
     }).catch((cause) => {
       if (!cancelled) setReaderPreparation({ bookId: activeBook.id, error: cause instanceof Error ? cause.message : '无法打开书籍' });
@@ -84,6 +88,7 @@ export default function App() {
   const importBook = async (file: File) => {
     setError(undefined);
     try {
+      const { parseBook } = await import('./domain/books/bookParser');
       const imported = await parseBook(file);
       await bookStore.saveBook(imported);
       setBooks((current) => [imported, ...current.filter((book) => book.id !== imported.id)]);
@@ -123,15 +128,15 @@ export default function App() {
   if (location.route === 'reader') {
     content = loading ? <div className="state-card" role="status">正在读取书籍</div> : activeBook
       ? readerPreparation?.bookId === activeBook.id && readerPreparation.chapters
-        ? <ReaderPage key={activeBook.id} book={activeBook} chapters={readerPreparation.chapters} onProgress={(progress) => updateProgress(activeBook.id, progress)} onTranslationPreferencesChange={(preferences) => updateTranslationPreferences(activeBook.id, preferences)} onSelectionPreferencesChange={(preferences) => updateSelectionPreferences(activeBook.id, preferences)} onBookmarksChange={(bookmarks) => updateBookmarks(activeBook.id, bookmarks)} onBack={() => { window.location.hash = 'bookshelf'; }} />
+        ? <Suspense fallback={<div className="state-card" role="status">正在打开阅读器</div>}><ReaderPage key={activeBook.id} book={activeBook} chapters={readerPreparation.chapters} onProgress={(progress) => updateProgress(activeBook.id, progress)} onTranslationPreferencesChange={(preferences) => updateTranslationPreferences(activeBook.id, preferences)} onSelectionPreferencesChange={(preferences) => updateSelectionPreferences(activeBook.id, preferences)} onBookmarksChange={(bookmarks) => updateBookmarks(activeBook.id, bookmarks)} onBack={() => { window.location.hash = 'bookshelf'; }} /></Suspense>
         : readerPreparation?.bookId === activeBook.id && readerPreparation.error
           ? <div className="state-card state-card--error" role="alert">{readerPreparation.error}</div>
           : <div className="state-card" role="status">正在打开书籍</div>
       : <MissingBookPage />;
   } else if (location.route === 'studio') {
-    content = <BookStudioPage books={books} providerStore={providerStore} onSaveBook={saveGeneratedBook} />;
+    content = <Suspense fallback={<div className="state-card" role="status">正在打开书籍工作室</div>}><BookStudioPage books={books} providerStore={providerStore} onSaveBook={saveGeneratedBook} /></Suspense>;
   } else if (location.route === 'settings') {
-    content = <SettingsPage store={providerStore} />;
+    content = <Suspense fallback={<div className="state-card" role="status">正在打开翻译设置</div>}><SettingsPage store={providerStore} /></Suspense>;
   } else {
     content = <BookshelfPage books={books} loading={loading} error={error} onImport={importBook} onOpen={openBook} onDelete={deleteBook} />;
   }

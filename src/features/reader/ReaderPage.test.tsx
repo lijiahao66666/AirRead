@@ -73,6 +73,15 @@ describe('ReaderPage', () => {
     expect(screen.queryByText('阅读进度')).not.toBeInTheDocument();
   });
 
+  it('shows the one-time reader gesture guide and remembers dismissal', () => {
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'gesture-guide', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    expect(screen.getByText('轻点中央显示工具')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '知道了' }));
+    expect(screen.queryByText('轻点中央显示工具')).not.toBeInTheDocument();
+    expect(new ReaderPreferencesStore(localStorage).get()).toHaveProperty('hasSeenReaderGestureGuide', true);
+  });
+
   it('adds a bookmark from the top bar and exposes it in the directory', async () => {
     const onBookmarksChange = vi.fn();
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'bookmark', translate: vi.fn() }} onProgress={vi.fn()} onBookmarksChange={onBookmarksChange} onBack={vi.fn()} />);

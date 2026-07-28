@@ -16,7 +16,7 @@ describe('ReaderPreferencesStore', () => {
     const store = new ReaderPreferencesStore(localStorage);
     expect(store.get()).toEqual(DEFAULT_READER_PREFERENCES);
     store.update({ sourceLanguage: 'ja', targetLanguage: 'en', speechRate: 1.2, sourceVoiceURI: 'voice-ja', targetVoiceURI: 'voice-en' });
-    expect(store.get()).toEqual({ sourceLanguage: 'ja', targetLanguage: 'en', speechRate: 1.2, sourceVoiceURI: 'voice-ja', targetVoiceURI: 'voice-en', fontFamily: 'serif', fontSize: 'medium', lineHeight: 'comfortable', readingMode: 'paged', theme: 'paper' });
+    expect(store.get()).toEqual({ sourceLanguage: 'ja', targetLanguage: 'en', speechRate: 1.2, sourceVoiceURI: 'voice-ja', targetVoiceURI: 'voice-en', fontFamily: 'serif', fontSize: 'medium', lineHeight: 'comfortable', readingMode: 'paged', theme: 'paper', hasSeenReaderGestureGuide: false });
   });
 
   it('migrates the legacy single voice into the source voice', () => {
@@ -27,6 +27,14 @@ describe('ReaderPreferencesStore', () => {
   it('ignores invalid stored values instead of breaking reading', () => {
     localStorage.setItem('airread.readerPreferences.v1', JSON.stringify({ sourceLanguage: 'xx', targetLanguage: 'auto', speechRate: 3 }));
     expect(new ReaderPreferencesStore(localStorage).get()).toEqual(DEFAULT_READER_PREFERENCES);
+  });
+
+  it('persists whether the reader gesture guide has been seen', () => {
+    const store = new ReaderPreferencesStore(localStorage);
+    expect(store.get()).toHaveProperty('hasSeenReaderGestureGuide', false);
+
+    localStorage.setItem('airread.readerPreferences.v1', JSON.stringify({ hasSeenReaderGestureGuide: true }));
+    expect(new ReaderPreferencesStore(localStorage).get()).toHaveProperty('hasSeenReaderGestureGuide', true);
   });
 });
 
