@@ -233,4 +233,6 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
   .bookshelf-page__header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .7rem; padding-right: 0; }
   .bookshelf-page__header > div:first-child { min-width: 0; }
   .bookshelf-page__actions { position: static; }
+
+  input, select, textarea { font-size: 16px !important; }
 }
