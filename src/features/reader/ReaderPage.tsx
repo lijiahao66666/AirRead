@@ -677,7 +677,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const pageLabel = readerPreferences.readingMode === 'paged' ? `${pageIndex + 1} / ${pageCount}` : `${Math.round(localProgress * 100)}%`;
 
   return <section className={`reader-page reader-page--${readerPreferences.readingMode} reader-page--theme-${readerPreferences.theme} reader-page--font-${readerPreferences.fontFamily} reader-page--font-${readerPreferences.fontSize} reader-page--line-${readerPreferences.lineHeight} ${phraseSelectionActive ? 'reader-page--phrase-selection' : ''} ${chromeVisible ? 'reader-page--chrome-visible' : ''} ${speechState !== 'idle' ? 'reader-page--speech-active' : ''}`} aria-labelledby="reader-title">
-    <ReaderToolbar title={book.title} chapterTitle={chapter?.title || '暂无章节'} chapterIndex={chapterIndex} chapterCount={chapters.length} onBack={onBack} onTranslationSettings={() => { setTranslationOpen(true); setChromeVisible(true); }} />
+    <ReaderToolbar title={book.title} chapterTitle={chapter?.title || '暂无章节'} chapterIndex={chapterIndex} chapterCount={chapters.length} onBack={onBack} />
     <div className="reader-reading-surface">
       <article className="reader-canvas" ref={readerCanvasRef} aria-label={`${modeLabel}阅读内容`} onClick={handleReaderClick} onKeyDown={handleReaderKeyDown} onTouchStart={handleReaderTouchStart} onTouchEnd={handleReaderTouchEnd} onTouchCancel={handleReaderTouchCancel} tabIndex={0}>
         <h2 id="reader-title" className="sr-only">{book.title}</h2>

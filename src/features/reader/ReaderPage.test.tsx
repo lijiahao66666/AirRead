@@ -23,7 +23,7 @@ const selectNativeText = (startNode: Node, startOffset: number, endNode: Node, e
   selection?.addRange(range);
   fireEvent(document, new Event('selectionchange'));
 };
-const openTranslationPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开翻译与显示设置' }));
+const openTranslationPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开翻译显示设置' }));
 const openReadingSettings = () => fireEvent.click(screen.getByRole('button', { name: '打开阅读设置' }));
 const openSpeechPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开朗读' }));
 const phraseToken = (text: string, occurrence = 0) => {
@@ -65,7 +65,7 @@ describe('ReaderPage', () => {
     expect(screen.getAllByRole('button', { name: '打开朗读' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开翻译显示设置' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '开启短语取词' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: '打开翻译与显示设置' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: '打开翻译与显示设置' })).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: '打开阅读设置' })).toHaveLength(1);
     expect(screen.getByLabelText('阅读控制').querySelectorAll('.reader-dock__action span')).toHaveLength(0);
     expect(screen.queryByRole('slider', { name: '阅读进度' })).not.toBeInTheDocument();
