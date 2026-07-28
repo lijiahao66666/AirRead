@@ -23,7 +23,7 @@ const selectNativeText = (startNode: Node, startOffset: number, endNode: Node, e
   selection?.addRange(range);
   fireEvent(document, new Event('selectionchange'));
 };
-const openTranslationPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开翻译显示设置' }));
+const openTranslationPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开翻译与显示设置' }));
 const openReadingSettings = () => fireEvent.click(screen.getByRole('button', { name: '打开阅读设置' }));
 const openSpeechPanel = () => fireEvent.click(screen.getByRole('button', { name: '打开朗读' }));
 const phraseToken = (text: string, occurrence = 0) => {
@@ -31,10 +31,7 @@ const phraseToken = (text: string, occurrence = 0) => {
   if (!tokens[occurrence]) throw new Error(`未找到第 ${occurrence + 1} 个词语：${text}`);
   return tokens[occurrence];
 };
-const startPhraseSelection = () => {
-  openTranslationPanel();
-  fireEvent.click(screen.getByRole('button', { name: '开始短语精译' }));
-};
+const startPhraseSelection = () => fireEvent.click(screen.getByRole('button', { name: '开启短语取词' }));
 const selectPhrase = (start: string, end: string, startOccurrence = 0, endOccurrence = 0) => {
   fireEvent.click(phraseToken(start, startOccurrence));
   fireEvent.click(phraseToken(end, endOccurrence));
@@ -66,6 +63,8 @@ describe('ReaderPage', () => {
     expect(screen.getAllByRole('button', { name: '返回书架' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开目录' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开朗读' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '开启短语取词' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '打开翻译与显示设置' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '打开阅读设置' })).toHaveLength(1);
     expect(screen.getByLabelText('阅读控制').querySelectorAll('.reader-dock__action span')).toHaveLength(0);
     expect(screen.queryByRole('slider', { name: '阅读进度' })).not.toBeInTheDocument();
@@ -145,6 +144,23 @@ describe('ReaderPage', () => {
     expect(onProgress).not.toHaveBeenCalled();
   });
 
+  it('blocks both taps and horizontal swipes from turning pages while phrase selection is active', () => {
+    vi.useFakeTimers();
+    const longBook = { ...book, id: 'selection-page-lock-book', text: 'A long reading sentence with enough words. '.repeat(80) };
+    const onProgress = vi.fn();
+    const { container } = render(<ReaderPage book={longBook} chapters={chaptersForBook(longBook)} engine={{ cacheIdentity: 'selection-page-lock', translate: vi.fn() }} onProgress={onProgress} onBack={vi.fn()} />);
+    const article = screen.getByRole('article', { name: '原文阅读内容' });
+
+    startPhraseSelection();
+    fireEvent.touchStart(article, { touches: [{ clientX: 300, clientY: 200 }] });
+    fireEvent.touchEnd(article, { changedTouches: [{ clientX: 20, clientY: 200 }] });
+    act(() => { vi.advanceTimersByTime(300); });
+
+    expect(screen.getByText('短语精译已开启')).toBeInTheDocument();
+    expect(container.querySelector('.reader-page-content')).toHaveClass('reader-page-content--next');
+    expect(onProgress).not.toHaveBeenCalled();
+  });
+
   it('shows the bottom translation card as soon as the phrase endpoint is chosen', () => {
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'native-selection', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
@@ -175,6 +191,19 @@ describe('ReaderPage', () => {
     expect(screen.queryByText('The first paragraph. · 译文')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '显示本章双语' }));
     expect(screen.getByText('The first paragraph. · 译文')).toBeInTheDocument();
+  });
+
+  it('returns to source text when starting phrase selection from translation-only mode', async () => {
+    const translate = vi.fn<TranslationEngine['translate']>((request) => Promise.resolve(`${request.text} · 译文`));
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'phrase-from-translation', translate }} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    openTranslationPanel();
+    fireEvent.click(screen.getByRole('button', { name: '生成本章纯译文' }));
+    expect(await screen.findByText('The first paragraph. · 译文')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '关闭翻译显示' }));
+    startPhraseSelection();
+
+    expect(screen.getByRole('button', { name: '选择词语 first' })).toBeInTheDocument();
   });
 
   it('stops chapter translation without applying late results', async () => {
