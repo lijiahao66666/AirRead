@@ -18,9 +18,13 @@
 .provider-row__main { min-width: 0; }
 .provider-row h4 { overflow: hidden; margin: 0 0 .2rem; color: var(--teal-950); font-size: .94rem; text-overflow: ellipsis; white-space: nowrap; }
 .provider-row p { overflow: hidden; margin: 0; color: var(--ink-700); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
+.provider-row .free-route-settings p { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
 .provider-current { color: var(--teal-800); font-size: .76rem; font-weight: 750; white-space: nowrap; }
 .provider-row__actions { display: flex; align-items: center; gap: .2rem; }
+.provider-row__actions .text-button { display: inline-flex; min-height: 2.5rem; align-items: center; border: 0; border-radius: .7rem; padding: .4rem .55rem; background: transparent; color: var(--blue-700); cursor: pointer; font: inherit; font-size: .82rem; font-weight: 750; }
+.provider-row__actions .text-button:hover { background: var(--mint-100); }
 .provider-row__actions .icon-button { margin: 0; }
+.free-route-editor-trigger[aria-expanded='true'] { background: var(--mint-100); color: var(--teal-800); }
 .settings-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: .8rem; margin-top: 1.2rem; }
 .settings-form-grid__service-row { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(12rem, .85fr) minmax(0, 1.45fr); gap: .8rem; }
 .settings-form-grid label { position: relative; display: grid; align-content: start; gap: .45rem; min-width: 0; color: var(--ink-700); font-size: .82rem; font-weight: 750; }

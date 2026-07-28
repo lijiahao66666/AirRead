@@ -18,6 +18,7 @@ describe('SettingsPage', () => {
     expect(screen.queryByRole('button', { name: '删除 免费翻译' })).not.toBeInTheDocument();
     expect(screen.getByText('当前线路 · 自动切换')).toBeInTheDocument();
     expect(screen.queryByLabelText('免费翻译线路')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '编辑免费翻译线路' }).querySelector('svg')).toBeInTheDocument();
   });
 
   it('edits and persists the selected free translation route without a top-level success notice', () => {
@@ -202,6 +203,7 @@ describe('SettingsPage', () => {
     const edit = screen.getByRole('button', { name: '编辑免费翻译线路' });
     expect(edit).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(edit);
+    expect(screen.getByRole('button', { name: '收起免费翻译线路编辑' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByLabelText('免费翻译线路')).toHaveValue('auto');
     expect(screen.getByText('按 MyMemory → Azure Edge → Google Translate 顺序尝试，返回第一个有效译文。')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('免费翻译线路'), { target: { value: 'google' } });
