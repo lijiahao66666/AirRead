@@ -22,7 +22,7 @@ type SelectionActionState = { paragraphId: string; source: string; targetLanguag
 type ChapterTranslationState = { running: boolean; completed: number; total: number; failed: number };
 type SpeechQueueItem = { paragraphId: string; text: string; language: 'source' | 'target' };
 type MobileSelectionPress = { paragraph: HTMLParagraphElement; x: number; y: number };
-type MobileSelection = { paragraph: HTMLParagraphElement; start: Range; range: Range; source: string; anchor: { x: number; y: number }; placement: 'above' | 'below' };
+type MobileSelection = { paragraphId: string; startParagraph: HTMLParagraphElement; start: Range; ranges: Range[]; source: string; anchor: { x: number; y: number }; placement: 'above' | 'below' };
 type SelectionHighlight = { left: number; top: number; width: number; height: number };
 type RangeLayout = { left: number; top: number; right: number; bottom: number; width: number; height: number };
 type PointCaretDocument = Document & {
@@ -126,6 +126,43 @@ const orderedRange = (first: Range, second: Range): Range => {
   range.setStart(start.startContainer, start.startOffset);
   range.setEnd(end.endContainer, end.endOffset);
   return range;
+};
+const originalParagraphForRange = (range: Range): HTMLParagraphElement | undefined => {
+  const node = range.startContainer;
+  const element = node instanceof Element ? node : node.parentElement;
+  return element?.closest<HTMLParagraphElement>('p.reader-original[data-paragraph-id]') ?? undefined;
+};
+const rangeFromStartToParagraphEnd = (start: Range, paragraph: HTMLParagraphElement): Range => {
+  const range = document.createRange();
+  range.selectNodeContents(paragraph);
+  range.setStart(start.startContainer, start.startOffset);
+  return range;
+};
+const rangeFromParagraphStartToEnd = (paragraph: HTMLParagraphElement, end: Range): Range => {
+  const range = document.createRange();
+  range.selectNodeContents(paragraph);
+  range.setEnd(end.endContainer, end.endOffset);
+  return range;
+};
+const fullParagraphRange = (paragraph: HTMLParagraphElement): Range => {
+  const range = document.createRange();
+  range.selectNodeContents(paragraph);
+  return range;
+};
+const sourceFromRanges = (ranges: Range[]): string => ranges.map((range) => range.toString().trim()).filter(Boolean).join('\n\n');
+const mobileSelectionRanges = (canvas: HTMLElement, startParagraph: HTMLParagraphElement, start: Range, endParagraph: HTMLParagraphElement, end: Range): Range[] => {
+  const paragraphs = Array.from(canvas.querySelectorAll<HTMLParagraphElement>('p.reader-original[data-paragraph-id]'));
+  const startIndex = paragraphs.indexOf(startParagraph);
+  const endIndex = paragraphs.indexOf(endParagraph);
+  if (startIndex < 0 || endIndex < 0) return [];
+  if (startIndex === endIndex) return [orderedRange(start, end)];
+  const forward = startIndex < endIndex;
+  const ranges: Range[] = [forward ? rangeFromStartToParagraphEnd(start, startParagraph) : rangeFromStartToParagraphEnd(end, endParagraph)];
+  const firstIntermediateIndex = forward ? startIndex + 1 : endIndex + 1;
+  const lastIntermediateIndex = forward ? endIndex - 1 : startIndex - 1;
+  for (let index = firstIntermediateIndex; index <= lastIntermediateIndex; index += 1) ranges.push(fullParagraphRange(paragraphs[index]));
+  ranges.push(forward ? rangeFromParagraphStartToEnd(endParagraph, end) : rangeFromParagraphStartToEnd(startParagraph, start));
+  return ranges.filter((range) => range.toString().trim());
 };
 const rangeBoundingRect = (range: Range): RangeLayout => {
   const layoutRange = range as Range & { getBoundingClientRect?: () => RangeLayout };
@@ -658,11 +695,13 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
       if (mobileSelectionPress.current !== press || !press.paragraph.isConnected) return;
       const start = rangeAtPoint(press.x, press.y);
       if (!start || !press.paragraph.contains(start.startContainer)) return;
+      const paragraphId = press.paragraph.dataset.paragraphId;
+      if (!paragraphId) return;
       const range = rangeForPointSelection(press.paragraph, start);
       const source = range?.toString().trim() || '';
       if (!range || !source) return;
       const positioned = selectionAnchor(range);
-      mobileSelection.current = { paragraph: press.paragraph, start: range, range, source, ...positioned };
+      mobileSelection.current = { paragraphId, startParagraph: press.paragraph, start: range, ranges: [range], source, ...positioned };
       setSelectionHighlights(rangeHighlights(range));
       setChromeVisible(false);
     }, 420);
@@ -673,15 +712,16 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     if (activeSelection && touch) {
       event.preventDefault();
       const endpoint = rangeAtPoint(touch.clientX, touch.clientY);
-      if (!endpoint || !activeSelection.paragraph.contains(endpoint.startContainer)) return;
-      const endpointRange = rangeForPointSelection(activeSelection.paragraph, endpoint);
+      const endpointParagraph = endpoint ? originalParagraphForRange(endpoint) : undefined;
+      if (!endpoint || !endpointParagraph || !readerCanvasRef.current?.contains(endpointParagraph)) return;
+      const endpointRange = rangeForPointSelection(endpointParagraph, endpoint);
       if (!endpointRange) return;
-      const range = orderedRange(activeSelection.start, endpointRange);
-      const source = range.toString().trim();
+      const ranges = mobileSelectionRanges(readerCanvasRef.current, activeSelection.startParagraph, activeSelection.start, endpointParagraph, endpointRange);
+      const source = sourceFromRanges(ranges);
       if (!source) return;
-      const positioned = selectionAnchor(range);
-      mobileSelection.current = { ...activeSelection, range, source, ...positioned };
-      setSelectionHighlights(rangeHighlights(range));
+      const positioned = selectionAnchor(endpointRange);
+      mobileSelection.current = { ...activeSelection, ranges, source, ...positioned };
+      setSelectionHighlights(ranges.flatMap(rangeHighlights));
       return;
     }
     const press = mobileSelectionPress.current;
@@ -703,11 +743,8 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     if (activeSelection) {
       touchHandled.current = true;
       window.setTimeout(() => { touchHandled.current = false; }, 240);
-      const paragraphId = activeSelection.paragraph.dataset.paragraphId;
-      if (paragraphId) {
-        selectionRequestSequence.current += 1;
-        setSelectionAction({ paragraphId, source: activeSelection.source, targetLanguage: selectionTargetLanguage, anchor: activeSelection.anchor, placement: activeSelection.placement, loading: false });
-      }
+      selectionRequestSequence.current += 1;
+      setSelectionAction({ paragraphId: activeSelection.paragraphId, source: activeSelection.source, targetLanguage: selectionTargetLanguage, anchor: activeSelection.anchor, placement: activeSelection.placement, loading: false });
       event.preventDefault();
       return;
     }

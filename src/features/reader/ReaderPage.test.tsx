@@ -108,31 +108,32 @@ describe('ReaderPage', () => {
     expect(translate).toHaveBeenCalledWith(expect.objectContaining({ text: 'first' }));
   });
 
-  it('extends a mobile long-press selection to complete word boundaries', async () => {
+  it('extends a mobile long-press selection across original paragraphs', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
     const translate = vi.fn().mockResolvedValue('第一段');
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'mobile-drag-selection', translate }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
     const paragraph = screen.getByText('The first paragraph.');
+    const nextParagraph = screen.getByText('The second paragraph.');
     const start = document.createRange();
     start.setStart(paragraph.firstChild!, 5);
     start.collapse(true);
     const end = document.createRange();
-    end.setStart(paragraph.firstChild!, 14);
+    end.setStart(nextParagraph.firstChild!, 14);
     end.collapse(true);
     const caretRangeFromPoint = vi.fn().mockReturnValueOnce(start).mockReturnValueOnce(end);
     Object.defineProperty(document, 'caretRangeFromPoint', { configurable: true, value: caretRangeFromPoint });
 
     fireEvent.touchStart(paragraph, { touches: [{ clientX: 80, clientY: 160 }] });
     act(() => { vi.advanceTimersByTime(420); });
-    fireEvent.touchMove(paragraph, { touches: [{ clientX: 160, clientY: 160 }] });
-    fireEvent.touchEnd(paragraph, { changedTouches: [{ clientX: 160, clientY: 160 }] });
+    fireEvent.touchMove(nextParagraph, { touches: [{ clientX: 160, clientY: 240 }] });
+    fireEvent.touchEnd(nextParagraph, { changedTouches: [{ clientX: 160, clientY: 240 }] });
     fireEvent.click(screen.getByRole('button', { name: '翻译选中文本' }));
 
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(caretRangeFromPoint).toHaveBeenCalledTimes(2);
-    expect(translate).toHaveBeenCalledWith(expect.objectContaining({ text: 'first paragraph' }));
+    expect(translate).toHaveBeenCalledWith(expect.objectContaining({ text: 'first paragraph.\n\nThe second paragraph' }));
   });
 
   it('restores touch selection actions after the native selection changes', async () => {
