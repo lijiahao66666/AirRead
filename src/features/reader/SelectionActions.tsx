@@ -1,5 +1,5 @@
-import type { CSSProperties } from 'react';
-import { Check, ChevronDown, Copy, Languages, Play, RotateCcw } from 'lucide-react';
+import { useState } from 'react';
+import { Check, Copy, Languages, Play, RotateCcw } from 'lucide-react';
 
 import { languageLabel, READER_LANGUAGE_OPTIONS, type ReaderLanguage } from './readerPreferences';
 
@@ -8,54 +8,52 @@ type SelectionActionsProps = {
   targetLanguage: Exclude<ReaderLanguage, 'auto'>;
   globalTargetLanguage: Exclude<ReaderLanguage, 'auto'>;
   targetOverride?: Exclude<ReaderLanguage, 'auto'>;
-  anchor: { x: number; y: number };
-  placement: 'above' | 'below';
   translation?: string;
   loading: boolean;
   error?: string;
   notice?: string;
   copied?: boolean;
   canRead: boolean;
-  onTranslate: () => void;
+  onRetry: () => void;
   onRead: () => void;
   onTargetLanguageChange: (language: '' | Exclude<ReaderLanguage, 'auto'>) => void;
   onCopy: () => void;
 };
 
-export function SelectionActions({ source, targetLanguage, globalTargetLanguage, targetOverride, anchor, placement, translation, loading, error, notice, copied, canRead, onTranslate, onRead, onTargetLanguageChange, onCopy }: SelectionActionsProps) {
-  const expanded = loading || Boolean(translation) || Boolean(error) || Boolean(notice);
-  const style = { '--selection-x': `${anchor.x}px`, '--selection-y': `${anchor.y}px` } as CSSProperties;
+export function SelectionActions({ source, targetLanguage, globalTargetLanguage, targetOverride, translation, loading, error, notice, copied, canRead, onRetry, onRead, onTargetLanguageChange, onCopy }: SelectionActionsProps) {
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
+  const selectedLanguageLabel = languageLabel(targetLanguage);
+  const chooseLanguage = (language: '' | Exclude<ReaderLanguage, 'auto'>) => {
+    onTargetLanguageChange(language);
+    setLanguagePickerOpen(false);
+  };
 
-  return <aside className={`selection-actions selection-actions--${placement} ${expanded ? 'selection-actions--expanded' : ''}`} style={style} aria-label="选中文本操作">
-    {expanded ? <>
-      <div className="selection-actions__heading"><span><Languages size={15} /> 划词翻译</span></div>
-      <TargetLanguageSelect targetLanguage={targetLanguage} globalTargetLanguage={globalTargetLanguage} targetOverride={targetOverride} onChange={onTargetLanguageChange} disabled={loading} />
+  return <>
+    <aside className="selection-actions" aria-label="选中文本操作">
+      <header className="selection-actions__heading">
+        <span><Languages size={16} /> 划词翻译</span>
+        <button type="button" className="selection-actions__language-trigger" aria-label={`选择划词翻译目标语言，当前${selectedLanguageLabel}`} aria-haspopup="dialog" aria-expanded={languagePickerOpen} onClick={() => setLanguagePickerOpen(true)}>译为 {selectedLanguageLabel}</button>
+      </header>
       <p className="selection-actions__source">{source}</p>
       <div className="selection-actions__result" aria-live="polite">
         {loading && <p role="status">正在翻译…</p>}
         {notice && <p className="selection-actions__notice" role="status">{notice}</p>}
         {translation && <p lang={targetLanguage}>{translation}</p>}
-        {error && <div className="selection-actions__error" role="alert"><span>{error}</span><button type="button" onClick={onTranslate} aria-label="重试划词翻译"><RotateCcw size={14} /> 重试</button></div>}
+        {error && <div className="selection-actions__error" role="alert"><span>{error}</span><button type="button" onClick={onRetry} aria-label="重试划词翻译"><RotateCcw size={14} /> 重试</button></div>}
       </div>
-      <div className="selection-actions__secondary" role="toolbar" aria-label="译文操作"><button type="button" onClick={onRead} disabled={!canRead}><Play size={14} /> 朗读</button><button type="button" onClick={onCopy}><Copy size={14} /> {copied ? '已复制' : '复制'}</button></div>
-    </> : <div className="selection-actions__toolbar" role="toolbar" aria-label="划词操作">
-      <button type="button" className="selection-actions__primary" onClick={onTranslate} aria-label="翻译选中文本"><Languages size={15} /><span>翻译</span></button>
-      <TargetLanguageSelect targetLanguage={targetLanguage} globalTargetLanguage={globalTargetLanguage} targetOverride={targetOverride} onChange={onTargetLanguageChange} compact />
-      <button type="button" className="selection-actions__icon-action" onClick={onRead} disabled={!canRead} aria-label="朗读选中文本"><Play size={16} /></button>
-      <button type="button" className="selection-actions__icon-action" onClick={onCopy} aria-label="复制选中文本">{copied ? <Check size={16} /> : <Copy size={16} />}</button>
+      <div className="selection-actions__secondary" role="toolbar" aria-label="译文操作"><button type="button" onClick={onRead} disabled={!canRead}><Play size={15} /> 朗读</button><button type="button" onClick={onCopy}><Copy size={15} /> {copied ? '已复制' : '复制'}</button></div>
+    </aside>
+    {languagePickerOpen && <div className="selection-language-picker-backdrop" role="presentation" onClick={() => setLanguagePickerOpen(false)}>
+      <section className="selection-language-picker" role="dialog" aria-modal="true" aria-label="划词翻译目标语言" onClick={(event) => event.stopPropagation()}>
+        <header><span>翻译为</span><p>仅影响这本书的划词翻译</p></header>
+        <div role="listbox" aria-label="目标语言">
+          <button type="button" role="option" aria-selected={!targetOverride} className={!targetOverride ? 'is-selected' : ''} onClick={() => chooseLanguage('')}><span>跟随阅读翻译</span><strong>{languageLabel(globalTargetLanguage)}</strong></button>
+          {READER_LANGUAGE_OPTIONS.filter((option) => option.value !== 'auto').map((option) => {
+            const language = option.value as Exclude<ReaderLanguage, 'auto'>;
+            return <button type="button" role="option" aria-selected={targetOverride === language} className={targetOverride === language ? 'is-selected' : ''} onClick={() => chooseLanguage(language)} key={language}><span>{option.label}</span>{targetOverride === language && <Check size={16} aria-hidden="true" />}</button>;
+          })}
+        </div>
+      </section>
     </div>}
-  </aside>;
-}
-
-type TargetLanguageSelectProps = {
-  targetLanguage: Exclude<ReaderLanguage, 'auto'>;
-  globalTargetLanguage: Exclude<ReaderLanguage, 'auto'>;
-  targetOverride?: Exclude<ReaderLanguage, 'auto'>;
-  onChange: (language: '' | Exclude<ReaderLanguage, 'auto'>) => void;
-  compact?: boolean;
-  disabled?: boolean;
-};
-
-function TargetLanguageSelect({ targetLanguage, globalTargetLanguage, targetOverride, onChange, compact = false, disabled = false }: TargetLanguageSelectProps) {
-  return <label className={`selection-actions__target ${compact ? 'selection-actions__target--compact' : ''}`}><span>译为</span><select aria-label="划词翻译目标语言" value={targetOverride ?? ''} onChange={(event) => onChange(event.target.value as '' | Exclude<ReaderLanguage, 'auto'>)} disabled={disabled}><option value="">{languageLabel(globalTargetLanguage)}</option>{READER_LANGUAGE_OPTIONS.filter((option) => option.value !== 'auto').map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select><ChevronDown size={14} aria-hidden="true" /></label>;
+  </>;
 }

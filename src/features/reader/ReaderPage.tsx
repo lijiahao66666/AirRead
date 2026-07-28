@@ -18,10 +18,9 @@ import './reader.css';
 
 type ProgressUpdate = Pick<Book, 'readingChapter' | 'readingProgress' | 'lastReadAt'>;
 type TargetLanguage = Exclude<ReaderLanguage, 'auto'>;
-type SelectionActionState = { paragraphId: string; source: string; targetLanguage: TargetLanguage; anchor: { x: number; y: number }; placement: 'above' | 'below'; translation?: string; error?: string; notice?: string; loading: boolean; copied?: boolean };
+type SelectionActionState = { paragraphId: string; source: string; targetLanguage: TargetLanguage; translation?: string; error?: string; notice?: string; loading: boolean; copied?: boolean };
 type ChapterTranslationState = { running: boolean; completed: number; total: number; failed: number };
 type SpeechQueueItem = { paragraphId: string; text: string; language: 'source' | 'target' };
-type RangeLayout = { left: number; top: number; right: number; bottom: number; width: number; height: number };
 export type ReaderPageProps = { book: Book; chapters: Chapter[]; engine?: TranslationEngine; onProgress: (progress: ProgressUpdate) => void | Promise<void>; onTranslationPreferencesChange?: (preferences?: BookTranslationPreferences) => void | Promise<void>; onSelectionPreferencesChange?: (preferences?: BookSelectionPreferences) => void | Promise<void>; onBack: () => void };
 
 const errorMessage = (cause: unknown, fallback: string): string => cause instanceof Error && cause.message.trim() ? cause.message : fallback;
@@ -33,10 +32,6 @@ const fullParagraphRange = (paragraph: HTMLParagraphElement): Range => {
   const range = document.createRange();
   range.selectNodeContents(paragraph);
   return range;
-};
-const rangeBoundingRect = (range: Range): RangeLayout => {
-  const layoutRange = range as Range & { getBoundingClientRect?: () => RangeLayout };
-  return layoutRange.getBoundingClientRect?.() ?? { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
 };
 const originalParagraphForNode = (node: Node): HTMLParagraphElement | undefined => {
   const element = node instanceof Element ? node : node.parentElement;
@@ -59,14 +54,6 @@ const sourceFromNativeSelection = (selection: Selection, canvas?: HTMLElement | 
     if (paragraph === endParagraph) range.setEnd(selectionRange.endContainer, selectionRange.endOffset);
     return range.toString().trim();
   }).filter(Boolean).join('\n\n');
-};
-const selectionAnchor = (range: Range): { anchor: { x: number; y: number }; placement: 'above' | 'below' } => {
-  const rect = rangeBoundingRect(range);
-  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 390;
-  const panelHalfWidth = Math.min(160, Math.max(0, (viewportWidth - 16) / 2));
-  const x = Math.min(viewportWidth - panelHalfWidth, Math.max(panelHalfWidth, rect.left + rect.width / 2));
-  const placement = rect.top < window.innerHeight * .36 ? 'below' : 'above';
-  return { anchor: { x, y: placement === 'below' ? rect.bottom : rect.top }, placement };
 };
 
 const fontSizeInPixels = (fontSize: ReaderPreferences['fontSize']): number => ({ small: 15.68, medium: 17.28, large: 19.2, 'x-large': 21.12 })[fontSize];
@@ -311,13 +298,11 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     const source = selection ? sourceFromNativeSelection(selection, readerCanvasRef.current) : '';
     const paragraphId = selectedParagraph?.dataset.paragraphId;
     if (!source || !paragraphId) return;
-    const fallbackRect = selectedParagraph.getBoundingClientRect();
-    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : undefined;
-    const rangeRect = range ? rangeBoundingRect(range) : undefined;
-    const rect = rangeRect && (rangeRect.width > 0 || rangeRect.height > 0) ? rangeRect : fallbackRect;
-    const positioned = range ? selectionAnchor(range) : { anchor: { x: Math.min((window.innerWidth || 390) - 76, Math.max(76, rect.left + rect.width / 2)), y: rect.top }, placement: rect.top < window.innerHeight * .36 ? 'below' as const : 'above' as const };
-    selectionRequestSequence.current += 1;
-    setSelectionAction({ paragraphId, source, targetLanguage: selectionTargetLanguage, ...positioned, loading: false });
+    const next = { paragraphId, source, targetLanguage: selectionTargetLanguage, loading: false };
+    touchHandled.current = true;
+    window.setTimeout(() => { touchHandled.current = false; }, 520);
+    selection?.removeAllRanges();
+    void translateSelection(next);
   };
   const paragraphForSelection = (selection: Selection | null): HTMLParagraphElement | undefined => {
     const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : undefined;
@@ -329,23 +314,17 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const scheduleSelectionActions = () => {
     if (selectionSettleTimer.current) window.clearTimeout(selectionSettleTimer.current);
     const selection = window.getSelection();
-    if (!selection?.toString().trim()) {
-      setSelectionAction(undefined);
-      return;
-    }
+    if (!selection?.toString().trim()) return;
     selectionSettleTimer.current = window.setTimeout(() => {
       selectionSettleTimer.current = undefined;
       showSelectionActions();
-    }, isMobileViewport() ? 280 : 0);
+    }, 450);
   };
   const handleSelection = (event: ReactPointerEvent<HTMLParagraphElement>) => {
     if (event.pointerType !== 'touch') showSelectionActions(event.currentTarget);
   };
-  const handleSelectionContextMenu = (event: MouseEvent<HTMLParagraphElement>) => {
-    if (isMobileViewport()) event.preventDefault();
-  };
   useEffect(() => {
-    const handleSelectionChange = () => scheduleSelectionActions();
+    const handleSelectionChange = () => { if (isMobileViewport()) scheduleSelectionActions(); };
     document.addEventListener('selectionchange', handleSelectionChange);
     return () => document.removeEventListener('selectionchange', handleSelectionChange);
   }, [selectionTargetLanguage]);
@@ -362,7 +341,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     const nextPreferences: BookSelectionPreferences = targetOverride ? { targetLanguage: targetOverride } : {};
     setSelectionPreferences(nextPreferences);
     void persistSelectionPreferences(targetOverride ? nextPreferences : undefined);
-    if (current.translation || current.notice || current.error) void translateSelection(next);
+    void translateSelection(next);
   };
   const copySelection = async () => {
     if (!selectionAction) return;
@@ -370,7 +349,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
       if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
       await navigator.clipboard.writeText(selectionAction.source);
       setSelectionAction((current) => current?.source === selectionAction.source ? { ...current, copied: true, error: undefined } : current);
-    } catch { setSelectionAction((current) => current?.source === selectionAction.source ? { ...current, error: '复制失败，请使用系统复制菜单' } : current); }
+    } catch { setSelectionAction((current) => current?.source === selectionAction.source ? { ...current, error: '复制失败，请在浏览器权限中允许剪贴板访问' } : current); }
   };
 
   const persistBookTargetLanguage = async (language: '' | TargetLanguage) => {
@@ -627,7 +606,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   };
   const renderBlocks = (blocks: ReaderPageBlock[]) => blocks.map((block) => (
     <div className={`reader-paragraph ${speechParagraphId === block.paragraphId ? 'reader-paragraph--speaking' : ''}`} key={block.id} aria-current={speechParagraphId === block.paragraphId ? 'true' : undefined}>
-      {contentMode !== 'translation' && <p className="reader-original" data-paragraph-id={block.paragraphId} onPointerUp={handleSelection} onContextMenu={handleSelectionContextMenu}>{block.original}</p>}
+      {contentMode !== 'translation' && <p className="reader-original" data-paragraph-id={block.paragraphId} onPointerUp={handleSelection}>{block.original}</p>}
       {contentMode !== 'original' && (block.translation
         ? <p className="reader-translation" lang={bookTargetLanguage}>{block.translation}</p>
         : <p className="reader-translation reader-translation--pending" role="status">{chapterTranslation.running ? '正在翻译本段…' : '本段暂无译文'}</p>)}
@@ -649,7 +628,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
         <span className="reader-page-indicator" aria-hidden="true">{pageLabel}</span>
       </article>
     </div>
-    {selectionAction && <><div className="selection-actions-backdrop" aria-hidden="true" onPointerDown={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()} onClick={dismissSelectionActions} /><SelectionActions source={selectionAction.source} targetLanguage={selectionAction.targetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={selectionTargetOverride} anchor={selectionAction.anchor} placement={selectionAction.placement} translation={selectionAction.translation} loading={selectionAction.loading} error={selectionAction.error} notice={selectionAction.notice} copied={selectionAction.copied} canRead={speechSupported} onTranslate={() => { void translateSelection(); }} onRead={readSelection} onTargetLanguageChange={changeSelectionTargetLanguage} onCopy={() => { void copySelection(); }} /></>}
+    {selectionAction && <><div className="selection-actions-backdrop" aria-hidden="true" onPointerDown={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()} onClick={dismissSelectionActions} /><SelectionActions source={selectionAction.source} targetLanguage={selectionAction.targetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={selectionTargetOverride} translation={selectionAction.translation} loading={selectionAction.loading} error={selectionAction.error} notice={selectionAction.notice} copied={selectionAction.copied} canRead={speechSupported} onRetry={() => { void translateSelection(); }} onRead={readSelection} onTargetLanguageChange={changeSelectionTargetLanguage} onCopy={() => { void copySelection(); }} /></>}
     <div className="reader-dock" aria-label="阅读控制">
       <div className="reader-dock__actions">
         <button type="button" className="reader-dock__action" onClick={() => { setContentsOpen(true); setChromeVisible(true); }} aria-label="打开目录"><List size={19} /></button>
