@@ -16,17 +16,21 @@ describe('SettingsPage', () => {
     expect(screen.getByText('免费翻译')).toBeInTheDocument();
     expect(screen.getByText('当前使用')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '删除 免费翻译' })).not.toBeInTheDocument();
-    expect(screen.getByLabelText('免费翻译线路')).toHaveValue('auto');
+    expect(screen.getByText('当前线路 · 自动切换')).toBeInTheDocument();
+    expect(screen.queryByLabelText('免费翻译线路')).not.toBeInTheDocument();
   });
 
-  it('persists the selected free translation route', () => {
+  it('edits and persists the selected free translation route without a top-level success notice', () => {
     const store = new ProviderProfileStore(localStorage);
     render(<SettingsPage store={store} />);
 
+    fireEvent.click(screen.getByRole('button', { name: '编辑免费翻译线路' }));
     fireEvent.change(screen.getByLabelText('免费翻译线路'), { target: { value: 'google' } });
 
     expect(store.getFreeRoute()).toBe('google');
-    expect(screen.getByText('免费翻译线路已切换为Google Translate')).toBeInTheDocument();
+    expect(screen.getByText('当前线路 · Google Translate')).toBeInTheDocument();
+    expect(screen.queryByText('免费翻译线路已切换为Google Translate')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('keeps reading preferences out of translation settings', () => {
@@ -193,15 +197,15 @@ describe('SettingsPage', () => {
     expect(screen.getByLabelText('API Key')).toBeInTheDocument();
   });
 
-  it('shows the free route explanation behind a compact help button', () => {
+  it('shows the selected free route explanation in the free translation editor', () => {
     render(<SettingsPage store={new ProviderProfileStore(localStorage)} />);
-    const help = screen.getByRole('button', { name: '免费线路说明' });
+    const edit = screen.getByRole('button', { name: '编辑免费翻译线路' });
+    expect(edit).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(edit);
     expect(screen.getByLabelText('免费翻译线路')).toHaveValue('auto');
-    expect(help).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.click(help);
-    expect(screen.getByRole('note')).toHaveTextContent('按 MyMemory → Azure Edge → Google Translate 顺序尝试，返回第一个有效译文。');
+    expect(screen.getByText('按 MyMemory → Azure Edge → Google Translate 顺序尝试，返回第一个有效译文。')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('免费翻译线路'), { target: { value: 'google' } });
-    expect(screen.getByRole('note')).toHaveTextContent('Google Translate GTX 线路，需要当前网络可以访问 Google。');
+    expect(screen.getByText('Google Translate GTX 线路，需要当前网络可以访问 Google。')).toBeInTheDocument();
   });
 
   it('saves a custom HTTP translation profile with its documented contract', () => {
