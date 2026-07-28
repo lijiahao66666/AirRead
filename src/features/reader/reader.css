@@ -191,6 +191,15 @@
 .reader-page-content--next { animation-name: reader-page-enter-next; }
 .reader-page-content--previous { animation-name: reader-page-enter-previous; }
 .reader-scroll-content { display: grid; gap: 0; }
+.reader-page-measure {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.reader-page-measure__content { display: flow-root; }
+.reader-page-measure [data-reader-measure-text]::before { content: attr(data-reader-measure-text); white-space: pre-wrap; }
 
 @keyframes reader-page-enter-next {
   from { opacity: .5; transform: translate3d(.85rem, 0, 0); }
@@ -207,6 +216,7 @@
   transition: background-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
 }
 
+.reader-paragraph--fragment { margin-bottom: .25rem; }
 .reader-page--paged .reader-paragraph:last-child { margin-bottom: 0; }
 
 .reader-paragraph--speaking {

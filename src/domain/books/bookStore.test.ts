@@ -40,8 +40,8 @@ describe('book store', () => {
     const source = makeBook('progress', 300, [1]);
 
     await store.saveBook(source);
-    await store.updateBook('progress', { readingChapter: 2, readingProgress: 0.45, lastReadAt: 500 });
-    expect((await store.listBooks())[0]).toMatchObject({ readingChapter: 2, readingProgress: 0.45, lastReadAt: 500 });
+    await store.updateBook('progress', { readingChapter: 2, readingProgress: 0.45, readingAnchor: { chapter: 2, paragraphId: 'chapter-3-4', sourceOffset: 18 }, lastReadAt: 500 });
+    expect((await store.listBooks())[0]).toMatchObject({ readingChapter: 2, readingProgress: 0.45, readingAnchor: { chapter: 2, paragraphId: 'chapter-3-4', sourceOffset: 18 }, lastReadAt: 500 });
 
     await store.deleteBook('progress');
     expect(await store.listBooks()).toEqual([]);

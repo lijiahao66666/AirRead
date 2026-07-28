@@ -5,10 +5,14 @@ export type ReaderPageBlock = {
   paragraphId: string;
   original: string;
   translation?: string;
+  sourceStart: number;
+  sourceEnd: number;
+  isFinalFragment: boolean;
 };
 
 export type ReaderPage = ReaderPageBlock[];
 export type ReaderContentMode = 'original' | 'bilingual' | 'translation';
+export type ReaderBlockMetric = { id: string; height: number; gapAfter: number };
 
 const glyphWeight = (text: string): number => [...text].reduce((total, character) => {
   if (/\s/u.test(character)) return total + 0.28;
@@ -17,21 +21,27 @@ const glyphWeight = (text: string): number => [...text].reduce((total, character
   return total + 0.42;
 }, 0);
 
-const splitAtWordBoundary = (text: string, parts: number): string[] => {
-  if (parts <= 1 || text.length === 0) return [text];
-  const chunks: string[] = [];
-  let remaining = text.trim();
-  for (let index = parts; index > 1 && remaining; index -= 1) {
-    const target = Math.ceil(remaining.length / index);
-    const windowStart = Math.max(1, target - Math.floor(target * 0.2));
-    const windowEnd = Math.min(remaining.length - 1, target + Math.floor(target * 0.2));
-    const boundary = remaining.slice(windowStart, windowEnd + 1).search(/[\s。！？；.!?;]\s*/u);
-    const cut = boundary >= 0 ? windowStart + boundary + 1 : target;
-    chunks.push(remaining.slice(0, cut).trim());
-    remaining = remaining.slice(cut).trim();
+type TextFragment = { text: string; start: number; end: number };
+
+const splitAtWordBoundary = (text: string, parts: number): TextFragment[] => {
+  if (parts <= 1 || text.length === 0) return [{ text, start: 0, end: text.length }];
+  const chunks: TextFragment[] = [];
+  let start = 0;
+  for (let partsRemaining = parts; partsRemaining > 1 && start < text.length; partsRemaining -= 1) {
+    const remainingLength = text.length - start;
+    const target = start + Math.ceil(remainingLength / partsRemaining);
+    const windowStart = Math.max(start + 1, target - Math.floor(remainingLength / partsRemaining * 0.22));
+    const windowEnd = Math.min(text.length - 1, target + Math.floor(remainingLength / partsRemaining * 0.22));
+    const candidates = text.slice(windowStart, windowEnd + 1);
+    const matches = [...candidates.matchAll(/[\s。！？；.!?;]+/gu)];
+    const boundary = matches[matches.length - 1];
+    const end = boundary ? windowStart + boundary.index! + boundary[0].length : target;
+    if (end <= start || end >= text.length) break;
+    chunks.push({ text: text.slice(start, end), start, end });
+    start = end;
   }
-  if (remaining) chunks.push(remaining);
-  return chunks.filter(Boolean);
+  chunks.push({ text: text.slice(start), start, end: text.length });
+  return chunks.filter((chunk) => chunk.text.length > 0);
 };
 
 const visibleWeight = (paragraph: Pick<ReaderParagraph, 'original' | 'translation'>, contentMode: ReaderContentMode): number => {
@@ -47,10 +57,18 @@ const blocksForParagraph = (paragraph: ReaderParagraph, blockCapacity: number, b
   return originalParts.map((original, index) => ({
     id: `${paragraph.id}-${index}`,
     paragraphId: paragraph.id,
-    original,
-    translation: translationParts[index],
+    original: original.text,
+    translation: translationParts[index]?.text,
+    sourceStart: original.start,
+    sourceEnd: original.end,
+    isFinalFragment: index === originalParts.length - 1,
   }));
 };
+
+export function createReaderPageBlocks(paragraphs: ReaderParagraph[], options: { blockCapacity: number; blockGapWeight?: number; contentMode: ReaderContentMode }): ReaderPageBlock[] {
+  const blockGapWeight = options.blockGapWeight ?? 48;
+  return paragraphs.flatMap((paragraph) => blocksForParagraph(paragraph, options.blockCapacity, blockGapWeight, options.contentMode));
+}
 
 const pageWeight = (page: ReaderPageBlock[], contentMode: ReaderContentMode, blockGapWeight: number): number => page.reduce((total, block) => total + visibleWeight(block, contentMode) + blockGapWeight, 0);
 
@@ -73,18 +91,42 @@ export function paginateReaderParagraphs(paragraphs: ReaderParagraph[], options:
   const blockGapWeight = options.blockGapWeight ?? 48;
   let page: ReaderPage = [];
   let used = 0;
-  paragraphs.forEach((paragraph) => {
-    blocksForParagraph(paragraph, options.blockCapacity, blockGapWeight, options.contentMode).forEach((block) => {
-      const weight = visibleWeight(block, options.contentMode) + blockGapWeight;
-      if (page.length > 0 && used + weight > options.blockCapacity) {
-        pages.push(page);
-        page = [];
-        used = 0;
-      }
-      page.push(block);
-      used += weight;
-    });
+  createReaderPageBlocks(paragraphs, options).forEach((block) => {
+    const weight = visibleWeight(block, options.contentMode) + blockGapWeight;
+    if (page.length > 0 && used + weight > options.blockCapacity) {
+      pages.push(page);
+      page = [];
+      used = 0;
+    }
+    page.push(block);
+    used += weight;
   });
   if (page.length > 0) pages.push(page);
   return pages.length > 0 ? rebalanceTrailingPage(pages, options.blockCapacity, options.contentMode, blockGapWeight) : [[]];
+}
+
+export function paginateMeasuredReaderBlocks(blocks: ReaderPageBlock[], metrics: ReaderBlockMetric[], contentHeight: number): ReaderPage[] {
+  const metricById = new Map(metrics.map((metric) => [metric.id, metric]));
+  const pages: ReaderPage[] = [];
+  let page: ReaderPage = [];
+  let usedHeight = 0;
+
+  blocks.forEach((block) => {
+    const metric = metricById.get(block.id);
+    if (!metric || metric.height <= 0) return;
+    const previous = page[page.length - 1];
+    const previousMetric = previous ? metricById.get(previous.id) : undefined;
+    const nextHeight = page.length === 0 ? metric.height : usedHeight + (previousMetric?.gapAfter ?? 0) + metric.height;
+    if (page.length > 0 && nextHeight > contentHeight) {
+      pages.push(page);
+      page = [block];
+      usedHeight = metric.height;
+      return;
+    }
+    page.push(block);
+    usedHeight = nextHeight;
+  });
+
+  if (page.length > 0) pages.push(page);
+  return pages.length > 0 ? pages : [[]];
 }

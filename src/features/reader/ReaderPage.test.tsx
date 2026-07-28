@@ -81,7 +81,7 @@ describe('ReaderPage', () => {
     expect(screen.getByRole('dialog', { name: '翻译显示' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成本章双语' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成本章纯译文' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '开始短语取词' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '开始短语取词' })).not.toBeInTheDocument();
     expect(screen.queryByText('短语取词已开启')).not.toBeInTheDocument();
   });
 
@@ -555,6 +555,7 @@ describe('ReaderPage', () => {
     vi.advanceTimersByTime(200);
     await vi.runOnlyPendingTimersAsync();
     expect(onProgress).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ readingAnchor: expect.objectContaining({ chapter: 0, paragraphId: 'txt-chapter-1-0', sourceOffset: expect.any(Number) }) }));
     vi.useRealTimers();
     expect(await screen.findByText('无法保存阅读进度')).toBeInTheDocument();
   });
@@ -565,6 +566,7 @@ describe('ReaderPage', () => {
       id: 'resume-page',
       text: Array.from({ length: 70 }, (_, index) => `Paragraph ${index + 1}. ${'A quiet sentence for pagination. '.repeat(5)}`).join('\n\n'),
       readingProgress: 0.5,
+      readingAnchor: { chapter: 0, paragraphId: 'txt-chapter-1-44', sourceOffset: 0 },
     };
     const { container } = render(<ReaderPage book={resumedBook} chapters={chaptersForBook(resumedBook)} engine={{ cacheIdentity: 'resume-page', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
 
@@ -573,6 +575,7 @@ describe('ReaderPage', () => {
       const currentPage = Number(indicator?.textContent?.split('/')[0].trim());
       expect(currentPage).toBeGreaterThan(1);
     });
+    expect(container.querySelector('[data-paragraph-id="txt-chapter-1-44"]')).toBeInTheDocument();
   });
 
   it('resets chapter state when the book identity changes', () => {

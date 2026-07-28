@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { paginateReaderParagraphs } from './readerPagination';
+import { createReaderPageBlocks, paginateMeasuredReaderBlocks, paginateReaderParagraphs } from './readerPagination';
 
 describe('reader pagination', () => {
   it('splits long paragraphs into navigable pages without losing text', () => {
@@ -30,5 +30,25 @@ describe('reader pagination', () => {
     expect(pages).toHaveLength(3);
     expect(pages[pages.length - 1]).toHaveLength(3);
     expect(pages.flat().map((block) => block.paragraphId)).toEqual(paragraphs.map((paragraph) => paragraph.id));
+  });
+
+  it('packs measured blocks by real height without clipping the last line', () => {
+    const blocks = createReaderPageBlocks([
+      { id: 'p1', original: 'First paragraph.' },
+      { id: 'p2', original: 'Second paragraph.' },
+      { id: 'p3', original: 'Third paragraph.' },
+    ], { blockCapacity: 500, contentMode: 'original' });
+    const pages = paginateMeasuredReaderBlocks(blocks, blocks.map((block) => ({ id: block.id, height: 90, gapAfter: 20 })), 205);
+
+    expect(pages.map((page) => page.map((block) => block.paragraphId))).toEqual([['p1', 'p2'], ['p3']]);
+  });
+
+  it('keeps fragment offsets contiguous for reading anchors', () => {
+    const original = 'One sentence. '.repeat(40);
+    const blocks = createReaderPageBlocks([{ id: 'p1', original }], { blockCapacity: 90, contentMode: 'original' });
+
+    expect(blocks[0].sourceStart).toBe(0);
+    expect(blocks[blocks.length - 1]?.sourceEnd).toBe(original.length);
+    expect(blocks.every((block, index) => index === 0 || block.sourceStart === blocks[index - 1].sourceEnd)).toBe(true);
   });
 });

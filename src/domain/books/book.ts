@@ -9,6 +9,12 @@ export type BookSelectionPreferences = {
   targetLanguage?: string;
 };
 
+export type BookReadingAnchor = {
+  chapter: number;
+  paragraphId: string;
+  sourceOffset: number;
+};
+
 export type Book = {
   id: string;
   title: string;
@@ -21,6 +27,7 @@ export type Book = {
   lastReadAt?: number;
   readingChapter: number;
   readingProgress: number;
+  readingAnchor?: BookReadingAnchor;
   generatedBilingual: boolean;
   translationPreferences?: BookTranslationPreferences;
   selectionPreferences?: BookSelectionPreferences;

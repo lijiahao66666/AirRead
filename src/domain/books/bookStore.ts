@@ -53,7 +53,7 @@ export function createBookStore(open: OpenBookDatabase = openBookDatabase) {
         .map(cloneBook)
         .sort((left, right) => right.importedAt - left.importedAt);
     },
-    async updateBook(id: string, updates: Partial<Pick<Book, 'lastReadAt' | 'readingChapter' | 'readingProgress' | 'generatedBilingual' | 'translationPreferences' | 'selectionPreferences'>>): Promise<void> {
+    async updateBook(id: string, updates: Partial<Pick<Book, 'lastReadAt' | 'readingChapter' | 'readingProgress' | 'readingAnchor' | 'generatedBilingual' | 'translationPreferences' | 'selectionPreferences'>>): Promise<void> {
       const current = (await (await getDatabase()).getAll()).find((book) => book.id === id);
       if (!current) throw new Error('书籍不存在');
       await (await getDatabase()).put(BOOKS_STORE, cloneBook({ ...current, ...updates }));

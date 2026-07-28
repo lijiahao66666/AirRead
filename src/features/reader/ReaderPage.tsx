@@ -14,10 +14,10 @@ import { SelectionActions } from './SelectionActions';
 import { phraseSelectionPointKey, phraseTextSegments, resolvePhraseSelection, type PhraseSelectionPoint, type PhraseSelectionRange } from './phraseSelection';
 import { paragraphsForChapter, type ReaderParagraph } from './readerState';
 import { availableSpeechVoices, findSpeechVoice, languageLabel, READER_LANGUAGE_OPTIONS, ReaderPreferencesStore, speechLocaleForLanguage, speechLocaleForText, speechPreviewText, textMatchesTargetLanguage, type ReaderLanguage, type ReaderPreferences } from './readerPreferences';
-import { paginateReaderParagraphs, type ReaderContentMode, type ReaderPageBlock } from './readerPagination';
+import { createReaderPageBlocks, paginateMeasuredReaderBlocks, paginateReaderParagraphs, type ReaderContentMode, type ReaderPage, type ReaderPageBlock } from './readerPagination';
 import './reader.css';
 
-type ProgressUpdate = Pick<Book, 'readingChapter' | 'readingProgress' | 'lastReadAt'>;
+type ProgressUpdate = Pick<Book, 'readingChapter' | 'readingProgress' | 'readingAnchor' | 'lastReadAt'>;
 type TargetLanguage = Exclude<ReaderLanguage, 'auto'>;
 type SelectionActionState = { paragraphId: string; source: string; targetLanguage: TargetLanguage; translation?: string; error?: string; notice?: string; loading: boolean; copied?: boolean };
 type ChapterTranslationState = { running: boolean; completed: number; total: number; failed: number };
@@ -37,6 +37,16 @@ const pageForReadingProgress = (readingProgress: number, chapterIndex: number, c
   const chapterProgress = Math.max(0, Math.min(0.999_999, readingProgress * chapterCount - chapterIndex));
   return Math.min(pageCount - 1, Math.floor(chapterProgress * pageCount));
 };
+const pageForReadingAnchor = (pages: ReaderPage[], paragraphId: string, sourceOffset: number): number => {
+  const pageIndex = pages.findIndex((page) => page.some((block) => block.paragraphId === paragraphId && block.sourceStart <= sourceOffset && block.sourceEnd > sourceOffset));
+  if (pageIndex >= 0) return pageIndex;
+  return pages.findIndex((page) => page.some((block) => block.paragraphId === paragraphId && block.sourceStart >= sourceOffset));
+};
+const readingAnchorForPage = (page: ReaderPage, chapter: number): Book['readingAnchor'] => {
+  const firstBlock = page[0];
+  return firstBlock ? { chapter, paragraphId: firstBlock.paragraphId, sourceOffset: firstBlock.sourceStart } : undefined;
+};
+const samePageLayout = (left: ReaderPage[], right: ReaderPage[]): boolean => left.length === right.length && left.every((page, index) => page.length === right[index]?.length && page.every((block, blockIndex) => block.id === right[index][blockIndex]?.id));
 
 type ReaderSheetProps = { title: string; children: ReactNode; onClose: () => void };
 function ReaderSheet({ title, children, onClose }: ReaderSheetProps) {
@@ -83,7 +93,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const speechRunSequence = useRef(0);
   const progressTimer = useRef<number | undefined>(undefined);
   const readerCanvasRef = useRef<HTMLElement>(null);
-  const readerPageContentRef = useRef<HTMLDivElement>(null);
+  const readerPageMeasureRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef<number | undefined>(undefined);
   const touchStartY = useRef<number | undefined>(undefined);
   const touchHandled = useRef(false);
@@ -91,7 +101,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const shouldRestorePagePosition = useRef(true);
   const progressQueue = useRef(Promise.resolve());
   const [paginationViewport, setPaginationViewport] = useState<PaginationViewport>(fallbackPaginationViewport);
-  const [paginationSafety, setPaginationSafety] = useState(0.96);
+  const [measuredPagination, setMeasuredPagination] = useState<{ key: string; pages: ReaderPage[] }>();
   const onProgressRef = useRef(onProgress);
   onProgressRef.current = onProgress;
   const chapter = chapters[chapterIndex];
@@ -213,17 +223,17 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     });
   };
 
-  const updateProgress = (next: number) => {
+  const updateProgress = (next: number, readingAnchor: Book['readingAnchor']) => {
     const bounded = Math.max(0, Math.min(1, next));
     setLocalProgress(bounded);
     if (progressTimer.current) window.clearTimeout(progressTimer.current);
-    progressTimer.current = window.setTimeout(() => persistProgress({ readingChapter: chapterIndex, readingProgress: bounded, lastReadAt: Date.now() }), 150);
+    progressTimer.current = window.setTimeout(() => persistProgress({ readingChapter: chapterIndex, readingProgress: bounded, readingAnchor, lastReadAt: Date.now() }), 150);
   };
 
   const updatePositionProgress = (nextPage: number, pageCount: number, targetChapter = chapterIndex) => {
     const boundedPage = Math.max(0, Math.min(Math.max(0, pageCount - 1), nextPage));
     const progress = chapters.length > 0 ? Math.min(1, (targetChapter + (pageCount > 1 ? boundedPage / pageCount : 0)) / chapters.length) : 0;
-    updateProgress(progress);
+    updateProgress(progress, readingAnchorForPage(pages[boundedPage] ?? [], targetChapter));
   };
 
   const changeChapter = (next: number, entry: 'start' | 'end' = 'start') => {
@@ -241,7 +251,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     setChromeVisible(false);
     setChapterIndex(bounded);
     setPageIndex(0);
-    persistProgress({ readingChapter: bounded, readingProgress: Math.min(1, bounded / Math.max(1, chapters.length)), lastReadAt: Date.now() });
+    persistProgress({ readingChapter: bounded, readingProgress: Math.min(1, bounded / Math.max(1, chapters.length)), readingAnchor: undefined, lastReadAt: Date.now() });
   };
 
   const translateText = async (text: string, targetLanguage = bookTargetLanguage): Promise<string> => {
@@ -389,17 +399,38 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     const glyphsPerLine = Math.max(9, paginationViewport.contentWidth / fontSize);
     const lineCount = Math.max(7, paginationViewport.contentHeight / (fontSize * lineHeight));
     return {
-      blockCapacity: Math.max(120, Math.floor(glyphsPerLine * lineCount * paginationSafety)),
+      blockCapacity: Math.max(120, Math.floor(glyphsPerLine * lineCount)),
       blockGapWeight: Math.max(9, Math.ceil(glyphsPerLine * (contentMode === 'bilingual' ? 1.08 : 0.75))),
       contentMode,
     };
-  }, [contentMode, paginationSafety, paginationViewport, readerPreferences.fontSize, readerPreferences.lineHeight]);
-  const pages = useMemo(() => paginateReaderParagraphs(paragraphs, paginationOptions), [paragraphs, paginationOptions]);
+  }, [contentMode, paginationViewport, readerPreferences.fontSize, readerPreferences.lineHeight]);
+  const fallbackPages = useMemo(() => paginateReaderParagraphs(paragraphs, paginationOptions), [paragraphs, paginationOptions]);
+  const layoutBlocks = useMemo(() => createReaderPageBlocks(paragraphs, {
+    ...paginationOptions,
+    blockCapacity: Math.max(64, Math.floor(paginationOptions.blockCapacity / 5)),
+  }), [paragraphs, paginationOptions]);
+  const paginationKey = `${readerIdentity}:${contentMode}:${readerPreferences.fontFamily}:${readerPreferences.fontSize}:${readerPreferences.lineHeight}:${paginationViewport.contentWidth}:${paginationViewport.contentHeight}:${layoutBlocks.map((block) => `${block.id}:${block.original.length}:${block.translation?.length ?? 0}`).join('|')}`;
+  const pages = measuredPagination?.key === paginationKey ? measuredPagination.pages : fallbackPages;
   const pageCount = pages.length;
   const currentPage = pages[Math.min(pageIndex, pageCount - 1)] ?? [];
-  useEffect(() => {
-    setPaginationSafety(0.96);
-  }, [readerIdentity, contentMode, paginationViewport.contentHeight, paginationViewport.contentWidth, readerPreferences.fontSize, readerPreferences.lineHeight]);
+
+  useLayoutEffect(() => {
+    const measureHost = readerPageMeasureRef.current;
+    if (!measureHost || layoutBlocks.length === 0) return;
+    const elements = [...measureHost.querySelectorAll<HTMLElement>('[data-reader-measure-block]')];
+    if (elements.length !== layoutBlocks.length) return;
+    const metrics = elements.map((element) => {
+      const style = window.getComputedStyle(element);
+      return {
+        id: element.dataset.readerMeasureBlock ?? '',
+        height: element.getBoundingClientRect().height,
+        gapAfter: Number.parseFloat(style.marginBottom) || 0,
+      };
+    });
+    if (metrics.some((metric) => !metric.id || metric.height <= 0)) return;
+    const nextPages = paginateMeasuredReaderBlocks(layoutBlocks, metrics, paginationViewport.contentHeight);
+    setMeasuredPagination((current) => current?.key === paginationKey && samePageLayout(current.pages, nextPages) ? current : { key: paginationKey, pages: nextPages });
+  }, [layoutBlocks, paginationKey, paginationViewport.contentHeight]);
   useEffect(() => {
     if (chapterEntry.current === 'end') {
       setPageIndex(Math.max(0, pageCount - 1));
@@ -410,15 +441,10 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   }, [pageCount]);
   useEffect(() => {
     if (!shouldRestorePagePosition.current || chapterIndex !== initialChapter) return;
-    setPageIndex(pageForReadingProgress(book.readingProgress, chapterIndex, chapters.length, pageCount));
-  }, [book.readingProgress, chapterIndex, chapters.length, initialChapter, pageCount]);
-
-  useLayoutEffect(() => {
-    if (readerPreferences.readingMode !== 'paged') return;
-    const pageContent = readerPageContentRef.current;
-    if (!pageContent || pageContent.scrollHeight <= pageContent.clientHeight + 1) return;
-    setPaginationSafety((current) => current <= 0.78 ? current : Number(Math.max(0.78, current * 0.96).toFixed(3)));
-  }, [currentPage, pageIndex, paginationSafety, readerPreferences.readingMode]);
+    const savedAnchor = book.readingAnchor?.chapter === chapterIndex ? book.readingAnchor : undefined;
+    const anchorPage = savedAnchor ? pageForReadingAnchor(pages, savedAnchor.paragraphId, savedAnchor.sourceOffset) : -1;
+    setPageIndex(anchorPage >= 0 ? anchorPage : pageForReadingProgress(book.readingProgress, chapterIndex, chapters.length, pageCount));
+  }, [book.readingAnchor, book.readingProgress, chapterIndex, chapters.length, initialChapter, pageCount, pages]);
 
   const stopSpeech = () => { speechRunSequence.current += 1; if (typeof window.speechSynthesis !== 'undefined') window.speechSynthesis.cancel(); setSpeechState('idle'); setSpeechParagraphId(undefined); setSpeechParagraphIndex(0); setSpeechError(undefined); };
   const startSpeech = (startIndex = 0, rate = speechRate) => {
@@ -589,7 +615,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
       setChromeVisible(false);
     }
   };
-  const allBlocks = paragraphs.map((paragraph) => ({ id: paragraph.id, paragraphId: paragraph.id, original: paragraph.original, translation: paragraph.translation }));
+  const allBlocks = paragraphs.map((paragraph) => ({ id: paragraph.id, paragraphId: paragraph.id, original: paragraph.original, translation: paragraph.translation, sourceStart: 0, sourceEnd: paragraph.original.length, isFinalFragment: true }));
   const phraseSelectionBlocks = readerPreferences.readingMode === 'paged' ? currentPage : allBlocks;
   const resolvedPhraseSelection = useMemo(() => (
     phraseSelectionRange ? resolvePhraseSelection(phraseSelectionBlocks, phraseSelectionRange) : undefined
@@ -640,7 +666,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     });
   };
   const renderBlocks = (blocks: ReaderPageBlock[]) => blocks.map((block) => (
-    <div className={`reader-paragraph ${speechParagraphId === block.paragraphId ? 'reader-paragraph--speaking' : ''}`} key={block.id} aria-current={speechParagraphId === block.paragraphId ? 'true' : undefined}>
+    <div className={`reader-paragraph ${block.isFinalFragment ? '' : 'reader-paragraph--fragment'} ${speechParagraphId === block.paragraphId ? 'reader-paragraph--speaking' : ''}`} key={block.id} aria-current={speechParagraphId === block.paragraphId ? 'true' : undefined}>
       {contentMode !== 'translation' && <p className="reader-original" data-paragraph-id={block.paragraphId}>{renderOriginalText(block)}</p>}
       {contentMode !== 'original' && (block.translation
         ? <p className="reader-translation" lang={bookTargetLanguage}>{block.translation}</p>
@@ -657,10 +683,20 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
         <h2 id="reader-title" className="sr-only">{book.title}</h2>
         {paragraphs.length === 0 && <p className="reader-empty">这一章还没有可读内容。</p>}
         {readerPreferences.readingMode === 'paged'
-          ? <div className={`reader-page-content reader-page-content--${pageDirection > 0 ? 'next' : 'previous'}`} ref={readerPageContentRef} key={`${readerIdentity}:${pageIndex}:${contentMode}`}>{renderBlocks(currentPage)}</div>
+          ? <div className={`reader-page-content reader-page-content--${pageDirection > 0 ? 'next' : 'previous'}`} key={`${readerIdentity}:${pageIndex}:${contentMode}`}>{renderBlocks(currentPage)}</div>
           : <div className="reader-scroll-content">{renderBlocks(allBlocks)}</div>}
         <span className="reader-page-indicator" aria-hidden="true">{pageLabel}</span>
       </article>
+    </div>
+    <div className="reader-page-measure" aria-hidden="true" style={{ width: paginationViewport.contentWidth }}>
+      <div className="reader-page-measure__content" ref={readerPageMeasureRef}>
+        {layoutBlocks.map((block) => <div className={`reader-paragraph ${block.isFinalFragment ? '' : 'reader-paragraph--fragment'}`} data-reader-measure-block={block.id} key={block.id}>
+          {contentMode !== 'translation' && <p className="reader-original" data-reader-measure-text={block.original} />}
+          {contentMode !== 'original' && (block.translation
+            ? <p className="reader-translation" lang={bookTargetLanguage} data-reader-measure-text={block.translation} />
+            : <p className="reader-translation reader-translation--pending" data-reader-measure-text="本段暂无译文" />)}
+        </div>)}
+      </div>
     </div>
     {phraseSelectionActive && !selectionAction && contentMode !== 'translation' && <div className="reader-phrase-selection-hint" role="status"><Languages size={15} aria-hidden="true" /><span><strong>{phraseSelectionStart ? '已选起点' : '短语取词已开启'}</strong><small>{phraseSelectionStart ? '再点短语的最后一个词' : '轻点首词和末尾词；点空白处退出'}</small></span></div>}
     {selectionAction && <><div className="selection-actions-backdrop" aria-hidden="true" onPointerDown={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()} onClick={dismissSelectionActions} /><SelectionActions source={selectionAction.source} targetLanguage={selectionAction.targetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={selectionTargetOverride} translation={selectionAction.translation} loading={selectionAction.loading} error={selectionAction.error} notice={selectionAction.notice} copied={selectionAction.copied} canRead={speechSupported} onRetry={() => { void translateSelection(); }} onRead={readSelection} onTargetLanguageChange={changeSelectionTargetLanguage} onCopy={() => { void copySelection(); }} /></>}
@@ -682,14 +718,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     </div>
     {progressError && <div className="reader-feedback reader-feedback--error reader-progress-error" role="alert">{progressError}</div>}
     {contentsOpen && <ReaderSheet title="目录" onClose={() => setContentsOpen(false)}><nav className="reader-toc" aria-label="章节目录">{chapters.map((item, index) => <button type="button" className={index === chapterIndex ? 'is-active' : ''} key={item.id} onClick={() => { setContentsOpen(false); if (index !== chapterIndex) changeChapter(index); }}><span>{String(index + 1).padStart(2, '0')}</span><strong>{item.title || `第 ${index + 1} 章`}</strong><ChevronRight size={16} /></button>)}</nav></ReaderSheet>}
-    {translationOpen && <ReaderSheet title="翻译显示" onClose={() => setTranslationOpen(false)}><ReaderTranslationControls translatedCount={translatedCount} totalCount={translationParagraphs.length} running={chapterTranslation.running} failed={chapterTranslation.failed} contentMode={contentMode} targetLanguage={bookTargetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={bookTargetOverride} phraseSelectionActive={phraseSelectionActive} onModeChange={changeContentMode} onStop={stopChapterTranslation} onTargetLanguageChange={(language) => { void changeBookTargetLanguage(language); }} onPhraseSelectionChange={(active) => {
-      if (active) {
-        setTranslationOpen(false);
-        startPhraseSelectionMode();
-      } else {
-        endPhraseSelection();
-      }
-    }} />{chapterLanguageNotice && <span className="reader-language-note" role="status" aria-label={chapterLanguageNotice}>{chapterLanguageNotice}</span>}</ReaderSheet>}
+    {translationOpen && <ReaderSheet title="翻译显示" onClose={() => setTranslationOpen(false)}><ReaderTranslationControls translatedCount={translatedCount} totalCount={translationParagraphs.length} running={chapterTranslation.running} failed={chapterTranslation.failed} contentMode={contentMode} targetLanguage={bookTargetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={bookTargetOverride} onModeChange={changeContentMode} onStop={stopChapterTranslation} onTargetLanguageChange={(language) => { void changeBookTargetLanguage(language); }} />{chapterLanguageNotice && <span className="reader-language-note" role="status" aria-label={chapterLanguageNotice}>{chapterLanguageNotice}</span>}</ReaderSheet>}
     {speechOpen && <ReaderSheet title="朗读" onClose={() => setSpeechOpen(false)}><ReaderSpeechControls supported={speechSupported} state={speechState} contentLabel={modeLabel} currentIndex={speechParagraphIndex} totalCount={speechParagraphs.length} error={speechError} onStart={() => startSpeech()} onPause={pauseSpeech} onResume={resumeSpeech} onStop={stopSpeech} /><ReaderSpeechPreferences supported={speechSupported} voices={speechVoices} sourceLocale={sourceSpeechLocale} targetLocale={targetSpeechLocale} sourceVoiceURI={readerPreferences.sourceVoiceURI} targetVoiceURI={readerPreferences.targetVoiceURI} rate={speechRate} onVoiceChange={changeSpeechVoice} onRateChange={(rate) => updateReaderPreference('speechRate', rate)} onPreview={previewSpeechVoice} /></ReaderSheet>}
     {settingsOpen && <ReaderSheet title="阅读设置" onClose={() => setSettingsOpen(false)}><div className="reader-settings-form"><section><h3>阅读模式</h3><div className="reader-setting-segment"><button type="button" className={readerPreferences.readingMode === 'paged' ? 'is-active' : ''} onClick={() => updateReaderPreference('readingMode', 'paged')}><PanelBottom size={16} /> 分页</button><button type="button" className={readerPreferences.readingMode === 'scroll' ? 'is-active' : ''} onClick={() => updateReaderPreference('readingMode', 'scroll')}><List size={16} /> 滚动</button></div></section><section><h3>字体</h3><div className="reader-setting-segment"><button type="button" className={readerPreferences.fontFamily === 'serif' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontFamily', 'serif')}>衬线</button><button type="button" className={readerPreferences.fontFamily === 'sans' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontFamily', 'sans')}>无衬线</button></div></section><section><h3>字号</h3><div className="reader-setting-segment reader-setting-segment--four"><button type="button" className={readerPreferences.fontSize === 'small' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'small')}>小</button><button type="button" className={readerPreferences.fontSize === 'medium' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'medium')}>中</button><button type="button" className={readerPreferences.fontSize === 'large' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'large')}>大</button><button type="button" className={readerPreferences.fontSize === 'x-large' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'x-large')}>特大</button></div></section><section><h3>行距</h3><div className="reader-setting-segment reader-setting-segment--three"><button type="button" className={readerPreferences.lineHeight === 'compact' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'compact')}>紧凑</button><button type="button" className={readerPreferences.lineHeight === 'comfortable' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'comfortable')}>舒适</button><button type="button" className={readerPreferences.lineHeight === 'relaxed' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'relaxed')}>宽松</button></div></section><section><h3>页面主题</h3><div className="reader-setting-segment reader-setting-segment--three"><button type="button" className={readerPreferences.theme === 'paper' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'paper')}><Sun size={15} /> 纸张</button><button type="button" className={readerPreferences.theme === 'sepia' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'sepia')}><BookOpen size={15} /> 柔和</button><button type="button" className={readerPreferences.theme === 'night' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'night')}><Moon size={15} /> 夜间</button></div></section></div></ReaderSheet>}
   </section>;

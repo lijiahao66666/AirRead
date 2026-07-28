@@ -98,7 +98,7 @@ export default function App() {
     setBooks((current) => current.filter((book) => book.id !== bookId));
     if (location.bookId === bookId) window.location.hash = 'bookshelf';
   };
-  const updateProgress = async (bookId: string, progress: Pick<Book, 'readingChapter' | 'readingProgress' | 'lastReadAt'>) => {
+  const updateProgress = async (bookId: string, progress: Pick<Book, 'readingChapter' | 'readingProgress' | 'readingAnchor' | 'lastReadAt'>) => {
     await bookStore.updateBook(bookId, progress);
     setBooks((current) => current.map((book) => book.id === bookId ? { ...book, ...progress } : book));
   };
