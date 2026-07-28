@@ -110,6 +110,10 @@ export default function App() {
     await bookStore.updateBook(bookId, { selectionPreferences });
     setBooks((current) => current.map((book) => book.id === bookId ? { ...book, selectionPreferences } : book));
   };
+  const updateBookmarks = async (bookId: string, bookmarks: Book['bookmarks']) => {
+    await bookStore.updateBook(bookId, { bookmarks });
+    setBooks((current) => current.map((book) => book.id === bookId ? { ...book, bookmarks } : book));
+  };
   const saveGeneratedBook = async (book: Book) => {
     await bookStore.saveBook(book);
     setBooks((current) => [book, ...current.filter((candidate) => candidate.id !== book.id)]);
@@ -119,7 +123,7 @@ export default function App() {
   if (location.route === 'reader') {
     content = loading ? <div className="state-card" role="status">正在读取书籍</div> : activeBook
       ? readerPreparation?.bookId === activeBook.id && readerPreparation.chapters
-        ? <ReaderPage key={activeBook.id} book={activeBook} chapters={readerPreparation.chapters} onProgress={(progress) => updateProgress(activeBook.id, progress)} onTranslationPreferencesChange={(preferences) => updateTranslationPreferences(activeBook.id, preferences)} onSelectionPreferencesChange={(preferences) => updateSelectionPreferences(activeBook.id, preferences)} onBack={() => { window.location.hash = 'bookshelf'; }} />
+        ? <ReaderPage key={activeBook.id} book={activeBook} chapters={readerPreparation.chapters} onProgress={(progress) => updateProgress(activeBook.id, progress)} onTranslationPreferencesChange={(preferences) => updateTranslationPreferences(activeBook.id, preferences)} onSelectionPreferencesChange={(preferences) => updateSelectionPreferences(activeBook.id, preferences)} onBookmarksChange={(bookmarks) => updateBookmarks(activeBook.id, bookmarks)} onBack={() => { window.location.hash = 'bookshelf'; }} />
         : readerPreparation?.bookId === activeBook.id && readerPreparation.error
           ? <div className="state-card state-card--error" role="alert">{readerPreparation.error}</div>
           : <div className="state-card" role="status">正在打开书籍</div>

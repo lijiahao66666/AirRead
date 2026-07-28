@@ -155,6 +155,14 @@ h2 { color: var(--teal-950); font-size: clamp(1.85rem, 4vw, 2.8rem); letter-spac
 .brand-mark img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .book-cover-placeholder { display: grid; width: 100%; height: 100%; place-items: center; }
 
+.pwa-install-card { display: grid; grid-template-columns: 2.45rem minmax(0, 1fr) auto; align-items: center; gap: .7rem; margin: 1rem 0 0; border: 1px solid rgb(145 205 179 / 68%); border-radius: 1rem; padding: .7rem .78rem; background: linear-gradient(135deg, rgb(225 240 230 / 86%), rgb(255 253 248 / 86%)); box-shadow: 0 8px 20px rgb(30 49 44 / 5%); }
+.pwa-install-card__icon { display: grid; width: 2.45rem; height: 2.45rem; place-items: center; border-radius: .72rem; background: var(--teal-800); color: var(--paper-50); }
+.pwa-install-card > div { display: grid; min-width: 0; gap: .14rem; }
+.pwa-install-card strong { color: var(--teal-950); font-size: .82rem; }
+.pwa-install-card p { margin: 0; color: var(--ink-700); font-size: .7rem; line-height: 1.45; }
+.pwa-install-card button { min-height: 2.3rem; border: 1px solid rgb(47 113 101 / 22%); border-radius: .68rem; padding: .4rem .68rem; background: rgb(255 253 248 / 82%); color: var(--teal-800); cursor: pointer; font: inherit; font-size: .72rem; font-weight: 800; white-space: nowrap; }
+.pwa-install-card button:hover { border-color: var(--mint-400); background: var(--mint-100); color: var(--teal-950); }
+
 select { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--teal-700) 50%), linear-gradient(135deg, var(--teal-700) 50%, transparent 50%) !important; background-position: calc(100% - 1.08rem) 50%, calc(100% - .76rem) 50% !important; background-repeat: no-repeat !important; background-size: .34rem .34rem !important; padding-right: 2.65rem !important; }
 .selection-actions__target select { background-position: calc(100% - .52rem) 50%, calc(100% - .22rem) 50% !important; background-size: .28rem .28rem !important; padding-right: 1.05rem !important; }
 
@@ -208,6 +216,10 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
   .book-card__progress-meta strong { font-size: .75rem; }
   .icon-button { min-width: 2.75rem; min-height: 2.75rem; }
   .book-card__delete { top: .55rem; right: .55rem; }
+  .pwa-install-card { grid-template-columns: 2.25rem minmax(0, 1fr); gap: .6rem; border-radius: .9rem; padding: .65rem; }
+  .pwa-install-card__icon { width: 2.25rem; height: 2.25rem; }
+  .pwa-install-card p { font-size: .67rem; }
+  .pwa-install-card button { grid-column: 2; justify-self: start; min-height: 2rem; margin-top: .12rem; padding: .3rem .58rem; }
   .bookshelf-page__header { position: relative; display: block; padding-right: 4.7rem; }
   .bookshelf-page__actions { position: absolute; top: .15rem; right: 0; }
   .import-action { width: auto; min-width: 3.15rem; min-height: 2.75rem; padding: .55rem .7rem; border-radius: .8rem; }

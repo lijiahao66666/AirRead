@@ -59,6 +59,20 @@ describe('book store', () => {
       selectionPreferences: { targetLanguage: 'en' },
     });
   });
+
+  it('persists bookmarks independently from reading progress', async () => {
+    const database = new MemoryBookDatabase();
+    const store = createBookStore(async () => database);
+    await store.saveBook(makeBook('bookmarks', 500, [1]));
+
+    await store.updateBook('bookmarks', {
+      bookmarks: [{ id: '0:chapter-1-0:0', chapter: 0, paragraphId: 'chapter-1-0', sourceOffset: 0, createdAt: 700 }],
+    });
+
+    expect((await store.listBooks())[0].bookmarks).toEqual([
+      { id: '0:chapter-1-0:0', chapter: 0, paragraphId: 'chapter-1-0', sourceOffset: 0, createdAt: 700 },
+    ]);
+  });
 });
 
 class MemoryBookDatabase implements BookDatabase {

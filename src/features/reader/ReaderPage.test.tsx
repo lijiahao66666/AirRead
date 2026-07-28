@@ -73,6 +73,37 @@ describe('ReaderPage', () => {
     expect(screen.queryByText('阅读进度')).not.toBeInTheDocument();
   });
 
+  it('adds a bookmark from the top bar and exposes it in the directory', async () => {
+    const onBookmarksChange = vi.fn();
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'bookmark', translate: vi.fn() }} onProgress={vi.fn()} onBookmarksChange={onBookmarksChange} onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '添加当前书签' }));
+
+    await waitFor(() => expect(onBookmarksChange).toHaveBeenCalledWith([
+      expect.objectContaining({ chapter: 0, paragraphId: 'txt-chapter-1-0', sourceOffset: 0 }),
+    ]));
+    expect(screen.getByRole('button', { name: '移除当前书签' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '打开目录' }));
+    expect(screen.getByRole('heading', { name: '书签' })).toBeInTheDocument();
+    expect(screen.getByText('回到这页')).toBeInTheDocument();
+  });
+
+  it('searches every chapter and opens the matching result', async () => {
+    const searchableChapters = [
+      { id: 'chapter-1', title: '起始', href: 'chapter-1.txt', content: '第一章的普通文字。' },
+      { id: 'chapter-2', title: '关键段落', href: 'chapter-2.txt', content: 'Needle appears in the second chapter.' },
+    ];
+    render(<ReaderPage book={book} chapters={searchableChapters} engine={{ cacheIdentity: 'search', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '打开目录' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索全书' }), { target: { value: 'needle' } });
+    expect(await screen.findByText('Needle appears in the second chapter.')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Needle appears in the second chapter.'));
+
+    await waitFor(() => expect(screen.getByText('Needle appears in the second chapter.')).toBeInTheDocument());
+    expect(screen.queryByRole('dialog', { name: '目录' })).not.toBeInTheDocument();
+  });
+
   it('keeps chapter translation controls behind the dock translation button', () => {
     render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'dock-translation', translate: vi.fn() }} onProgress={vi.fn()} onBack={vi.fn()} />);
 

@@ -15,6 +15,11 @@ export type BookReadingAnchor = {
   sourceOffset: number;
 };
 
+export type BookBookmark = BookReadingAnchor & {
+  id: string;
+  createdAt: number;
+};
+
 export type Book = {
   id: string;
   title: string;
@@ -28,6 +33,7 @@ export type Book = {
   readingChapter: number;
   readingProgress: number;
   readingAnchor?: BookReadingAnchor;
+  bookmarks?: BookBookmark[];
   generatedBilingual: boolean;
   translationPreferences?: BookTranslationPreferences;
   selectionPreferences?: BookSelectionPreferences;
@@ -44,5 +50,6 @@ export function cloneBook(book: Book): Book {
   return {
     ...book,
     bytes: Uint8Array.from(book.bytes),
+    bookmarks: book.bookmarks?.map((bookmark) => ({ ...bookmark })),
   };
 }

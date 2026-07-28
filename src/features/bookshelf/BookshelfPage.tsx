@@ -2,6 +2,7 @@ import { ChangeEvent, useMemo, useRef, useState } from 'react';
 import { BookOpen, ChevronRight, Search, Upload } from 'lucide-react';
 
 import type { Book } from '../../domain/books/book';
+import { PwaInstallPrompt } from '../../pwa/PwaInstallPrompt';
 import { BookCard } from './BookCard';
 
 export type BookshelfPageProps = {
@@ -48,6 +49,7 @@ export function BookshelfPage({ books, loading = false, error, onImport, onOpen,
           <input ref={inputRef} className="import-input" type="file" accept=".epub,.txt,.md,.markdown,.html,.htm,.pdf,.docx,application/epub+zip,text/plain,text/markdown,text/html,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleImport} aria-label="导入书籍文件" />
         </div>
       </div>
+      <PwaInstallPrompt />
       {continueBook && (
         <button className="continue-card" type="button" onClick={() => onOpen(continueBook.id)}>
           <span className="continue-card__icon"><BookOpen size={22} /></span>
