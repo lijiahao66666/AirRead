@@ -19,6 +19,7 @@ describe('BookshelfPage', () => {
     render(<BookshelfPage books={[book]} onImport={onImport} onOpen={onOpen} onDelete={onDelete} />);
 
     expect(screen.getByRole('heading', { name: '我的书架' })).toBeInTheDocument();
+    expect(screen.getByText('导入并继续阅读。')).toBeInTheDocument();
     expect(screen.getAllByText('继续阅读').length).toBeGreaterThan(0);
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索书架' }), { target: { value: 'prince' } });
     expect(screen.getAllByText('The Little Prince').length).toBeGreaterThan(0);
