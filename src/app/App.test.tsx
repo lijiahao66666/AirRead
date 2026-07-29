@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import App from '../App';
@@ -25,5 +25,18 @@ describe('AirRead application shell', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(Object.keys(window.localStorage)).toEqual([]);
     fetchSpy.mockRestore();
+  });
+
+  it('clears pointer focus from buttons but preserves keyboard focus', () => {
+    render(<App />);
+    const importButton = screen.getByRole('button', { name: '导入书籍' });
+
+    importButton.focus();
+    fireEvent.click(importButton, { detail: 1 });
+    expect(importButton).not.toHaveFocus();
+
+    importButton.focus();
+    fireEvent.click(importButton, { detail: 0 });
+    expect(importButton).toHaveFocus();
   });
 });

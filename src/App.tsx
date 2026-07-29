@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { ArrowLeft, BookOpen, LibraryBig, Settings2, Sparkles } from 'lucide-react';
 
 import { createBookStore } from './domain/books/bookStore';
@@ -34,6 +34,12 @@ function locationFromHash(): AppLocation {
 
 function MissingBookPage() {
   return <section className="placeholder-page" aria-labelledby="missing-book-title"><p className="eyebrow">阅读器</p><h2 id="missing-book-title">找不到书籍</h2><p>这本书可能已经从当前设备删除，或者阅读链接已经失效。</p><button type="button" className="secondary-button" onClick={() => { window.location.hash = 'bookshelf'; }} aria-label="返回书架"><ArrowLeft size={17} /> 返回书架</button></section>;
+}
+
+function clearPointerButtonFocus(event: ReactMouseEvent<HTMLDivElement>) {
+  if (event.detail === 0 || !(event.target instanceof Element)) return;
+  const activatedButton = event.target.closest('button');
+  if (activatedButton instanceof HTMLButtonElement) activatedButton.blur();
 }
 
 export default function App() {
@@ -141,7 +147,7 @@ export default function App() {
     content = <BookshelfPage books={books} loading={loading} error={error} onImport={importBook} onOpen={openBook} onDelete={deleteBook} />;
   }
 
-  return <div className="app-shell" data-route={location.route}>
+  return <div className="app-shell" data-route={location.route} onClick={clearPointerButtonFocus}>
     <aside className="app-rail">
       <header className="brand"><a className="brand-lockup" href="#bookshelf" aria-label="AirRead 灵阅"><span className="brand-mark" aria-hidden="true"><img src="/icons/airread-mark.svg" alt="" /></span><h1 className="brand-copy"><strong>AirRead</strong><em>灵阅</em><small aria-hidden="true">沉浸式双语阅读</small></h1></a><a className="brand-utility" href="#settings" aria-label="翻译设置" title="翻译设置" aria-current={location.route === 'settings' ? 'page' : undefined}><Settings2 size={17} /></a></header>
       <nav className="primary-navigation" aria-label="主导航">{primaryNavigation.map(({ label, route: navRoute, icon: Icon }) => <a key={navRoute} href={`#${navRoute}`} aria-current={location.route === navRoute || (location.route === 'reader' && navRoute === 'bookshelf') ? 'page' : undefined}><Icon size={18} /> <span>{label}</span></a>)}</nav>
