@@ -34,6 +34,22 @@ describe('SettingsPage', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
+  it('removes the pointer focus ring from both provider editor triggers', () => {
+    const store = new ProviderProfileStore(localStorage);
+    store.save({ id: 'personal-model', name: '我的模型', kind: 'openai-compatible', enabled: true, baseUrl: 'https://models.example/v1', model: 'reader', apiKey: 'local-secret' });
+    render(<SettingsPage store={store} />);
+
+    const freeRouteEditor = screen.getByRole('button', { name: '编辑免费翻译线路' });
+    const modelRow = screen.getByRole('heading', { name: '我的模型' }).closest('article')!;
+    const modelEditor = within(modelRow).getByRole('button', { name: '编辑 我的模型' });
+
+    for (const editorTrigger of [freeRouteEditor, modelEditor]) {
+      editorTrigger.focus();
+      fireEvent.click(editorTrigger, { detail: 1 });
+      expect(editorTrigger).not.toHaveFocus();
+    }
+  });
+
   it('keeps reading preferences out of translation settings', () => {
     render(<SettingsPage store={new ProviderProfileStore(localStorage)} />);
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 
 import { createTranslationEngine } from '../../domain/ai/providerRegistry';
@@ -69,6 +69,9 @@ export function SettingsPage({ store = new ProviderProfileStore(), testConnectio
   const select = (profile: ProviderProfile) => { try { store.select(profile.id); refresh(); setNotice(`已选择 ${profile.name}`); } catch (cause) { setError(cause instanceof Error ? cause.message : '选择 Provider 失败'); } };
   const remove = (profile: ProviderProfile) => { try { store.remove(profile.id); refresh(); setNotice('配置已删除'); } catch (cause) { setError(cause instanceof Error ? cause.message : '删除 Provider 失败'); } };
   const updateFreeRoute = (route: FreeTranslationRoute) => { try { store.setFreeRoute(route); setFreeRoute(route); setError(undefined); setNotice(undefined); } catch (cause) { setError(cause instanceof Error ? cause.message : '保存免费翻译线路失败'); } };
+  const blurAfterPointerActivation = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (event.detail > 0) event.currentTarget.blur();
+  };
   const test = async () => {
     if (!resolvedEditing) return;
     setTesting(true); setError(undefined); setTestResult(undefined);
@@ -108,7 +111,7 @@ export function SettingsPage({ store = new ProviderProfileStore(), testConnectio
         <div className="provider-row__main"><div><h4>{profile.name}</h4><p>{isBuiltIn ? `当前线路 · ${freeRouteLabels[freeRoute]}` : providerKindLabels[profile.kind]}</p></div></div>
         <div className="provider-row__actions">
           {profile.id === selectedId ? <span className="provider-current">当前使用</span> : <button type="button" className="text-button" onClick={() => select(profile)} aria-label={`设为当前 ${profile.name}`}>设为当前</button>}
-          {isBuiltIn ? <button type="button" className="icon-button provider-row__editor-trigger" onClick={() => setFreeRouteEditorOpen((open) => !open)} aria-expanded={freeRouteEditorOpen} aria-controls="free-translation-route-editor" aria-label={freeRouteEditorOpen ? '收起免费翻译线路编辑' : '编辑免费翻译线路'} title="编辑免费翻译线路"><Pencil size={16} /></button> : <><button type="button" className="icon-button provider-row__editor-trigger" onClick={() => toggleEdit(profile)} aria-expanded={editorOpen} aria-controls={editorId} aria-label={editorOpen ? `收起 ${profile.name} 编辑` : `编辑 ${profile.name}`} title={`编辑 ${profile.name}`}><Pencil size={16} /></button><button type="button" className="icon-button" onClick={() => remove(profile)} aria-label={`删除 ${profile.name}`}><Trash2 size={16} /></button></>}
+          {isBuiltIn ? <button type="button" className="icon-button provider-row__editor-trigger" onClick={(event) => { setFreeRouteEditorOpen((open) => !open); blurAfterPointerActivation(event); }} aria-expanded={freeRouteEditorOpen} aria-controls="free-translation-route-editor" aria-label={freeRouteEditorOpen ? '收起免费翻译线路编辑' : '编辑免费翻译线路'} title="编辑免费翻译线路"><Pencil size={16} /></button> : <><button type="button" className="icon-button provider-row__editor-trigger" onClick={(event) => { toggleEdit(profile); blurAfterPointerActivation(event); }} aria-expanded={editorOpen} aria-controls={editorId} aria-label={editorOpen ? `收起 ${profile.name} 编辑` : `编辑 ${profile.name}`} title={`编辑 ${profile.name}`}><Pencil size={16} /></button><button type="button" className="icon-button" onClick={() => remove(profile)} aria-label={`删除 ${profile.name}`}><Trash2 size={16} /></button></>}
         </div>
         {isBuiltIn && freeRouteEditorOpen && <div className="free-route-settings" id="free-translation-route-editor"><label className="free-route-field" htmlFor="free-translation-route">免费翻译线路<select id="free-translation-route" aria-label="免费翻译线路" value={freeRoute} onChange={(event) => updateFreeRoute(event.target.value as FreeTranslationRoute)}>{Object.entries(freeRouteLabels).map(([route, label]) => <option value={route} key={route}>{label}</option>)}</select></label><p>{freeRouteHints[freeRoute]}</p></div>}
         {!isBuiltIn && editorOpen && <section className="provider-row__editor" id={editorId} ref={editorRef}>{renderEditor(true)}</section>}
