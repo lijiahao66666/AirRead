@@ -27,9 +27,10 @@ describe('AirRead application shell', () => {
     fetchSpy.mockRestore();
   });
 
-  it('clears pointer focus from buttons but preserves keyboard focus', () => {
+  it('clears pointer focus from buttons and links but preserves keyboard focus', () => {
     render(<App />);
     const importButton = screen.getByRole('button', { name: '导入书籍' });
+    const studioLink = screen.getByRole('link', { name: '书籍工作室' });
 
     importButton.focus();
     fireEvent.click(importButton, { detail: 1 });
@@ -38,5 +39,13 @@ describe('AirRead application shell', () => {
     importButton.focus();
     fireEvent.click(importButton, { detail: 0 });
     expect(importButton).toHaveFocus();
+
+    studioLink.focus();
+    fireEvent.click(studioLink, { detail: 1 });
+    expect(studioLink).not.toHaveFocus();
+
+    studioLink.focus();
+    fireEvent.click(studioLink, { detail: 0 });
+    expect(studioLink).toHaveFocus();
   });
 });
