@@ -200,8 +200,8 @@ export function BookStudioPage({ books, providerStore = new ProviderProfileStore
         </article>
         <article className="studio-tool-card studio-tool-card--available">
           <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><LibraryBig size={24} /></span><span className="studio-tool-status studio-tool-status--available">自动聚合</span></div>
-          <div><p className="eyebrow">书目资源 · 统一检索</p><h3>书籍搜索</h3><p>输入一次关键词，自动检索当前可访问的中文书目与公共领域书目。</p></div>
-          <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('sources')}>搜索全部书源 <ChevronRight size={18} /></button>
+          <div><p className="eyebrow">书目资源 · 统一检索</p><h3>书籍搜索</h3><p>输入一次关键词，快速检索当前可访问的中文书目。</p></div>
+          <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('sources')}>搜索书目 <ChevronRight size={18} /></button>
         </article>
       </div>
     </section>;

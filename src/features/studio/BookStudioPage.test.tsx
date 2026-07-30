@@ -50,7 +50,7 @@ describe('BookStudioPage', () => {
   it('opens one shared search page instead of choosing a source first', () => {
     render(<BookStudioPage books={[epubBook]} providerStore={new ProviderProfileStore(localStorage)} onSaveBook={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '搜索全部书源' }));
+    fireEvent.click(screen.getByRole('button', { name: '搜索书目' }));
 
     expect(screen.getByRole('heading', { name: '搜索书籍' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '搜索开放书籍' })).toBeInTheDocument();
