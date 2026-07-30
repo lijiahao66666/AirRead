@@ -9,7 +9,7 @@ release_id="$(date +%Y%m%d%H%M%S)-$$"
 stage_directory="$parent_directory/.airread-stage-$release_id"
 backup_directory="$parent_directory/.airread-backup-$release_id"
 vhost_configuration="${AIRREAD_VHOST_CONFIGURATION:-/www/server/panel/vhost/nginx/html_read.air-inc.top.conf}"
-proxy_configuration="$(dirname "$vhost_configuration")/airread-book-source-proxy.conf"
+proxy_configuration="$(dirname "$(dirname "$vhost_configuration")")/airread-book-source-proxy.inc"
 proxy_source="$release_root/server/book-source-proxy.conf"
 
 for required_file in index.html manifest.webmanifest sw.js; do
