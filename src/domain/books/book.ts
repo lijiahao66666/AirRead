@@ -29,7 +29,7 @@ export type BookExcerpt = BookReadingAnchor & {
 };
 
 export type BookSource = {
-  provider: 'wikisource';
+  provider: 'gutenberg';
   url: string;
   license: string;
 };

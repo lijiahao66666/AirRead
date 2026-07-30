@@ -3,25 +3,22 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { BookSourceSearchPage } from './BookSourceSearchPage';
 
-const page = { title: '论语', text: '子曰：学而时习之。', url: 'https://zh.wikisource.org/wiki/%E8%AB%96%E8%AA%9E' };
-
 describe('BookSourceSearchPage', () => {
-  it('searches importable open works and imports the selected full text', async () => {
-    const search = vi.fn().mockResolvedValue([{ title: '论语', snippet: '孔子经典', wordCount: 123 }]);
-    const loadPage = vi.fn().mockResolvedValue(page);
-    const createBook = vi.fn().mockReturnValue({ id: 'wikisource:论语', title: '论语', author: '中文维基文库', format: 'txt', bytes: new Uint8Array(), text: page.text, importedAt: 1, readingChapter: 0, readingProgress: 0, generatedBilingual: false, source: { provider: 'wikisource', url: page.url, license: 'CC BY-SA' } });
+  it('searches importable EPUB works and imports the selected full text', async () => {
+    const result = { id: '1342', title: 'Pride and Prejudice', author: 'Jane Austen', downloads: '177064 downloads' };
+    const search = vi.fn().mockResolvedValue([result]);
+    const download = vi.fn().mockResolvedValue({ id: 'gutenberg:1342', title: result.title, author: result.author, format: 'epub', bytes: new Uint8Array(), importedAt: 1, readingChapter: 0, readingProgress: 0, generatedBilingual: false, source: { provider: 'gutenberg', url: 'https://www.gutenberg.org/ebooks/1342', license: 'Public domain' } });
     const onImportBook = vi.fn();
-    render(<BookSourceSearchPage onBack={vi.fn()} onImportBook={onImportBook} search={search} loadPage={loadPage} createBook={createBook} />);
+    render(<BookSourceSearchPage onBack={vi.fn()} onImportBook={onImportBook} search={search} download={download} />);
 
-    fireEvent.change(screen.getByRole('textbox', { name: '搜索开放作品' }), { target: { value: '论语' } });
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索开放作品' }), { target: { value: 'pride' } });
     expect(screen.queryByText('没有找到可导入的开放作品，换一个书名、作者或关键词试试。')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '搜索作品' }));
 
-    await waitFor(() => expect(search).toHaveBeenCalledWith('论语'));
+    await waitFor(() => expect(search).toHaveBeenCalledWith('pride'));
     expect(screen.getByRole('heading', { name: '搜索并导入作品' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '导入并阅读' }));
-    await waitFor(() => expect(onImportBook).toHaveBeenCalledWith(expect.objectContaining({ id: 'wikisource:论语', text: page.text })));
-    expect(loadPage).toHaveBeenCalledWith('论语');
-    expect(createBook).toHaveBeenCalledWith(page);
+    await waitFor(() => expect(onImportBook).toHaveBeenCalledWith(expect.objectContaining({ id: 'gutenberg:1342', title: result.title })));
+    expect(download).toHaveBeenCalledWith(result);
   });
 });

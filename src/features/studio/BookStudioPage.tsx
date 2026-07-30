@@ -201,7 +201,7 @@ export function BookStudioPage({ books, providerStore = new ProviderProfileStore
         </article>
         <article className="studio-tool-card studio-tool-card--available">
           <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><LibraryBig size={24} /></span><span className="studio-tool-status studio-tool-status--available">自动聚合</span></div>
-          <div><p className="eyebrow">中文维基文库 · 开放全文</p><h3>开放作品导入</h3><p>搜索可读取的公版作品，一键导入书架并直接开始阅读。</p></div>
+          <div><p className="eyebrow">Project Gutenberg · 英文公版 EPUB</p><h3>开放作品导入</h3><p>搜索可下载的公版英文作品，一键导入书架并直接开始阅读。</p></div>
           <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('sources')}>搜索并导入 <ChevronRight size={18} /></button>
         </article>
       </div>

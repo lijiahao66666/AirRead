@@ -47,13 +47,14 @@ describe('BookStudioPage', () => {
     expect(screen.getByRole('checkbox', { name: '输出双语对照' })).toBeChecked();
   });
 
-  it('opens the open-work import flow instead of a catalog page', () => {
+  it('opens the Project Gutenberg import flow instead of a catalog page', () => {
     render(<BookStudioPage books={[epubBook]} providerStore={new ProviderProfileStore(localStorage)} onSaveBook={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: '搜索并导入' }));
 
     expect(screen.getByRole('heading', { name: '搜索并导入作品' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '搜索开放作品' })).toBeInTheDocument();
+    expect(screen.getByText('Project Gutenberg · 英文公版 EPUB')).toBeInTheDocument();
     expect(screen.queryByText('制作进度')).not.toBeInTheDocument();
   });
 
