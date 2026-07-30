@@ -191,7 +191,7 @@ export function BookStudioPage({ books, providerStore = new ProviderProfileStore
 
   if (activeTool === 'hub') {
     return <section className="studio-page" aria-labelledby="studio-title">
-      <header className="studio-page__header"><div><p className="eyebrow">本地书籍工具</p><h2 id="studio-title">书籍工作室</h2><p className="page-lede">制作自己的双语书，或搜索并导入可用的开放书籍。</p></div><BookOpenCheck size={40} strokeWidth={1.35} aria-hidden="true" /></header>
+      <header className="studio-page__header"><div><p className="eyebrow">本地书籍工具</p><h2 id="studio-title">书籍工作室</h2><p className="page-lede">制作自己的双语书，或搜索可访问的书目信息。</p></div><BookOpenCheck size={40} strokeWidth={1.35} aria-hidden="true" /></header>
       <div className="studio-tool-grid">
         <article className="studio-tool-card studio-tool-card--available">
           <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><Languages size={24} /></span><span className="studio-tool-status studio-tool-status--available">已可用</span></div>
@@ -200,7 +200,7 @@ export function BookStudioPage({ books, providerStore = new ProviderProfileStore
         </article>
         <article className="studio-tool-card studio-tool-card--available">
           <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><LibraryBig size={24} /></span><span className="studio-tool-status studio-tool-status--available">自动聚合</span></div>
-          <div><p className="eyebrow">开放资源 · 统一检索</p><h3>书籍搜索</h3><p>输入一次关键词，自动检索当前可用的开放资源，并将结果汇总在同一列表。</p></div>
+          <div><p className="eyebrow">书目资源 · 统一检索</p><h3>书籍搜索</h3><p>输入一次关键词，自动检索当前可访问的中文书目与公共领域书目。</p></div>
           <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('sources')}>搜索全部书源 <ChevronRight size={18} /></button>
         </article>
       </div>

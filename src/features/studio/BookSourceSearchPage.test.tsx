@@ -8,7 +8,7 @@ describe('BookSourceSearchPage', () => {
     const search = vi.fn().mockResolvedValue({
       unavailableProviders: [],
       results: [
-        { id: 'classics:论语', title: '论语', author: '孔子弟子及再传弟子', description: '中文传统典籍', provider: 'classics-index', providerName: '中文典籍索引 · 古文岛', action: 'open', actionLabel: '前往阅读', sourceUrl: 'https://www.guwendao.net/guwen/book_1bd76a1c3d01.aspx' },
+        { id: 'catalog:论语', title: '论语', author: '杨伯峻', description: '2018 · 中文书目', provider: 'chinese-catalog', providerName: '中文书目 · 豆瓣读书', action: 'open', actionLabel: '查看书目', sourceUrl: 'https://book.douban.com/subject/30466012/' },
         { id: 'gutenberg:1342', title: 'Pride and Prejudice', author: 'Austen, Jane', description: '公共领域书目', provider: 'gutenberg', providerName: 'Project Gutenberg', action: 'open', actionLabel: '查看书目', sourceUrl: 'https://www.gutenberg.org/ebooks/1342' },
       ],
     });
@@ -21,7 +21,7 @@ describe('BookSourceSearchPage', () => {
     await waitFor(() => expect(search).toHaveBeenCalledWith('论语'));
     expect(screen.getByRole('heading', { name: '搜索书籍' })).toBeInTheDocument();
     expect(screen.getByText('Pride and Prejudice')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '前往阅读' })).toHaveAttribute('href', 'https://www.guwendao.net/guwen/book_1bd76a1c3d01.aspx');
-    expect(screen.getByRole('link', { name: '查看书目' })).toHaveAttribute('href', 'https://www.gutenberg.org/ebooks/1342');
+    expect(screen.getAllByRole('link', { name: '查看书目' })[0]).toHaveAttribute('href', 'https://book.douban.com/subject/30466012/');
+    expect(screen.getAllByRole('link', { name: '查看书目' })[1]).toHaveAttribute('href', 'https://www.gutenberg.org/ebooks/1342');
   });
 });
