@@ -54,19 +54,18 @@ cleanup_stage() {
 trap cleanup_stage EXIT
 
 install -m 0644 "$proxy_source" "$proxy_configuration"
-if ! grep -Fqx "    include $proxy_configuration;" "$vhost_configuration"; then
-  vhost_candidate="$(mktemp "${TMPDIR:-/tmp}/airread-vhost-candidate.XXXXXX")"
-  if ! awk -v include_line="    include $proxy_configuration;" '
-    /^[[:space:]]*location[[:space:]]+\/[[:space:]]*\{/ && !inserted { print include_line; inserted = 1 }
-    { print }
-    END { if (!inserted) exit 1 }
-  ' "$vhost_configuration" > "$vhost_candidate"; then
-    rm -f "$vhost_candidate"
-    echo '未能定位 AirRead 站点的默认路由，未修改 Nginx 配置。' >&2
-    exit 1
-  fi
-  mv "$vhost_candidate" "$vhost_configuration"
+vhost_candidate="$(mktemp "${TMPDIR:-/tmp}/airread-vhost-candidate.XXXXXX")"
+if ! awk -v include_line="    include $proxy_configuration;" '
+  $0 == include_line { next }
+  /^[[:space:]]*location[[:space:]]+\/[[:space:]]*\{/ { print include_line; inserted = 1 }
+  { print }
+  END { if (!inserted) exit 1 }
+' "$vhost_configuration" > "$vhost_candidate"; then
+  rm -f "$vhost_candidate"
+  echo '未能定位 AirRead 站点的默认路由，未修改 Nginx 配置。' >&2
+  exit 1
 fi
+mv "$vhost_candidate" "$vhost_configuration"
 
 if ! nginx -t; then
   cp "$vhost_backup" "$vhost_configuration"
