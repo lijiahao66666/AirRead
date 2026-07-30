@@ -57,6 +57,16 @@ describe('BookStudioPage', () => {
     expect(screen.queryByText('制作进度')).not.toBeInTheDocument();
   });
 
+  it('opens the Z-Library handoff separately from public-source importing', () => {
+    render(<BookStudioPage books={[epubBook]} providerStore={new ProviderProfileStore(localStorage)} onSaveBook={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '打开 Z-Library 搜索' }));
+
+    expect(screen.getByRole('heading', { name: 'Z-Library 与镜像' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '搜索 Z-Library' })).toBeInTheDocument();
+    expect(screen.queryByText('中文维基文库')).not.toBeInTheDocument();
+  });
+
   it('pauses after the active paragraph and resumes the separate batch queue', async () => {
     let resolveFirst!: (value: string) => void;
     const translate = vi.fn()
