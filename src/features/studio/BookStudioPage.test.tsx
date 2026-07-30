@@ -24,7 +24,7 @@ describe('BookStudioPage', () => {
     render(<BookStudioPage books={[epubBook]} providerStore={new ProviderProfileStore(localStorage)} onSaveBook={vi.fn()} />);
 
     expect(screen.getByRole('heading', { name: '书籍工作室' })).toBeInTheDocument();
-    expect(screen.getByText('公开书源')).toBeInTheDocument();
+    expect(screen.getByText('书源中心')).toBeInTheDocument();
     expect(screen.queryByText('TXT 转 EPUB')).not.toBeInTheDocument();
     expect(screen.queryByText('EPUB 格式整理')).not.toBeInTheDocument();
     expect(screen.queryByText('选择书籍')).not.toBeInTheDocument();
@@ -47,20 +47,25 @@ describe('BookStudioPage', () => {
     expect(screen.getByRole('checkbox', { name: '输出双语对照' })).toBeChecked();
   });
 
-  it('keeps the public source browser separate from bilingual book production', () => {
+  it('opens public-source importing from the unified source hub', () => {
     render(<BookStudioPage books={[epubBook]} providerStore={new ProviderProfileStore(localStorage)} onSaveBook={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '浏览公开书源' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开书源中心' }));
+    expect(screen.getByRole('heading', { name: '书源中心' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '打开中文维基文库' }));
 
     expect(screen.getByRole('heading', { name: '中文维基文库' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '搜索中文维基文库' })).toBeInTheDocument();
     expect(screen.queryByText('制作进度')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '返回书源中心' }));
+    expect(screen.getByRole('heading', { name: '书源中心' })).toBeInTheDocument();
   });
 
-  it('opens the Z-Library handoff separately from public-source importing', () => {
+  it('opens the Z-Library handoff from the unified source hub', () => {
     render(<BookStudioPage books={[epubBook]} providerStore={new ProviderProfileStore(localStorage)} onSaveBook={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '打开 Z-Library 搜索' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开书源中心' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开 Z-Library 与镜像' }));
 
     expect(screen.getByRole('heading', { name: 'Z-Library 与镜像' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '搜索 Z-Library' })).toBeInTheDocument();

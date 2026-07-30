@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, BookOpenCheck, Check, ChevronRight, CirclePause, CirclePlay, Compass, Download, Languages, LibraryBig, RotateCcw, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BookOpenCheck, Check, ChevronRight, CirclePause, CirclePlay, Download, Languages, LibraryBig, RotateCcw, X } from 'lucide-react';
 
 import { createTranslationEngine } from '../../domain/ai/providerRegistry';
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
@@ -8,6 +8,7 @@ import { writeBilingualEpub } from '../../domain/books/epubWriter';
 import { createStudioState, studioReducer, buildStudioChapters, type StudioConfig, type StudioState } from './studioState';
 import type { Book } from '../../domain/books/book';
 import { BookCover } from '../../ui/BookCover';
+import { BookSourceHub } from './BookSourceHub';
 import { WikisourceBrowser } from './WikisourceBrowser';
 import { ZLibraryBrowser } from './ZLibraryBrowser';
 import './studio.css';
@@ -27,7 +28,7 @@ const STAGES = [
 ] as const;
 
 export function BookStudioPage({ books, providerStore = new ProviderProfileStore(), engineFactory = createTranslationEngine, onSaveBook, onDownload, writeEpub = writeBilingualEpub, readBlob = blobBytes }: BookStudioPageProps) {
-  const [activeTool, setActiveTool] = useState<'hub' | 'bilingual' | 'wikisource' | 'zlibrary'>('hub');
+  const [activeTool, setActiveTool] = useState<'hub' | 'bilingual' | 'sources' | 'wikisource' | 'zlibrary'>('hub');
   const [state, setState] = useState<StudioState | undefined>(undefined);
   const stateRef = useRef<StudioState | undefined>(undefined);
   const [error, setError] = useState<string>();
@@ -192,7 +193,7 @@ export function BookStudioPage({ books, providerStore = new ProviderProfileStore
 
   if (activeTool === 'hub') {
     return <section className="studio-page" aria-labelledby="studio-title">
-      <header className="studio-page__header"><div><p className="eyebrow">本地书籍工具</p><h2 id="studio-title">书籍工作室</h2><p className="page-lede">制作自己的双语书，或从公开书源和自选站点发现书籍。</p></div><BookOpenCheck size={40} strokeWidth={1.35} aria-hidden="true" /></header>
+      <header className="studio-page__header"><div><p className="eyebrow">本地书籍工具</p><h2 id="studio-title">书籍工作室</h2><p className="page-lede">制作自己的双语书，或从书源中心发现并导入书籍。</p></div><BookOpenCheck size={40} strokeWidth={1.35} aria-hidden="true" /></header>
       <div className="studio-tool-grid">
         <article className="studio-tool-card studio-tool-card--available">
           <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><Languages size={24} /></span><span className="studio-tool-status studio-tool-status--available">已可用</span></div>
@@ -200,21 +201,17 @@ export function BookStudioPage({ books, providerStore = new ProviderProfileStore
           <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('bilingual')}>开始制作双语书 <ChevronRight size={18} /></button>
         </article>
         <article className="studio-tool-card studio-tool-card--available">
-          <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><LibraryBig size={24} /></span><span className="studio-tool-status studio-tool-status--available">已可用</span></div>
-          <div><p className="eyebrow">中文维基文库 · 公开文本</p><h3>公开书源</h3><p>搜索并导入标注开放授权的中文文本，保存后可离线阅读、翻译和摘录。</p></div>
-          <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('wikisource')}>浏览公开书源 <ChevronRight size={18} /></button>
-        </article>
-        <article className="studio-tool-card studio-tool-card--available">
-          <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><Compass size={24} /></span><span className="studio-tool-status studio-tool-status--available">可配置</span></div>
-          <div><p className="eyebrow">Z-Library · 外部检索</p><h3>Z-Library 与镜像</h3><p>使用预设入口或你的可用镜像搜索书籍，下载后导入书架继续阅读。</p></div>
-          <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('zlibrary')}>打开 Z-Library 搜索 <ChevronRight size={18} /></button>
+          <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><LibraryBig size={24} /></span><span className="studio-tool-status studio-tool-status--available">2 个书源</span></div>
+          <div><p className="eyebrow">中文维基文库 · 外部检索</p><h3>书源中心</h3><p>统一浏览公开文本、Z-Library 与自定义镜像，选择适合自己的方式寻找书籍。</p></div>
+          <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('sources')}>打开书源中心 <ChevronRight size={18} /></button>
         </article>
       </div>
     </section>;
   }
 
-  if (activeTool === 'wikisource') return <WikisourceBrowser onSaveBook={onSaveBook} onBack={() => setActiveTool('hub')} />;
-  if (activeTool === 'zlibrary') return <ZLibraryBrowser onBack={() => setActiveTool('hub')} />;
+  if (activeTool === 'sources') return <BookSourceHub onBack={() => setActiveTool('hub')} onOpenWikisource={() => setActiveTool('wikisource')} onOpenZlibrary={() => setActiveTool('zlibrary')} />;
+  if (activeTool === 'wikisource') return <WikisourceBrowser onSaveBook={onSaveBook} onBack={() => setActiveTool('sources')} backLabel="返回书源中心" />;
+  if (activeTool === 'zlibrary') return <ZLibraryBrowser onBack={() => setActiveTool('sources')} backLabel="返回书源中心" />;
 
   return <section className="studio-page" aria-labelledby="studio-title">
     <button type="button" className="studio-tool-back" onClick={() => setActiveTool('hub')} disabled={activeRunId !== undefined || finalizing}><ArrowLeft size={17} /> 返回工具列表</button>

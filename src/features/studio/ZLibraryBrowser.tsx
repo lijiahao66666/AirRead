@@ -5,13 +5,14 @@ import { buildZLibrarySearchUrl, loadZLibrarySources, saveZLibrarySources, valid
 
 export type ZLibraryBrowserProps = {
   onBack: () => void;
+  backLabel?: string;
   openSearch?: (url: string) => void;
   storage?: Storage;
 };
 
 const browserStorage = (): Storage => window.localStorage;
 
-export function ZLibraryBrowser({ onBack, openSearch = (url) => { window.open(url, '_blank', 'noopener,noreferrer'); }, storage = browserStorage() }: ZLibraryBrowserProps) {
+export function ZLibraryBrowser({ onBack, backLabel = '返回工具列表', openSearch = (url) => { window.open(url, '_blank', 'noopener,noreferrer'); }, storage = browserStorage() }: ZLibraryBrowserProps) {
   const [sources, setSources] = useState(() => loadZLibrarySources(storage));
   const [sourceId, setSourceId] = useState(sources[0].id);
   const [query, setQuery] = useState('');
@@ -72,7 +73,7 @@ export function ZLibraryBrowser({ onBack, openSearch = (url) => { window.open(ur
   };
 
   return <section className="studio-page" aria-labelledby="zlibrary-title">
-    <button type="button" className="studio-tool-back" onClick={onBack}><ArrowLeft size={17} /> 返回工具列表</button>
+    <button type="button" className="studio-tool-back" onClick={onBack}><ArrowLeft size={17} /> {backLabel}</button>
     <header className="studio-page__header studio-page__header--tool"><div><p className="eyebrow">书籍工作室 · 外部书源</p><h2 id="zlibrary-title">Z-Library 与镜像</h2><p className="page-lede">用选定的入口搜索书籍；下载后再导入 AirRead，即可离线阅读、翻译与摘录。</p></div><BookOpen size={40} strokeWidth={1.35} aria-hidden="true" /></header>
     <section className="studio-card zlibrary-browser">
       <div className="studio-card__heading"><div><p className="eyebrow">外部检索</p><h3>查找书籍</h3></div><button type="button" className="text-button" onClick={() => { setShowEditor((current) => !current); setError(undefined); }} aria-expanded={showEditor}><Globe2 size={15} /> 镜像管理</button></div>

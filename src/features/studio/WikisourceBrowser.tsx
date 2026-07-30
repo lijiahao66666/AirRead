@@ -7,11 +7,12 @@ import { createWikisourceBook, loadWikisourcePage, searchWikisource, type Wikiso
 export type WikisourceBrowserProps = {
   onSaveBook: (book: Book) => void | Promise<void>;
   onBack: () => void;
+  backLabel?: string;
   search?: (query: string) => Promise<WikisourceSearchResult[]>;
   loadPage?: (title: string) => Promise<WikisourcePage>;
 };
 
-export function WikisourceBrowser({ onSaveBook, onBack, search = searchWikisource, loadPage = loadWikisourcePage }: WikisourceBrowserProps) {
+export function WikisourceBrowser({ onSaveBook, onBack, backLabel = '返回工具列表', search = searchWikisource, loadPage = loadWikisourcePage }: WikisourceBrowserProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<WikisourceSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -42,7 +43,7 @@ export function WikisourceBrowser({ onSaveBook, onBack, search = searchWikisourc
   };
 
   return <section className="studio-page" aria-labelledby="wikisource-title">
-    <button type="button" className="studio-tool-back" onClick={onBack}><ArrowLeft size={17} /> 返回工具列表</button>
+    <button type="button" className="studio-tool-back" onClick={onBack}><ArrowLeft size={17} /> {backLabel}</button>
     <header className="studio-page__header studio-page__header--tool"><div><p className="eyebrow">书籍工作室 · 公开书源</p><h2 id="wikisource-title">中文维基文库</h2><p className="page-lede">搜索并导入标注开放授权的中文文本。导入后书籍保存在当前设备，可离线阅读和翻译。</p></div><BookOpen size={40} strokeWidth={1.35} aria-hidden="true" /></header>
     <section className="studio-card wikisource-browser">
       <div className="studio-card__heading"><div><p className="eyebrow">公开书源</p><h3>找一本可读的文本</h3></div><a className="text-button" href="https://zh.wikisource.org" target="_blank" rel="noreferrer">访问站点 <ExternalLink size={15} /></a></div>
