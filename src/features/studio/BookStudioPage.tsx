@@ -207,7 +207,7 @@ export function BookStudioPage({ books, providerStore = new ProviderProfileStore
     </section>;
   }
 
-  if (activeTool === 'sources') return <BookSourceSearchPage onBack={() => setActiveTool('hub')} onSaveBook={onSaveBook} />;
+  if (activeTool === 'sources') return <BookSourceSearchPage onBack={() => setActiveTool('hub')} />;
 
   return <section className="studio-page" aria-labelledby="studio-title">
     <button type="button" className="studio-tool-back" onClick={() => setActiveTool('hub')} disabled={activeRunId !== undefined || finalizing}><ArrowLeft size={17} /> 返回工具列表</button>

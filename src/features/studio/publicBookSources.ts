@@ -1,10 +1,6 @@
-import { searchWikisource } from './wikisource';
-
-const ARCHIVE_SEARCH_API = 'https://archive.org/advancedsearch.php';
-const ARCHIVE_METADATA_API = 'https://archive.org/metadata/';
-const ARCHIVE_DOWNLOAD_BASE = 'https://archive.org/download/';
-const ARCHIVE_DETAILS_BASE = 'https://archive.org/details/';
-const MAX_ARCHIVE_RESULTS = 6;
+const CLASSICS_SEARCH_API = '/api/book-sources/classics';
+const GUTENBERG_SEARCH_API = '/api/book-sources/gutenberg';
+const MAX_RESULTS_PER_SOURCE = 6;
 
 type Fetcher = typeof fetch;
 
@@ -13,11 +9,10 @@ export type PublicBookSourceResult = {
   title: string;
   author: string;
   description: string;
-  provider: 'wikisource' | 'archive-gutenberg';
+  provider: 'classics-index' | 'gutenberg';
   providerName: string;
-  action: 'import' | 'download';
-  sourceTitle?: string;
-  downloadUrl?: string;
+  action: 'open';
+  actionLabel: string;
   sourceUrl: string;
 };
 
@@ -30,74 +25,84 @@ export async function searchPublicBookSources(query: string, fetcher: Fetcher = 
   const normalizedQuery = query.trim();
   if (!normalizedQuery) return { results: [], unavailableProviders: [] };
 
-  const [wikisource, archive] = await Promise.allSettled([
-    searchWikisource(normalizedQuery, fetcher),
-    searchArchiveGutenberg(normalizedQuery, fetcher),
+  const [classics, gutenberg] = await Promise.allSettled([
+    searchClassicsIndex(normalizedQuery, fetcher),
+    searchGutenberg(normalizedQuery, fetcher),
   ]);
   const unavailableProviders = [
-    ...(wikisource.status === 'rejected' ? ['中文维基文库'] : []),
-    ...(archive.status === 'rejected' ? ['Gutenberg 公共领域书库'] : []),
+    ...(classics.status === 'rejected' ? ['中文典籍索引'] : []),
+    ...(gutenberg.status === 'rejected' ? ['Project Gutenberg'] : []),
   ];
   if (unavailableProviders.length === 2) throw new Error('开放书源暂时无法连接，请稍后重试');
 
   return {
     results: [
-      ...(wikisource.status === 'fulfilled' ? wikisource.value.map((result): PublicBookSourceResult => ({
-        id: `wikisource:${result.title}`,
-        title: result.title,
-        author: '中文维基文库',
-        description: result.snippet || (result.wordCount > 0 ? `${result.wordCount.toLocaleString()} 字开放文本` : '开放文本'),
-        provider: 'wikisource',
-        providerName: '中文维基文库',
-        action: 'import',
-        sourceTitle: result.title,
-        sourceUrl: `https://zh.wikisource.org/wiki/${encodeURIComponent(result.title.replace(/ /gu, '_'))}`,
-      })) : []),
-      ...(archive.status === 'fulfilled' ? archive.value : []),
+      ...(classics.status === 'fulfilled' ? classics.value : []),
+      ...(gutenberg.status === 'fulfilled' ? gutenberg.value : []),
     ],
     unavailableProviders,
   };
 }
 
-async function searchArchiveGutenberg(query: string, fetcher: Fetcher): Promise<PublicBookSourceResult[]> {
-  const search = new URLSearchParams({
-    q: `collection:gutenberg AND (${query.replace(/["\\]/gu, ' ').trim()})`,
-    'fl[]': 'identifier,title,creator,year',
-    rows: String(MAX_ARCHIVE_RESULTS),
-    output: 'json',
-  });
-  const response = await fetcher(`${ARCHIVE_SEARCH_API}?${search}`);
-  if (!response.ok) throw new Error('Gutenberg 公共领域书库暂时无法连接，请稍后重试');
-  const payload = await response.json() as { response?: { docs?: Array<{ identifier?: string; title?: string; creator?: string | string[]; year?: string | number }> } };
-  const candidates = (payload.response?.docs ?? []).flatMap((item) => item.identifier && item.title ? [{
-    identifier: item.identifier,
-    title: item.title,
-    author: Array.isArray(item.creator) ? item.creator.join('、') : item.creator ?? '作者未注明',
-    year: item.year ? String(item.year) : '',
-  }] : []);
-  const downloads = await Promise.allSettled(candidates.map((candidate) => loadArchiveEpub(candidate.identifier, fetcher)));
+async function searchClassicsIndex(query: string, fetcher: Fetcher): Promise<PublicBookSourceResult[]> {
+  const response = await fetcher(`${CLASSICS_SEARCH_API}?${new URLSearchParams({ query })}`);
+  if (!response.ok) throw new Error('中文典籍索引暂时无法连接，请稍后重试');
+  const html = await response.text();
+  const document = new DOMParser().parseFromString(html, 'text/html');
+  const seen = new Set<string>();
 
-  return candidates.flatMap((candidate, index): PublicBookSourceResult[] => {
-    const download = downloads[index];
-    if (download.status !== 'fulfilled' || !download.value) return [];
-    return [{
-      id: `archive-gutenberg:${candidate.identifier}`,
-      title: candidate.title,
-      author: candidate.author,
-      description: [candidate.year, '公共领域 EPUB'].filter(Boolean).join(' · '),
-      provider: 'archive-gutenberg',
-      providerName: 'Gutenberg 公共领域书库',
-      action: 'download',
-      downloadUrl: download.value,
-      sourceUrl: `${ARCHIVE_DETAILS_BASE}${encodeURIComponent(candidate.identifier)}`,
-    }];
-  });
+  return [...document.querySelectorAll<HTMLAnchorElement>('a[href^="/guwen/book"]')]
+    .flatMap((anchor): PublicBookSourceResult[] => {
+      const href = anchor.getAttribute('href');
+      const title = normalizedText(anchor.textContent);
+      if (!href || !title || seen.has(href)) return [];
+      seen.add(href);
+      const container = anchor.closest('div[id^="zhengwen"]');
+      const description = normalizedText(container?.querySelector('.contson')?.textContent).slice(0, 170) || '中文传统典籍页面';
+      const metadata = [...(container?.querySelectorAll('div[style*="display: flex"] span') ?? [])]
+        .map((element) => normalizedText(element.textContent))
+        .filter(Boolean);
+      const author = metadata.find((value) => !/名句|先秦|经部|史部|子部|集部|类$/u.test(value)) ?? '中文传统典籍';
+
+      return [{
+        id: `classics-index:${href}`,
+        title,
+        author,
+        description,
+        provider: 'classics-index',
+        providerName: '中文典籍索引 · 古文岛',
+        action: 'open',
+        actionLabel: '前往阅读',
+        sourceUrl: new URL(href, 'https://www.guwendao.net').toString(),
+      }];
+    })
+    .slice(0, MAX_RESULTS_PER_SOURCE);
 }
 
-async function loadArchiveEpub(identifier: string, fetcher: Fetcher): Promise<string | undefined> {
-  const response = await fetcher(`${ARCHIVE_METADATA_API}${encodeURIComponent(identifier)}`);
-  if (!response.ok) throw new Error('无法读取 EPUB 下载信息');
-  const payload = await response.json() as { files?: Array<{ name?: string; format?: string }> };
-  const epub = payload.files?.find((file) => file.format === 'EPUB' && file.name);
-  return epub?.name ? `${ARCHIVE_DOWNLOAD_BASE}${encodeURIComponent(identifier)}/${encodeURIComponent(epub.name)}` : undefined;
+async function searchGutenberg(query: string, fetcher: Fetcher): Promise<PublicBookSourceResult[]> {
+  const response = await fetcher(`${GUTENBERG_SEARCH_API}?${new URLSearchParams({ query })}`);
+  if (!response.ok) throw new Error('Project Gutenberg 暂时无法连接，请稍后重试');
+  const payload = await response.json() as {
+    results?: Array<{ id?: number; title?: string; authors?: Array<{ name?: string }>; download_count?: number }>;
+  };
+
+  return (payload.results ?? []).flatMap((item): PublicBookSourceResult[] => {
+    if (!item.id || !item.title) return [];
+    const author = item.authors?.map((person) => person.name).filter((name): name is string => Boolean(name)).join('、') || '作者未注明';
+    return [{
+      id: `gutenberg:${item.id}`,
+      title: item.title,
+      author,
+      description: `${Number(item.download_count ?? 0).toLocaleString()} 次下载 · 公共领域书目`,
+      provider: 'gutenberg',
+      providerName: 'Project Gutenberg',
+      action: 'open',
+      actionLabel: '查看书目',
+      sourceUrl: `https://www.gutenberg.org/ebooks/${item.id}`,
+    }];
+  }).slice(0, MAX_RESULTS_PER_SOURCE);
+}
+
+function normalizedText(value: string | null | undefined): string {
+  return (value ?? '').replace(/\s+/gu, ' ').trim();
 }

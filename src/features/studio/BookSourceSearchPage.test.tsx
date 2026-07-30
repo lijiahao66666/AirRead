@@ -4,28 +4,24 @@ import { describe, expect, it, vi } from 'vitest';
 import { BookSourceSearchPage } from './BookSourceSearchPage';
 
 describe('BookSourceSearchPage', () => {
-  it('searches all sources once and imports Wikisource results from the shared list', async () => {
+  it('searches all sources once and keeps source actions as external links', async () => {
     const search = vi.fn().mockResolvedValue({
       unavailableProviders: [],
       results: [
-        { id: 'wikisource:论语', title: '论语', author: '中文维基文库', description: '开放文本', provider: 'wikisource', providerName: '中文维基文库', action: 'import', sourceTitle: '论语', sourceUrl: 'https://zh.wikisource.org/wiki/%E8%AE%BA%E8%AF%AD' },
-        { id: 'archive:pride', title: 'Pride and Prejudice', author: 'Austen, Jane', description: '1813 · 公共领域 EPUB', provider: 'archive-gutenberg', providerName: 'Gutenberg 公共领域书库', action: 'download', downloadUrl: 'https://archive.org/download/pride/pride.epub', sourceUrl: 'https://archive.org/details/pride' },
+        { id: 'classics:论语', title: '论语', author: '孔子弟子及再传弟子', description: '中文传统典籍', provider: 'classics-index', providerName: '中文典籍索引 · 古文岛', action: 'open', actionLabel: '前往阅读', sourceUrl: 'https://www.guwendao.net/guwen/book_1bd76a1c3d01.aspx' },
+        { id: 'gutenberg:1342', title: 'Pride and Prejudice', author: 'Austen, Jane', description: '公共领域书目', provider: 'gutenberg', providerName: 'Project Gutenberg', action: 'open', actionLabel: '查看书目', sourceUrl: 'https://www.gutenberg.org/ebooks/1342' },
       ],
     });
-    const loadWikisourcePage = vi.fn().mockResolvedValue({ title: '论语', text: '学而时习之', url: 'https://zh.wikisource.org/wiki/%E8%AE%BA%E8%AF%AD' });
-    const onSaveBook = vi.fn();
-    render(<BookSourceSearchPage onBack={vi.fn()} onSaveBook={onSaveBook} search={search} loadWikisourcePage={loadWikisourcePage} />);
+    render(<BookSourceSearchPage onBack={vi.fn()} search={search} />);
 
     fireEvent.change(screen.getByRole('textbox', { name: '搜索开放书籍' }), { target: { value: '论语' } });
-    expect(screen.queryByText('没有找到可用的开放书籍，换一个书名、作者或英文关键词试试。')).not.toBeInTheDocument();
+    expect(screen.queryByText('没有找到可用书目，换一个书名、作者或关键词试试。')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '搜索全部书源' }));
 
     await waitFor(() => expect(search).toHaveBeenCalledWith('论语'));
     expect(screen.getByRole('heading', { name: '搜索书籍' })).toBeInTheDocument();
     expect(screen.getByText('Pride and Prejudice')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '下载 EPUB' })).toHaveAttribute('href', 'https://archive.org/download/pride/pride.epub');
-    fireEvent.click(screen.getByRole('button', { name: '导入' }));
-    await waitFor(() => expect(onSaveBook).toHaveBeenCalledTimes(1));
-    expect(loadWikisourcePage).toHaveBeenCalledWith('论语');
+    expect(screen.getByRole('link', { name: '前往阅读' })).toHaveAttribute('href', 'https://www.guwendao.net/guwen/book_1bd76a1c3d01.aspx');
+    expect(screen.getByRole('link', { name: '查看书目' })).toHaveAttribute('href', 'https://www.gutenberg.org/ebooks/1342');
   });
 });
