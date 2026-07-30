@@ -20,6 +20,20 @@ export type BookBookmark = BookReadingAnchor & {
   createdAt: number;
 };
 
+export type BookExcerpt = BookReadingAnchor & {
+  id: string;
+  source: string;
+  translation?: string;
+  targetLanguage?: string;
+  createdAt: number;
+};
+
+export type BookSource = {
+  provider: 'wikisource';
+  url: string;
+  license: string;
+};
+
 export type Book = {
   id: string;
   title: string;
@@ -34,6 +48,8 @@ export type Book = {
   readingProgress: number;
   readingAnchor?: BookReadingAnchor;
   bookmarks?: BookBookmark[];
+  excerpts?: BookExcerpt[];
+  source?: BookSource;
   generatedBilingual: boolean;
   translationPreferences?: BookTranslationPreferences;
   selectionPreferences?: BookSelectionPreferences;
@@ -51,5 +67,7 @@ export function cloneBook(book: Book): Book {
     ...book,
     bytes: Uint8Array.from(book.bytes),
     bookmarks: book.bookmarks?.map((bookmark) => ({ ...bookmark })),
+    excerpts: book.excerpts?.map((excerpt) => ({ ...excerpt })),
+    source: book.source ? { ...book.source } : undefined,
   };
 }

@@ -42,7 +42,6 @@ export function BookshelfPage({ books, loading = false, error, onImport, onOpen,
         <div>
           <p className="eyebrow">阅读空间</p>
           <h2 id="bookshelf-title">我的书架</h2>
-          <p className="page-lede">导入并继续阅读。</p>
         </div>
         <div className="bookshelf-page__actions">
           <button className="primary-action import-action" type="button" aria-label="导入书籍" onClick={() => inputRef.current?.click()}><Upload size={17} /><span className="import-action__label">导入书籍</span><span className="import-action__compact-label">导入</span></button>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Copy, Languages, Play, RotateCcw } from 'lucide-react';
+import { BookmarkCheck, BookmarkPlus, Check, Copy, Languages, Play, RotateCcw } from 'lucide-react';
 
 import { languageLabel, READER_LANGUAGE_OPTIONS, type ReaderLanguage } from './readerPreferences';
 
@@ -13,14 +13,16 @@ type SelectionActionsProps = {
   error?: string;
   notice?: string;
   copied?: boolean;
+  collected?: boolean;
   canRead: boolean;
   onRetry: () => void;
   onRead: () => void;
   onTargetLanguageChange: (language: '' | Exclude<ReaderLanguage, 'auto'>) => void;
   onCopy: () => void;
+  onCollect: () => void;
 };
 
-export function SelectionActions({ source, targetLanguage, globalTargetLanguage, targetOverride, translation, loading, error, notice, copied, canRead, onRetry, onRead, onTargetLanguageChange, onCopy }: SelectionActionsProps) {
+export function SelectionActions({ source, targetLanguage, globalTargetLanguage, targetOverride, translation, loading, error, notice, copied, collected, canRead, onRetry, onRead, onTargetLanguageChange, onCopy, onCollect }: SelectionActionsProps) {
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const selectedLanguageLabel = languageLabel(targetLanguage);
   const chooseLanguage = (language: '' | Exclude<ReaderLanguage, 'auto'>) => {
@@ -41,7 +43,7 @@ export function SelectionActions({ source, targetLanguage, globalTargetLanguage,
         {translation && <p lang={targetLanguage}>{translation}</p>}
         {error && <div className="selection-actions__error" role="alert"><span>{error}</span><button type="button" onClick={onRetry} aria-label="重试划词翻译"><RotateCcw size={14} /> 重试</button></div>}
       </div>
-      <div className="selection-actions__secondary" role="toolbar" aria-label="译文操作"><button type="button" onClick={onRead} disabled={!canRead}><Play size={15} /> 朗读</button><button type="button" onClick={onCopy}><Copy size={15} /> {copied ? '已复制' : '复制'}</button></div>
+      <div className="selection-actions__secondary" role="toolbar" aria-label="译文操作"><button type="button" onClick={onCollect}>{collected ? <BookmarkCheck size={15} /> : <BookmarkPlus size={15} />}{collected ? '已收录' : '收录'}</button><button type="button" onClick={onRead} disabled={!canRead}><Play size={15} /> 朗读</button><button type="button" onClick={onCopy}><Copy size={15} /> {copied ? '已复制' : '复制'}</button></div>
     </aside>
     {languagePickerOpen && <div className="selection-language-picker-backdrop" role="presentation" onClick={() => setLanguagePickerOpen(false)}>
       <section className="selection-language-picker" role="dialog" aria-modal="true" aria-label="短语翻译目标语言" onClick={(event) => event.stopPropagation()}>

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, BookOpenCheck, Check, ChevronRight, CirclePause, CirclePlay, Download, FileOutput, FileText, Languages, RotateCcw, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BookOpenCheck, Check, ChevronRight, CirclePause, CirclePlay, Download, Languages, LibraryBig, RotateCcw, X } from 'lucide-react';
 
 import { createTranslationEngine } from '../../domain/ai/providerRegistry';
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
@@ -8,6 +8,7 @@ import { writeBilingualEpub } from '../../domain/books/epubWriter';
 import { createStudioState, studioReducer, buildStudioChapters, type StudioConfig, type StudioState } from './studioState';
 import type { Book } from '../../domain/books/book';
 import { BookCover } from '../../ui/BookCover';
+import { WikisourceBrowser } from './WikisourceBrowser';
 import './studio.css';
 
 export type BookStudioPageProps = {
@@ -25,7 +26,7 @@ const STAGES = [
 ] as const;
 
 export function BookStudioPage({ books, providerStore = new ProviderProfileStore(), engineFactory = createTranslationEngine, onSaveBook, onDownload, writeEpub = writeBilingualEpub, readBlob = blobBytes }: BookStudioPageProps) {
-  const [activeTool, setActiveTool] = useState<'hub' | 'bilingual'>('hub');
+  const [activeTool, setActiveTool] = useState<'hub' | 'bilingual' | 'wikisource'>('hub');
   const [state, setState] = useState<StudioState | undefined>(undefined);
   const stateRef = useRef<StudioState | undefined>(undefined);
   const [error, setError] = useState<string>();
@@ -190,27 +191,24 @@ export function BookStudioPage({ books, providerStore = new ProviderProfileStore
 
   if (activeTool === 'hub') {
     return <section className="studio-page" aria-labelledby="studio-title">
-      <header className="studio-page__header"><div><p className="eyebrow">本地书籍工具</p><h2 id="studio-title">书籍工作室</h2><p className="page-lede">把双语制作、格式转换和内容整理放在一个地方。先从已经可用的工具开始，后续能力会继续加入。</p></div><BookOpenCheck size={40} strokeWidth={1.35} aria-hidden="true" /></header>
+      <header className="studio-page__header"><div><p className="eyebrow">本地书籍工具</p><h2 id="studio-title">书籍工作室</h2><p className="page-lede">制作自己的双语书，或从可核验授权的公开书源导入文本。</p></div><BookOpenCheck size={40} strokeWidth={1.35} aria-hidden="true" /></header>
       <div className="studio-tool-grid">
         <article className="studio-tool-card studio-tool-card--available">
           <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><Languages size={24} /></span><span className="studio-tool-status studio-tool-status--available">已可用</span></div>
           <div><p className="eyebrow">EPUB · 翻译</p><h3>制作双语书</h3><p>按章节检查和翻译 EPUB，支持暂停、失败重试，并导出新的双语版本。</p></div>
           <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('bilingual')}>开始制作双语书 <ChevronRight size={18} /></button>
         </article>
-        <article className="studio-tool-card">
-          <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><FileOutput size={24} /></span><span className="studio-tool-status">规划中</span></div>
-          <div><p className="eyebrow">TXT · 格式转换</p><h3>TXT 转 EPUB</h3><p>识别章节标题、补充书籍信息，把纯文本整理成更适合阅读的 EPUB。</p></div>
-          <p className="studio-tool-note">后续开放</p>
-        </article>
-        <article className="studio-tool-card">
-          <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><FileText size={24} /></span><span className="studio-tool-status">规划中</span></div>
-          <div><p className="eyebrow">EPUB · 内容整理</p><h3>EPUB 格式整理</h3><p>检查目录、书名和作者等信息，修正常见结构问题后重新导出。</p></div>
-          <p className="studio-tool-note">后续开放</p>
+        <article className="studio-tool-card studio-tool-card--available">
+          <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><LibraryBig size={24} /></span><span className="studio-tool-status studio-tool-status--available">已可用</span></div>
+          <div><p className="eyebrow">中文维基文库 · 公开文本</p><h3>公开书源</h3><p>搜索并导入标注开放授权的中文文本，保存后可离线阅读、翻译和摘录。</p></div>
+          <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('wikisource')}>浏览公开书源 <ChevronRight size={18} /></button>
         </article>
       </div>
-      <p className="studio-hub-note">所有工具默认在当前设备处理文件；需要翻译时，才会把待翻译文本发送到你选择的服务。</p>
+      <p className="studio-hub-note">文件与导入文本默认保存在当前设备；需要翻译时，才会把待翻译文本发送到你选择的服务。</p>
     </section>;
   }
+
+  if (activeTool === 'wikisource') return <WikisourceBrowser onSaveBook={onSaveBook} onBack={() => setActiveTool('hub')} />;
 
   return <section className="studio-page" aria-labelledby="studio-title">
     <button type="button" className="studio-tool-back" onClick={() => setActiveTool('hub')} disabled={activeRunId !== undefined || finalizing}><ArrowLeft size={17} /> 返回工具列表</button>

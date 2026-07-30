@@ -4,7 +4,7 @@
 .studio-page__header--tool { padding-top: .85rem; }
 .studio-tool-back { display: inline-flex; min-height: 2.5rem; align-items: center; gap: .4rem; border: 0; padding: .35rem 0; background: transparent; color: var(--teal-800); cursor: pointer; font-size: .84rem; font-weight: 750; }
 .studio-tool-back:hover:not(:disabled) { color: var(--teal-950); }
-.studio-tool-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.studio-tool-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .studio-tool-card { display: flex; min-height: 22rem; flex-direction: column; gap: 1.35rem; border: 1px solid var(--paper-200); border-radius: var(--radius-lg); padding: clamp(1.25rem, 3vw, 1.75rem); background: rgb(255 254 250 / 70%); color: var(--ink-700); }
 .studio-tool-card--available { background: var(--paper-50); box-shadow: var(--shadow-card); }
 .studio-tool-card__top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
@@ -68,6 +68,22 @@
 .studio-result-card h3 { margin: 0; }
 .studio-result-card p:not(.eyebrow) { margin: 0; color: var(--ink-700); }
 .studio-success-icon { display: grid; width: 3.3rem; height: 3.3rem; place-items: center; border-radius: 50%; background: var(--mint-100); color: var(--teal-800); }
+.wikisource-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .65rem; margin-top: 1rem; }
+.wikisource-search label { display: flex; min-height: 2.9rem; align-items: center; gap: .5rem; border: 1px solid var(--paper-300); border-radius: .75rem; padding: 0 .75rem; background: var(--paper-50); color: var(--teal-800); }
+.wikisource-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--teal-950); font: inherit; }
+.wikisource-search label:focus-within { border-color: var(--mint-400); box-shadow: 0 0 0 3px rgb(145 205 179 / 18%); }
+.wikisource-browser__notice, .wikisource-browser__empty { margin: .8rem 0 0; color: var(--ink-600); font-size: .76rem; line-height: 1.65; }
+.wikisource-browser__success, .wikisource-browser__error { margin: .8rem 0 0; border-radius: .72rem; padding: .65rem .75rem; font-size: .78rem; line-height: 1.55; }
+.wikisource-browser__success { background: var(--mint-100); color: var(--teal-800); }
+.wikisource-browser__error { background: #fff5f2; color: #9b3c2d; }
+.wikisource-results { display: grid; gap: .5rem; margin-top: 1rem; }
+.wikisource-results article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .8rem; border: 1px solid var(--paper-200); border-radius: .85rem; padding: .75rem; background: rgb(255 253 248 / 58%); }
+.wikisource-results h4 { margin: 0; color: var(--teal-950); font-size: .92rem; }
+.wikisource-results p { display: -webkit-box; margin: .28rem 0; overflow: hidden; color: var(--ink-700); font-size: .77rem; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.wikisource-results small { color: var(--ink-600); font-size: .67rem; font-weight: 700; }
+.wikisource-results .secondary-button { min-width: 4.7rem; justify-content: center; }
+.is-spinning { animation: studio-spin .9s linear infinite; }
+@keyframes studio-spin { to { transform: rotate(360deg); } }
 @media (max-width: 64rem) { .studio-tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 48rem) { .studio-tool-grid { grid-template-columns: 1fr; } .studio-tool-card { min-height: auto; } .studio-steps { gap: .1rem; padding: .7rem .4rem; } .studio-step { font-size: .66rem; } .studio-step span { width: 1.7rem; height: 1.7rem; } .studio-step:not(:last-child)::after { top: .85rem; left: calc(50% + 1rem); width: calc(100% - 2rem); } .studio-summary__cover { min-height: 9rem; } }
 @media (max-width: 38rem) { .studio-page__header { align-items: flex-start; } .studio-page__header > svg { display: none; } .studio-form-grid, .studio-book-summary { grid-template-columns: 1fr; } .studio-summary__cover { width: 7rem; min-height: 9rem; } .studio-card__footer { flex-wrap: wrap; } .studio-card__footer > * { flex: 1; } }
@@ -111,12 +127,17 @@
   .studio-form-grid select, .studio-card textarea { min-height: 3rem; padding: .72rem .8rem; font-size: 1rem; line-height: 1.4; }
   .studio-card textarea { min-height: 7.5rem; }
   .studio-card__footer { gap: .55rem; margin-top: 1rem; padding-top: .8rem; }
+  .wikisource-search { grid-template-columns: 1fr; gap: .5rem; }
+  .wikisource-search .primary-action { justify-content: center; }
+  .wikisource-results article { gap: .65rem; padding: .7rem; }
 }
 
 @media (max-width: 38rem) {
   .studio-card__heading { align-items: flex-start; flex-direction: column; }
   .studio-card__heading > span { font-size: .75rem; }
   .studio-summary__cover { width: 6.5rem; min-height: 8.5rem; }
+  .wikisource-results article { grid-template-columns: 1fr; }
+  .wikisource-results .secondary-button { width: 100%; }
 }
 
 @media (max-width: 23rem) {

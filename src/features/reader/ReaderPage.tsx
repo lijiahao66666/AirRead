@@ -5,7 +5,7 @@ import { TranslationCache } from '../../domain/ai/translationCache';
 import { createTranslationEngine } from '../../domain/ai/providerRegistry';
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
 import type { TranslationEngine } from '../../domain/ai/translationTypes';
-import type { Book, BookReadingAnchor, BookSelectionPreferences, BookTranslationPreferences, Chapter } from '../../domain/books/book';
+import type { Book, BookExcerpt, BookReadingAnchor, BookSelectionPreferences, BookTranslationPreferences, Chapter } from '../../domain/books/book';
 import { ReaderSpeechControls, type SpeechPlaybackState } from './ReaderSpeechControls';
 import { ReaderSpeechPreferences } from './ReaderSpeechPreferences';
 import { ReaderToolbar } from './ReaderToolbar';
@@ -19,11 +19,11 @@ import './reader.css';
 
 type ProgressUpdate = Pick<Book, 'readingChapter' | 'readingProgress' | 'readingAnchor' | 'lastReadAt'>;
 type TargetLanguage = Exclude<ReaderLanguage, 'auto'>;
-type SelectionActionState = { paragraphId: string; source: string; targetLanguage: TargetLanguage; translation?: string; error?: string; notice?: string; loading: boolean; copied?: boolean };
+type SelectionActionState = { anchor: BookReadingAnchor; source: string; targetLanguage: TargetLanguage; translation?: string; error?: string; notice?: string; loading: boolean; copied?: boolean };
 type ChapterTranslationState = { running: boolean; completed: number; total: number; failed: number };
 type SpeechQueueItem = { paragraphId: string; text: string; language: 'source' | 'target' };
 type ReaderSearchResult = { chapter: number; chapterTitle: string; paragraphId: string; sourceOffset: number; excerpt: string };
-export type ReaderPageProps = { book: Book; chapters: Chapter[]; engine?: TranslationEngine; onProgress: (progress: ProgressUpdate) => void | Promise<void>; onTranslationPreferencesChange?: (preferences?: BookTranslationPreferences) => void | Promise<void>; onSelectionPreferencesChange?: (preferences?: BookSelectionPreferences) => void | Promise<void>; onBookmarksChange?: (bookmarks: NonNullable<Book['bookmarks']>) => void | Promise<void>; onBack: () => void };
+export type ReaderPageProps = { book: Book; chapters: Chapter[]; engine?: TranslationEngine; onProgress: (progress: ProgressUpdate) => void | Promise<void>; onTranslationPreferencesChange?: (preferences?: BookTranslationPreferences) => void | Promise<void>; onSelectionPreferencesChange?: (preferences?: BookSelectionPreferences) => void | Promise<void>; onBookmarksChange?: (bookmarks: NonNullable<Book['bookmarks']>) => void | Promise<void>; onExcerptsChange?: (excerpts: NonNullable<Book['excerpts']>) => void | Promise<void>; onBack: () => void };
 
 const errorMessage = (cause: unknown, fallback: string): string => cause instanceof Error && cause.message.trim() ? cause.message : fallback;
 const emptyChapterTranslation = (): ChapterTranslationState => ({ running: false, completed: 0, total: 0, failed: 0 });
@@ -65,7 +65,7 @@ function ReaderSheet({ title, children, onClose }: ReaderSheetProps) {
   </div>;
 }
 
-export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPreferencesChange, onSelectionPreferencesChange, onBookmarksChange, onBack }: ReaderPageProps) {
+export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPreferencesChange, onSelectionPreferencesChange, onBookmarksChange, onExcerptsChange, onBack }: ReaderPageProps) {
   const initialChapter = Math.min(book.readingChapter, Math.max(0, chapters.length - 1));
   const [chapterIndex, setChapterIndex] = useState(initialChapter);
   const [paragraphs, setParagraphs] = useState<ReaderParagraph[]>(() => paragraphsForChapter(chapters[initialChapter] ?? { id: 'empty', title: '暂无章节', href: '', content: '' }));
@@ -95,6 +95,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const [localProgress, setLocalProgress] = useState(book.readingProgress);
   const [progressError, setProgressError] = useState<string>();
   const [bookmarks, setBookmarks] = useState<NonNullable<Book['bookmarks']>>(() => book.bookmarks ?? []);
+  const [excerpts, setExcerpts] = useState<NonNullable<Book['excerpts']>>(() => book.excerpts ?? []);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchQueryForResults, setSearchQueryForResults] = useState('');
   const [pendingSearchAnchor, setPendingSearchAnchor] = useState<BookReadingAnchor>();
@@ -174,6 +175,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   }, [book.id]);
 
   useEffect(() => setBookmarks(book.bookmarks ?? []), [book.id, book.bookmarks]);
+  useEffect(() => setExcerpts(book.excerpts ?? []), [book.id, book.excerpts]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchQueryForResults(searchQuery), 160);
@@ -349,6 +351,25 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
       setSelectionAction((current) => current?.source === selectionAction.source ? { ...current, copied: true, error: undefined } : current);
     } catch { setSelectionAction((current) => current?.source === selectionAction.source ? { ...current, error: '复制失败，请在浏览器权限中允许剪贴板访问' } : current); }
   };
+  const collectSelection = async () => {
+    const selection = selectionAction;
+    if (!selection) return;
+    const id = `${selection.anchor.chapter}:${selection.anchor.paragraphId}:${selection.anchor.sourceOffset}:${selection.source}`;
+    const existing = excerpts.find((excerpt) => excerpt.id === id);
+    if (existing) {
+      setSelectionAction((current) => current === selection ? { ...current, notice: '已收录到摘录' } : current);
+      return;
+    }
+    const excerpt: BookExcerpt = { id, ...selection.anchor, source: selection.source, translation: selection.translation, targetLanguage: selection.targetLanguage, createdAt: Date.now() };
+    const next = [excerpt, ...excerpts].slice(0, 300);
+    setExcerpts(next);
+    setSelectionAction((current) => current === selection ? { ...current, notice: '已收录到摘录' } : current);
+    try { await onExcerptsChange?.(next); }
+    catch {
+      setExcerpts(book.excerpts ?? []);
+      setSelectionAction((current) => current === selection ? { ...current, error: '保存摘录失败' } : current);
+    }
+  };
 
   const persistBookTargetLanguage = async (language: '' | TargetLanguage) => {
     const nextPreferences: BookTranslationPreferences = { ...bookTranslationPreferences };
@@ -436,6 +457,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
   const currentBookmarkId = currentBookmarkAnchor ? bookmarkIdForAnchor(currentBookmarkAnchor) : undefined;
   const currentPageBookmarked = Boolean(currentBookmarkId && bookmarks.some((bookmark) => bookmark.id === currentBookmarkId));
   const orderedBookmarks = useMemo(() => [...bookmarks].sort((left, right) => right.createdAt - left.createdAt), [bookmarks]);
+  const orderedExcerpts = useMemo(() => [...excerpts].sort((left, right) => right.createdAt - left.createdAt), [excerpts]);
   const searchResults = useMemo<ReaderSearchResult[]>(() => {
     const normalizedQuery = searchQueryForResults.trim().toLocaleLowerCase();
     if (!normalizedQuery) return [];
@@ -728,7 +750,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
     setPhraseSelectionRange(undefined);
   }, [contentMode, pageIndex, readerIdentity, readerPreferences.fontSize, readerPreferences.lineHeight, readerPreferences.readingMode]);
 
-  const handlePhraseTokenClick = (point: PhraseSelectionPoint, paragraphId: string, event: MouseEvent<HTMLButtonElement>) => {
+  const handlePhraseTokenClick = (point: PhraseSelectionPoint, event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
     touchHandled.current = true;
@@ -747,7 +769,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
       setPhraseSelectionRange(undefined);
       return;
     }
-    const next = { paragraphId, source: resolved.source, targetLanguage: selectionTargetLanguage, loading: false };
+    const next = { anchor: { chapter: chapterIndex, ...resolved.anchor }, source: resolved.source, targetLanguage: selectionTargetLanguage, loading: false };
     setPhraseSelectionStart(undefined);
     setPhraseSelectionRange(range);
     void translateSelection(next);
@@ -763,7 +785,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
         phraseSelectionStart && phraseSelectionPointKey(phraseSelectionStart) === pointKey ? 'reader-phrase-token--anchor' : '',
         selectedPhraseTokenKeys?.has(pointKey) ? 'reader-phrase-token--selected' : '',
       ].filter(Boolean).join(' ');
-      return <button type="button" key={pointKey} className={className} aria-label={`选择词语 ${segment.text}`} onClick={(event) => handlePhraseTokenClick(point, block.paragraphId, event)} onContextMenu={(event) => event.preventDefault()}>{segment.text}</button>;
+      return <button type="button" key={pointKey} className={className} aria-label={`选择词语 ${segment.text}`} onClick={(event) => handlePhraseTokenClick(point, event)} onContextMenu={(event) => event.preventDefault()}>{segment.text}</button>;
     });
   };
   const renderBlocks = (blocks: ReaderPageBlock[]) => blocks.map((block) => (
@@ -801,7 +823,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
       </div>
     </div>
     {phraseSelectionActive && !selectionAction && contentMode !== 'translation' && <div className="reader-phrase-selection-hint" role="status"><Languages size={15} aria-hidden="true" /><span><strong>{phraseSelectionStart ? '已选起点' : '短语取词已开启'}</strong><small>{phraseSelectionStart ? '再点短语的最后一个词' : '轻点首词和末尾词；点空白处退出'}</small></span></div>}
-    {selectionAction && <><div className="selection-actions-backdrop" aria-hidden="true" onPointerDown={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()} onClick={dismissSelectionActions} /><SelectionActions source={selectionAction.source} targetLanguage={selectionAction.targetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={selectionTargetOverride} translation={selectionAction.translation} loading={selectionAction.loading} error={selectionAction.error} notice={selectionAction.notice} copied={selectionAction.copied} canRead={speechSupported} onRetry={() => { void translateSelection(); }} onRead={readSelection} onTargetLanguageChange={changeSelectionTargetLanguage} onCopy={() => { void copySelection(); }} /></>}
+    {selectionAction && <><div className="selection-actions-backdrop" aria-hidden="true" onPointerDown={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()} onClick={dismissSelectionActions} /><SelectionActions source={selectionAction.source} targetLanguage={selectionAction.targetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={selectionTargetOverride} translation={selectionAction.translation} loading={selectionAction.loading} error={selectionAction.error} notice={selectionAction.notice} copied={selectionAction.copied} collected={excerpts.some((excerpt) => excerpt.id === `${selectionAction.anchor.chapter}:${selectionAction.anchor.paragraphId}:${selectionAction.anchor.sourceOffset}:${selectionAction.source}`)} canRead={speechSupported} onRetry={() => { void translateSelection(); }} onRead={readSelection} onTargetLanguageChange={changeSelectionTargetLanguage} onCopy={() => { void copySelection(); }} onCollect={() => { void collectSelection(); }} /></>}
     <div className="reader-dock" aria-label="阅读控制">
       <div className="reader-dock__actions">
         <button type="button" className="reader-dock__action" onClick={() => { setContentsOpen(true); setChromeVisible(true); }} aria-label="打开目录"><List size={19} /></button>
@@ -819,7 +841,7 @@ export function ReaderPage({ book, chapters, engine, onProgress, onTranslationPr
       </div>
     </div>
     {progressError && <div className="reader-feedback reader-feedback--error reader-progress-error" role="alert">{progressError}</div>}
-    {contentsOpen && <ReaderSheet title="目录" onClose={() => setContentsOpen(false)}><div className="reader-lookup"><label className="reader-search"><Search size={16} aria-hidden="true" /><span className="sr-only">搜索全书</span><input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索全书内容" aria-label="搜索全书" /></label>{searchQuery.trim() && <section className="reader-search-results" aria-live="polite"><div className="reader-lookup__heading"><h3>搜索结果</h3><span>{searchQuery !== searchQueryForResults ? '搜索中' : `${searchResults.length}${searchResults.length === 48 ? '+' : ''} 条`}</span></div>{searchQuery !== searchQueryForResults ? <p>正在搜索全书…</p> : searchResults.length > 0 ? <div>{searchResults.map((result) => <button type="button" key={`${result.chapter}:${result.paragraphId}`} onClick={() => navigateToAnchor(result)}><span>第 {result.chapter + 1} 章 · {result.chapterTitle}</span><strong>{result.excerpt}</strong><ChevronRight size={16} /></button>)}</div> : <p>没有找到匹配内容</p>}</section>}{orderedBookmarks.length > 0 && <section className="reader-bookmarks"><div className="reader-lookup__heading"><h3>书签</h3><span>{orderedBookmarks.length}</span></div><div>{orderedBookmarks.map((bookmark) => <button type="button" key={bookmark.id} onClick={() => navigateToAnchor(bookmark)}><span>第 {bookmark.chapter + 1} 章 · {chapters[bookmark.chapter]?.title || `第 ${bookmark.chapter + 1} 章`}</span><strong>回到这页</strong><ChevronRight size={16} /></button>)}</div></section>}<nav className="reader-toc" aria-label="章节目录">{chapters.map((item, index) => <button type="button" className={index === chapterIndex ? 'is-active' : ''} key={item.id} onClick={() => { setContentsOpen(false); if (index !== chapterIndex) changeChapter(index); }}><span>{String(index + 1).padStart(2, '0')}</span><strong>{item.title || `第 ${index + 1} 章`}</strong><ChevronRight size={16} /></button>)}</nav></div></ReaderSheet>}
+    {contentsOpen && <ReaderSheet title="目录" onClose={() => setContentsOpen(false)}><div className="reader-lookup"><label className="reader-search"><Search size={16} aria-hidden="true" /><span className="sr-only">搜索全书</span><input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索全书内容" aria-label="搜索全书" /></label>{searchQuery.trim() && <section className="reader-search-results" aria-live="polite"><div className="reader-lookup__heading"><h3>搜索结果</h3><span>{searchQuery !== searchQueryForResults ? '搜索中' : `${searchResults.length}${searchResults.length === 48 ? '+' : ''} 条`}</span></div>{searchQuery !== searchQueryForResults ? <p>正在搜索全书…</p> : searchResults.length > 0 ? <div>{searchResults.map((result) => <button type="button" key={`${result.chapter}:${result.paragraphId}`} onClick={() => navigateToAnchor(result)}><span>第 {result.chapter + 1} 章 · {result.chapterTitle}</span><strong>{result.excerpt}</strong><ChevronRight size={16} /></button>)}</div> : <p>没有找到匹配内容</p>}</section>}{orderedBookmarks.length > 0 && <section className="reader-bookmarks"><div className="reader-lookup__heading"><h3>书签</h3><span>{orderedBookmarks.length}</span></div><div>{orderedBookmarks.map((bookmark) => <button type="button" key={bookmark.id} onClick={() => navigateToAnchor(bookmark)}><span>第 {bookmark.chapter + 1} 章 · {chapters[bookmark.chapter]?.title || `第 ${bookmark.chapter + 1} 章`}</span><strong>回到这页</strong><ChevronRight size={16} /></button>)}</div></section>}{orderedExcerpts.length > 0 && <section className="reader-excerpts"><div className="reader-lookup__heading"><h3>摘录</h3><span>{orderedExcerpts.length}</span></div><div>{orderedExcerpts.map((excerpt) => <button type="button" key={excerpt.id} onClick={() => navigateToAnchor(excerpt)}><span>第 {excerpt.chapter + 1} 章 · {chapters[excerpt.chapter]?.title || `第 ${excerpt.chapter + 1} 章`}</span><strong>{excerpt.source}</strong><ChevronRight size={16} /></button>)}</div></section>}<nav className="reader-toc" aria-label="章节目录">{chapters.map((item, index) => <button type="button" className={index === chapterIndex ? 'is-active' : ''} key={item.id} onClick={() => { setContentsOpen(false); if (index !== chapterIndex) changeChapter(index); }}><span>{String(index + 1).padStart(2, '0')}</span><strong>{item.title || `第 ${index + 1} 章`}</strong><ChevronRight size={16} /></button>)}</nav></div></ReaderSheet>}
     {translationOpen && <ReaderSheet title="翻译显示" onClose={() => setTranslationOpen(false)}><ReaderTranslationControls translatedCount={translatedCount} totalCount={translationParagraphs.length} running={chapterTranslation.running} failed={chapterTranslation.failed} contentMode={contentMode} targetLanguage={bookTargetLanguage} globalTargetLanguage={readerPreferences.targetLanguage} targetOverride={bookTargetOverride} onModeChange={changeContentMode} onStop={stopChapterTranslation} onTargetLanguageChange={(language) => { void changeBookTargetLanguage(language); }} />{chapterLanguageNotice && <span className="reader-language-note" role="status" aria-label={chapterLanguageNotice}>{chapterLanguageNotice}</span>}</ReaderSheet>}
     {speechOpen && <ReaderSheet title="朗读" onClose={() => setSpeechOpen(false)}><ReaderSpeechControls supported={speechSupported} state={speechState} contentLabel={modeLabel} currentIndex={speechParagraphIndex} totalCount={speechParagraphs.length} error={speechError} onStart={() => startSpeech()} onPause={pauseSpeech} onResume={resumeSpeech} onStop={stopSpeech} /><ReaderSpeechPreferences supported={speechSupported} voices={speechVoices} sourceLocale={sourceSpeechLocale} targetLocale={targetSpeechLocale} sourceVoiceURI={readerPreferences.sourceVoiceURI} targetVoiceURI={readerPreferences.targetVoiceURI} rate={speechRate} onVoiceChange={changeSpeechVoice} onRateChange={(rate) => updateReaderPreference('speechRate', rate)} onPreview={previewSpeechVoice} /></ReaderSheet>}
     {settingsOpen && <ReaderSheet title="阅读设置" onClose={() => setSettingsOpen(false)}><div className="reader-settings-form"><section><h3>阅读模式</h3><div className="reader-setting-segment"><button type="button" className={readerPreferences.readingMode === 'paged' ? 'is-active' : ''} onClick={() => updateReaderPreference('readingMode', 'paged')}><PanelBottom size={16} /> 分页</button><button type="button" className={readerPreferences.readingMode === 'scroll' ? 'is-active' : ''} onClick={() => updateReaderPreference('readingMode', 'scroll')}><List size={16} /> 滚动</button></div></section><section><h3>字体</h3><div className="reader-setting-segment"><button type="button" className={readerPreferences.fontFamily === 'serif' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontFamily', 'serif')}>衬线</button><button type="button" className={readerPreferences.fontFamily === 'sans' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontFamily', 'sans')}>无衬线</button></div></section><section><h3>字号</h3><div className="reader-setting-segment reader-setting-segment--four"><button type="button" className={readerPreferences.fontSize === 'small' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'small')}>小</button><button type="button" className={readerPreferences.fontSize === 'medium' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'medium')}>中</button><button type="button" className={readerPreferences.fontSize === 'large' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'large')}>大</button><button type="button" className={readerPreferences.fontSize === 'x-large' ? 'is-active' : ''} onClick={() => updateReaderPreference('fontSize', 'x-large')}>特大</button></div></section><section><h3>行距</h3><div className="reader-setting-segment reader-setting-segment--three"><button type="button" className={readerPreferences.lineHeight === 'compact' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'compact')}>紧凑</button><button type="button" className={readerPreferences.lineHeight === 'comfortable' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'comfortable')}>舒适</button><button type="button" className={readerPreferences.lineHeight === 'relaxed' ? 'is-active' : ''} onClick={() => updateReaderPreference('lineHeight', 'relaxed')}>宽松</button></div></section><section><h3>页面主题</h3><div className="reader-setting-segment reader-setting-segment--three"><button type="button" className={readerPreferences.theme === 'paper' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'paper')}><Sun size={15} /> 纸张</button><button type="button" className={readerPreferences.theme === 'sepia' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'sepia')}><BookOpen size={15} /> 柔和</button><button type="button" className={readerPreferences.theme === 'night' ? 'is-active' : ''} onClick={() => updateReaderPreference('theme', 'night')}><Moon size={15} /> 夜间</button></div></section></div></ReaderSheet>}

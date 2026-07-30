@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Book } from '../../domain/books/book';
@@ -95,6 +95,23 @@ describe('ReaderPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '打开目录' }));
     expect(screen.getByRole('heading', { name: '书签' })).toBeInTheDocument();
     expect(screen.getByText('回到这页')).toBeInTheDocument();
+  });
+
+  it('collects a selected phrase and exposes the excerpt in the directory', async () => {
+    const onExcerptsChange = vi.fn();
+    render(<ReaderPage book={book} chapters={chaptersForBook(book)} engine={{ cacheIdentity: 'excerpt', translate: vi.fn().mockResolvedValue('第一段译文') }} onProgress={vi.fn()} onExcerptsChange={onExcerptsChange} onBack={vi.fn()} />);
+
+    startPhraseSelection();
+    selectPhrase('first', 'paragraph');
+    await screen.findByText('第一段译文');
+    fireEvent.click(screen.getByRole('button', { name: '收录' }));
+
+    await waitFor(() => expect(onExcerptsChange).toHaveBeenCalledWith([
+      expect.objectContaining({ source: 'first paragraph', translation: '第一段译文', chapter: 0 }),
+    ]));
+    fireEvent.click(screen.getByRole('button', { name: '打开目录' }));
+    expect(screen.getByRole('heading', { name: '摘录' })).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog', { name: '目录' })).getByText('first paragraph')).toBeInTheDocument();
   });
 
   it('searches every chapter and opens the matching result', async () => {

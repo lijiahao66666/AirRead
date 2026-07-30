@@ -3,6 +3,7 @@ import { ArrowLeft, BookOpen, LibraryBig, Settings2, Sparkles } from 'lucide-rea
 
 import { createBookStore } from './domain/books/bookStore';
 import type { Book, Chapter } from './domain/books/book';
+import { mergeRestoredBooks } from './app/localBackup';
 import { BookshelfPage } from './features/bookshelf/BookshelfPage';
 import { ProviderProfileStore } from './domain/ai/providerStore';
 import './styles/global.css';
@@ -125,6 +126,14 @@ export default function App() {
     await bookStore.updateBook(bookId, { bookmarks });
     setBooks((current) => current.map((book) => book.id === bookId ? { ...book, bookmarks } : book));
   };
+  const updateExcerpts = async (bookId: string, excerpts: Book['excerpts']) => {
+    await bookStore.updateBook(bookId, { excerpts });
+    setBooks((current) => current.map((book) => book.id === bookId ? { ...book, excerpts } : book));
+  };
+  const restoreBooks = async (restoredBooks: Book[]) => {
+    await Promise.all(restoredBooks.map((book) => bookStore.saveBook(book)));
+    setBooks((current) => mergeRestoredBooks(current, restoredBooks));
+  };
   const saveGeneratedBook = async (book: Book) => {
     await bookStore.saveBook(book);
     setBooks((current) => [book, ...current.filter((candidate) => candidate.id !== book.id)]);
@@ -134,7 +143,7 @@ export default function App() {
   if (location.route === 'reader') {
     content = loading ? <div className="state-card" role="status">正在读取书籍</div> : activeBook
       ? readerPreparation?.bookId === activeBook.id && readerPreparation.chapters
-        ? <Suspense fallback={<div className="state-card" role="status">正在打开阅读器</div>}><ReaderPage key={activeBook.id} book={activeBook} chapters={readerPreparation.chapters} onProgress={(progress) => updateProgress(activeBook.id, progress)} onTranslationPreferencesChange={(preferences) => updateTranslationPreferences(activeBook.id, preferences)} onSelectionPreferencesChange={(preferences) => updateSelectionPreferences(activeBook.id, preferences)} onBookmarksChange={(bookmarks) => updateBookmarks(activeBook.id, bookmarks)} onBack={() => { window.location.hash = 'bookshelf'; }} /></Suspense>
+        ? <Suspense fallback={<div className="state-card" role="status">正在打开阅读器</div>}><ReaderPage key={activeBook.id} book={activeBook} chapters={readerPreparation.chapters} onProgress={(progress) => updateProgress(activeBook.id, progress)} onTranslationPreferencesChange={(preferences) => updateTranslationPreferences(activeBook.id, preferences)} onSelectionPreferencesChange={(preferences) => updateSelectionPreferences(activeBook.id, preferences)} onBookmarksChange={(bookmarks) => updateBookmarks(activeBook.id, bookmarks)} onExcerptsChange={(excerpts) => updateExcerpts(activeBook.id, excerpts)} onBack={() => { window.location.hash = 'bookshelf'; }} /></Suspense>
         : readerPreparation?.bookId === activeBook.id && readerPreparation.error
           ? <div className="state-card state-card--error" role="alert">{readerPreparation.error}</div>
           : <div className="state-card" role="status">正在打开书籍</div>
@@ -142,7 +151,7 @@ export default function App() {
   } else if (location.route === 'studio') {
     content = <Suspense fallback={<div className="state-card" role="status">正在打开书籍工作室</div>}><BookStudioPage books={books} providerStore={providerStore} onSaveBook={saveGeneratedBook} /></Suspense>;
   } else if (location.route === 'settings') {
-    content = <Suspense fallback={<div className="state-card" role="status">正在打开翻译设置</div>}><SettingsPage store={providerStore} /></Suspense>;
+    content = <Suspense fallback={<div className="state-card" role="status">正在打开翻译设置</div>}><SettingsPage store={providerStore} books={books} onRestoreBooks={restoreBooks} /></Suspense>;
   } else {
     content = <BookshelfPage books={books} loading={loading} error={error} onImport={importBook} onOpen={openBook} onDelete={deleteBook} />;
   }

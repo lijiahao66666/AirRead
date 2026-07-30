@@ -2,6 +2,7 @@ export type PhraseSelectionBlock = {
   id: string;
   paragraphId: string;
   original: string;
+  sourceStart?: number;
 };
 
 export type PhraseSelectionPoint = {
@@ -22,6 +23,7 @@ export type PhraseTextSegment = {
 export type ResolvedPhraseSelection = {
   source: string;
   selectedTokenKeys: Set<string>;
+  anchor: { paragraphId: string; sourceOffset: number };
 };
 
 const phraseSegmentPattern = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]|\s+|[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*|[^\s]/gu;
@@ -61,5 +63,9 @@ export function resolvePhraseSelection(blocks: PhraseSelectionBlock[], range: Ph
     const previous = parts[index - 1];
     return `${result}${previous.paragraphId === part.paragraphId ? ' ' : '\n\n'}${part.text}`;
   }, '');
-  return source ? { source, selectedTokenKeys } : undefined;
+  const startBlock = blocks[start.blockIndex];
+  const sourceOffset = (startBlock.sourceStart ?? 0) + phraseTextSegments(startBlock.original)
+    .slice(0, start.segmentIndex)
+    .reduce((offset, segment) => offset + segment.text.length, 0);
+  return source ? { source, selectedTokenKeys, anchor: { paragraphId: startBlock.paragraphId, sourceOffset } } : undefined;
 }

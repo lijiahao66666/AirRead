@@ -73,6 +73,20 @@ describe('book store', () => {
       { id: '0:chapter-1-0:0', chapter: 0, paragraphId: 'chapter-1-0', sourceOffset: 0, createdAt: 700 },
     ]);
   });
+
+  it('persists excerpts independently from reading progress', async () => {
+    const database = new MemoryBookDatabase();
+    const store = createBookStore(async () => database);
+    await store.saveBook(makeBook('excerpts', 500, [1]));
+
+    await store.updateBook('excerpts', {
+      excerpts: [{ id: '0:chapter-1-0:0:source', chapter: 0, paragraphId: 'chapter-1-0', sourceOffset: 0, source: 'source', translation: '译文', targetLanguage: 'zh-CN', createdAt: 700 }],
+    });
+
+    expect((await store.listBooks())[0].excerpts).toEqual([
+      { id: '0:chapter-1-0:0:source', chapter: 0, paragraphId: 'chapter-1-0', sourceOffset: 0, source: 'source', translation: '译文', targetLanguage: 'zh-CN', createdAt: 700 },
+    ]);
+  });
 });
 
 class MemoryBookDatabase implements BookDatabase {

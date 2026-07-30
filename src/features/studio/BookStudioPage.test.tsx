@@ -24,8 +24,9 @@ describe('BookStudioPage', () => {
     render(<BookStudioPage books={[epubBook]} providerStore={new ProviderProfileStore(localStorage)} onSaveBook={vi.fn()} />);
 
     expect(screen.getByRole('heading', { name: '书籍工作室' })).toBeInTheDocument();
-    expect(screen.getByText('TXT 转 EPUB')).toBeInTheDocument();
-    expect(screen.getByText('EPUB 格式整理')).toBeInTheDocument();
+    expect(screen.getByText('公开书源')).toBeInTheDocument();
+    expect(screen.queryByText('TXT 转 EPUB')).not.toBeInTheDocument();
+    expect(screen.queryByText('EPUB 格式整理')).not.toBeInTheDocument();
     expect(screen.queryByText('选择书籍')).not.toBeInTheDocument();
     openBilingualTool();
     for (const step of ['选择书籍', '检查内容', '翻译设置', '制作进度', '完成']) {
@@ -44,6 +45,16 @@ describe('BookStudioPage', () => {
     expect(screen.getByLabelText('翻译服务')).toHaveValue(BUILT_IN_FREE_PROFILE.id);
     expect(screen.getByLabelText('术语表')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: '输出双语对照' })).toBeChecked();
+  });
+
+  it('keeps the public source browser separate from bilingual book production', () => {
+    render(<BookStudioPage books={[epubBook]} providerStore={new ProviderProfileStore(localStorage)} onSaveBook={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '浏览公开书源' }));
+
+    expect(screen.getByRole('heading', { name: '中文维基文库' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '搜索中文维基文库' })).toBeInTheDocument();
+    expect(screen.queryByText('制作进度')).not.toBeInTheDocument();
   });
 
   it('pauses after the active paragraph and resumes the separate batch queue', async () => {

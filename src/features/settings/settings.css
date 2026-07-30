@@ -49,6 +49,8 @@
 .settings-disclosure summary::marker { color: var(--teal-700); }
 .settings-disclosure > div { display: grid; gap: .55rem; padding: 0 0 .75rem; }
 .settings-disclosure p { margin: 0; font-size: .76rem; line-height: 1.7; }
+.settings-backup-actions { display: flex; flex-wrap: wrap; gap: .55rem; }
+.settings-backup-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 42rem) { .settings-page__header { align-items: flex-start; } .settings-page__header > svg { display: none; } .settings-card__heading { align-items: stretch; flex-direction: column; } .settings-card__heading .primary-action { align-self: flex-start; } .provider-row { grid-template-columns: 1fr auto; } .settings-form-grid, .settings-form-grid__service-row { grid-template-columns: 1fr; } .settings-form-grid__wide { grid-column: auto; } .free-route-settings { grid-template-columns: 1fr; } .settings-editor__actions { flex-wrap: wrap; } .settings-editor__actions > * { flex: 1; } }
 
 .settings-card { border-color: rgb(211 197 181 / 72%); border-radius: var(--radius-lg); background: rgb(255 253 248 / 88%); box-shadow: 0 14px 34px rgb(30 49 44 / 5%); }
@@ -86,6 +88,9 @@
   .settings-editor__actions > * { width: 100%; }
   .provider-editor__test-popover { width: min(17rem, calc(100vw - 3rem)); }
   .settings-editor__actions .primary-action { grid-column: 1 / -1; }
+  .settings-editor__actions { position: sticky; z-index: 4; bottom: max(.3rem, env(safe-area-inset-bottom)); margin-right: -.15rem; margin-left: -.15rem; padding: .85rem .15rem .2rem; background: linear-gradient(to bottom, rgb(255 253 248 / 0%), var(--paper-50) 30%); box-shadow: 0 -10px 18px rgb(255 253 248 / 92%); }
+  .settings-backup-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-backup-actions .secondary-button { width: 100%; justify-content: center; }
   .settings-disclosure { margin-bottom: .85rem; }
   .settings-disclosure p { font-size: .74rem; line-height: 1.6; overflow-wrap: anywhere; }
 }

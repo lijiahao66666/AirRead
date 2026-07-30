@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import { Download, Pencil, Plus, ShieldCheck, Trash2, Upload } from 'lucide-react';
 
 import { createTranslationEngine } from '../../domain/ai/providerRegistry';
 import { isMaskedSecret, maskProviderProfile, type FreeTranslationRoute, type ProviderProfile } from '../../domain/ai/providerProfile';
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
 import { ProviderConnectionError, type TranslationRequest } from '../../domain/ai/translationTypes';
 import { ProviderEditor } from './ProviderEditor';
+import { createLocalBookBackup, parseLocalBookBackup } from '../../app/localBackup';
+import type { Book } from '../../domain/books/book';
+import { ReaderPreferencesStore } from '../reader/readerPreferences';
 import './settings.css';
 
 export type SettingsPageProps = {
   store?: ProviderProfileStore;
   testConnection?: (profile: ProviderProfile) => Promise<void>;
+  books?: Book[];
+  onRestoreBooks?: (books: Book[]) => void | Promise<void>;
 };
 
 const testRequest: TranslationRequest = { text: 'AirRead', sourceLanguage: 'en', targetLanguage: 'zh-CN' };
@@ -39,7 +44,7 @@ const providerKindLabels: Record<ProviderProfile['kind'], string> = {
   deepl: 'DeepL API',
 };
 
-export function SettingsPage({ store = new ProviderProfileStore(), testConnection = async (profile) => { await createTranslationEngine(profile).translate(testRequest); } }: SettingsPageProps) {
+export function SettingsPage({ store = new ProviderProfileStore(), testConnection = async (profile) => { await createTranslationEngine(profile).translate(testRequest); }, books = [], onRestoreBooks }: SettingsPageProps) {
   const [profiles, setProfiles] = useState(() => store.list());
   const [selectedId, setSelectedId] = useState(() => store.selected().id);
   const [freeRoute, setFreeRoute] = useState<FreeTranslationRoute>(() => store.getFreeRoute());
@@ -47,6 +52,7 @@ export function SettingsPage({ store = new ProviderProfileStore(), testConnectio
   const [editing, setEditing] = useState<ProviderProfile>();
   const [editingOriginal, setEditingOriginal] = useState<ProviderProfile>();
   const editorRef = useRef<HTMLElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [testing, setTesting] = useState(false);
@@ -75,6 +81,27 @@ export function SettingsPage({ store = new ProviderProfileStore(), testConnectio
     try { await testConnection(resolvedEditing); setTestResult({ tone: 'success', message: '连接成功' }); }
     catch (cause) { setTestResult({ tone: 'error', message: cause instanceof ProviderConnectionError ? '该翻译服务不允许浏览器直接连接。请使用支持网页调用的地址，或运行你自己的本地中转服务' : '连接测试失败，请检查翻译服务配置' }); }
     finally { setTesting(false); }
+  };
+  const exportBackup = () => {
+    const backup = createLocalBookBackup(books, new ReaderPreferencesStore().get());
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `AirRead-本地备份-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setNotice(`已导出 ${books.length} 本书的本地备份`);
+  };
+  const restoreBackup = async (file: File) => {
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      const backup = parseLocalBookBackup(await file.text());
+      await onRestoreBooks?.(backup.books);
+      if (backup.readerPreferences) new ReaderPreferencesStore().save(backup.readerPreferences);
+      setNotice(`已恢复 ${backup.books.length} 本书；本机原有的其他书籍会保留`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '恢复本地备份失败'); }
   };
   useEffect(() => {
     if (!editing) return undefined;
@@ -115,6 +142,7 @@ export function SettingsPage({ store = new ProviderProfileStore(), testConnectio
       </article>;
     })}</div></section>
     {editing && !editingOriginal && <section className="settings-card" ref={editorRef}>{renderEditor()}</section>}
+    <details className="settings-disclosure settings-disclosure--backup"><summary>本地数据与备份</summary><div><p>备份包含书籍文件、阅读进度、书签、摘录和阅读显示偏好；不会包含翻译服务密钥。</p><div className="settings-backup-actions"><button type="button" className="secondary-button" onClick={exportBackup}><Download size={16} /> 导出本地备份</button><button type="button" className="secondary-button" onClick={() => backupInputRef.current?.click()}><Upload size={16} /> 恢复本地备份</button><input ref={backupInputRef} className="settings-backup-input" type="file" accept="application/json,.json" aria-label="选择 AirRead 本地备份文件" onChange={(event) => { const file = event.target.files?.[0]; if (file) void restoreBackup(file); event.target.value = ''; }} /></div></div></details>
     <details className="settings-disclosure"><summary>关于本地数据与连接</summary><div><p>书籍和服务密钥只保存在当前浏览器。使用第三方翻译时，待翻译文本会直接发送到该服务。</p><p>翻译请求由当前浏览器直接发送到所选服务。部分服务不允许网页直接连接；若测试失败，请改用支持浏览器访问的地址，或在自己的设备上运行中转服务。</p></div></details>
   </section>;
 }
