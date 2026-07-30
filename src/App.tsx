@@ -138,6 +138,10 @@ export default function App() {
     await bookStore.saveBook(book);
     setBooks((current) => [book, ...current.filter((candidate) => candidate.id !== book.id)]);
   };
+  const importAndOpenBook = async (book: Book) => {
+    await saveGeneratedBook(book);
+    window.requestAnimationFrame(() => openBook(book.id));
+  };
 
   let content;
   if (location.route === 'reader') {
@@ -149,7 +153,7 @@ export default function App() {
           : <div className="state-card" role="status">正在打开书籍</div>
       : <MissingBookPage />;
   } else if (location.route === 'studio') {
-    content = <Suspense fallback={<div className="state-card" role="status">正在打开书籍工作室</div>}><BookStudioPage books={books} providerStore={providerStore} onSaveBook={saveGeneratedBook} /></Suspense>;
+    content = <Suspense fallback={<div className="state-card" role="status">正在打开书籍工作室</div>}><BookStudioPage books={books} providerStore={providerStore} onSaveBook={saveGeneratedBook} onImportBook={importAndOpenBook} /></Suspense>;
   } else if (location.route === 'settings') {
     content = <Suspense fallback={<div className="state-card" role="status">正在打开翻译设置</div>}><SettingsPage store={providerStore} books={books} onRestoreBooks={restoreBooks} /></Suspense>;
   } else {

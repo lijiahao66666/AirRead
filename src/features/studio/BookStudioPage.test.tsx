@@ -24,7 +24,7 @@ describe('BookStudioPage', () => {
     render(<BookStudioPage books={[epubBook]} providerStore={new ProviderProfileStore(localStorage)} onSaveBook={vi.fn()} />);
 
     expect(screen.getByRole('heading', { name: '书籍工作室' })).toBeInTheDocument();
-    expect(screen.getByText('书籍搜索')).toBeInTheDocument();
+    expect(screen.getByText('开放作品导入')).toBeInTheDocument();
     expect(screen.queryByText('TXT 转 EPUB')).not.toBeInTheDocument();
     expect(screen.queryByText('EPUB 格式整理')).not.toBeInTheDocument();
     expect(screen.queryByText('选择书籍')).not.toBeInTheDocument();
@@ -47,13 +47,13 @@ describe('BookStudioPage', () => {
     expect(screen.getByRole('checkbox', { name: '输出双语对照' })).toBeChecked();
   });
 
-  it('opens one shared search page instead of choosing a source first', () => {
+  it('opens the open-work import flow instead of a catalog page', () => {
     render(<BookStudioPage books={[epubBook]} providerStore={new ProviderProfileStore(localStorage)} onSaveBook={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '搜索书目' }));
+    fireEvent.click(screen.getByRole('button', { name: '搜索并导入' }));
 
-    expect(screen.getByRole('heading', { name: '搜索书籍' })).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: '搜索开放书籍' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '搜索并导入作品' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '搜索开放作品' })).toBeInTheDocument();
     expect(screen.queryByText('制作进度')).not.toBeInTheDocument();
   });
 

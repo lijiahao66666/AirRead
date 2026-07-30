@@ -1,6 +1,6 @@
 import type { Book } from '../../domain/books/book';
 
-const WIKISOURCE_API = 'https://zh.wikisource.org/w/api.php';
+const WIKISOURCE_API = '/api/open-books/wikisource';
 const WIKISOURCE_PAGE = 'https://zh.wikisource.org/wiki/';
 
 export type WikisourceSearchResult = {

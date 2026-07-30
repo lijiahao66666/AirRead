@@ -16,6 +16,7 @@ export type BookStudioPageProps = {
   providerStore?: ProviderProfileStore;
   engineFactory?: (profile: ReturnType<ProviderProfileStore['selected']>) => TranslationEngine;
   onSaveBook: (book: Book) => void | Promise<void>;
+  onImportBook?: (book: Book) => void | Promise<void>;
   onDownload?: (blob: Blob, filename: string) => void;
   writeEpub?: typeof writeBilingualEpub;
   readBlob?: (blob: Blob) => Promise<Uint8Array>;
@@ -25,7 +26,7 @@ const STAGES = [
   ['select', '选择书籍'], ['inspect', '检查内容'], ['translate', '翻译设置'], ['progress', '制作进度'], ['complete', '完成'],
 ] as const;
 
-export function BookStudioPage({ books, providerStore = new ProviderProfileStore(), engineFactory = createTranslationEngine, onSaveBook, onDownload, writeEpub = writeBilingualEpub, readBlob = blobBytes }: BookStudioPageProps) {
+export function BookStudioPage({ books, providerStore = new ProviderProfileStore(), engineFactory = createTranslationEngine, onSaveBook, onImportBook = onSaveBook, onDownload, writeEpub = writeBilingualEpub, readBlob = blobBytes }: BookStudioPageProps) {
   const [activeTool, setActiveTool] = useState<'hub' | 'bilingual' | 'sources'>('hub');
   const [state, setState] = useState<StudioState | undefined>(undefined);
   const stateRef = useRef<StudioState | undefined>(undefined);
@@ -200,14 +201,14 @@ export function BookStudioPage({ books, providerStore = new ProviderProfileStore
         </article>
         <article className="studio-tool-card studio-tool-card--available">
           <div className="studio-tool-card__top"><span className="studio-tool-card__icon"><LibraryBig size={24} /></span><span className="studio-tool-status studio-tool-status--available">自动聚合</span></div>
-          <div><p className="eyebrow">书目资源 · 统一检索</p><h3>书籍搜索</h3><p>输入一次关键词，快速检索当前可访问的中文书目。</p></div>
-          <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('sources')}>搜索书目 <ChevronRight size={18} /></button>
+          <div><p className="eyebrow">中文维基文库 · 开放全文</p><h3>开放作品导入</h3><p>搜索可读取的公版作品，一键导入书架并直接开始阅读。</p></div>
+          <button type="button" className="primary-action studio-tool-action" onClick={() => setActiveTool('sources')}>搜索并导入 <ChevronRight size={18} /></button>
         </article>
       </div>
     </section>;
   }
 
-  if (activeTool === 'sources') return <BookSourceSearchPage onBack={() => setActiveTool('hub')} />;
+  if (activeTool === 'sources') return <BookSourceSearchPage onBack={() => setActiveTool('hub')} onImportBook={onImportBook} />;
 
   return <section className="studio-page" aria-labelledby="studio-title">
     <button type="button" className="studio-tool-back" onClick={() => setActiveTool('hub')} disabled={activeRunId !== undefined || finalizing}><ArrowLeft size={17} /> 返回工具列表</button>
