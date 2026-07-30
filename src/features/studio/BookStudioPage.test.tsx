@@ -24,6 +24,7 @@ describe('BookStudioPage', () => {
     render(<BookStudioPage books={[epubBook]} providerStore={new ProviderProfileStore(localStorage)} onSaveBook={vi.fn()} />);
 
     expect(screen.getByRole('heading', { name: '书籍工作室' })).toBeInTheDocument();
+    expect(screen.getByText('制作自己的双语书，或导入可阅读的公版作品。')).toBeInTheDocument();
     expect(screen.getByText('开放作品导入')).toBeInTheDocument();
     expect(screen.queryByText('TXT 转 EPUB')).not.toBeInTheDocument();
     expect(screen.queryByText('EPUB 格式整理')).not.toBeInTheDocument();
