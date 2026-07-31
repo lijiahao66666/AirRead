@@ -6,6 +6,7 @@ const GUTENBERG_DOWNLOAD_API = '/api/open-books/gutenberg';
 const MAX_EPUB_BYTES = 80 * 1024 * 1024;
 const DOWNLOAD_CHUNK_BYTES = 256 * 1024;
 const DOWNLOAD_RETRIES = 4;
+const DOWNLOAD_CONCURRENCY = 4;
 
 export type GutenbergSearchResult = {
   id: string;
@@ -56,24 +57,20 @@ export async function downloadGutenbergBook(result: GutenbergSearchResult, fetch
 }
 
 async function downloadGutenbergBytes(url: string, fetcher: Fetcher): Promise<Uint8Array> {
-  let start = 0;
-  let totalLength: number | undefined;
-  const chunks: Uint8Array[] = [];
-
-  while (totalLength === undefined || start < totalLength) {
-    const end = totalLength === undefined ? DOWNLOAD_CHUNK_BYTES - 1 : Math.min(start + DOWNLOAD_CHUNK_BYTES - 1, totalLength - 1);
-    const chunk = await fetchGutenbergChunk(url, start, end, fetcher);
-    if (chunk.status === 200) {
-      if (chunk.bytes.length === 0) throw new Error('下载的 EPUB 文件为空');
-      if (chunk.bytes.length > MAX_EPUB_BYTES) throw new Error('该 EPUB 文件过大，暂不支持直接导入');
-      return chunk.bytes;
-    }
-    totalLength = chunk.totalLength;
-    if (totalLength > MAX_EPUB_BYTES) throw new Error('该 EPUB 文件过大，暂不支持直接导入');
-    chunks.push(chunk.bytes);
-    start += chunk.bytes.length;
-    if (chunk.bytes.length === 0 || start > totalLength) throw new Error('EPUB 下载内容不完整，请稍后重试');
+  const firstChunk = await fetchGutenbergChunk(url, 0, DOWNLOAD_CHUNK_BYTES - 1, fetcher);
+  if (firstChunk.status === 200) {
+    if (firstChunk.bytes.length === 0) throw new Error('下载的 EPUB 文件为空');
+    if (firstChunk.bytes.length > MAX_EPUB_BYTES) throw new Error('该 EPUB 文件过大，暂不支持直接导入');
+    return firstChunk.bytes;
   }
+  const totalLength = firstChunk.totalLength;
+  if (totalLength > MAX_EPUB_BYTES) throw new Error('该 EPUB 文件过大，暂不支持直接导入');
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (let start = firstChunk.bytes.length; start < totalLength; start += DOWNLOAD_CHUNK_BYTES) {
+    ranges.push({ start, end: Math.min(start + DOWNLOAD_CHUNK_BYTES - 1, totalLength - 1) });
+  }
+  const remainingChunks = await downloadGutenbergChunks(url, ranges, fetcher);
+  const chunks = [firstChunk.bytes, ...remainingChunks];
 
   const bytes = new Uint8Array(totalLength);
   let offset = 0;
@@ -83,6 +80,21 @@ async function downloadGutenbergBytes(url: string, fetcher: Fetcher): Promise<Ui
   }
   if (bytes.length === 0) throw new Error('下载的 EPUB 文件为空');
   return bytes;
+}
+
+async function downloadGutenbergChunks(url: string, ranges: Array<{ start: number; end: number }>, fetcher: Fetcher): Promise<Uint8Array[]> {
+  const results: Uint8Array[] = new Array(ranges.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < ranges.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const range = ranges[index];
+      results[index] = (await fetchGutenbergChunk(url, range.start, range.end, fetcher)).bytes;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, ranges.length) }, worker));
+  return results;
 }
 
 async function fetchGutenbergChunk(url: string, start: number, end: number, fetcher: Fetcher): Promise<{ status: number; bytes: Uint8Array; totalLength: number }> {
