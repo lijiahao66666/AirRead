@@ -4,7 +4,7 @@ import type { Book } from '../../domain/books/book';
 const GUTENBERG_SEARCH_API = '/api/open-books/gutenberg/search';
 const GUTENBERG_DOWNLOAD_API = '/api/open-books/gutenberg';
 const MAX_EPUB_BYTES = 80 * 1024 * 1024;
-const DOWNLOAD_CHUNK_BYTES = 64 * 1024;
+const DOWNLOAD_CHUNK_BYTES = 256 * 1024;
 const DOWNLOAD_RETRIES = 4;
 
 export type GutenbergSearchResult = {
@@ -91,9 +91,14 @@ async function fetchGutenbergChunk(url: string, start: number, end: number, fetc
     try {
       const response = await fetcher(url, { headers: { Range: `bytes=${start}-${end}` } });
       if (!response.ok) throw new Error('该作品的 EPUB 暂时无法下载，请稍后重试');
-      const bytes = new Uint8Array(await response.arrayBuffer());
+      const contentRange = response.status === 206
+        ? response.headers.get('content-range')?.match(/^bytes (\d+)-(\d+)\/(\d+)$/u)
+        : undefined;
+      const expectedLength = contentRange
+        ? Number(contentRange[2]) - Number(contentRange[1]) + 1
+        : Number(response.headers.get('content-length')) || undefined;
+      const bytes = await readResponseBytes(response, expectedLength);
       if (response.status === 200) return { status: 200, bytes, totalLength: bytes.length };
-      const contentRange = response.headers.get('content-range')?.match(/^bytes (\d+)-(\d+)\/(\d+)$/u);
       if (!contentRange || Number(contentRange[1]) !== start || Number(contentRange[2]) !== start + bytes.length - 1) {
         throw new Error('EPUB 下载内容不完整');
       }
@@ -104,6 +109,33 @@ async function fetchGutenbergChunk(url: string, start: number, end: number, fetc
   }
   if (lastError instanceof Error && lastError.message.includes('暂时无法下载')) throw lastError;
   throw new Error('EPUB 下载内容不完整，请稍后重试');
+}
+
+async function readResponseBytes(response: Response, expectedLength?: number): Promise<Uint8Array> {
+  if (!response.body) return new Uint8Array(await response.arrayBuffer());
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalLength = 0;
+  let streamError: unknown;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      if (!next.value) continue;
+      chunks.push(next.value);
+      totalLength += next.value.length;
+    }
+  } catch (error) {
+    streamError = error;
+  }
+  if (streamError && expectedLength !== undefined && totalLength < expectedLength) throw streamError;
+  const bytes = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
 }
 
 function safeFilename(value: string): string {
