@@ -128,8 +128,8 @@ describe('AirRead service-worker update policy', () => {
     expect(cacheDelete).toHaveBeenCalledWith('airread-runtime-v1');
     expect(cacheDelete).toHaveBeenCalledWith('airread-shell-v2');
     expect(cacheDelete).toHaveBeenCalledWith('airread-runtime-v2');
-    expect(cacheDelete).not.toHaveBeenCalledWith('airread-shell-v3');
-    expect(cacheDelete).not.toHaveBeenCalledWith('airread-runtime-v3');
+    expect(cacheDelete).not.toHaveBeenCalledWith('airread-shell-v4');
+    expect(cacheDelete).not.toHaveBeenCalledWith('airread-runtime-v4');
     expect(cacheDelete).not.toHaveBeenCalledWith('unrelated-cache');
     expect(scope.clients.claim).toHaveBeenCalledOnce();
     expect(caches.keys).toHaveBeenCalledOnce();
