@@ -8,7 +8,8 @@ const MAX_EPUB_BYTES = 80 * 1024 * 1024;
 // chunks make retries resume quickly without repeatedly waiting on a large body.
 const DOWNLOAD_CHUNK_BYTES = 64 * 1024;
 const DOWNLOAD_RETRIES = 8;
-const DOWNLOAD_CONCURRENCY = 2;
+const DOWNLOAD_CONCURRENCY = 1;
+const DOWNLOAD_REQUEST_TIMEOUT_MS = 12_000;
 
 export type GutenbergSearchResult = {
   id: string;
@@ -108,8 +109,13 @@ async function fetchGutenbergChunk(url: string, start: number, end: number, fetc
   const chunks: Uint8Array[] = [];
   let lastError: unknown;
   for (let attempt = 0; attempt < DOWNLOAD_RETRIES; attempt += 1) {
+    const controller = typeof AbortController === 'undefined' ? undefined : new AbortController();
+    const timeout = controller ? setTimeout(() => controller.abort(), DOWNLOAD_REQUEST_TIMEOUT_MS) : undefined;
     try {
-      const response = await fetcher(url, { headers: { Range: `bytes=${cursor}-${targetEnd}` } });
+      const response = await fetcher(url, {
+        headers: { Range: `bytes=${cursor}-${targetEnd}` },
+        ...(controller ? { signal: controller.signal } : {}),
+      });
       if (!response.ok) throw new Error('该作品的 EPUB 暂时无法下载，请稍后重试');
       const contentRange = response.status === 206
         ? response.headers.get('content-range')?.match(/^bytes (\d+)-(\d+)\/(\d+)$/u)
@@ -138,6 +144,8 @@ async function fetchGutenbergChunk(url: string, start: number, end: number, fetc
       lastError = result.error ?? new Error('EPUB 下载内容不完整');
     } catch (error) {
       lastError = error;
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   }
   if (lastError instanceof Error && lastError.message.includes('暂时无法下载')) throw lastError;
