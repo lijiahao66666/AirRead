@@ -2,7 +2,7 @@ import { parseBook } from '../../domain/books/bookParser';
 import type { Book } from '../../domain/books/book';
 
 const GUTENBERG_SEARCH_API = '/api/open-books/gutenberg/search';
-const GUTENBERG_DOWNLOAD_API = '/api/open-books/gutenberg';
+const GUTENBERG_DOWNLOAD_API = '/api/open-books/gutenberg/file';
 const MAX_EPUB_BYTES = 80 * 1024 * 1024;
 const DOWNLOAD_CHUNK_BYTES = 256 * 1024;
 const DOWNLOAD_RETRIES = 4;
@@ -41,7 +41,8 @@ export function parseSearchResults(html: string): GutenbergSearchResult[] {
 }
 
 export async function downloadGutenbergBook(result: GutenbergSearchResult, fetcher: Fetcher = fetch, parse = parseBook): Promise<Book> {
-  const bytes = await downloadGutenbergBytes(`${GUTENBERG_DOWNLOAD_API}/${encodeURIComponent(result.id)}.epub`, fetcher);
+  const bookId = encodeURIComponent(result.id);
+  const bytes = await downloadGutenbergBytes(`${GUTENBERG_DOWNLOAD_API}/${bookId}/pg${bookId}.epub`, fetcher);
   const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/epub+zip' });
   const parsed = await parse(new File([blob], `${safeFilename(result.title)}.epub`, { type: 'application/epub+zip' }));
   return {
