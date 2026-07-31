@@ -28,12 +28,10 @@ describe('Project Gutenberg client', () => {
     const secondChunk = new Uint8Array([3, 4]);
     const fetcher = vi.fn()
       .mockResolvedValueOnce({ ok: true, status: 206, headers: new Headers({ 'content-range': 'bytes 0-3/4' }), arrayBuffer: async () => firstChunk.buffer })
-      .mockResolvedValueOnce({ ok: true, status: 206, headers: new Headers({ 'content-range': 'bytes 0-1/4' }), arrayBuffer: async () => firstChunk.buffer })
       .mockResolvedValueOnce({ ok: true, status: 206, headers: new Headers({ 'content-range': 'bytes 2-3/4' }), arrayBuffer: async () => secondChunk.buffer });
     const parse = vi.fn().mockResolvedValue({ id: 'temporary', title: 'Book', author: '', format: 'epub', bytes: new Uint8Array([1, 2, 3, 4]), importedAt: 1, readingChapter: 0, readingProgress: 0, generatedBilingual: false });
     await downloadGutenbergBook({ id: '1', title: 'Book', author: '', downloads: '' }, fetcher as typeof fetch, parse);
     expect(fetcher).toHaveBeenNthCalledWith(1, '/api/open-books/gutenberg/file/1/pg1.epub', { headers: { Range: 'bytes=0-262143' } });
-    expect(fetcher).toHaveBeenNthCalledWith(2, '/api/open-books/gutenberg/file/1/pg1.epub', { headers: { Range: 'bytes=0-262143' } });
-    expect(fetcher).toHaveBeenNthCalledWith(3, '/api/open-books/gutenberg/file/1/pg1.epub', { headers: { Range: 'bytes=2-3' } });
+    expect(fetcher).toHaveBeenNthCalledWith(2, '/api/open-books/gutenberg/file/1/pg1.epub', { headers: { Range: 'bytes=2-3' } });
   });
 });

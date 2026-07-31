@@ -5,7 +5,7 @@ const GUTENBERG_SEARCH_API = '/api/open-books/gutenberg/search';
 const GUTENBERG_DOWNLOAD_API = '/api/open-books/gutenberg/file';
 const MAX_EPUB_BYTES = 80 * 1024 * 1024;
 const DOWNLOAD_CHUNK_BYTES = 256 * 1024;
-const DOWNLOAD_RETRIES = 4;
+const DOWNLOAD_RETRIES = 8;
 const DOWNLOAD_CONCURRENCY = 4;
 
 export type GutenbergSearchResult = {
@@ -16,6 +16,7 @@ export type GutenbergSearchResult = {
 };
 
 type Fetcher = typeof fetch;
+type ResponseBytes = { bytes: Uint8Array; complete: boolean; error?: unknown };
 
 export async function searchGutenberg(query: string, fetcher: Fetcher = fetch): Promise<GutenbergSearchResult[]> {
   const normalizedQuery = query.trim();
@@ -99,10 +100,14 @@ async function downloadGutenbergChunks(url: string, ranges: Array<{ start: numbe
 }
 
 async function fetchGutenbergChunk(url: string, start: number, end: number, fetcher: Fetcher): Promise<{ status: number; bytes: Uint8Array; totalLength: number }> {
+  let cursor = start;
+  let targetEnd = end;
+  let totalLength = 0;
+  const chunks: Uint8Array[] = [];
   let lastError: unknown;
   for (let attempt = 0; attempt < DOWNLOAD_RETRIES; attempt += 1) {
     try {
-      const response = await fetcher(url, { headers: { Range: `bytes=${start}-${end}` } });
+      const response = await fetcher(url, { headers: { Range: `bytes=${cursor}-${targetEnd}` } });
       if (!response.ok) throw new Error('该作品的 EPUB 暂时无法下载，请稍后重试');
       const contentRange = response.status === 206
         ? response.headers.get('content-range')?.match(/^bytes (\d+)-(\d+)\/(\d+)$/u)
@@ -110,12 +115,25 @@ async function fetchGutenbergChunk(url: string, start: number, end: number, fetc
       const expectedLength = contentRange
         ? Number(contentRange[2]) - Number(contentRange[1]) + 1
         : Number(response.headers.get('content-length')) || undefined;
-      const bytes = await readResponseBytes(response, expectedLength);
-      if (response.status === 200) return { status: 200, bytes, totalLength: bytes.length };
-      if (!contentRange || Number(contentRange[1]) !== start || Number(contentRange[2]) !== start + bytes.length - 1) {
+      const result = await readResponseBytes(response, expectedLength);
+      if (response.status === 200) {
+        if (!result.complete) throw result.error ?? new Error('EPUB 下载内容不完整');
+        if (cursor === 0) return { status: 200, bytes: result.bytes, totalLength: result.bytes.length };
+        if (result.bytes.length < end + 1) throw new Error('EPUB 下载内容不完整');
+        return { status: 200, bytes: result.bytes.slice(start, end + 1), totalLength: result.bytes.length };
+      }
+      if (!contentRange || Number(contentRange[1]) !== cursor || Number(contentRange[2]) < cursor || Number(contentRange[2]) > end) {
         throw new Error('EPUB 下载内容不完整');
       }
-      return { status: 206, bytes, totalLength: Number(contentRange[3]) };
+      totalLength = Number(contentRange[3]);
+      targetEnd = Math.min(targetEnd, totalLength - 1);
+      if (result.bytes.length === 0) throw result.error ?? new Error('EPUB 下载内容不完整');
+      chunks.push(result.bytes);
+      cursor += result.bytes.length;
+      if (cursor > targetEnd) {
+        return { status: 206, bytes: joinBytes(chunks), totalLength };
+      }
+      lastError = result.error ?? new Error('EPUB 下载内容不完整');
     } catch (error) {
       lastError = error;
     }
@@ -124,8 +142,11 @@ async function fetchGutenbergChunk(url: string, start: number, end: number, fetc
   throw new Error('EPUB 下载内容不完整，请稍后重试');
 }
 
-async function readResponseBytes(response: Response, expectedLength?: number): Promise<Uint8Array> {
-  if (!response.body) return new Uint8Array(await response.arrayBuffer());
+async function readResponseBytes(response: Response, expectedLength?: number): Promise<ResponseBytes> {
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return { bytes, complete: expectedLength === undefined || bytes.length >= expectedLength };
+  }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let totalLength = 0;
@@ -141,8 +162,21 @@ async function readResponseBytes(response: Response, expectedLength?: number): P
   } catch (error) {
     streamError = error;
   }
-  if (streamError && expectedLength !== undefined && totalLength < expectedLength) throw streamError;
   const bytes = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return {
+    bytes,
+    complete: expectedLength === undefined || totalLength >= expectedLength,
+    error: streamError,
+  };
+}
+
+function joinBytes(chunks: Uint8Array[]): Uint8Array {
+  const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
   let offset = 0;
   for (const chunk of chunks) {
     bytes.set(chunk, offset);
