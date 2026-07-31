@@ -4,9 +4,11 @@ import type { Book } from '../../domain/books/book';
 const GUTENBERG_SEARCH_API = '/api/open-books/gutenberg/search';
 const GUTENBERG_DOWNLOAD_API = '/api/open-books/gutenberg/file';
 const MAX_EPUB_BYTES = 80 * 1024 * 1024;
-const DOWNLOAD_CHUNK_BYTES = 256 * 1024;
+// Gutenberg occasionally stalls before finishing large range responses. Smaller
+// chunks make retries resume quickly without repeatedly waiting on a large body.
+const DOWNLOAD_CHUNK_BYTES = 64 * 1024;
 const DOWNLOAD_RETRIES = 8;
-const DOWNLOAD_CONCURRENCY = 4;
+const DOWNLOAD_CONCURRENCY = 2;
 
 export type GutenbergSearchResult = {
   id: string;

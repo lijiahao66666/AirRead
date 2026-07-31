@@ -19,7 +19,7 @@ describe('Project Gutenberg client', () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 200, headers: new Headers({ 'content-length': '4' }), arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer });
     const parse = vi.fn().mockResolvedValue({ id: 'temporary', title: 'Pride and Prejudice', author: '', format: 'epub', bytes: new Uint8Array([1, 2, 3, 4]), importedAt: 1, readingChapter: 0, readingProgress: 0, generatedBilingual: false });
     const book = await downloadGutenbergBook({ id: '1342', title: 'Pride and Prejudice', author: 'Jane Austen', downloads: '' }, fetcher as typeof fetch, parse);
-    expect(fetcher).toHaveBeenCalledWith('/api/open-books/gutenberg/file/1342/pg1342.epub', { headers: { Range: 'bytes=0-262143' } });
+    expect(fetcher).toHaveBeenCalledWith('/api/open-books/gutenberg/file/1342/pg1342.epub', { headers: { Range: 'bytes=0-65535' } });
     expect(book).toMatchObject({ id: 'gutenberg:1342', author: 'Jane Austen', source: { provider: 'gutenberg', url: 'https://www.gutenberg.org/ebooks/1342' } });
   });
 
@@ -31,7 +31,7 @@ describe('Project Gutenberg client', () => {
       .mockResolvedValueOnce({ ok: true, status: 206, headers: new Headers({ 'content-range': 'bytes 2-3/4' }), arrayBuffer: async () => secondChunk.buffer });
     const parse = vi.fn().mockResolvedValue({ id: 'temporary', title: 'Book', author: '', format: 'epub', bytes: new Uint8Array([1, 2, 3, 4]), importedAt: 1, readingChapter: 0, readingProgress: 0, generatedBilingual: false });
     await downloadGutenbergBook({ id: '1', title: 'Book', author: '', downloads: '' }, fetcher as typeof fetch, parse);
-    expect(fetcher).toHaveBeenNthCalledWith(1, '/api/open-books/gutenberg/file/1/pg1.epub', { headers: { Range: 'bytes=0-262143' } });
+    expect(fetcher).toHaveBeenNthCalledWith(1, '/api/open-books/gutenberg/file/1/pg1.epub', { headers: { Range: 'bytes=0-65535' } });
     expect(fetcher).toHaveBeenNthCalledWith(2, '/api/open-books/gutenberg/file/1/pg1.epub', { headers: { Range: 'bytes=2-3' } });
   });
 });
