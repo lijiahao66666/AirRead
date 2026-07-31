@@ -64,7 +64,7 @@ export function BookSourceSearchPage({ onBack, onImportBook, search = searchGute
         <label><span className="sr-only">搜索开放作品</span><Search size={18} aria-hidden="true" /><input value={query} onChange={(event) => { setQuery(event.target.value); setHasSearched(false); }} placeholder="书名、作者或英文关键词" aria-label="搜索开放作品" /></label>
         <button className="primary-action" type="submit" disabled={searching || Boolean(importingTitle)}>{searching ? <LoaderCircle className="is-spinning" size={17} /> : <Search size={17} />} 搜索作品</button>
       </form>
-      <p className="source-search__notice">仅显示可下载的英文公版 EPUB。导入内容保存在当前设备，授权说明随书籍来源一同保存。</p>
+      <p className="source-search__notice">仅下载无插图 EPUB，正文更适合移动端导入。内容保存在当前设备，授权说明随书籍来源一同保存。</p>
       {error && <p className="source-search__error" role="alert">{error}</p>}
       {results.length > 0 && <div className="source-search__results">{results.map((result) => <article key={result.title}>
         <div><span className="source-search__provider">Project Gutenberg · EPUB</span><h4>{result.title}</h4><p>{result.author}</p><small>{result.downloads || '公版作品'}</small></div>
