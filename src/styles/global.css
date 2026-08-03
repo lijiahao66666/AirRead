@@ -334,6 +334,10 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 .time-setting-card .eyebrow { margin-bottom: .2rem; }
 .time-setting-card label, .learning-time-setting > label { display: flex; align-items: baseline; gap: .3rem; color: var(--learning-muted); font-size: .78rem; }
 .time-setting-card input, .learning-time-setting input { width: 4.25rem; border: 0; border-bottom: 2px solid #a9c7cf; padding: .15rem .12rem; background: transparent; color: var(--learning-blue-strong); font: inherit; font-size: 1.25rem !important; font-weight: 800; text-align: center; outline: 0; }
+.learning-plan-page__header { align-items: center; }
+.plan-refresh-button { display: inline-flex; min-height: 2.5rem; align-items: center; justify-content: center; gap: .35rem; flex: none; border: 1px solid #c8dde1; border-radius: .74rem; padding: .45rem .68rem; background: #f8fcfc; color: var(--learning-blue-strong); cursor: pointer; font: inherit; font-size: .76rem; font-weight: 780; white-space: nowrap; }
+.plan-refresh-button:hover { border-color: #95bbc4; background: var(--learning-sky); }
+.plan-refresh-button svg { flex: none; }
 .learning-plan-note { margin: .72rem .1rem 1rem; color: var(--learning-muted); font-size: .78rem; line-height: 1.6; }
 .learning-plan-list { display: grid; padding: 0; overflow: hidden; }
 .learning-plan-day { display: grid; grid-template-columns: 2.3rem minmax(0, 1fr) auto; align-items: center; gap: .8rem; padding: .94rem; border-bottom: 1px solid #e0e8e6; }
@@ -342,6 +346,7 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 .learning-plan-day small { color: #71858a; font-size: .67rem; }
 .learning-plan-day h3 { margin: .08rem 0 .14rem; color: #24414b; font-size: .92rem; }
 .learning-plan-day p { margin: 0; color: #62777d; font-size: .75rem; }
+.learning-plan-day__pattern { display: inline-block; margin-top: .45rem; color: #5f808a; font-size: .67rem; font-weight: 720; line-height: 1.45; }
 .learning-plan-day > strong { color: var(--learning-blue-strong); font-size: .98rem; }
 .learning-plan-day > strong small { margin-left: .12rem; font-size: .65rem; }
 .learning-plan-day--today { background: linear-gradient(90deg, #eaf5f6, #fbfdfc); }
@@ -412,7 +417,8 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 }
 
 .learning-page__header > div:first-child, .learning-reader__heading > div, .learning-section__heading > div { min-width: 0; }
-.learning-page h2, .learning-page h3, .learning-page p, .learning-reader__meta > span:first-child, .learning-task p, .learning-complete-card strong, .learning-complete-card p { overflow-wrap: break-word; word-break: normal; }
+.learning-page h2, .learning-page h3, .learning-page p, .learning-reader__meta > span:first-child, .learning-task p, .learning-complete-card strong, .learning-complete-card p { overflow-wrap: break-word; word-break: normal; text-wrap: pretty; }
+.learning-page h2, .learning-page h3, .learning-page__header .page-lede { text-wrap: balance; }
 .learning-reader__meta { min-width: 0; flex-wrap: wrap; }
 .learning-reader__meta > span:first-child { min-width: 0; }
 .today-progress p { margin: 0; color: var(--learning-muted); font-size: .72rem; line-height: 1.5; }
@@ -439,6 +445,9 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
   .time-setting-card { grid-template-columns: 2.35rem minmax(0, 1fr); }
   .time-setting-card label { grid-column: 2; justify-self: start; margin-top: .1rem; }
   .learning-plan-day { grid-template-columns: 2.1rem minmax(0, 1fr) auto; gap: .6rem; padding: .82rem; }
+  .learning-plan-page__header { grid-template-columns: minmax(0, 1fr); gap: .8rem; }
+  .learning-plan-page__header .plan-refresh-button { justify-self: start; }
+  .learning-plan-page .page-lede { max-width: 23rem; }
   .review-list { grid-template-columns: 1fr; }
   .learning-time-setting { align-items: flex-start; flex-direction: column; }
   .learning-time-setting > label { margin-left: 3.25rem; }
@@ -447,4 +456,10 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
   .model-editor { border-radius: 1rem; padding: .9rem; }
   .model-editor__grid { grid-template-columns: 1fr; gap: .65rem; }
   .model-editor__wide { grid-column: auto; }
+}
+
+@media (max-width: 59.999rem) {
+  html, body { overscroll-behavior-y: none; }
+  .learning-app { min-height: 100svh; overflow-x: clip; }
+  .learning-app .primary-navigation, .learning-app[data-route='reader'] .primary-navigation { position: fixed !important; right: 0; bottom: 0; left: 0; transform: translate3d(0, 0, 0); contain: layout paint style; isolation: isolate; will-change: transform; backface-visibility: hidden; -webkit-backface-visibility: hidden; backdrop-filter: none; }
 }

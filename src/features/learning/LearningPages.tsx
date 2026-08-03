@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { AudioLines, BookOpenText, Check, ChevronRight, CircleCheck, Clock3, Headphones, Languages, PenLine, RotateCcw, Volume2 } from 'lucide-react';
+import { AudioLines, BookOpenText, Check, ChevronRight, CircleCheck, Clock3, Headphones, Languages, PenLine, RefreshCw, RotateCcw, Volume2 } from 'lucide-react';
 
 import { PwaInstallPrompt } from '../../pwa/PwaInstallPrompt';
 import { todayKey } from '../../domain/learning/learningStore';
 import type { LearningPack, LearningPlan, LearningReviewCard, LearningTask } from '../../domain/learning/learningTypes';
+import { DailyMinutesInput } from './DailyMinutesInput';
 
 export type TodayPageProps = {
   pack?: LearningPack;
@@ -111,19 +112,12 @@ function SparkleMark() {
   return <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 1.8 17 11l9.2 3-9.2 3-3 9.2-3-9.2-9.2-3 9.2-3 3-9.2Z" fill="currentColor" /></svg>;
 }
 
-export function PlanPage({ plan, onMinutesChange }: { plan: LearningPlan; onMinutesChange: (minutes: number) => void }) {
-  const [minutes, setMinutes] = useState(String(plan.dailyMinutes));
-  useEffect(() => setMinutes(String(plan.dailyMinutes)), [plan.dailyMinutes]);
-  const saveMinutes = () => {
-    const next = Number(minutes);
-    if (Number.isFinite(next)) onMinutesChange(next);
-    else setMinutes(String(plan.dailyMinutes));
-  };
-  return <section className="learning-page" aria-labelledby="plan-title">
-    <header className="learning-page__header"><div><p className="eyebrow">自动编排</p><h2 id="plan-title">你的英语能力计划</h2><p className="page-lede">目标固定为听、说、读都能应对真实英语。你只决定每天能留给自己的时间。</p></div></header>
-    <section className="time-setting-card"><span className="time-setting-card__icon"><Clock3 size={22} /></span><div><p className="eyebrow">每日可用时间</p><h3>今天和之后每天，我能学</h3></div><label><input aria-label="每日可用分钟数" type="number" min="5" max="180" inputMode="numeric" value={minutes} onChange={(event) => setMinutes(event.target.value)} onBlur={saveMinutes} /><span>分钟</span></label></section>
-    <p className="learning-plan-note">系统会自动增减材料长度、词块数量、复习量与输出练习，不需要再选择学习模式。</p>
-    <section className="learning-section learning-plan-list" aria-label="七天学习计划">{plan.days.map((day, index) => <article key={day.date} className={day.date === todayKey() ? 'learning-plan-day learning-plan-day--today' : 'learning-plan-day'}><span className="learning-plan-day__index">{index + 1}</span><div><small>{formatDate(day.date)}</small><h3>{day.theme}</h3><p>{day.focus}</p></div><strong>{day.minutes}<small>分钟</small></strong></article>)}</section>
+export function PlanPage({ plan, onMinutesChange, onRefreshPlan }: { plan: LearningPlan; onMinutesChange: (minutes: number) => void; onRefreshPlan: () => void }) {
+  return <section className="learning-page learning-plan-page" aria-labelledby="plan-title">
+    <header className="learning-page__header learning-plan-page__header"><div><p className="eyebrow">自动编排</p><h2 id="plan-title">你的英语能力计划</h2><p className="page-lede">目标固定为听、说、读都能应对真实英语。你只决定每天能留给自己的时间。</p></div><button className="plan-refresh-button" type="button" onClick={onRefreshPlan}><RefreshCw size={16} /><span>换一批</span></button></header>
+    <section className="time-setting-card"><span className="time-setting-card__icon"><Clock3 size={22} /></span><div><p className="eyebrow">每日可用时间</p><h3>今天和之后每天，我能学</h3></div><label><DailyMinutesInput value={plan.dailyMinutes} onChange={onMinutesChange} /><span>分钟</span></label></section>
+    <p className="learning-plan-note">改动时长后，七天训练结构和今天的材料会同步重排；已经完成的复习仍会保留。</p>
+    <section className="learning-section learning-plan-list" aria-label="七天学习计划">{plan.days.map((day, index) => <article key={day.date} className={day.date === todayKey() ? 'learning-plan-day learning-plan-day--today' : 'learning-plan-day'}><span className="learning-plan-day__index">{index + 1}</span><div><small>{formatDate(day.date)}</small><h3>{day.theme}</h3><p>{day.focus}</p><span className="learning-plan-day__pattern">{day.practicePattern}</span></div><strong>{day.minutes}<small>分钟</small></strong></article>)}</section>
   </section>;
 }
 

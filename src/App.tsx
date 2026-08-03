@@ -3,7 +3,7 @@ import { CalendarDays, Clock3, Home, Settings2, Target } from 'lucide-react';
 
 import { ProviderProfileStore } from './domain/ai/providerStore';
 import { createCuratedPack, generateLearningPack, isLearningModel } from './domain/learning/learningGenerator';
-import { completePack, completeTask, dueReviewCards, loadLearningState, reviewCard, saveLearningState, savePack, todayKey, updateDailyMinutes } from './domain/learning/learningStore';
+import { completePack, completeTask, dueReviewCards, loadLearningState, reviewCard, rotatePlan, saveLearningState, savePack, todayKey, updateDailyMinutes } from './domain/learning/learningStore';
 import type { LearningState } from './domain/learning/learningTypes';
 import { LearningSettingsPage } from './features/learning/LearningSettingsPage';
 import { PlanPage, TodayPage } from './features/learning/LearningPages';
@@ -31,12 +31,26 @@ const persist = (next: LearningState, setState: (state: LearningState) => void):
   saveLearningState(next);
 };
 
+const clearTodayLearning = (state: LearningState): LearningState => {
+  const date = todayKey();
+  const existingPackId = state.packs[date]?.id;
+  const packIds = new Set([`pack-${date}`, existingPackId].filter((id): id is string => Boolean(id)));
+  const { [date]: _today, ...remainingPacks } = state.packs;
+  return {
+    ...state,
+    packs: remainingPacks,
+    completedPackIds: state.completedPackIds.filter((id) => !packIds.has(id)),
+    completedTaskIds: state.completedTaskIds.filter((id) => ![...packIds].some((packId) => id.startsWith(`${packId}:`))),
+  };
+};
+
 const bootstrapLearningState = (): LearningState => {
   const state = loadLearningState();
   if (state.packs[todayKey()]) return state;
   const configuredModel = state.selectedModelId ? providerStore.get(state.selectedModelId) : providerStore.selected();
   if (isLearningModel(configuredModel)) return state;
-  const seeded = savePack(state, createCuratedPack(todayKey(), state.plan.dailyMinutes));
+  const planDay = state.plan.days.find((day) => day.date === todayKey());
+  const seeded = savePack(state, createCuratedPack(todayKey(), state.plan.dailyMinutes, planDay));
   saveLearningState(seeded);
   return seeded;
 };
@@ -69,17 +83,18 @@ export default function App() {
   const modelProfiles = useMemo(() => providerStore.list().filter(isLearningModel), [modelVersion]);
   const selectedModel = useMemo(() => modelProfiles.find((profile) => profile.id === learningState.selectedModelId) ?? modelProfiles[0], [learningState.selectedModelId, modelProfiles]);
   const todayPack = learningState.packs[todayKey()];
+  const todayPlanDay = learningState.plan.days.find((day) => day.date === todayKey());
 
   const handleGenerate = async () => {
     if (generating) return;
     setGenerating(true);
     setGenerationError(undefined);
     try {
-      const pack = await generateLearningPack(selectedModel, learningState.plan.dailyMinutes);
+      const pack = await generateLearningPack(selectedModel, learningState.plan.dailyMinutes, todayKey(), todayPlanDay);
       persist(savePack(learningState, pack), setLearningState);
     } catch {
       if (!learningState.packs[todayKey()]) {
-        persist(savePack(learningState, createCuratedPack(todayKey(), learningState.plan.dailyMinutes)), setLearningState);
+        persist(savePack(learningState, createCuratedPack(todayKey(), learningState.plan.dailyMinutes, todayPlanDay)), setLearningState);
       }
       setGenerationError('模型暂时无法连接，已为你准备本地练习包。');
     } finally {
@@ -90,19 +105,27 @@ export default function App() {
   useEffect(() => {
     if (todayPack || generating) return;
     if (!selectedModel) {
-      persist(savePack(learningState, createCuratedPack(todayKey(), learningState.plan.dailyMinutes)), setLearningState);
+      persist(savePack(learningState, createCuratedPack(todayKey(), learningState.plan.dailyMinutes, todayPlanDay)), setLearningState);
       return;
     }
-    const generationKey = `${todayKey()}:${selectedModel.id}:${learningState.plan.dailyMinutes}`;
+    const generationKey = `${todayKey()}:${selectedModel.id}:${learningState.plan.dailyMinutes}:${learningState.plan.themeSetIndex}`;
     if (automaticGenerationRef.current === generationKey) return;
     automaticGenerationRef.current = generationKey;
     void handleGenerate();
-  }, [generating, learningState.plan.dailyMinutes, selectedModel, todayPack]);
+  }, [generating, learningState.plan.dailyMinutes, learningState.plan.themeSetIndex, selectedModel, todayPack, todayPlanDay?.focus, todayPlanDay?.theme]);
 
   const handleMinutesChange = (minutes: number) => {
-    const next = updateDailyMinutes(learningState, minutes);
-    const { [todayKey()]: _today, ...remainingPacks } = next.packs;
-    persist({ ...next, packs: remainingPacks }, setLearningState);
+    const next = clearTodayLearning(updateDailyMinutes(learningState, minutes));
+    automaticGenerationRef.current = undefined;
+    setGenerationError(undefined);
+    persist(next, setLearningState);
+  };
+
+  const handlePlanRefresh = () => {
+    const next = clearTodayLearning(rotatePlan(learningState));
+    automaticGenerationRef.current = undefined;
+    setGenerationError(undefined);
+    persist(next, setLearningState);
   };
 
   const handleModelChange = (id: string | undefined) => {
@@ -112,7 +135,7 @@ export default function App() {
 
   let content: ReactNode;
   if (location.route === 'plan') {
-    content = <PlanPage plan={learningState.plan} onMinutesChange={handleMinutesChange} />;
+    content = <PlanPage plan={learningState.plan} onMinutesChange={handleMinutesChange} onRefreshPlan={handlePlanRefresh} />;
   } else if (location.route === 'settings') {
     content = <LearningSettingsPage store={providerStore} dailyMinutes={learningState.plan.dailyMinutes} selectedModelId={learningState.selectedModelId} onMinutesChange={handleMinutesChange} onModelChange={handleModelChange} />;
   } else {

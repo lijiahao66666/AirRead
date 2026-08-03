@@ -36,6 +36,13 @@ describe('learning generator', () => {
     expect(isLearningModel(undefined)).toBe(false);
   });
 
+  it('keeps locally generated content aligned with the current plan theme', () => {
+    const pack = createCuratedPack('2026-08-03', 15, { theme: 'Starting conversations', focus: '用自然开场消除陌生感' });
+
+    expect(pack.theme).toBe('Starting conversations');
+    expect(pack.title).toBe('用自然开场消除陌生感');
+  });
+
   it('generates a learning pack through each supported model protocol', async () => {
     const requests = [
       {

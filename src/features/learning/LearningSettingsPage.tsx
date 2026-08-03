@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Check, KeyRound, Pencil, Plus, Save, Trash2, Volume2, X } from 'lucide-react';
 
 import { isMaskedSecret, maskProviderProfile, type ProviderKind, type ProviderProfile } from '../../domain/ai/providerProfile';
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
 import { isLearningModel } from '../../domain/learning/learningGenerator';
+import { DailyMinutesInput } from './DailyMinutesInput';
 
 const modelKinds: Array<{ value: ProviderKind; label: string }> = [
   { value: 'openai-compatible', label: 'OpenAI 兼容协议 · Chat Completions' },
@@ -27,10 +28,8 @@ export function LearningSettingsPage({ store, dailyMinutes, selectedModelId, onM
   const [editingOriginal, setEditingOriginal] = useState<ProviderProfile>();
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
-  const [minutes, setMinutes] = useState(String(dailyMinutes));
   const selected = useMemo(() => profiles.find((profile) => profile.id === selectedModelId), [profiles, selectedModelId]);
 
-  useEffect(() => setMinutes(String(dailyMinutes)), [dailyMinutes]);
 
   const refresh = () => setProfiles(store.list().filter(isLearningModel));
   const closeEditor = () => { setEditing(undefined); setEditingOriginal(undefined); setError(undefined); };
@@ -57,15 +56,9 @@ export function LearningSettingsPage({ store, dailyMinutes, selectedModelId, onM
     refresh();
     if (selectedModelId === profile.id) onModelChange(undefined);
   };
-  const saveMinutes = () => {
-    const next = Number(minutes);
-    if (Number.isFinite(next)) onMinutesChange(next);
-    else setMinutes(String(dailyMinutes));
-  };
-
   return <section className="learning-page" aria-labelledby="learning-settings-title">
     <header className="learning-page__header"><div><p className="eyebrow">只保留必要设置</p><h2 id="learning-settings-title">学习设置</h2><p className="page-lede">学习目标固定。这里只调整每日时间、模型和系统朗读说明。</p></div></header>
-    <section className="settings-section learning-time-setting"><div><span className="learning-settings-icon"><ClockIcon /></span><div><p className="eyebrow">学习节奏</p><h3>每日可用时间</h3><p>系统会按这个时间自动安排当天的学习和复习量。</p></div></div><label><input type="number" min="5" max="180" inputMode="numeric" aria-label="每日可用分钟数" value={minutes} onChange={(event) => setMinutes(event.target.value)} onBlur={saveMinutes} /><span>分钟</span></label></section>
+    <section className="settings-section learning-time-setting"><div><span className="learning-settings-icon"><ClockIcon /></span><div><p className="eyebrow">学习节奏</p><h3>每日可用时间</h3><p>变更后会重排七天计划，并重新准备今天的学习包。</p></div></div><label><DailyMinutesInput value={dailyMinutes} onChange={onMinutesChange} /><span>分钟</span></label></section>
     <section className="settings-section"><div className="learning-settings-section-heading"><div><p className="eyebrow">AI 内容生成</p><h3>模型服务</h3><p className="settings-service-note"><span>API Key 只保存在当前浏览器。</span><span>AirRead 不提供模型额度。</span></p></div><button type="button" className="secondary-button" onClick={startCreate}><Plus size={16} /> 添加模型</button></div>{profiles.length === 0 ? <div className="settings-empty"><KeyRound size={20} /><p>还没有可用模型。添加一个模型后，系统可以按你的学习时间生成个性化学习包。</p></div> : <div className="model-list">{profiles.map((profile) => <article className={`model-row${selected?.id === profile.id ? ' model-row--selected' : ''}`} key={profile.id}><button type="button" className="model-row__select" onClick={() => { store.select(profile.id); onModelChange(profile.id); }}><span className="model-row__radio" aria-hidden="true">{selected?.id === profile.id && <Check size={14} />}</span><span><strong>{profile.name}</strong><small>{modelKinds.find((kind) => kind.value === profile.kind)?.label}</small></span></button><div><button type="button" className="icon-button" onClick={() => startEdit(profile)} aria-label={`编辑 ${profile.name}`}><Pencil size={16} /></button><button type="button" className="icon-button" onClick={() => removeModel(profile)} aria-label={`删除 ${profile.name}`}><Trash2 size={16} /></button></div></article>)}</div>}</section>
     <section className="settings-section"><div className="learning-settings-section-heading"><div><p className="eyebrow">声音</p><h3>学习资料音频</h3><p>有原版录音时优先播放原音；没有原版录音时，朗读按钮使用系统 TTS 辅助，不调用模型生成语音。</p></div><Volume2 size={23} /></div></section>
     {saved && <p className="settings-saved" role="status">设置已保存</p>}

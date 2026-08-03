@@ -64,4 +64,25 @@ describe('AirRead learning application shell', () => {
     fireEvent.click(planLink, { detail: 0 });
     expect(planLink).toHaveFocus();
   });
+
+  it('rebuilds today after changing the available time and clears stale completion state', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: '完成 回忆旧表达' }));
+    window.location.hash = '#plan';
+    fireEvent(window, new HashChangeEvent('hashchange'));
+
+    const minutesInput = screen.getByRole('spinbutton', { name: '每日可用分钟数' });
+    fireEvent.change(minutesInput, { target: { value: '30' } });
+    fireEvent.blur(minutesInput);
+
+    await waitFor(() => {
+      const saved = JSON.parse(window.localStorage.getItem('airread.learning.v1') ?? '{}') as { plan?: { dailyMinutes?: number }; packs?: Record<string, { estimatedMinutes: number }>; completedTaskIds?: string[]; completedPackIds?: string[] };
+      const todayPack = saved.packs && Object.values(saved.packs)[0];
+      expect(saved.plan?.dailyMinutes).toBe(30);
+      expect(todayPack?.estimatedMinutes).toBe(30);
+      expect(saved.completedTaskIds).toEqual([]);
+      expect(saved.completedPackIds).toEqual([]);
+    });
+  });
 });

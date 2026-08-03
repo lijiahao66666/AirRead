@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createCuratedPack } from '../../domain/learning/learningGenerator';
-import { TodayPage } from './LearningPages';
+import { buildPlan } from '../../domain/learning/learningStore';
+import { PlanPage, TodayPage } from './LearningPages';
 
 describe('TodayPage', () => {
   it('clearly distinguishes original source audio from system read-aloud', () => {
@@ -30,5 +31,21 @@ describe('TodayPage', () => {
     expect(screen.getByRole('heading', { name: '今天的训练' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '显示释义' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '完成今日学习' })).toBeDisabled();
+  });
+
+  it('updates the available time and lets the learner rotate the plan batch', () => {
+    const onMinutesChange = vi.fn();
+    const onRefreshPlan = vi.fn();
+
+    render(<PlanPage plan={buildPlan(15, '2026-08-03')} onMinutesChange={onMinutesChange} onRefreshPlan={onRefreshPlan} />);
+
+    const minutesInput = screen.getByRole('spinbutton', { name: '每日可用分钟数' });
+    fireEvent.change(minutesInput, { target: { value: '30' } });
+    fireEvent.blur(minutesInput);
+    fireEvent.click(screen.getByRole('button', { name: '换一批' }));
+
+    expect(onMinutesChange).toHaveBeenCalledWith(30);
+    expect(onRefreshPlan).toHaveBeenCalledOnce();
+    expect(screen.getAllByText('复习 · 听读 · 跟读')).toHaveLength(7);
   });
 });

@@ -51,11 +51,13 @@ export type LearningPlanDay = {
   date: string;
   theme: string;
   focus: string;
+  practicePattern: string;
   minutes: number;
 };
 
 export type LearningPlan = {
   dailyMinutes: number;
+  themeSetIndex: number;
   createdAt: number;
   days: LearningPlanDay[];
 };

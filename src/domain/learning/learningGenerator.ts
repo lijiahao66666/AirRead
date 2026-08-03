@@ -1,7 +1,7 @@
 import type { ProviderProfile } from '../ai/providerProfile';
 import { assertSuccessfulResponse, fetchWithTimeout, ModelConnectionError, ModelRequestError } from '../ai/modelRequest';
 import { addDays, clampDailyMinutes, todayKey } from './learningStore';
-import type { LearningPack, LearningTask, LearningTaskKind, LearningVocabulary } from './learningTypes';
+import type { LearningPack, LearningPlanDay, LearningTask, LearningTaskKind, LearningVocabulary } from './learningTypes';
 
 const LLM_KINDS = ['openai-compatible', 'openai-responses', 'anthropic-messages'] as const;
 
@@ -55,8 +55,9 @@ const selectTasks = (dailyMinutes: number, packId: string): LearningTask[] => {
   });
 };
 
-export const createCuratedPack = (date: string, dailyMinutes: number): LearningPack => {
-  const topic = topics[Math.abs([...date].reduce((sum, character) => sum + character.charCodeAt(0), 0)) % topics.length];
+export const createCuratedPack = (date: string, dailyMinutes: number, planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>): LearningPack => {
+  const fallbackTopic = topics[Math.abs([...date].reduce((sum, character) => sum + character.charCodeAt(0), 0)) % topics.length];
+  const topic = planDay ? { ...fallbackTopic, title: planDay.focus, theme: planDay.theme } : fallbackTopic;
   const id = `pack-${date}`;
   const vocabulary: LearningVocabulary[] = [
     { term: 'the usual', meaning: '老样子；平时固定点的东西', example: 'Would you like the usual?', dueAt: addDays(date, 1), intervalDays: 1, repetitions: 0 },
@@ -83,7 +84,9 @@ export const createCuratedPack = (date: string, dailyMinutes: number): LearningP
   };
 };
 
-const learningPrompt = (dailyMinutes: number, date: string): string => `你是面向中国成年英语学习者的课程设计师。学习目标固定为：能与英语母语者自然交流、听懂日常英语、阅读常见英文内容，并逐步适应英语考试。用户每天只有 ${dailyMinutes} 分钟。请设计 ${date} 的一份英语学习包。
+const learningPrompt = (dailyMinutes: number, date: string, planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>): string => `你是面向中国成年英语学习者的课程设计师。学习目标固定为：能与英语母语者自然交流、听懂日常英语、阅读常见英文内容，并逐步适应英语考试。用户每天只有 ${dailyMinutes} 分钟。请设计 ${date} 的一份英语学习包。
+
+本日计划主题是“${planDay?.theme ?? '真实生活英语'}”，训练重点是“${planDay?.focus ?? '听懂并使用自然表达'}”。内容应优先围绕这个主题，不要为了凑时长堆砌无关练习。
 
 必须遵循：可理解输入、主动回忆、间隔重复、词块学习、听读说交错训练。不要把 TTS 当作原版音频；本次内容不提供外部音频 URL。
 
@@ -233,10 +236,10 @@ const readModelText = async (profile: ProviderProfile, prompt: string): Promise<
   throw new ModelRequestError(profile.name);
 };
 
-export const generateLearningPack = async (profile: ProviderProfile | undefined, dailyMinutes: number, date = todayKey()): Promise<LearningPack> => {
+export const generateLearningPack = async (profile: ProviderProfile | undefined, dailyMinutes: number, date = todayKey(), planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>): Promise<LearningPack> => {
   const normalizedMinutes = clampDailyMinutes(dailyMinutes);
-  if (!isLearningModel(profile)) return createCuratedPack(date, normalizedMinutes);
-  const prompt = profile.prompt?.trim() ? `${profile.prompt.trim()}\n\n${learningPrompt(normalizedMinutes, date)}` : learningPrompt(normalizedMinutes, date);
+  if (!isLearningModel(profile)) return createCuratedPack(date, normalizedMinutes, planDay);
+  const prompt = profile.prompt?.trim() ? `${profile.prompt.trim()}\n\n${learningPrompt(normalizedMinutes, date, planDay)}` : learningPrompt(normalizedMinutes, date, planDay);
   const response = await readModelText(profile, prompt);
   return parsePack(response, date, normalizedMinutes);
 };
