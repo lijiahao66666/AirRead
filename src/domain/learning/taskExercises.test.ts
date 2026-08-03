@@ -23,4 +23,12 @@ describe('learning exercises', () => {
   it('does not fabricate an exercise answer when a source has no usable sentence', () => {
     expect(buildTaskExercise('read', 'Hi', 'pack-1:read')).toBeUndefined();
   });
+
+  it('selects a concise practice sentence and keeps listening choices distinct', () => {
+    const text = 'A deliberately long introduction contains many more than fourteen carefully chosen words before it finally ends. It is short enough for a phone exercise. Another long sentence makes a useful but different distractor for the learner.';
+    const listening = buildTaskExercise('listen', text, 'pack-1:listen');
+
+    expect(listening).toMatchObject({ text: 'It is short enough for a phone exercise.', answer: 'It is short enough for a phone exercise.' });
+    expect(new Set(listening?.choices).size).toBe(listening?.choices?.length);
+  });
 });

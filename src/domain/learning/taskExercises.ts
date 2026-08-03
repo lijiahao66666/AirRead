@@ -18,15 +18,21 @@ const shuffled = <Value>(values: Value[], seed: string): Value[] => {
   return result;
 };
 
-const primarySentence = (text: string): string | undefined => splitSentences(text)[0];
+const practiceSentence = (text: string): string | undefined => {
+  const sentences = splitSentences(text);
+  return sentences.find((candidate) => {
+    const length = wordsFrom(candidate).length;
+    return length >= 5 && length <= 14;
+  }) ?? sentences.sort((left, right) => wordsFrom(left).length - wordsFrom(right).length)[0];
+};
 
 export const buildTaskExercise = (kind: LearningTaskKind, text: string, taskId: string): LearningTaskExercise | undefined => {
   const sentences = splitSentences(text);
-  const sentence = primarySentence(text);
+  const sentence = practiceSentence(text);
   if (!sentence) return undefined;
 
   if (kind === 'listen') {
-    const distractors = sentences.slice(1, 3);
+    const distractors = sentences.filter((candidate) => candidate !== sentence).slice(0, 2);
     return {
       type: 'listen-choice',
       prompt: '先播放句子，不看原文，选择你听到的内容。',

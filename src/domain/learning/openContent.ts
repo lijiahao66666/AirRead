@@ -20,18 +20,23 @@ type WikiPage = {
 const WIKI_API = 'https://simple.wikipedia.org/w/api.php';
 const WIKI_LICENSE = 'Simple English Wikipedia 文本，CC BY-SA 4.0；请保留来源链接与署名。';
 
-const searchTermFor = (planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>): string => {
-  const value = `${planDay?.theme ?? ''} ${planDay?.focus ?? ''}`.toLowerCase();
-  if (value.includes('coffee') || value.includes('food')) return 'coffee';
-  if (value.includes('travel') || value.includes('commut') || value.includes('city') || value.includes('direction')) return 'travel';
-  if (value.includes('work') || value.includes('problem')) return 'work';
-  if (value.includes('opinion') || value.includes('reason') || value.includes('media')) return 'communication';
-  if (value.includes('story') || value.includes('experience')) return 'story';
-  if (value.includes('phone') || value.includes('help')) return 'communication';
-  return 'daily life';
+type OpenTopic = {
+  searchTerm: string;
+  preferredTitles: string[];
 };
 
-const hashText = (value: string): number => [...value].reduce((hash, character) => (hash * 31 + character.charCodeAt(0)) >>> 0, 7);
+const topicFor = (planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>): OpenTopic => {
+  const value = `${planDay?.theme ?? ''} ${planDay?.focus ?? ''}`.toLowerCase();
+  if (value.includes('coffee') || value.includes('food')) return { searchTerm: 'Food', preferredTitles: ['Food', 'Coffee'] };
+  if (value.includes('travel') || value.includes('commut') || value.includes('city') || value.includes('direction')) return { searchTerm: 'Public transport', preferredTitles: ['Public transport', 'Transport', 'Travel'] };
+  if (value.includes('work') || value.includes('problem')) return { searchTerm: 'Office', preferredTitles: ['Office', 'Workplace', 'Work'] };
+  if (value.includes('opinion') || value.includes('reason') || value.includes('media')) return { searchTerm: 'Conversation', preferredTitles: ['Conversation', 'Communication'] };
+  if (value.includes('story') || value.includes('experience')) return { searchTerm: 'Story', preferredTitles: ['Story', 'Narrative'] };
+  if (value.includes('phone') || value.includes('help')) return { searchTerm: 'Telephone', preferredTitles: ['Telephone', 'Communication'] };
+  return { searchTerm: 'Daily life', preferredTitles: ['Daily life', 'Lifestyle', 'Routine'] };
+};
+
+const normalizedTitle = (value: string): string => value.trim().toLocaleLowerCase();
 
 const usableText = (value: unknown): string | undefined => {
   if (typeof value !== 'string') return undefined;
@@ -50,10 +55,11 @@ const usableText = (value: unknown): string | undefined => {
 };
 
 export const fetchOpenLearningMaterial = async (date: string, planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>): Promise<OpenLearningMaterial> => {
+  const topic = topicFor(planDay);
   const params = new URLSearchParams({
     action: 'query',
     generator: 'search',
-    gsrsearch: searchTermFor(planDay),
+    gsrsearch: topic.searchTerm,
     gsrnamespace: '0',
     gsrlimit: '8',
     prop: 'extracts|info',
@@ -72,6 +78,6 @@ export const fetchOpenLearningMaterial = async (date: string, planDay?: Pick<Lea
     sourceUrl: typeof page.canonicalurl === 'string' ? page.canonicalurl : typeof page.fullurl === 'string' ? page.fullurl : undefined,
   })).filter((page): page is { title: string; text: string; sourceUrl: string } => Boolean(page.title && page.text && page.sourceUrl?.startsWith('https://')));
   if (pages.length === 0) throw new Error('开放资料没有返回适合学习的英文条目');
-  const page = pages[hashText(`${date}:${planDay?.theme ?? ''}`) % pages.length];
+  const page = pages.find((candidate) => topic.preferredTitles.some((title) => normalizedTitle(title) === normalizedTitle(candidate.title))) ?? pages[0];
   return { title: page.title, text: page.text, sourceLabel: 'Simple English Wikipedia（开放资料）', sourceUrl: page.sourceUrl, license: WIKI_LICENSE };
 };

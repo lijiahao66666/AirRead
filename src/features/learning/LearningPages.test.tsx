@@ -40,6 +40,21 @@ describe('TodayPage', () => {
     expect(screen.getByRole('button', { name: '完成今日学习' })).toBeDisabled();
   });
 
+  it('turns vocabulary into an active recall card and continues to the next exercise', () => {
+    const packWithVocabulary = {
+      ...pack,
+      vocabulary: [{ term: 'be ready to', meaning: '准备好做某事', example: 'I am ready to start.', dueAt: '2026-08-04', intervalDays: 1, repetitions: 0 }],
+    };
+
+    render(<TodayPage pack={packWithVocabulary} dueReviewCards={[]} completedTaskIds={[]} taskResponses={{}} completedPackIds={[]} onGenerate={vi.fn()} onReview={vi.fn()} onSaveTaskResponse={vi.fn()} onCompleteTask={vi.fn()} onCompletePack={vi.fn()} />);
+
+    expect(screen.queryByText('准备好做某事')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /be ready to/ }));
+    expect(screen.getByText('准备好做某事')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '下一项' }));
+    expect(screen.getByRole('heading', { name: '听辨训练' })).toBeInTheDocument();
+  });
+
   it('uses an answerable mobile listening exercise instead of a completion check', () => {
     const onCompleteTask = vi.fn();
 

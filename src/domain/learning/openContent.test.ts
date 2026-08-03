@@ -26,4 +26,22 @@ describe('open learning content', () => {
     expect(material.license).toContain('CC BY-SA 4.0');
     expect(fetchMock.mock.calls[0][0]).toContain('simple.wikipedia.org/w/api.php');
   });
+
+  it('prioritizes a practical topic page instead of rotating through loosely related search results', async () => {
+    const practicalExtract = 'An office is a room or a building where people work. People in an office often use computers and speak to coworkers. Offices may have meeting rooms and places to take a break. Some people work from home instead of going to an office. A workplace can be busy during the day.';
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+      query: {
+        pages: {
+          1: { title: 'Work of art', extract: practicalExtract, canonicalurl: 'https://simple.wikipedia.org/wiki/Work_of_art' },
+          2: { title: 'Office', extract: practicalExtract, canonicalurl: 'https://simple.wikipedia.org/wiki/Office' },
+        },
+      },
+    }), { status: 200 }));
+
+    const material = await fetchOpenLearningMaterial('2026-08-03', { theme: 'Small talk at work', focus: '听懂寒暄并自然回应' });
+
+    expect(fetchMock.mock.calls[0][0]).toContain('gsrsearch=Office');
+    expect(material.title).toBe('Office');
+    expect(material.sourceUrl).toBe('https://simple.wikipedia.org/wiki/Office');
+  });
 });
