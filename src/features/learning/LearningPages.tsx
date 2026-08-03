@@ -220,13 +220,11 @@ export function TodayPage({ pack, dueReviewCards, completedTaskIds, taskResponse
 
     <section className="learning-section learning-review-section" aria-labelledby="today-review-title"><div className="learning-section__heading"><div><p className="eyebrow">间隔重复</p><h3 id="today-review-title">今日复习</h3></div><span>{pendingReviewCount > 0 ? `${pendingReviewCount} 项待完成` : '已完成'}</span></div>{pendingReviewCount > 0 ? <div className="review-list review-list--today">{dueReviewCards.map((card) => <ReviewCard key={card.id} card={card} compact onReview={(remembered) => onReview(card.id, remembered)} />)}</div> : <p className="today-review-empty"><CircleCheck size={17} /> 今天没有到期内容，新的词块会在完成学习后加入队列。</p>}</section>
 
-    {trainingSection}
-
     <section className="learning-reader" aria-labelledby="lesson-content-title">
       <div className="learning-reader__meta"><span>{pack.sourceLabel}</span><span className={`audio-label audio-label--${pack.audioNote}`}>{pack.audioNote === 'original' ? '原版音频' : '系统朗读辅助'}</span></div>
       <div className="learning-reader__heading"><div><p className="eyebrow">今日材料</p><h3 id="lesson-content-title">先理解，再翻译</h3></div>{pack.audio ? <audio className="source-audio" controls preload="metadata" src={pack.audio.url}>你的浏览器暂不支持播放原版音频。</audio> : <SystemSpeechButton text={pack.originalText} />}</div>
       <p className="learning-reader__text">{pack.originalText}</p>
-      {pack.translation ? <div className="translation-toggle"><button type="button" onClick={() => setTranslationVisible((visible) => !visible)} aria-expanded={translationVisible}><Languages size={16} /> {translationVisible ? '收起中文解释' : '查看中文解释'}</button>{translationVisible && <p>{pack.translation}</p>}</div> : <p className="translation-empty"><Languages size={16} /> 配置模型后，AirRead 会为这篇开放资料生成中文解释、词块和针对性训练。</p>}
+      {pack.translation ? <div className="translation-toggle"><button type="button" onClick={() => setTranslationVisible((visible) => !visible)} aria-expanded={translationVisible}><Languages size={16} /> {translationVisible ? '收起中文解释' : '查看中文解释'}</button>{translationVisible && <p>{pack.translation}</p>}</div> : <p className="translation-empty"><Languages size={16} /> 当前开放资料没有可靠的中文解释和词块，训练仍会直接围绕这篇英文原文生成。</p>}
       <footer className="learning-source-note">
         <span>{pack.audioNote === 'original' ? `音频：${pack.audio?.label}${pack.audio?.accent ? ` · ${pack.audio.accent}` : ''}` : '这份内容暂无原版录音，可用系统朗读辅助理解与跟读。'}</span>
         {pack.license && <span>{pack.license}</span>}
@@ -234,7 +232,9 @@ export function TodayPage({ pack, dueReviewCards, completedTaskIds, taskResponse
       </footer>
     </section>
 
-    <section className="learning-section" aria-labelledby="vocabulary-title"><div className="learning-section__heading"><div><p className="eyebrow">词块，不是孤立单词</p><h3 id="vocabulary-title">今天需要记住</h3></div><span>{pack.vocabulary.length ? `${pack.vocabulary.length} 个` : '等待生成'}</span></div>{pack.vocabulary.length ? <div className="vocabulary-list">{pack.vocabulary.map((item) => <VocabularyCard key={item.term} item={item} />)}</div> : <p className="vocabulary-empty">当前是开放资料原文。配置模型后会从这篇材料中提取词块、释义和例句。</p>}</section>
+    <section className="learning-section" aria-labelledby="vocabulary-title"><div className="learning-section__heading"><div><p className="eyebrow">词块，不是孤立单词</p><h3 id="vocabulary-title">今天需要记住</h3></div><span>{pack.vocabulary.length ? `${pack.vocabulary.length} 个` : '未提取'}</span></div>{pack.vocabulary.length ? <div className="vocabulary-list">{pack.vocabulary.map((item) => <VocabularyCard key={item.term} item={item} />)}</div> : <p className="vocabulary-empty">配置并启用学习模型后，会从这篇材料中提取词块、释义和例句，并加入后续复习。</p>}</section>
+
+    {trainingSection}
 
     <section className={`learning-complete-card${complete ? ' learning-complete-card--done' : ''}`}><CircleCheck size={23} /><div><strong>{complete ? '今天的学习已完成' : readyToComplete ? '可以完成今天的学习了' : '完成训练和复习后再收尾'}</strong><p>{complete ? '词块已经加入后续复习队列。明天打开 AirRead 即可继续。' : pendingReviewCount > 0 ? `还有 ${pendingReviewCount} 项复习需要完成。` : `还有 ${Math.max(0, pack.tasks.length - completedCount)} 项训练需要完成。`}</p></div><button className={complete ? 'secondary-button' : 'primary-action'} type="button" onClick={onCompletePack} disabled={!complete && !readyToComplete}>{complete ? '已完成' : '完成今日学习'}</button></section>
   </section>;

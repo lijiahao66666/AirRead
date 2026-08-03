@@ -108,7 +108,7 @@ const isLegacySamplePack = (pack: LearningPack): boolean => {
 
 const hydratePackExercises = (pack: LearningPack): LearningPack => ({
   ...pack,
-  tasks: pack.tasks.map((task) => task.exercise ? task : { ...task, exercise: buildTaskExercise(task.kind, pack.originalText, task.id) }),
+  tasks: pack.tasks.map((task, index) => task.exercise ? task : { ...task, exercise: buildTaskExercise(task.kind, pack.originalText, task.id, { sentenceIndex: index, vocabulary: pack.vocabulary }) }),
 });
 
 export const loadLearningState = (storage: Storage = window.localStorage): LearningState => {

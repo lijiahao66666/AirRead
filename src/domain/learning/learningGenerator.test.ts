@@ -121,4 +121,52 @@ describe('learning generator', () => {
     expect(pack.audioNote).toBe('system-tts');
     fetchMock.mockRestore();
   });
+
+  it('keeps a valid AI exercise grounded in the returned lesson', async () => {
+    const lesson = {
+      ...JSON.parse(generatedLesson),
+      tasks: [{
+        kind: 'listen',
+        title: '听懂开场句',
+        instruction: '先听后看，辨认材料中的第一句话。',
+        minutes: 4,
+        exercise: {
+          type: 'listen-choice',
+          prompt: '听完后选择材料中的开场句。',
+          text: 'I usually start my day with a short walk before work.',
+          choices: [
+            'I usually start my day with a short walk before work.',
+            'I usually start my week with a long run after work.',
+            'I often end my day with a short talk before dinner.',
+          ],
+          answer: 'I usually start my day with a short walk before work.',
+        },
+      }],
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(lesson) } }] }), { status: 200 }));
+
+    const pack = await generateLearningPack({ id: 'chat', name: 'Chat', kind: 'openai-compatible', enabled: true, baseUrl: 'https://models.example/v1', model: 'model-a', apiKey: 'secret' }, 15, '2026-08-03');
+
+    expect(pack.tasks[0].exercise).toMatchObject({ type: 'listen-choice', prompt: '听完后选择材料中的开场句。' });
+    fetchMock.mockRestore();
+  });
+
+  it('falls back to a generated exercise when an AI exercise is invalid or unrelated', async () => {
+    const lesson = {
+      ...JSON.parse(generatedLesson),
+      tasks: [{
+        kind: 'listen',
+        title: '泛听',
+        instruction: '听一遍。',
+        minutes: 4,
+        exercise: { type: 'listen-choice', prompt: '随便选一个。', text: 'This sentence is unrelated to the lesson.', choices: ['A', 'B'], answer: 'A' },
+      }],
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(lesson) } }] }), { status: 200 }));
+
+    const pack = await generateLearningPack({ id: 'chat', name: 'Chat', kind: 'openai-compatible', enabled: true, baseUrl: 'https://models.example/v1', model: 'model-a', apiKey: 'secret' }, 15, '2026-08-03');
+
+    expect(pack.tasks[0].exercise).toMatchObject({ type: 'listen-choice', text: 'I usually start my day with a short walk before work.' });
+    fetchMock.mockRestore();
+  });
 });

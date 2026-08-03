@@ -40,6 +40,16 @@ describe('TodayPage', () => {
     expect(screen.getByRole('button', { name: '完成今日学习' })).toBeDisabled();
   });
 
+  it('shows the source and vocabulary before asking for material-based training', () => {
+    render(<TodayPage pack={pack} dueReviewCards={[]} completedTaskIds={[]} taskResponses={{}} completedPackIds={[]} onGenerate={vi.fn()} onReview={vi.fn()} onSaveTaskResponse={vi.fn()} onCompleteTask={vi.fn()} onCompletePack={vi.fn()} />);
+
+    const reader = screen.getByRole('heading', { name: '先理解，再翻译' });
+    const vocabulary = screen.getByRole('heading', { name: '今天需要记住' });
+    const training = screen.getByRole('heading', { name: '今天的训练' });
+    expect(reader.compareDocumentPosition(vocabulary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(vocabulary.compareDocumentPosition(training) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('turns vocabulary into an active recall card and continues to the next exercise', () => {
     const packWithVocabulary = {
       ...pack,
@@ -79,7 +89,7 @@ describe('TodayPage', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '阅读填空答案' }), { target: { value: 'wrong' } });
     fireEvent.click(screen.getByRole('button', { name: '检查答案' }));
     expect(onCompleteTask).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByRole('textbox', { name: '阅读填空答案' }), { target: { value: 'library' } });
+    fireEvent.change(screen.getByRole('textbox', { name: '阅读填空答案' }), { target: { value: readTask.exercise?.answer ?? '' } });
     fireEvent.click(screen.getByRole('button', { name: '检查答案' }));
     expect(onCompleteTask).toHaveBeenCalledWith(readTask.id);
   });

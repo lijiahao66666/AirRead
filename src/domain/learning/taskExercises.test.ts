@@ -31,4 +31,14 @@ describe('learning exercises', () => {
     expect(listening).toMatchObject({ text: 'It is short enough for a phone exercise.', answer: 'It is short enough for a phone exercise.' });
     expect(new Set(listening?.choices).size).toBe(listening?.choices?.length);
   });
+
+  it('uses the requested sentence and vocabulary context for each task', () => {
+    const vocabulary = [{ term: 'borrow books' }];
+    const reading = buildTaskExercise('read', sourceText, 'pack-1:read', { sentenceIndex: 1, vocabulary });
+    const writing = buildTaskExercise('write', sourceText, 'pack-1:write', { sentenceIndex: 1, vocabulary });
+
+    expect(reading).toMatchObject({ type: 'cloze', answer: 'borrow books' });
+    expect(reading?.prompt).toContain('Visitors can _____ and use computers.');
+    expect(writing?.prompt).toContain('borrow books');
+  });
 });

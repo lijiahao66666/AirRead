@@ -1,4 +1,9 @@
-import type { LearningTaskExercise, LearningTaskKind } from './learningTypes';
+import type { LearningTaskExercise, LearningTaskKind, LearningVocabulary } from './learningTypes';
+
+export type TaskExerciseContext = {
+  sentenceIndex?: number;
+  vocabulary?: Pick<LearningVocabulary, 'term'>[];
+};
 
 const splitSentences = (text: string): string[] => text.match(/[^.!?]+[.!?]+/gu)?.map((sentence) => sentence.trim()).filter((sentence) => sentence.split(/\s+/u).length >= 4) ?? [];
 
@@ -18,17 +23,23 @@ const shuffled = <Value>(values: Value[], seed: string): Value[] => {
   return result;
 };
 
-const practiceSentence = (text: string): string | undefined => {
+const practiceSentence = (text: string, sentenceIndex = 0): string | undefined => {
   const sentences = splitSentences(text);
-  return sentences.find((candidate) => {
+  const conciseSentences = sentences.filter((candidate) => {
     const length = wordsFrom(candidate).length;
     return length >= 5 && length <= 14;
-  }) ?? sentences.sort((left, right) => wordsFrom(left).length - wordsFrom(right).length)[0];
+  });
+  const candidates = conciseSentences.length ? conciseSentences : sentences.sort((left, right) => wordsFrom(left).length - wordsFrom(right).length);
+  return candidates[Math.abs(sentenceIndex) % candidates.length];
 };
 
-export const buildTaskExercise = (kind: LearningTaskKind, text: string, taskId: string): LearningTaskExercise | undefined => {
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+
+const vocabularyTermIn = (sentence: string, vocabulary: Pick<LearningVocabulary, 'term'>[] = []): string | undefined => vocabulary.map((item) => item.term.trim()).filter(Boolean).sort((left, right) => right.length - left.length).find((term) => new RegExp(`\\b${escapeRegExp(term)}\\b`, 'iu').test(sentence));
+
+export const buildTaskExercise = (kind: LearningTaskKind, text: string, taskId: string, context: TaskExerciseContext = {}): LearningTaskExercise | undefined => {
   const sentences = splitSentences(text);
-  const sentence = practiceSentence(text);
+  const sentence = practiceSentence(text, context.sentenceIndex ?? 0);
   if (!sentence) return undefined;
 
   if (kind === 'listen') {
@@ -43,11 +54,11 @@ export const buildTaskExercise = (kind: LearningTaskKind, text: string, taskId: 
   }
 
   if (kind === 'read') {
-    const word = wordsFrom(sentence).find((candidate) => candidate.length >= 5);
+    const word = vocabularyTermIn(sentence, context.vocabulary) ?? wordsFrom(sentence).find((candidate) => candidate.length >= 5);
     if (!word) return undefined;
     return {
       type: 'cloze',
-      prompt: `根据原文填入缺失单词：${sentence.replace(new RegExp(`\\b${word}\\b`, 'u'), '_____')}`,
+      prompt: `根据今日材料填入缺失表达：${sentence.replace(new RegExp(`\\b${escapeRegExp(word)}\\b`, 'iu'), '_____')}`,
       answer: word.toLowerCase(),
     };
   }
@@ -72,9 +83,10 @@ export const buildTaskExercise = (kind: LearningTaskKind, text: string, taskId: 
   }
 
   if (kind === 'write') {
+    const terms = (context.vocabulary ?? []).map((item) => item.term.trim()).filter(Boolean).slice(0, 2);
     return {
       type: 'free-write',
-      prompt: '用英文写 1-2 句：复述材料中的一个信息，再联系你自己的经历。',
+      prompt: terms.length ? `使用今日材料中的一个表达（${terms.join('、')}），写 1-2 句：先复述材料中的一个信息，再联系你自己的经历。` : '根据今日材料写 1-2 句：先复述材料中的一个信息，再联系你自己的经历。',
       minimumWords: 10,
     };
   }

@@ -2,7 +2,7 @@ import type { ProviderProfile } from '../ai/providerProfile';
 import { assertSuccessfulResponse, fetchWithTimeout, ModelConnectionError, ModelRequestError } from '../ai/modelRequest';
 import { addDays, clampDailyMinutes, todayKey } from './learningStore';
 import type { OpenLearningMaterial } from './openContent';
-import type { LearningPack, LearningPlanDay, LearningTask, LearningTaskKind, LearningVocabulary } from './learningTypes';
+import type { LearningPack, LearningPlanDay, LearningTask, LearningTaskExercise, LearningTaskKind, LearningVocabulary } from './learningTypes';
 import { buildTaskExercise } from './taskExercises';
 
 const LLM_KINDS = ['openai-compatible', 'openai-responses', 'anthropic-messages'] as const;
@@ -49,7 +49,10 @@ const selectTasks = (dailyMinutes: number, packId: string): LearningTask[] => {
   });
 };
 
-const addExercises = (tasks: LearningTask[], text: string): LearningTask[] => tasks.map((task) => ({ ...task, exercise: buildTaskExercise(task.kind, text, task.id) }));
+const addExercises = (tasks: LearningTask[], text: string, vocabulary: Pick<LearningVocabulary, 'term'>[] = []): LearningTask[] => tasks.map((task, index) => ({
+  ...task,
+  exercise: task.exercise ?? buildTaskExercise(task.kind, text, task.id, { sentenceIndex: index, vocabulary }),
+}));
 
 export const createOpenLearningPack = (date: string, dailyMinutes: number, material: OpenLearningMaterial, planDay?: Pick<LearningPlanDay, 'theme'>): LearningPack => {
   const id = `pack-${date}`;
@@ -91,9 +94,9 @@ const learningPrompt = (dailyMinutes: number, date: string, planDay?: Pick<Learn
   "sourceUrl":"可核验的 HTTPS 来源链接；无法确认时留空",
   "license":"来源授权信息；无法确认时留空",
   "audio":{"url":"可核验的 HTTPS 原版录音链接","label":"录音名称","language":"en-US","accent":"口音","license":"录音授权","sourceUrl":"录音来源链接"},
-  "tasks":[{"kind":"listen|read|speak|recall|write","title":"中文任务名","instruction":"具体中文操作提示","minutes":数字}]
+  "tasks":[{"kind":"listen|read|speak|recall|write","title":"中文任务名","instruction":"具体中文操作提示","minutes":数字,"exercise":{"type":"listen-choice|cloze|shadowing|word-order|free-write","prompt":"直接围绕今日原文的操作提示","text":"原文中的完整句子（仅 listen/speak）","choices":["选项（listen/recall 使用）"],"answer":"原文中的答案","minimumWords":10}}]
 }
-词汇不超过 6 个，任务总时长不超过 ${dailyMinutes} 分钟。不要猜测来源或音频链接；无法确认时省略 source 和 audio。`;
+词汇不超过 6 个，任务总时长不超过 ${dailyMinutes} 分钟。每个任务必须围绕 originalText 中不同的句子或 vocabulary 中的词块；不要把多个任务都写成泛泛的“完成练习”。exercise 必须可直接在手机上完成：listen-choice 提供 3 个不同选项，cloze 的答案来自原文或词块，shadowing 的 text 必须是原文句子，word-order 的 choices 必须能还原原文句子，free-write 要求使用今日词块或复述材料信息。不要猜测来源或音频链接；无法确认时省略 source 和 audio。`;
 
 const stripCodeFence = (value: string): string => value.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '');
 
@@ -121,6 +124,55 @@ const normalizeAudio = (value: unknown): LearningPack['audio'] | undefined => {
     accent: typeof candidate.accent === 'string' && candidate.accent.trim() ? candidate.accent.trim() : undefined,
     license: candidate.license.trim(),
   };
+};
+
+const exerciseTypes = new Set<LearningTaskExercise['type']>(['listen-choice', 'cloze', 'shadowing', 'word-order', 'free-write']);
+
+const normalizedWords = (value: string): string[] => value.toLowerCase().match(/[a-z]+(?:'[a-z]+)?/gu) ?? [];
+
+const hasTextOverlap = (candidate: string, source: string): boolean => {
+  const sourceWords = new Set(normalizedWords(source));
+  const candidateWords = normalizedWords(candidate);
+  if (candidateWords.length === 0) return false;
+  const overlap = candidateWords.filter((word) => sourceWords.has(word)).length;
+  return overlap >= Math.min(3, candidateWords.length);
+};
+
+const normalizeGeneratedExercise = (value: unknown, kind: LearningTaskKind, source: string, vocabulary: Pick<LearningVocabulary, 'term'>[]): LearningTaskExercise | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const candidate = value as Partial<LearningTaskExercise>;
+  if (typeof candidate.type !== 'string' || !exerciseTypes.has(candidate.type as LearningTaskExercise['type']) || typeof candidate.prompt !== 'string' || !candidate.prompt.trim()) return undefined;
+  const prompt = candidate.prompt.trim();
+  const expectedType: Partial<Record<LearningTaskKind, LearningTaskExercise['type']>> = {
+    listen: 'listen-choice', read: 'cloze', speak: 'shadowing', recall: 'word-order', write: 'free-write',
+  };
+  if (expectedType[kind] !== candidate.type) return undefined;
+  if (candidate.type === 'listen-choice') {
+    if (typeof candidate.text !== 'string' || !hasTextOverlap(candidate.text, source) || typeof candidate.answer !== 'string') return undefined;
+    const choices = Array.isArray(candidate.choices) ? candidate.choices.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim()) : [];
+    if (choices.length < 3 || new Set(choices).size !== choices.length || !choices.includes(candidate.answer)) return undefined;
+    return { type: candidate.type, prompt, text: candidate.text.trim(), choices, answer: candidate.answer };
+  }
+  if (candidate.type === 'cloze') {
+    if (typeof candidate.answer !== 'string' || !candidate.answer.trim()) return undefined;
+    const answer = candidate.answer.trim();
+    if (!hasTextOverlap(answer, source) && !vocabulary.some((item) => item.term.trim().toLowerCase() === answer.toLowerCase())) return undefined;
+    return { type: candidate.type, prompt, answer };
+  }
+  if (candidate.type === 'shadowing') {
+    if (typeof candidate.text !== 'string' || !hasTextOverlap(candidate.text, source)) return undefined;
+    return { type: candidate.type, prompt, text: candidate.text.trim() };
+  }
+  if (candidate.type === 'word-order') {
+    if (typeof candidate.answer !== 'string' || !hasTextOverlap(candidate.answer, source)) return undefined;
+    const choices = Array.isArray(candidate.choices) ? candidate.choices.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim()) : [];
+    if (choices.length < 4 || new Set(choices).size !== choices.length) return undefined;
+    return { type: candidate.type, prompt, choices, answer: candidate.answer.trim() };
+  }
+  const minimumWords = typeof candidate.minimumWords === 'number' && Number.isFinite(candidate.minimumWords) ? Math.max(5, Math.min(80, Math.round(candidate.minimumWords))) : 10;
+  const promptMentionsMaterial = /今日|材料|原文|词块|表达/iu.test(prompt) || vocabulary.some((item) => Boolean(item.term) && prompt.toLowerCase().includes(item.term.toLowerCase()));
+  if (!promptMentionsMaterial) return undefined;
+  return { type: candidate.type, prompt, minimumWords };
 };
 
 const fitGeneratedTasks = (tasks: LearningTask[], dailyMinutes: number, packId: string): LearningTask[] => {
@@ -152,6 +204,7 @@ const parsePack = (value: string, date: string, dailyMinutes: number): LearningP
     throw new Error('模型返回的学习包不完整');
   }
   const id = `pack-${date}`;
+  const originalText = parsed.originalText;
   const vocabulary = parsed.vocabulary.slice(0, 6).map((item, index) => {
     const candidate = item as Partial<LearningVocabulary>;
     if (!candidate.term || !candidate.meaning || !candidate.example) throw new Error(`第 ${index + 1} 个词块不完整`);
@@ -161,9 +214,12 @@ const parsePack = (value: string, date: string, dailyMinutes: number): LearningP
     const candidate = item as Partial<LearningTask>;
     if (!candidate.kind || !candidate.title || !candidate.instruction || typeof candidate.minutes !== 'number') throw new Error(`第 ${index + 1} 个学习任务不完整`);
     if (!['listen', 'read', 'speak', 'recall', 'review', 'write'].includes(candidate.kind)) throw new Error('模型返回了不支持的学习任务');
-    return { id: `${id}:ai-${index}`, kind: candidate.kind, title: candidate.title, instruction: candidate.instruction, minutes: Math.max(1, Math.min(dailyMinutes, Math.round(candidate.minutes))) };
+    const taskId = `${id}:ai-${index}`;
+    const kind = candidate.kind as LearningTaskKind;
+    const exercise = normalizeGeneratedExercise(candidate.exercise, kind, originalText, vocabulary);
+    return { id: taskId, kind, title: candidate.title, instruction: candidate.instruction, minutes: Math.max(1, Math.min(dailyMinutes, Math.round(candidate.minutes))), ...(exercise ? { exercise } : {}) };
   });
-  const tasks = addExercises(fitGeneratedTasks(normalizedTasks, dailyMinutes, id), parsed.originalText);
+  const tasks = addExercises(fitGeneratedTasks(normalizedTasks, dailyMinutes, id), originalText, vocabulary);
   if (tasks.length === 0) throw new Error('模型没有返回可执行的学习任务');
   const sourceUrl = safeHttpsUrl(parsed.sourceUrl);
   const audio = normalizeAudio(parsed.audio);
@@ -176,7 +232,7 @@ const parsePack = (value: string, date: string, dailyMinutes: number): LearningP
     theme: parsed.theme,
     level: parsed.level || '个性化学习包',
     estimatedMinutes: tasks.reduce((sum, task) => sum + task.minutes, 0),
-    originalText: parsed.originalText,
+    originalText,
     translation: parsed.translation,
     sourceLabel,
     sourceUrl,
