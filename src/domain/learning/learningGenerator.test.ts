@@ -1,0 +1,61 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { createCuratedPack, generateLearningPack, isLearningModel } from './learningGenerator';
+
+const generatedLesson = JSON.stringify({
+  title: '用英语描述一天',
+  theme: 'Daily routines',
+  level: '基础进阶',
+  originalText: 'I usually start my day with a short walk before work. It helps me feel calm and ready to focus.',
+  translation: '我通常会在上班前散一会儿步。这能让我平静下来，准备专注工作。',
+  vocabulary: [{ term: 'be ready to', meaning: '准备好做某事', example: 'I am ready to start.' }],
+  tasks: [{ kind: 'listen', title: '先听一遍', instruction: '先听后看，捕捉重点。', minutes: 4 }],
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+describe('learning generator', () => {
+  it('keeps local content inside the available learning time', () => {
+    const pack = createCuratedPack('2026-08-03', 15);
+
+    expect(pack.estimatedMinutes).toBeLessThanOrEqual(15);
+    expect(pack.audioNote).toBe('system-tts');
+    expect(pack.vocabulary).toHaveLength(3);
+  });
+
+  it('uses a local pack when no language model is configured', async () => {
+    const pack = await generateLearningPack(undefined, 12, '2026-08-03');
+
+    expect(pack.generatedBy).toBe('curated');
+    expect(isLearningModel(undefined)).toBe(false);
+  });
+
+  it('generates a learning pack through each supported model protocol', async () => {
+    const requests = [
+      {
+        profile: { id: 'chat', name: 'Chat', kind: 'openai-compatible' as const, enabled: true, baseUrl: 'https://models.example/v1', model: 'model-a', apiKey: 'secret' },
+        response: { choices: [{ message: { content: generatedLesson } }] },
+        endpoint: 'https://models.example/v1/chat/completions',
+      },
+      {
+        profile: { id: 'responses', name: 'Responses', kind: 'openai-responses' as const, enabled: true, baseUrl: 'https://models.example/v1', model: 'model-b', apiKey: 'secret' },
+        response: { output_text: generatedLesson },
+        endpoint: 'https://models.example/v1/responses',
+      },
+      {
+        profile: { id: 'anthropic', name: 'Anthropic', kind: 'anthropic-messages' as const, enabled: true, model: 'model-c', apiKey: 'secret' },
+        response: { content: [{ type: 'text', text: generatedLesson }] },
+        endpoint: 'https://api.anthropic.com/v1/messages',
+      },
+    ];
+
+    for (const request of requests) {
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify(request.response), { status: 200 }));
+      const pack = await generateLearningPack(request.profile, 15, '2026-08-03');
+
+      expect(fetchMock).toHaveBeenCalledWith(request.endpoint, expect.objectContaining({ method: 'POST' }));
+      expect(pack).toMatchObject({ generatedBy: 'ai', title: '用英语描述一天', audioNote: 'system-tts' });
+      fetchMock.mockRestore();
+    }
+  });
+});

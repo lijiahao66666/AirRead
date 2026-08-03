@@ -1,11 +1,11 @@
 {
-  "name": "AirRead 灵阅",
+  "name": "AirRead 英语学习",
   "short_name": "AirRead",
-  "description": "本地优先的沉浸式双语阅读器",
-  "start_url": "/#bookshelf",
+  "description": "按每天可用时间自动编排的英语学习 PWA",
+  "start_url": "/#today",
   "display": "standalone",
-  "background_color": "#f7f1e7",
-  "theme_color": "#123f3d",
+  "background_color": "#f4f7f5",
+  "theme_color": "#173c48",
   "icons": [
     {
       "src": "/icons/airread-mark.svg",

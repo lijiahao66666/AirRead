@@ -1,118 +1,78 @@
-import {
-  BUILT_IN_FREE_PROFILE,
-  isMaskedSecret,
-  maskSecret,
-  validateProviderProfile,
-  type ProviderKind,
-  type ProviderProfile,
-  type FreeTranslationRoute,
-} from './providerProfile';
+import { isMaskedSecret, maskSecret, validateProviderProfile, type ProviderKind, type ProviderProfile } from './providerProfile';
 
-const PROFILES_KEY = 'airread.providerProfiles.v1';
-const SELECTED_KEY = 'airread.selectedProvider.v1';
-const PROVIDER_KINDS: ProviderKind[] = ['free', 'openai-compatible', 'openai-responses', 'anthropic-messages', 'custom-http', 'tencent-tmt', 'azure-translator', 'youdao', 'deepl'];
-const FREE_ROUTE_KEY = 'airread.freeTranslationRoute.v1';
-const FREE_ROUTES: FreeTranslationRoute[] = ['mymemory', 'google', 'azure-edge', 'auto'];
+const PROFILES_KEY = 'airread.learningModelProfiles.v1';
+const LEGACY_PROFILES_KEY = 'airread.providerProfiles.v1';
+const SELECTED_KEY = 'airread.learningSelectedModel.v1';
+const PROVIDER_KINDS: ProviderKind[] = ['openai-compatible', 'openai-responses', 'anthropic-messages'];
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 const isProfile = (value: unknown): value is ProviderProfile => {
   if (!value || typeof value !== 'object') return false;
   const profile = value as Partial<ProviderProfile>;
-  return typeof profile.id === 'string'
-    && typeof profile.name === 'string'
-    && typeof profile.kind === 'string'
-    && PROVIDER_KINDS.includes(profile.kind as ProviderKind)
-    && typeof profile.enabled === 'boolean';
+  return typeof profile.id === 'string' && typeof profile.name === 'string' && PROVIDER_KINDS.includes(profile.kind as ProviderKind) && typeof profile.enabled === 'boolean';
 };
 
 export class ProviderProfileStore {
   constructor(private readonly storage: StorageLike = window.localStorage) {}
 
   list(): ProviderProfile[] {
-    return [{ ...BUILT_IN_FREE_PROFILE, freeRoute: this.getFreeRoute() }, ...this.readCustomProfiles()];
+    const profiles = this.readProfiles(PROFILES_KEY);
+    if (profiles.length > 0) return profiles;
+    const migrated = this.readProfiles(LEGACY_PROFILES_KEY);
+    if (migrated.length > 0) this.writeProfiles(migrated);
+    return migrated;
   }
 
   get(id: string): ProviderProfile | undefined {
     return this.list().find((profile) => profile.id === id);
   }
 
-  selected(): ProviderProfile {
+  selected(): ProviderProfile | undefined {
     const selectedId = this.storage.getItem(SELECTED_KEY);
     const selected = selectedId ? this.get(selectedId) : undefined;
-    return selected?.enabled ? selected : this.list()[0];
-  }
-
-  getFreeRoute(): FreeTranslationRoute {
-    const route = this.storage.getItem(FREE_ROUTE_KEY);
-    return route && FREE_ROUTES.includes(route as FreeTranslationRoute) ? route as FreeTranslationRoute : BUILT_IN_FREE_PROFILE.freeRoute!;
-  }
-
-  setFreeRoute(route: FreeTranslationRoute): void {
-    if (!FREE_ROUTES.includes(route)) throw new Error('免费翻译线路无效');
-    this.storage.setItem(FREE_ROUTE_KEY, route);
+    return selected?.enabled ? selected : this.list().find((profile) => profile.enabled);
   }
 
   select(id: string): void {
     const profile = this.get(id);
-    if (!profile) throw new Error('翻译服务不存在');
-    if (!profile.builtIn && !profile.enabled) this.save({ ...profile, enabled: true });
+    if (!profile) throw new Error('模型服务不存在');
     this.storage.setItem(SELECTED_KEY, id);
   }
 
   save(profile: ProviderProfile): void {
-    if (profile.id === BUILT_IN_FREE_PROFILE.id || profile.builtIn) {
-      throw new Error('内置免费翻译不能修改');
-    }
-    const profiles = this.readCustomProfiles();
+    const profiles = this.list();
     const index = profiles.findIndex((candidate) => candidate.id === profile.id);
     const existing = index === -1 ? undefined : profiles[index];
     const saved = { ...profile };
     if (isMaskedSecret(saved.apiKey)) {
-      if (!existing?.apiKey || saved.apiKey !== maskSecret(existing.apiKey)) {
-        throw new Error('掩码密钥不能用于新配置，请输入真实 API Key');
-      }
+      if (!existing?.apiKey || saved.apiKey !== maskSecret(existing.apiKey)) throw new Error('请重新输入真实的 API Key');
       saved.apiKey = existing.apiKey;
     }
-    if (isMaskedSecret(saved.appSecret)) {
-      if (!existing?.appSecret || saved.appSecret !== maskSecret(existing.appSecret)) {
-        throw new Error('掩码应用密钥不能用于新配置，请输入真实应用密钥');
-      }
-      saved.appSecret = existing.appSecret;
-    }
-
     const validation = validateProviderProfile(saved);
-    if (!validation.valid) throw new Error(`Provider 配置无效：${validation.errors.join('；')}`);
-
-    delete saved.builtIn;
+    if (!validation.valid) throw new Error(validation.errors.join('；'));
     if (index === -1) profiles.push(saved);
     else profiles[index] = saved;
-    this.writeCustomProfiles(profiles);
+    this.writeProfiles(profiles);
   }
 
   remove(id: string): void {
-    if (id === BUILT_IN_FREE_PROFILE.id) throw new Error('内置免费翻译不能删除');
-    const profiles = this.readCustomProfiles().filter((profile) => profile.id !== id);
-    this.writeCustomProfiles(profiles);
+    this.writeProfiles(this.list().filter((profile) => profile.id !== id));
     if (this.storage.getItem(SELECTED_KEY) === id) this.storage.removeItem(SELECTED_KEY);
   }
 
-  private readCustomProfiles(): ProviderProfile[] {
-    const raw = this.storage.getItem(PROFILES_KEY);
+  private readProfiles(key: string): ProviderProfile[] {
+    const raw = this.storage.getItem(key);
     if (!raw) return [];
     try {
       const parsed: unknown = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return parsed
-        .filter(isProfile)
-        .filter((profile) => profile.id !== BUILT_IN_FREE_PROFILE.id)
-        .filter((profile) => validateProviderProfile(profile).valid);
+      return Array.isArray(parsed) ? parsed.filter(isProfile).filter((profile) => validateProviderProfile(profile).valid) : [];
     } catch {
       return [];
     }
   }
 
-  private writeCustomProfiles(profiles: ProviderProfile[]): void {
+  private writeProfiles(profiles: ProviderProfile[]): void {
     this.storage.setItem(PROFILES_KEY, JSON.stringify(profiles));
   }
 }

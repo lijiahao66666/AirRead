@@ -1,41 +1,46 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { ArrowLeft, BookOpen, LibraryBig, Settings2, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { CalendarDays, Clock3, Home, Settings2, Target, RotateCcw } from 'lucide-react';
 
-import { createBookStore } from './domain/books/bookStore';
-import type { Book, Chapter } from './domain/books/book';
-import { mergeRestoredBooks } from './app/localBackup';
-import { BookshelfPage } from './features/bookshelf/BookshelfPage';
 import { ProviderProfileStore } from './domain/ai/providerStore';
+import { createCuratedPack, generateLearningPack, isLearningModel } from './domain/learning/learningGenerator';
+import { completePack, completeTask, loadLearningState, reviewCard, saveLearningState, savePack, todayKey, updateDailyMinutes } from './domain/learning/learningStore';
+import type { LearningState } from './domain/learning/learningTypes';
+import { LearningSettingsPage } from './features/learning/LearningSettingsPage';
+import { PlanPage, ReviewPage, TodayPage } from './features/learning/LearningPages';
 import './styles/global.css';
 
-type AppRoute = 'bookshelf' | 'reader' | 'studio' | 'settings';
-type AppLocation = { route: AppRoute; bookId?: string };
-const primaryNavigation: Array<{ label: string; route: Exclude<AppRoute, 'reader'>; icon: typeof LibraryBig }> = [
-  { label: '书架', route: 'bookshelf', icon: LibraryBig },
-  { label: '书籍工作室', route: 'studio', icon: Sparkles },
-];
-const bookStore = createBookStore();
-const providerStore = new ProviderProfileStore();
-type ReaderPreparation = { bookId: string; chapters?: Chapter[]; error?: string };
-const BOOKSHELF_PREWARM_DELAY_MS = 1_200;
-const ReaderPage = lazy(async () => ({ default: (await import('./features/reader/ReaderPage')).ReaderPage }));
-const BookStudioPage = lazy(async () => ({ default: (await import('./features/studio/BookStudioPage')).BookStudioPage }));
-const SettingsPage = lazy(async () => ({ default: (await import('./features/settings/SettingsPage')).SettingsPage }));
+type AppRoute = 'today' | 'plan' | 'review' | 'settings';
+type AppLocation = { route: AppRoute };
 
-const prepareBookChapters = async (book: Book): Promise<Chapter[]> => {
-  const { loadBookChapters } = await import('./features/reader/readerChapterLoader');
-  return loadBookChapters(book);
+const providerStore = new ProviderProfileStore();
+const navigation: Array<{ label: string; route: AppRoute; icon: typeof Home }> = [
+  { label: '今日学习', route: 'today', icon: Home },
+  { label: '学习计划', route: 'plan', icon: CalendarDays },
+  { label: '复习', route: 'review', icon: RotateCcw },
+];
+
+const locationFromHash = (): AppLocation => {
+  const rawRoute = window.location.hash.slice(1).split('/')[0];
+  if (rawRoute === 'plan') return { route: 'plan' };
+  if (rawRoute === 'review') return { route: 'review' };
+  if (rawRoute === 'settings') return { route: 'settings' };
+  return { route: 'today' };
 };
 
-function locationFromHash(): AppLocation {
-  const [rawRoute, bookId] = window.location.hash.slice(1).split('/');
-  const route = rawRoute === 'reader' || rawRoute === 'studio' || rawRoute === 'settings' ? rawRoute : 'bookshelf';
-  return { route, bookId: route === 'reader' ? bookId : undefined };
-}
+const persist = (next: LearningState, setState: (state: LearningState) => void): void => {
+  setState(next);
+  saveLearningState(next);
+};
 
-function MissingBookPage() {
-  return <section className="placeholder-page" aria-labelledby="missing-book-title"><p className="eyebrow">阅读器</p><h2 id="missing-book-title">找不到书籍</h2><p>这本书可能已经从当前设备删除，或者阅读链接已经失效。</p><button type="button" className="secondary-button" onClick={() => { window.location.hash = 'bookshelf'; }} aria-label="返回书架"><ArrowLeft size={17} /> 返回书架</button></section>;
-}
+const bootstrapLearningState = (): LearningState => {
+  const state = loadLearningState();
+  if (state.packs[todayKey()]) return state;
+  const configuredModel = state.selectedModelId ? providerStore.get(state.selectedModelId) : providerStore.selected();
+  if (isLearningModel(configuredModel)) return state;
+  const seeded = savePack(state, createCuratedPack(todayKey(), state.plan.dailyMinutes));
+  saveLearningState(seeded);
+  return seeded;
+};
 
 function clearPointerControlFocus(event: ReactMouseEvent<HTMLDivElement>) {
   if (event.detail === 0 || !(event.target instanceof Element)) return;
@@ -45,16 +50,15 @@ function clearPointerControlFocus(event: ReactMouseEvent<HTMLDivElement>) {
 
 export default function App() {
   const [location, setLocation] = useState<AppLocation>(locationFromHash);
-  const [books, setBooks] = useState<Book[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>();
-  const [readerPreparation, setReaderPreparation] = useState<ReaderPreparation>();
-  const activeBook = useMemo(() => books.find((book) => book.id === location.bookId), [books, location.bookId]);
+  const [learningState, setLearningState] = useState<LearningState>(bootstrapLearningState);
+  const [generating, setGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string>();
+  const [modelVersion, setModelVersion] = useState(0);
+  const automaticGenerationRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const onHashChange = () => setLocation(locationFromHash());
     window.addEventListener('hashchange', onHashChange);
-    void bookStore.listBooks().then(setBooks).catch(() => setError('读取书架失败')).finally(() => setLoading(false));
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
@@ -63,108 +67,64 @@ export default function App() {
     document.body.scrollTop = 0;
   }, [location.route]);
 
-  useEffect(() => {
-    if (loading || location.route !== 'bookshelf' || books.length === 0) return;
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      const recentBooks = [...books]
-        .sort((left, right) => (right.lastReadAt ?? right.importedAt) - (left.lastReadAt ?? left.importedAt))
-        .slice(0, 2);
-      void recentBooks.reduce(async (previous, book) => {
-        await previous;
-        if (!cancelled) await prepareBookChapters(book).catch(() => undefined);
-      }, Promise.resolve());
-    }, BOOKSHELF_PREWARM_DELAY_MS);
-    return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [books, loading, location.route]);
+  const modelProfiles = useMemo(() => providerStore.list().filter(isLearningModel), [modelVersion]);
+  const selectedModel = useMemo(() => modelProfiles.find((profile) => profile.id === learningState.selectedModelId) ?? modelProfiles[0], [learningState.selectedModelId, modelProfiles]);
+  const todayPack = learningState.packs[todayKey()];
 
-  useEffect(() => {
-    if (location.route !== 'reader' || !activeBook) return;
-    let cancelled = false;
-    if (readerPreparation?.bookId !== activeBook.id || readerPreparation.error) {
-      setReaderPreparation({ bookId: activeBook.id });
-    }
-    void prepareBookChapters(activeBook).then((chapters) => {
-      if (!cancelled) setReaderPreparation({ bookId: activeBook.id, chapters });
-    }).catch((cause) => {
-      if (!cancelled) setReaderPreparation({ bookId: activeBook.id, error: cause instanceof Error ? cause.message : '无法打开书籍' });
-    });
-    return () => { cancelled = true; };
-  }, [activeBook?.bytes, activeBook?.id, location.route]);
-
-  const importBook = async (file: File) => {
-    setError(undefined);
+  const handleGenerate = async () => {
+    if (generating) return;
+    setGenerating(true);
+    setGenerationError(undefined);
     try {
-      const { parseBook } = await import('./domain/books/bookParser');
-      const imported = await parseBook(file);
-      await bookStore.saveBook(imported);
-      setBooks((current) => [imported, ...current.filter((book) => book.id !== imported.id)]);
+      const pack = await generateLearningPack(selectedModel, learningState.plan.dailyMinutes);
+      persist(savePack(learningState, pack), setLearningState);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '导入书籍失败');
+      setGenerationError(cause instanceof Error ? cause.message : '学习包生成失败，请检查模型配置后重试');
+    } finally {
+      setGenerating(false);
     }
   };
 
-  const openBook = (bookId: string) => { window.location.hash = `reader/${bookId}`; };
-  const deleteBook = async (bookId: string) => {
-    await bookStore.deleteBook(bookId);
-    setBooks((current) => current.filter((book) => book.id !== bookId));
-    if (location.bookId === bookId) window.location.hash = 'bookshelf';
-  };
-  const updateProgress = async (bookId: string, progress: Pick<Book, 'readingChapter' | 'readingProgress' | 'readingAnchor' | 'lastReadAt'>) => {
-    await bookStore.updateBook(bookId, progress);
-    setBooks((current) => current.map((book) => book.id === bookId ? { ...book, ...progress } : book));
-  };
-  const updateTranslationPreferences = async (bookId: string, translationPreferences: Book['translationPreferences']) => {
-    await bookStore.updateBook(bookId, { translationPreferences });
-    setBooks((current) => current.map((book) => book.id === bookId ? { ...book, translationPreferences } : book));
-  };
-  const updateSelectionPreferences = async (bookId: string, selectionPreferences: Book['selectionPreferences']) => {
-    await bookStore.updateBook(bookId, { selectionPreferences });
-    setBooks((current) => current.map((book) => book.id === bookId ? { ...book, selectionPreferences } : book));
-  };
-  const updateBookmarks = async (bookId: string, bookmarks: Book['bookmarks']) => {
-    await bookStore.updateBook(bookId, { bookmarks });
-    setBooks((current) => current.map((book) => book.id === bookId ? { ...book, bookmarks } : book));
-  };
-  const updateExcerpts = async (bookId: string, excerpts: Book['excerpts']) => {
-    await bookStore.updateBook(bookId, { excerpts });
-    setBooks((current) => current.map((book) => book.id === bookId ? { ...book, excerpts } : book));
-  };
-  const restoreBooks = async (restoredBooks: Book[]) => {
-    await Promise.all(restoredBooks.map((book) => bookStore.saveBook(book)));
-    setBooks((current) => mergeRestoredBooks(current, restoredBooks));
-  };
-  const saveGeneratedBook = async (book: Book) => {
-    await bookStore.saveBook(book);
-    setBooks((current) => [book, ...current.filter((candidate) => candidate.id !== book.id)]);
-  };
-  const importAndOpenBook = async (book: Book) => {
-    await saveGeneratedBook(book);
-    window.requestAnimationFrame(() => openBook(book.id));
+  useEffect(() => {
+    if (todayPack || generating) return;
+    if (!selectedModel) {
+      persist(savePack(learningState, createCuratedPack(todayKey(), learningState.plan.dailyMinutes)), setLearningState);
+      return;
+    }
+    const generationKey = `${todayKey()}:${selectedModel.id}:${learningState.plan.dailyMinutes}`;
+    if (automaticGenerationRef.current === generationKey) return;
+    automaticGenerationRef.current = generationKey;
+    void handleGenerate();
+  }, [generating, learningState.plan.dailyMinutes, selectedModel, todayPack]);
+
+  const handleMinutesChange = (minutes: number) => {
+    const next = updateDailyMinutes(learningState, minutes);
+    const { [todayKey()]: _today, ...remainingPacks } = next.packs;
+    persist({ ...next, packs: remainingPacks }, setLearningState);
   };
 
-  let content;
-  if (location.route === 'reader') {
-    content = loading ? <div className="state-card" role="status">正在读取书籍</div> : activeBook
-      ? readerPreparation?.bookId === activeBook.id && readerPreparation.chapters
-        ? <Suspense fallback={<div className="state-card" role="status">正在打开阅读器</div>}><ReaderPage key={activeBook.id} book={activeBook} chapters={readerPreparation.chapters} onProgress={(progress) => updateProgress(activeBook.id, progress)} onTranslationPreferencesChange={(preferences) => updateTranslationPreferences(activeBook.id, preferences)} onSelectionPreferencesChange={(preferences) => updateSelectionPreferences(activeBook.id, preferences)} onBookmarksChange={(bookmarks) => updateBookmarks(activeBook.id, bookmarks)} onExcerptsChange={(excerpts) => updateExcerpts(activeBook.id, excerpts)} onBack={() => { window.location.hash = 'bookshelf'; }} /></Suspense>
-        : readerPreparation?.bookId === activeBook.id && readerPreparation.error
-          ? <div className="state-card state-card--error" role="alert">{readerPreparation.error}</div>
-          : <div className="state-card" role="status">正在打开书籍</div>
-      : <MissingBookPage />;
-  } else if (location.route === 'studio') {
-    content = <Suspense fallback={<div className="state-card" role="status">正在打开书籍工作室</div>}><BookStudioPage books={books} providerStore={providerStore} onSaveBook={saveGeneratedBook} onImportBook={importAndOpenBook} /></Suspense>;
+  const handleModelChange = (id: string | undefined) => {
+    persist({ ...learningState, selectedModelId: id }, setLearningState);
+    setModelVersion((version) => version + 1);
+  };
+
+  let content: ReactNode;
+  if (location.route === 'plan') {
+    content = <PlanPage plan={learningState.plan} onMinutesChange={handleMinutesChange} />;
+  } else if (location.route === 'review') {
+    content = <ReviewPage state={learningState} onReview={(cardId, remembered) => persist(reviewCard(learningState, cardId, remembered), setLearningState)} />;
   } else if (location.route === 'settings') {
-    content = <Suspense fallback={<div className="state-card" role="status">正在打开翻译设置</div>}><SettingsPage store={providerStore} books={books} onRestoreBooks={restoreBooks} /></Suspense>;
+    content = <LearningSettingsPage store={providerStore} dailyMinutes={learningState.plan.dailyMinutes} selectedModelId={learningState.selectedModelId} onMinutesChange={handleMinutesChange} onModelChange={handleModelChange} />;
   } else {
-    content = <BookshelfPage books={books} loading={loading} error={error} onImport={importBook} onOpen={openBook} onDelete={deleteBook} />;
+    content = <TodayPage pack={todayPack} completedTaskIds={learningState.completedTaskIds} completedPackIds={learningState.completedPackIds} generating={generating} generationError={generationError} onGenerate={() => { void handleGenerate(); }} onCompleteTask={(taskId) => persist(completeTask(learningState, taskId), setLearningState)} onCompletePack={() => todayPack && persist(completePack(learningState, todayPack), setLearningState)} />;
   }
 
-  return <div className="app-shell" data-route={location.route} onClickCapture={clearPointerControlFocus}>
+  return <div className="app-shell learning-app" data-route={location.route} onClickCapture={clearPointerControlFocus}>
     <aside className="app-rail">
-      <header className="brand"><a className="brand-lockup" href="#bookshelf" aria-label="AirRead 灵阅"><span className="brand-mark" aria-hidden="true"><img src="/icons/airread-mark.svg" alt="" /></span><h1 className="brand-copy"><strong>AirRead</strong><em>灵阅</em><small aria-hidden="true">沉浸式双语阅读</small></h1></a><a className="brand-utility" href="#settings" aria-label="翻译设置" title="翻译设置" aria-current={location.route === 'settings' ? 'page' : undefined}><Settings2 size={17} /></a></header>
-      <nav className="primary-navigation" aria-label="主导航">{primaryNavigation.map(({ label, route: navRoute, icon: Icon }) => <a key={navRoute} href={`#${navRoute}`} aria-current={location.route === navRoute || (location.route === 'reader' && navRoute === 'bookshelf') ? 'page' : undefined}><Icon size={18} /> <span>{label}</span></a>)}</nav>
-      <div className="rail-footer"><BookOpen size={16} /> 本地存储 · 可离线阅读</div>
+      <header className="brand"><a className="brand-lockup" href="#today" aria-label="AirRead 英语学习"><span className="brand-mark" aria-hidden="true"><img src="/icons/airread-mark.svg" alt="" /></span><h1 className="brand-copy"><strong>AirRead</strong><em>英语学习</em><small>每天学一点，真的听得懂</small></h1></a><a className="brand-utility" href="#settings" aria-label="学习设置" title="学习设置" aria-current={location.route === 'settings' ? 'page' : undefined}><Settings2 size={17} /></a></header>
+      <div className="learning-goal-card"><Target size={17} /><div><strong>固定学习目标</strong><span>听懂 · 交流 · 阅读 · 应试</span></div></div>
+      <nav className="primary-navigation" aria-label="主导航">{navigation.map(({ label, route, icon: Icon }) => <a key={route} href={`#${route}`} aria-current={location.route === route ? 'page' : undefined}><Icon size={18} /> <span>{label}</span></a>)}</nav>
+      <div className="rail-footer"><Clock3 size={16} /> 每天 {learningState.plan.dailyMinutes} 分钟 · 本地保存</div>
     </aside>
     <main>{content}</main>
   </div>;

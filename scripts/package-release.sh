@@ -32,7 +32,6 @@ trap cleanup EXIT
 
 mkdir -p "$release_directory" "$staging_directory/$bundle_name"
 cp -R dist "$staging_directory/$bundle_name/dist"
-cp -R server "$staging_directory/$bundle_name/server"
 cp scripts/deploy-release.sh "$staging_directory/$bundle_name/deploy-release.sh"
 printf '{"application":"AirRead","revision":"%s","createdAt":"%s"}\n' \
   "$revision" "$created_at" > "$staging_directory/$bundle_name/release.json"

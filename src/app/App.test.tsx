@@ -1,51 +1,47 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from '../App';
 
-describe('AirRead application shell', () => {
-  it('renders the product name, primary navigation, and import action', () => {
-    render(<App />);
-
-    expect(screen.getByRole('heading', { name: 'AirRead 灵阅' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '书架' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '书籍工作室' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '翻译设置' })).toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: '主导航' })).not.toHaveTextContent('设置');
-    expect(screen.getByRole('button', { name: '导入书籍' })).toBeInTheDocument();
+describe('AirRead learning application shell', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.location.hash = '#today';
   });
 
-  it('starts locally without auth, points, check-in, or device bootstrap', async () => {
-    window.localStorage.clear();
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
-
+  it('renders the daily learning navigation without book workflows', () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByRole('button', { name: '导入书籍' })).toBeInTheDocument());
 
+    expect(screen.getByRole('heading', { name: /AirRead 英语学习/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '今日学习' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '学习计划' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '复习' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '学习设置' })).toBeInTheDocument();
+    expect(screen.queryByText('书籍工作室')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '今天需要记住' })).toBeInTheDocument();
+  });
+
+  it('automatically creates a local learning pack without calling a network service when no model is configured', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: '今天需要记住' })).toBeInTheDocument());
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(Object.keys(window.localStorage)).toEqual([]);
+    expect(window.localStorage.getItem('airread.learning.v1')).not.toBeNull();
     fetchSpy.mockRestore();
   });
 
-  it('clears pointer focus from buttons and links but preserves keyboard focus', () => {
+  it('clears pointer focus from controls but preserves keyboard focus', () => {
     render(<App />);
-    const importButton = screen.getByRole('button', { name: '导入书籍' });
-    const studioLink = screen.getByRole('link', { name: '书籍工作室' });
+    const action = screen.getByRole('button', { name: '使用系统朗读英文原文' });
+    const planLink = screen.getByRole('link', { name: '学习计划' });
 
-    importButton.focus();
-    fireEvent.click(importButton, { detail: 1 });
-    expect(importButton).not.toHaveFocus();
+    action.focus();
+    fireEvent.click(action, { detail: 1 });
+    expect(action).not.toHaveFocus();
 
-    importButton.focus();
-    fireEvent.click(importButton, { detail: 0 });
-    expect(importButton).toHaveFocus();
-
-    studioLink.focus();
-    fireEvent.click(studioLink, { detail: 1 });
-    expect(studioLink).not.toHaveFocus();
-
-    studioLink.focus();
-    fireEvent.click(studioLink, { detail: 0 });
-    expect(studioLink).toHaveFocus();
+    planLink.focus();
+    fireEvent.click(planLink, { detail: 0 });
+    expect(planLink).toHaveFocus();
   });
 });
