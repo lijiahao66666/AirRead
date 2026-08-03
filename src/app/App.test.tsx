@@ -15,8 +15,8 @@ describe('AirRead learning application shell', () => {
     expect(screen.getByRole('heading', { name: /AirRead 英语学习/ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '今日学习' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '学习计划' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '复习' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '学习设置' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '今日复习' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '今天需要记住' })).toBeInTheDocument();
   });
 
@@ -27,6 +27,27 @@ describe('AirRead learning application shell', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: '今天需要记住' })).toBeInTheDocument());
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(window.localStorage.getItem('airread.learning.v1')).not.toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it('falls back to a local pack when a configured model cannot connect', async () => {
+    window.localStorage.setItem('airread.learningModelProfiles.v1', JSON.stringify([{
+      id: 'broken-model',
+      name: '不可用模型',
+      kind: 'openai-compatible',
+      enabled: true,
+      baseUrl: 'https://models.example/v1',
+      model: 'model-a',
+      apiKey: 'secret',
+    }]));
+    window.localStorage.setItem('airread.learningSelectedModel.v1', 'broken-model');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network unavailable'));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: '今天需要记住' })).toBeInTheDocument());
+    expect(screen.getByRole('status')).toHaveTextContent('模型暂时无法连接，已为你准备本地练习包。');
+    expect(fetchSpy).toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 

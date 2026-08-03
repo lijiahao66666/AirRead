@@ -1,28 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { CalendarDays, Clock3, Home, Settings2, Target, RotateCcw } from 'lucide-react';
+import { CalendarDays, Clock3, Home, Settings2, Target } from 'lucide-react';
 
 import { ProviderProfileStore } from './domain/ai/providerStore';
 import { createCuratedPack, generateLearningPack, isLearningModel } from './domain/learning/learningGenerator';
-import { completePack, completeTask, loadLearningState, reviewCard, saveLearningState, savePack, todayKey, updateDailyMinutes } from './domain/learning/learningStore';
+import { completePack, completeTask, dueReviewCards, loadLearningState, reviewCard, saveLearningState, savePack, todayKey, updateDailyMinutes } from './domain/learning/learningStore';
 import type { LearningState } from './domain/learning/learningTypes';
 import { LearningSettingsPage } from './features/learning/LearningSettingsPage';
-import { PlanPage, ReviewPage, TodayPage } from './features/learning/LearningPages';
+import { PlanPage, TodayPage } from './features/learning/LearningPages';
 import './styles/global.css';
 
-type AppRoute = 'today' | 'plan' | 'review' | 'settings';
+type AppRoute = 'today' | 'plan' | 'settings';
 type AppLocation = { route: AppRoute };
 
 const providerStore = new ProviderProfileStore();
 const navigation: Array<{ label: string; route: AppRoute; icon: typeof Home }> = [
   { label: '今日学习', route: 'today', icon: Home },
   { label: '学习计划', route: 'plan', icon: CalendarDays },
-  { label: '复习', route: 'review', icon: RotateCcw },
 ];
 
 const locationFromHash = (): AppLocation => {
   const rawRoute = window.location.hash.slice(1).split('/')[0];
   if (rawRoute === 'plan') return { route: 'plan' };
-  if (rawRoute === 'review') return { route: 'review' };
+  if (rawRoute === 'review') return { route: 'today' };
   if (rawRoute === 'settings') return { route: 'settings' };
   return { route: 'today' };
 };
@@ -78,8 +77,11 @@ export default function App() {
     try {
       const pack = await generateLearningPack(selectedModel, learningState.plan.dailyMinutes);
       persist(savePack(learningState, pack), setLearningState);
-    } catch (cause) {
-      setGenerationError(cause instanceof Error ? cause.message : '学习包生成失败，请检查模型配置后重试');
+    } catch {
+      if (!learningState.packs[todayKey()]) {
+        persist(savePack(learningState, createCuratedPack(todayKey(), learningState.plan.dailyMinutes)), setLearningState);
+      }
+      setGenerationError('模型暂时无法连接，已为你准备本地练习包。');
     } finally {
       setGenerating(false);
     }
@@ -111,12 +113,10 @@ export default function App() {
   let content: ReactNode;
   if (location.route === 'plan') {
     content = <PlanPage plan={learningState.plan} onMinutesChange={handleMinutesChange} />;
-  } else if (location.route === 'review') {
-    content = <ReviewPage state={learningState} onReview={(cardId, remembered) => persist(reviewCard(learningState, cardId, remembered), setLearningState)} />;
   } else if (location.route === 'settings') {
     content = <LearningSettingsPage store={providerStore} dailyMinutes={learningState.plan.dailyMinutes} selectedModelId={learningState.selectedModelId} onMinutesChange={handleMinutesChange} onModelChange={handleModelChange} />;
   } else {
-    content = <TodayPage pack={todayPack} completedTaskIds={learningState.completedTaskIds} completedPackIds={learningState.completedPackIds} generating={generating} generationError={generationError} onGenerate={() => { void handleGenerate(); }} onCompleteTask={(taskId) => persist(completeTask(learningState, taskId), setLearningState)} onCompletePack={() => todayPack && persist(completePack(learningState, todayPack), setLearningState)} />;
+    content = <TodayPage pack={todayPack} dueReviewCards={dueReviewCards(learningState)} completedTaskIds={learningState.completedTaskIds} completedPackIds={learningState.completedPackIds} generating={generating} generationError={generationError} onGenerate={() => { void handleGenerate(); }} onReview={(cardId, remembered) => persist(reviewCard(learningState, cardId, remembered), setLearningState)} onCompleteTask={(taskId) => persist(completeTask(learningState, taskId), setLearningState)} onCompletePack={() => todayPack && persist(completePack(learningState, todayPack), setLearningState)} />;
   }
 
   return <div className="app-shell learning-app" data-route={location.route} onClickCapture={clearPointerControlFocus}>

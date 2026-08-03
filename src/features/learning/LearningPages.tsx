@@ -1,17 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AudioLines, BookOpenText, Check, ChevronRight, CircleCheck, Clock3, Headphones, Languages, PenLine, RotateCcw, Volume2 } from 'lucide-react';
 
 import { PwaInstallPrompt } from '../../pwa/PwaInstallPrompt';
-import { dueReviewCards, todayKey } from '../../domain/learning/learningStore';
-import type { LearningPack, LearningPlan, LearningReviewCard, LearningState, LearningTask } from '../../domain/learning/learningTypes';
+import { todayKey } from '../../domain/learning/learningStore';
+import type { LearningPack, LearningPlan, LearningReviewCard, LearningTask } from '../../domain/learning/learningTypes';
 
 export type TodayPageProps = {
   pack?: LearningPack;
+  dueReviewCards: LearningReviewCard[];
   completedTaskIds: string[];
   completedPackIds: string[];
   generating?: boolean;
   generationError?: string;
   onGenerate: () => void;
+  onReview: (cardId: string, remembered: boolean) => void;
   onCompleteTask: (taskId: string) => void;
   onCompletePack: () => void;
 };
@@ -58,16 +60,18 @@ function TaskRow({ task, completed, onComplete }: { task: LearningTask; complete
   return <article className={`learning-task${completed ? ' learning-task--complete' : ''}`}>
     <span className="learning-task__icon"><Icon size={18} /></span>
     <div><small>{task.minutes} 分钟 · {task.kind === 'listen' ? '听力输入' : task.kind === 'speak' ? '口语输出' : task.kind === 'review' ? '间隔复习' : '主动学习'}</small><h3>{task.title}</h3><p>{task.instruction}</p></div>
-    <button type="button" className="task-check" onClick={onComplete} aria-pressed={completed} aria-label={`${completed ? '取消完成' : '完成'} ${task.title}`}>{completed ? <Check size={17} /> : <span />}</button>
+    <button type="button" className="task-check" onClick={onComplete} aria-pressed={completed} aria-label={`${completed ? '已完成' : '完成'} ${task.title}`}>{completed ? <Check size={17} /> : <span />}</button>
   </article>;
 }
 
-export function TodayPage({ pack, completedTaskIds, completedPackIds, generating = false, generationError, onGenerate, onCompleteTask, onCompletePack }: TodayPageProps) {
+export function TodayPage({ pack, dueReviewCards, completedTaskIds, completedPackIds, generating = false, generationError, onGenerate, onReview, onCompleteTask, onCompletePack }: TodayPageProps) {
   const [translationVisible, setTranslationVisible] = useState(false);
   const [activeTask, setActiveTask] = useState(0);
   const complete = pack ? completedPackIds.includes(pack.id) : false;
   const completedCount = pack?.tasks.filter((task) => completedTaskIds.includes(task.id)).length ?? 0;
   const activeTaskIndex = pack ? Math.min(activeTask, Math.max(0, pack.tasks.length - 1)) : 0;
+  const pendingReviewCount = dueReviewCards.length;
+  const readyToComplete = Boolean(pack && completedCount === pack.tasks.length && pendingReviewCount === 0);
 
   if (!pack) return <section className="learning-page learning-page--today" aria-labelledby="today-title">
     <header className="learning-page__header"><div><p className="eyebrow">每日英语学习包</p><h2 id="today-title">今天，学一点真的能用上的英语。</h2><p className="page-lede">系统会根据你设置的可用时间，安排输入、回忆、跟读和复习。</p></div></header>
@@ -78,7 +82,10 @@ export function TodayPage({ pack, completedTaskIds, completedPackIds, generating
   return <section className="learning-page learning-page--today" aria-labelledby="today-title">
     <header className="learning-page__header learning-page__header--compact"><div><p className="eyebrow">{formatDate(pack.date)}</p><h2 id="today-title">{pack.title}</h2><p className="page-lede">{pack.theme} · {pack.level}</p></div><div className="today-duration"><Clock3 size={18} /><strong>{pack.estimatedMinutes}</strong><span>分钟</span></div></header>
     <PwaInstallPrompt />
-    <section className="today-progress" aria-label="今日完成进度"><div><span>今日进度</span><strong>{completedCount} / {pack.tasks.length}</strong></div><span className="today-progress__track"><i style={{ width: `${pack.tasks.length ? (completedCount / pack.tasks.length) * 100 : 0}%` }} /></span></section>
+    {generationError && <p className="learning-inline-notice" role="status">{generationError}</p>}
+    <section className="today-progress" aria-label="今日完成进度"><div><span>今日训练</span><strong>{completedCount} / {pack.tasks.length}</strong></div><span className="today-progress__track"><i style={{ width: `${pack.tasks.length ? (completedCount / pack.tasks.length) * 100 : 0}%` }} /></span><p>{pendingReviewCount > 0 ? `先完成 ${pendingReviewCount} 项到期复习，再开始今天的新材料。` : '到期复习已完成，可以开始今天的新材料。'}</p></section>
+
+    <section className="learning-section learning-review-section" aria-labelledby="today-review-title"><div className="learning-section__heading"><div><p className="eyebrow">间隔重复</p><h3 id="today-review-title">今日复习</h3></div><span>{pendingReviewCount > 0 ? `${pendingReviewCount} 项待完成` : '已完成'}</span></div>{pendingReviewCount > 0 ? <div className="review-list review-list--today">{dueReviewCards.map((card) => <ReviewCard key={card.id} card={card} compact onReview={(remembered) => onReview(card.id, remembered)} />)}</div> : <p className="today-review-empty"><CircleCheck size={17} /> 今天没有到期内容，新的词块会在完成学习后加入队列。</p>}</section>
 
     <section className="learning-reader" aria-labelledby="lesson-content-title">
       <div className="learning-reader__meta"><span>{pack.sourceLabel}</span><span className={`audio-label audio-label--${pack.audioNote}`}>{pack.audioNote === 'original' ? '原版音频' : '系统朗读辅助'}</span></div>
@@ -96,7 +103,7 @@ export function TodayPage({ pack, completedTaskIds, completedPackIds, generating
 
     <section className="learning-section" aria-labelledby="tasks-title"><div className="learning-section__heading"><div><p className="eyebrow">按顺序完成</p><h3 id="tasks-title">今天的训练</h3></div><span>剩余 {Math.max(0, pack.tasks.length - completedCount)} 项</span></div><div className="learning-task-list">{pack.tasks.map((task, index) => <button className={`learning-task-launch${activeTaskIndex === index ? ' learning-task-launch--active' : ''}`} type="button" key={task.id} onClick={() => setActiveTask(index)}><span>{index + 1}</span><span>{task.title}</span></button>)}</div><TaskRow task={pack.tasks[activeTaskIndex]} completed={completedTaskIds.includes(pack.tasks[activeTaskIndex].id)} onComplete={() => onCompleteTask(pack.tasks[activeTaskIndex].id)} /></section>
 
-    <section className={`learning-complete-card${complete ? ' learning-complete-card--done' : ''}`}><CircleCheck size={23} /><div><strong>{complete ? '今天的学习已完成' : '完成后，让系统安排下一次复习'}</strong><p>{complete ? '词块已经加入后续复习队列。明天打开 AirRead 即可继续。' : '每次完成都会影响之后的复习间隔，而不是只积累打卡次数。'}</p></div><button className={complete ? 'secondary-button' : 'primary-action'} type="button" onClick={onCompletePack}>{complete ? '已完成' : '完成今日学习'}</button></section>
+    <section className={`learning-complete-card${complete ? ' learning-complete-card--done' : ''}`}><CircleCheck size={23} /><div><strong>{complete ? '今天的学习已完成' : readyToComplete ? '可以完成今天的学习了' : '完成训练和复习后再收尾'}</strong><p>{complete ? '词块已经加入后续复习队列。明天打开 AirRead 即可继续。' : pendingReviewCount > 0 ? `还有 ${pendingReviewCount} 项复习需要完成。` : `还有 ${Math.max(0, pack.tasks.length - completedCount)} 项训练需要完成。`}</p></div><button className={complete ? 'secondary-button' : 'primary-action'} type="button" onClick={onCompletePack} disabled={!complete && !readyToComplete}>{complete ? '已完成' : '完成今日学习'}</button></section>
   </section>;
 }
 
@@ -120,12 +127,7 @@ export function PlanPage({ plan, onMinutesChange }: { plan: LearningPlan; onMinu
   </section>;
 }
 
-function ReviewCard({ card, onReview }: { card: LearningReviewCard; onReview: (remembered: boolean) => void }) {
+function ReviewCard({ card, compact = false, onReview }: { card: LearningReviewCard; compact?: boolean; onReview: (remembered: boolean) => void }) {
   const [revealed, setRevealed] = useState(false);
-  return <article className="review-card"><small>先回忆，不要急着看答案</small><h3>{card.term}</h3>{revealed ? <><p>{card.meaning}</p><em>{card.example}</em><div><button type="button" className="secondary-button" onClick={() => onReview(false)}>没想起来</button><button type="button" className="primary-action" onClick={() => onReview(true)}>记住了</button></div></> : <button className="review-card__reveal" type="button" onClick={() => setRevealed(true)}>显示释义</button>}</article>;
-}
-
-export function ReviewPage({ state, onReview }: { state: LearningState; onReview: (cardId: string, remembered: boolean) => void }) {
-  const cards = useMemo(() => dueReviewCards(state), [state]);
-  return <section className="learning-page" aria-labelledby="review-title"><header className="learning-page__header"><div><p className="eyebrow">间隔重复</p><h2 id="review-title">今天该复习的内容</h2><p className="page-lede">复习不是重新看一遍，而是在遗忘前主动把它想起来。</p></div><div className="today-duration"><RotateCcw size={18} /><strong>{cards.length}</strong><span>项</span></div></header>{cards.length > 0 ? <div className="review-list">{cards.map((card) => <ReviewCard key={card.id} card={card} onReview={(remembered) => onReview(card.id, remembered)} />)}</div> : <section className="learning-empty-card learning-empty-card--small"><CircleCheck size={25} /><h3>今天没有到期复习</h3><p>完成学习包后，新的词块会按记忆曲线加入队列。</p></section>}</section>;
+  return <article className={`review-card${compact ? ' review-card--compact' : ''}`}><small>先回忆，不要急着看答案</small><h3>{card.term}</h3>{revealed ? <><p>{card.meaning}</p><em>{card.example}</em><div><button type="button" className="secondary-button" onClick={() => onReview(false)}>没想起来</button><button type="button" className="primary-action" onClick={() => onReview(true)}>记住了</button></div></> : <button className="review-card__reveal" type="button" onClick={() => setRevealed(true)}>显示释义</button>}</article>;
 }

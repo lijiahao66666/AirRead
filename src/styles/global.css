@@ -271,6 +271,7 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 .learning-empty-card p { max-width: 25rem; color: var(--learning-muted); font-size: .86rem; line-height: 1.7; }
 .learning-empty-card .primary-action { margin-top: .4rem; background: var(--learning-blue-strong); }
 .learning-error { margin: .2rem 0 0 !important; color: #a24136 !important; font-size: .8rem !important; }
+.learning-inline-notice { margin: -.25rem 0 1rem; border: 1px solid #d8e7df; border-radius: .7rem; padding: .58rem .72rem; background: #f1f8f4; color: #4b7162; font-size: .74rem; line-height: 1.5; }
 .today-progress { display: grid; gap: .55rem; margin-bottom: 1rem; border: 1px solid var(--learning-line); border-radius: 1rem; padding: .72rem .9rem; background: rgb(255 255 255 / 72%); }
 .today-progress > div { display: flex; align-items: center; justify-content: space-between; font-size: .78rem; }
 .today-progress span { color: var(--learning-muted); }
@@ -361,6 +362,7 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 .learning-time-setting p, .learning-settings-section-heading p { margin: .32rem 0 0; color: var(--learning-muted); font-size: .77rem; line-height: 1.58; }
 .learning-time-setting .eyebrow, .learning-settings-section-heading .eyebrow { margin-bottom: .2rem; }
 .learning-settings-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.settings-service-note span { display: block; }
 .learning-settings-section-heading > svg { flex: none; color: var(--learning-blue); }
 .settings-empty { display: flex; align-items: center; gap: .55rem; margin-top: .9rem; border-radius: .75rem; padding: .75rem; background: #f0f6f4; color: #58716c; }
 .settings-empty svg { flex: none; color: #477866; }
@@ -402,20 +404,35 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
   .learning-app .brand-copy em { color: var(--learning-blue); }
   .learning-app .brand-utility { border-color: #c5dbe0; background: #ebf5f6; color: var(--learning-blue-strong); }
   .learning-app .learning-goal-card { display: none; }
-  .learning-app .primary-navigation, .learning-app[data-route='reader'] .primary-navigation { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .learning-app .primary-navigation, .learning-app[data-route='reader'] .primary-navigation { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .learning-app .primary-navigation a, .learning-app[data-route='reader'] .primary-navigation a { color: #5b737b; }
   .learning-app .primary-navigation a:hover, .learning-app .primary-navigation a[aria-current='page'], .learning-app[data-route='reader'] .primary-navigation a:hover, .learning-app[data-route='reader'] .primary-navigation a[aria-current='page'] { color: var(--learning-blue-strong); }
   .learning-app .primary-navigation a[aria-current='page']::before { background: var(--learning-blue); }
   .learning-page__header { padding-top: .2rem; }
 }
 
+.learning-page__header > div:first-child, .learning-reader__heading > div, .learning-section__heading > div { min-width: 0; }
+.learning-page h2, .learning-page h3, .learning-page p, .learning-reader__meta > span:first-child, .learning-task p, .learning-complete-card strong, .learning-complete-card p { overflow-wrap: break-word; word-break: normal; }
+.learning-reader__meta { min-width: 0; flex-wrap: wrap; }
+.learning-reader__meta > span:first-child { min-width: 0; }
+.today-progress p { margin: 0; color: var(--learning-muted); font-size: .72rem; line-height: 1.5; }
+.learning-review-section { margin-top: 1rem; }
+.today-review-empty { display: flex; align-items: center; gap: .45rem; margin: .9rem 0 .1rem; color: #55716a; font-size: .76rem; line-height: 1.55; }
+.today-review-empty svg { flex: none; color: #4d8f70; }
+.review-card--compact { min-height: 0; }
+
 @media (max-width: 42rem) {
-  .learning-page__header { padding-bottom: 1.2rem; }
-  .learning-page__header h2 { max-width: 17rem; font-size: 1.78rem; }
+  .learning-page__header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .75rem; padding-bottom: 1.2rem; }
+  .learning-page__header h2 { max-width: none; font-size: 1.78rem; }
   .today-duration { padding: .5rem .55rem; }
   .learning-reader { border-radius: 1rem; padding: .9rem; }
+  .learning-reader__heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
   .learning-reader__text { margin: 1rem 0; font-size: 1.04rem; line-height: 1.82; }
+  .source-audio { width: min(100%, 12rem); }
   .learning-section { border-radius: 1rem; padding: .85rem; }
+  .review-list--today { grid-template-columns: 1fr; }
+  .review-card--compact { padding: .85rem; }
+  .review-card--compact > div { flex-wrap: wrap; }
   .learning-complete-card { align-items: flex-start; flex-wrap: wrap; }
   .learning-complete-card > div { min-width: calc(100% - 2.2rem); }
   .learning-complete-card button { width: 100%; }

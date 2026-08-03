@@ -93,10 +93,9 @@ export const completeTask = (state: LearningState, taskId: string): LearningStat
 });
 
 export const completePack = (state: LearningState, pack: LearningPack): LearningState => {
-  const completed = completeTaskForPack(state, pack);
   return {
-    ...completed,
-    reviewCards: mergeReviewCards(completed.reviewCards, pack),
+    ...state,
+    reviewCards: mergeReviewCards(state.reviewCards, pack),
     completedPackIds: state.completedPackIds.includes(pack.id) ? state.completedPackIds : [...state.completedPackIds, pack.id],
   };
 };
@@ -114,8 +113,6 @@ export const reviewCard = (state: LearningState, cardId: string, remembered: boo
 };
 
 export const dueReviewCards = (state: LearningState, date = todayKey()): LearningReviewCard[] => state.reviewCards.filter((card) => card.dueAt <= date);
-
-const completeTaskForPack = (state: LearningState, pack: LearningPack): LearningState => pack.tasks.reduce((current, task) => completeTask(current, task.id), state);
 
 const mergeReviewCards = (cards: LearningReviewCard[], pack: LearningPack): LearningReviewCard[] => {
   const next = [...cards];
