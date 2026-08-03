@@ -81,7 +81,7 @@ describe('AirRead service-worker update policy', () => {
       cacheOpen: vi.fn().mockResolvedValue(shellCache),
       fetch: vi.fn().mockResolvedValue(networkResponse),
     });
-    const request = navigationRequest('/#reader');
+    const request = navigationRequest('/#today');
 
     const response = await dispatchFetch(handlers.get('fetch')!, request);
 
@@ -100,7 +100,7 @@ describe('AirRead service-worker update policy', () => {
 
     const response = await dispatchFetch(
       handlers.get('fetch')!,
-      navigationRequest('/studio'),
+      navigationRequest('/#settings'),
     );
 
     expect(caches.match).toHaveBeenCalledWith('/index.html');

@@ -16,6 +16,7 @@ describe('learning store', () => {
   it('clamps daily time and schedules new vocabulary for review', () => {
     const pack = createCuratedPack('2026-08-03', 15);
     const saved = savePack(createInitialLearningState(), pack);
+    expect(saved.reviewCards).toHaveLength(0);
     const completed = completePack(saved, pack);
     const firstCard = completed.reviewCards[0];
 

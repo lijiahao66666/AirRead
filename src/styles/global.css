@@ -291,7 +291,8 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 .translation-toggle { border-top: 1px solid #e3ebea; padding-top: .85rem; }
 .translation-toggle button { display: inline-flex; align-items: center; gap: .35rem; border: 0; padding: .2rem 0; background: transparent; color: var(--learning-blue); cursor: pointer; font: inherit; font-size: .78rem; font-weight: 780; }
 .translation-toggle p { margin: .7rem 0 0; border-left: 3px solid #b7d7df; padding-left: .75rem; color: #50656c; font-size: .9rem; line-height: 1.8; }
-.learning-source-note { display: flex; align-items: center; gap: .55rem; margin-top: 1.1rem; color: #72848a; font-size: .69rem; line-height: 1.5; }
+.learning-source-note { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem .55rem; margin-top: 1.1rem; color: #72848a; font-size: .69rem; line-height: 1.5; }
+.learning-source-note span { overflow-wrap: anywhere; }
 .learning-source-note a { color: var(--learning-blue); font-weight: 720; }
 .source-audio { width: min(15rem, 48vw); height: 2.25rem; }
 .learning-section { margin-top: 1.15rem; border: 1px solid var(--learning-line); border-radius: 1.15rem; padding: 1rem; background: rgb(255 255 255 / 68%); }

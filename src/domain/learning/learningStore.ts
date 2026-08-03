@@ -85,7 +85,6 @@ export const updateDailyMinutes = (state: LearningState, dailyMinutes: number): 
 export const savePack = (state: LearningState, pack: LearningPack): LearningState => ({
   ...state,
   packs: { ...state.packs, [pack.date]: pack },
-  reviewCards: mergeReviewCards(state.reviewCards, pack),
 });
 
 export const completeTask = (state: LearningState, taskId: string): LearningState => ({
@@ -93,10 +92,14 @@ export const completeTask = (state: LearningState, taskId: string): LearningStat
   completedTaskIds: state.completedTaskIds.includes(taskId) ? state.completedTaskIds : [...state.completedTaskIds, taskId],
 });
 
-export const completePack = (state: LearningState, pack: LearningPack): LearningState => ({
-  ...completeTaskForPack(state, pack),
-  completedPackIds: state.completedPackIds.includes(pack.id) ? state.completedPackIds : [...state.completedPackIds, pack.id],
-});
+export const completePack = (state: LearningState, pack: LearningPack): LearningState => {
+  const completed = completeTaskForPack(state, pack);
+  return {
+    ...completed,
+    reviewCards: mergeReviewCards(completed.reviewCards, pack),
+    completedPackIds: state.completedPackIds.includes(pack.id) ? state.completedPackIds : [...state.completedPackIds, pack.id],
+  };
+};
 
 export const reviewCard = (state: LearningState, cardId: string, remembered: boolean): LearningState => {
   const today = todayKey();

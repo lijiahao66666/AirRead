@@ -18,9 +18,15 @@ describe('learning generator', () => {
   it('keeps local content inside the available learning time', () => {
     const pack = createCuratedPack('2026-08-03', 15);
 
-    expect(pack.estimatedMinutes).toBeLessThanOrEqual(15);
+    expect(pack.estimatedMinutes).toBe(15);
     expect(pack.audioNote).toBe('system-tts');
     expect(pack.vocabulary).toHaveLength(3);
+  });
+
+  it('keeps very short sessions complete instead of dropping the final minutes', () => {
+    expect(createCuratedPack('2026-08-03', 5).estimatedMinutes).toBe(5);
+    expect(createCuratedPack('2026-08-03', 6).estimatedMinutes).toBe(6);
+    expect(createCuratedPack('2026-08-03', 22).estimatedMinutes).toBe(22);
   });
 
   it('uses a local pack when no language model is configured', async () => {
@@ -57,5 +63,42 @@ describe('learning generator', () => {
       expect(pack).toMatchObject({ generatedBy: 'ai', title: '用英语描述一天', audioNote: 'system-tts' });
       fetchMock.mockRestore();
     }
+  });
+
+  it('only marks an AI audio result as original when its source and license are complete', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        ...JSON.parse(generatedLesson),
+        sourceLabel: '开放英语材料',
+        sourceUrl: 'https://example.com/lesson',
+        license: 'CC BY 4.0',
+        audio: {
+          url: 'https://cdn.example.com/lesson.mp3',
+          label: '原版录音',
+          language: 'en-US',
+          accent: 'US',
+          license: 'CC BY 4.0',
+          sourceUrl: 'https://example.com/audio',
+        },
+      }) } }],
+    }), { status: 200 }));
+
+    const pack = await generateLearningPack({ id: 'chat', name: 'Chat', kind: 'openai-compatible', enabled: true, baseUrl: 'https://models.example/v1', model: 'model-a', apiKey: 'secret' }, 15, '2026-08-03');
+
+    expect(pack).toMatchObject({ audioNote: 'original', sourceLabel: '开放英语材料', sourceUrl: 'https://example.com/lesson' });
+    expect(pack.audio?.sourceUrl).toBe('https://example.com/audio');
+    fetchMock.mockRestore();
+  });
+
+  it('falls back to system read-aloud for incomplete audio metadata', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ ...JSON.parse(generatedLesson), audio: { url: 'https://cdn.example.com/lesson.mp3', label: '未授权录音', language: 'en-US' } }) } }],
+    }), { status: 200 }));
+
+    const pack = await generateLearningPack({ id: 'chat', name: 'Chat', kind: 'openai-compatible', enabled: true, baseUrl: 'https://models.example/v1', model: 'model-a', apiKey: 'secret' }, 15, '2026-08-03');
+
+    expect(pack.audio).toBeUndefined();
+    expect(pack.audioNote).toBe('system-tts');
+    fetchMock.mockRestore();
   });
 });

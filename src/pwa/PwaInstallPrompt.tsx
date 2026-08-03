@@ -50,7 +50,7 @@ export function PwaInstallPrompt() {
       <span className="pwa-install-card__icon" aria-hidden="true">{showAppleGuide ? <Share2 size={18} /> : <Download size={18} />}</span>
       <div>
         <strong>{showAppleGuide ? '添加到主屏幕' : '安装 AirRead'}</strong>
-        <p>{showAppleGuide ? '在浏览器的分享菜单中选择“添加到主屏幕”，即可像 App 一样从桌面打开。' : '安装后可从桌面打开，并获得更接近阅读 App 的沉浸体验。'}</p>
+        <p>{showAppleGuide ? '在浏览器的分享菜单中选择“添加到主屏幕”，即可像 App 一样从桌面打开。' : '安装后可从桌面打开，学习记录也能继续保存在本机。'}</p>
       </div>
       <button type="button" onClick={() => { void promptInstallation(); }}>{showAppleGuide ? '查看方法' : '安装'}</button>
     </section>

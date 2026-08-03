@@ -9,7 +9,7 @@ describe('AirRead learning application shell', () => {
     window.location.hash = '#today';
   });
 
-  it('renders the daily learning navigation without book workflows', () => {
+  it('renders the daily learning navigation', () => {
     render(<App />);
 
     expect(screen.getByRole('heading', { name: /AirRead 英语学习/ })).toBeInTheDocument();
@@ -17,7 +17,6 @@ describe('AirRead learning application shell', () => {
     expect(screen.getByRole('link', { name: '学习计划' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '复习' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '学习设置' })).toBeInTheDocument();
-    expect(screen.queryByText('书籍工作室')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '今天需要记住' })).toBeInTheDocument();
   });
 

@@ -85,7 +85,11 @@ export function TodayPage({ pack, completedTaskIds, completedPackIds, generating
       <div className="learning-reader__heading"><div><p className="eyebrow">今日材料</p><h3 id="lesson-content-title">先理解，再翻译</h3></div>{pack.audio ? <audio className="source-audio" controls preload="metadata" src={pack.audio.url}>你的浏览器暂不支持播放原版音频。</audio> : <SystemSpeechButton text={pack.originalText} />}</div>
       <p className="learning-reader__text">{pack.originalText}</p>
       <div className="translation-toggle"><button type="button" onClick={() => setTranslationVisible((visible) => !visible)} aria-expanded={translationVisible}><Languages size={16} /> {translationVisible ? '收起中文解释' : '查看中文解释'}</button>{translationVisible && <p>{pack.translation}</p>}</div>
-      <footer className="learning-source-note">{pack.audioNote === 'original' ? `音频：${pack.audio?.label}${pack.audio?.accent ? ` · ${pack.audio.accent}` : ''}` : '这份内容暂无原版录音，可用系统朗读辅助理解与跟读。'}{pack.sourceUrl && <a href={pack.sourceUrl} target="_blank" rel="noreferrer">查看来源</a>}</footer>
+      <footer className="learning-source-note">
+        <span>{pack.audioNote === 'original' ? `音频：${pack.audio?.label}${pack.audio?.accent ? ` · ${pack.audio.accent}` : ''}` : '这份内容暂无原版录音，可用系统朗读辅助理解与跟读。'}</span>
+        {pack.license && <span>{pack.license}</span>}
+        {(pack.audio?.sourceUrl ?? pack.sourceUrl) && <a href={pack.audio?.sourceUrl ?? pack.sourceUrl} target="_blank" rel="noreferrer">{pack.audio?.sourceUrl ? '查看音频来源' : '查看来源'}</a>}
+      </footer>
     </section>
 
     <section className="learning-section" aria-labelledby="vocabulary-title"><div className="learning-section__heading"><div><p className="eyebrow">词块，不是孤立单词</p><h3 id="vocabulary-title">今天需要记住</h3></div><span>{pack.vocabulary.length} 个</span></div><div className="vocabulary-list">{pack.vocabulary.map((item) => <article key={item.term}><strong>{item.term}</strong><p>{item.meaning}</p><small>{item.example}</small></article>)}</div></section>
