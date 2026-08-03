@@ -51,8 +51,10 @@ describe('TodayPage', () => {
     expect(screen.queryByText('准备好做某事')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /be ready to/ }));
     expect(screen.getByText('准备好做某事')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '下一项' }));
     expect(screen.getByRole('heading', { name: '听辨训练' })).toBeInTheDocument();
+    const listeningTask = packWithVocabulary.tasks.find((task) => task.kind === 'listen')!;
+    fireEvent.click(screen.getByRole('button', { name: listeningTask.exercise!.answer! }));
+    expect(screen.getByRole('heading', { name: '阅读填空' })).toBeInTheDocument();
   });
 
   it('uses an answerable mobile listening exercise instead of a completion check', () => {
@@ -61,9 +63,8 @@ describe('TodayPage', () => {
     render(<TodayPage pack={pack} dueReviewCards={[]} completedTaskIds={[]} taskResponses={{}} completedPackIds={[]} onGenerate={vi.fn()} onReview={vi.fn()} onSaveTaskResponse={vi.fn()} onCompleteTask={onCompleteTask} onCompletePack={vi.fn()} />);
 
     const listeningTask = pack.tasks.find((task) => task.kind === 'listen')!;
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(listeningTask.title) }));
     expect(screen.getByRole('heading', { name: '听辨训练' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'The city library opens early on weekdays.' }));
+    fireEvent.click(screen.getByRole('button', { name: listeningTask.exercise!.answer! }));
     expect(onCompleteTask).toHaveBeenCalledWith(listeningTask.id);
     expect(screen.queryByRole('button', { name: `完成 ${listeningTask.title}` })).not.toBeInTheDocument();
   });
@@ -73,6 +74,7 @@ describe('TodayPage', () => {
     const readTask = pack.tasks.find((task) => task.kind === 'read')!;
 
     render(<TodayPage pack={pack} dueReviewCards={[]} completedTaskIds={[]} taskResponses={{}} completedPackIds={[]} onGenerate={vi.fn()} onReview={vi.fn()} onSaveTaskResponse={vi.fn()} onCompleteTask={onCompleteTask} onCompletePack={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '查看全部训练' }));
     fireEvent.click(screen.getByRole('button', { name: new RegExp(readTask.title) }));
     fireEvent.change(screen.getByRole('textbox', { name: '阅读填空答案' }), { target: { value: 'wrong' } });
     fireEvent.click(screen.getByRole('button', { name: '检查答案' }));
@@ -94,6 +96,7 @@ describe('TodayPage', () => {
     const writeTask = longPack.tasks.find((task) => task.kind === 'write')!;
 
     render(<TodayPage pack={longPack} dueReviewCards={[]} completedTaskIds={[]} taskResponses={{}} completedPackIds={[]} onGenerate={vi.fn()} onReview={vi.fn()} onSaveTaskResponse={vi.fn()} onCompleteTask={onCompleteTask} onCompletePack={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '查看全部训练' }));
     fireEvent.click(screen.getByRole('button', { name: new RegExp(writeTask.title) }));
     const submit = screen.getByRole('button', { name: '保存并完成' });
     expect(submit).toBeDisabled();
