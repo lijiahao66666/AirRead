@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createCuratedPack, generateLearningPack, isLearningModel } from './learningGenerator';
+import { createOpenLearningPack, generateLearningPack, isLearningModel } from './learningGenerator';
+
+const openMaterial = {
+  title: 'City library',
+  text: 'The city library opens early on weekdays. Visitors can borrow books and use computers. Staff members can help people find information.',
+  sourceLabel: 'Simple English Wikipedia（开放资料）',
+  sourceUrl: 'https://simple.wikipedia.org/wiki/Library',
+  license: 'CC BY-SA 4.0',
+};
 
 const generatedLesson = JSON.stringify({
   title: '用英语描述一天',
@@ -15,32 +23,37 @@ const generatedLesson = JSON.stringify({
 afterEach(() => vi.restoreAllMocks());
 
 describe('learning generator', () => {
-  it('keeps local content inside the available learning time', () => {
-    const pack = createCuratedPack('2026-08-03', 15);
+  it('keeps public source content inside the available learning time and turns it into exercises', () => {
+    const pack = createOpenLearningPack('2026-08-03', 15, openMaterial);
 
     expect(pack.estimatedMinutes).toBe(15);
     expect(pack.audioNote).toBe('system-tts');
-    expect(pack.vocabulary).toHaveLength(3);
+    expect(pack.generatedBy).toBe('public');
+    expect(pack.originalText).toBe(openMaterial.text);
+    expect(pack.sourceUrl).toBe(openMaterial.sourceUrl);
+    expect(pack.tasks.find((task) => task.kind === 'listen')?.exercise?.type).toBe('listen-choice');
   });
 
-  it('keeps very short sessions complete instead of dropping the final minutes', () => {
-    expect(createCuratedPack('2026-08-03', 5).estimatedMinutes).toBe(5);
-    expect(createCuratedPack('2026-08-03', 6).estimatedMinutes).toBe(6);
-    expect(createCuratedPack('2026-08-03', 22).estimatedMinutes).toBe(22);
+  it('keeps short public-source sessions complete instead of dropping the final minutes', () => {
+    expect(createOpenLearningPack('2026-08-03', 5, openMaterial).estimatedMinutes).toBe(5);
+    expect(createOpenLearningPack('2026-08-03', 6, openMaterial).estimatedMinutes).toBe(6);
+    expect(createOpenLearningPack('2026-08-03', 22, openMaterial).estimatedMinutes).toBe(22);
   });
 
-  it('uses a local pack when no language model is configured', async () => {
-    const pack = await generateLearningPack(undefined, 12, '2026-08-03');
+  it('requires supplied public material when no language model is configured', async () => {
+    await expect(generateLearningPack(undefined, 12, '2026-08-03')).rejects.toThrow('没有可用的开放学习资料');
+    const pack = await generateLearningPack(undefined, 12, '2026-08-03', undefined, openMaterial);
 
-    expect(pack.generatedBy).toBe('curated');
+    expect(pack.generatedBy).toBe('public');
+    expect(pack.originalText).toBe(openMaterial.text);
     expect(isLearningModel(undefined)).toBe(false);
   });
 
-  it('keeps locally generated content aligned with the current plan theme', () => {
-    const pack = createCuratedPack('2026-08-03', 15, { theme: 'Starting conversations', focus: '用自然开场消除陌生感' });
+  it('keeps public materials aligned with the current plan theme', () => {
+    const pack = createOpenLearningPack('2026-08-03', 15, openMaterial, { theme: 'Starting conversations' });
 
     expect(pack.theme).toBe('Starting conversations');
-    expect(pack.title).toBe('用自然开场消除陌生感');
+    expect(pack.title).toBe('City library');
   });
 
   it('generates a learning pack through each supported model protocol', async () => {

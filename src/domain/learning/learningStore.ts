@@ -1,4 +1,5 @@
 import type { LearningPack, LearningPlan, LearningPlanDay, LearningReviewCard, LearningState } from './learningTypes';
+import { buildTaskExercise } from './taskExercises';
 
 const STORAGE_KEY = 'airread.learning.v1';
 const DEFAULT_MINUTES = 15;
@@ -31,7 +32,7 @@ const PLAN_THEME_SETS = [
     ['Weekly consolidation', '复盘高频词块并主动输出'],
   ],
   [
-    ['At the coffee shop', '完成一段简短的真实点单对话'],
+    ['Ordering food', '完成一段简短的真实点单对话'],
     ['A useful phone call', '听懂关键信息并确认细节'],
     ['Learning from a story', '从短文中抓住人物与变化'],
     ['Planning a weekend', '提出邀请并商量安排'],
@@ -96,7 +97,18 @@ export const createInitialLearningState = (): LearningState => ({
   packs: {},
   completedPackIds: [],
   completedTaskIds: [],
+  taskResponses: {},
   reviewCards: [],
+});
+
+const isLegacySamplePack = (pack: LearningPack): boolean => {
+  const generatedBy = (pack as { generatedBy?: unknown }).generatedBy;
+  return generatedBy === 'curated' || pack.sourceLabel === 'AirRead 练习样例';
+};
+
+const hydratePackExercises = (pack: LearningPack): LearningPack => ({
+  ...pack,
+  tasks: pack.tasks.map((task) => task.exercise ? task : { ...task, exercise: buildTaskExercise(task.kind, pack.originalText, task.id) }),
 });
 
 export const loadLearningState = (storage: Storage = window.localStorage): LearningState => {
@@ -118,9 +130,10 @@ export const loadLearningState = (storage: Storage = window.localStorage): Learn
           days: Array.isArray(parsed.plan.days) && parsed.plan.days.every((day) => typeof day.practicePattern === 'string') ? parsed.plan.days : buildPlan(parsed.plan.dailyMinutes, todayKey(), parsed.plan.themeSetIndex).days,
         }
         : buildPlan(parsed.plan.dailyMinutes),
-      packs: parsed.packs ?? {},
+      packs: Object.fromEntries(Object.entries(parsed.packs ?? {}).filter(([, pack]) => !isLegacySamplePack(pack)).map(([date, pack]) => [date, hydratePackExercises(pack)])),
       completedPackIds: parsed.completedPackIds ?? [],
       completedTaskIds: parsed.completedTaskIds ?? [],
+      taskResponses: parsed.taskResponses ?? {},
       reviewCards: parsed.reviewCards ?? [],
     };
   } catch {
@@ -150,6 +163,11 @@ export const savePack = (state: LearningState, pack: LearningPack): LearningStat
 export const completeTask = (state: LearningState, taskId: string): LearningState => ({
   ...state,
   completedTaskIds: state.completedTaskIds.includes(taskId) ? state.completedTaskIds : [...state.completedTaskIds, taskId],
+});
+
+export const saveTaskResponse = (state: LearningState, taskId: string, response: string): LearningState => ({
+  ...state,
+  taskResponses: { ...state.taskResponses, [taskId]: response },
 });
 
 export const completePack = (state: LearningState, pack: LearningPack): LearningState => {

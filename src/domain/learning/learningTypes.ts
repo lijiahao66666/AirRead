@@ -1,5 +1,14 @@
 export type LearningTaskKind = 'review' | 'listen' | 'read' | 'speak' | 'recall' | 'write';
 
+export type LearningTaskExercise = {
+  type: 'listen-choice' | 'cloze' | 'shadowing' | 'word-order' | 'free-write';
+  prompt: string;
+  answer?: string;
+  text?: string;
+  choices?: string[];
+  minimumWords?: number;
+};
+
 export type LearningVocabulary = {
   term: string;
   meaning: string;
@@ -15,7 +24,7 @@ export type LearningTask = {
   title: string;
   instruction: string;
   minutes: number;
-  answer?: string;
+  exercise?: LearningTaskExercise;
 };
 
 export type LearningAudio = {
@@ -35,7 +44,7 @@ export type LearningPack = {
   level: string;
   estimatedMinutes: number;
   originalText: string;
-  translation: string;
+  translation?: string;
   sourceLabel: string;
   sourceUrl?: string;
   license?: string;
@@ -43,7 +52,7 @@ export type LearningPack = {
   audioNote: 'original' | 'system-tts';
   vocabulary: LearningVocabulary[];
   tasks: LearningTask[];
-  generatedBy: 'curated' | 'ai';
+  generatedBy: 'public' | 'ai';
   createdAt: number;
 };
 
@@ -77,6 +86,7 @@ export type LearningState = {
   packs: Record<string, LearningPack>;
   completedPackIds: string[];
   completedTaskIds: string[];
+  taskResponses: Record<string, string>;
   reviewCards: LearningReviewCard[];
   selectedModelId?: string;
 };

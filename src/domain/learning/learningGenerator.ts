@@ -1,27 +1,21 @@
 import type { ProviderProfile } from '../ai/providerProfile';
 import { assertSuccessfulResponse, fetchWithTimeout, ModelConnectionError, ModelRequestError } from '../ai/modelRequest';
 import { addDays, clampDailyMinutes, todayKey } from './learningStore';
+import type { OpenLearningMaterial } from './openContent';
 import type { LearningPack, LearningPlanDay, LearningTask, LearningTaskKind, LearningVocabulary } from './learningTypes';
+import { buildTaskExercise } from './taskExercises';
 
 const LLM_KINDS = ['openai-compatible', 'openai-responses', 'anthropic-messages'] as const;
 
 export const isLearningModel = (profile: ProviderProfile | undefined): profile is ProviderProfile => Boolean(profile && LLM_KINDS.includes(profile.kind as typeof LLM_KINDS[number]) && profile.enabled);
 
-const sourceText = `On my way to work, I often stop at a small coffee shop near the station. The barista knows my usual order, so she smiles and asks, “The usual?” I usually say yes, but today I tried something different. It was a small change, but it made the morning feel new.`;
-
 const taskTemplates: LearningTask[] = [
   { id: 'review', kind: 'review', title: '回忆旧表达', instruction: '先在脑中回想昨天学过的表达，再打开答案核对。', minutes: 3 },
   { id: 'listen', kind: 'listen', title: '先听后看', instruction: '先不看文本听一遍，捕捉人物、地点和发生的变化。', minutes: 4 },
   { id: 'read', kind: 'read', title: '精读原文', instruction: '阅读英文原文，注意重点词块在句子中的用法。', minutes: 5 },
-  { id: 'speak', kind: 'speak', title: '跟读与替换', instruction: '用系统朗读逐句播放，跟读后把 coffee shop 替换成自己的真实场景。', minutes: 5 },
-  { id: 'recall', kind: 'recall', title: '主动输出', instruction: '不用看中文，尝试用英语复述“今天早晨做了什么”。', minutes: 3 },
-  { id: 'write', kind: 'write', title: '短句改写', instruction: '写下两句自己的英文：一句描述习惯，一句描述今天尝试的新变化。', minutes: 5 },
-];
-
-const topics = [
-  { title: '让早晨变得新鲜', theme: 'Small talk at work', translation: '上班路上，我经常会在车站附近的一家小咖啡店停一下。咖啡师知道我平时点什么，所以她笑着问：“还是老样子吗？”我通常会说是，但今天我尝试了点不一样的。这只是一个小小的改变，却让这个早晨有了新鲜感。' },
-  { title: '约定一个合适的时间', theme: 'Making plans', translation: '和同事约时间时，清楚地说出你什么时候有空，也给对方一个容易回应的选择。简短、具体的表达通常比反复确认更有效。' },
-  { title: '把问题说清楚', theme: 'Explaining a problem', translation: '遇到问题时，先说明发生了什么、影响是什么，再提出你需要的帮助。这样别人更容易迅速理解并给出回应。' },
+  { id: 'speak', kind: 'speak', title: '跟读与替换', instruction: '用系统朗读逐句播放，跟读后把其中一句替换成自己的真实场景。', minutes: 5 },
+  { id: 'recall', kind: 'recall', title: '主动输出', instruction: '不用看中文，尝试用英语复述原文的核心信息。', minutes: 3 },
+  { id: 'write', kind: 'write', title: '短句改写', instruction: '写下两句自己的英文，使用今天材料中的一个表达。', minutes: 5 },
 ];
 
 const sessionPhases = (dailyMinutes: number): LearningTaskKind[] => {
@@ -55,31 +49,26 @@ const selectTasks = (dailyMinutes: number, packId: string): LearningTask[] => {
   });
 };
 
-export const createCuratedPack = (date: string, dailyMinutes: number, planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>): LearningPack => {
-  const fallbackTopic = topics[Math.abs([...date].reduce((sum, character) => sum + character.charCodeAt(0), 0)) % topics.length];
-  const topic = planDay ? { ...fallbackTopic, title: planDay.focus, theme: planDay.theme } : fallbackTopic;
+const addExercises = (tasks: LearningTask[], text: string): LearningTask[] => tasks.map((task) => ({ ...task, exercise: buildTaskExercise(task.kind, text, task.id) }));
+
+export const createOpenLearningPack = (date: string, dailyMinutes: number, material: OpenLearningMaterial, planDay?: Pick<LearningPlanDay, 'theme'>): LearningPack => {
   const id = `pack-${date}`;
-  const vocabulary: LearningVocabulary[] = [
-    { term: 'the usual', meaning: '老样子；平时固定点的东西', example: 'Would you like the usual?', dueAt: addDays(date, 1), intervalDays: 1, repetitions: 0 },
-    { term: 'try something different', meaning: '尝试一点不一样的东西', example: 'I decided to try something different today.', dueAt: addDays(date, 1), intervalDays: 1, repetitions: 0 },
-    { term: 'make ... feel new', meaning: '让……感觉焕然一新', example: 'A short walk can make the morning feel new.', dueAt: addDays(date, 1), intervalDays: 1, repetitions: 0 },
-  ];
-  const tasks = selectTasks(dailyMinutes, id);
+  const tasks = addExercises(selectTasks(dailyMinutes, id), material.text);
   return {
     id,
     date,
-    title: topic.title,
-    theme: topic.theme,
+    title: material.title,
+    theme: planDay?.theme ?? '开放英语材料',
     level: '可理解输入 · 基础进阶',
     estimatedMinutes: tasks.reduce((sum, task) => sum + task.minutes, 0),
-    originalText: sourceText,
-    translation: topic.translation,
-    sourceLabel: 'AirRead 练习样例',
-    license: '当前为本地练习内容，不含原版录音。',
+    originalText: material.text,
+    sourceLabel: material.sourceLabel,
+    sourceUrl: material.sourceUrl,
+    license: material.license,
     audioNote: 'system-tts',
-    vocabulary,
+    vocabulary: [],
     tasks,
-    generatedBy: 'curated',
+    generatedBy: 'public',
     createdAt: Date.now(),
   };
 };
@@ -174,7 +163,7 @@ const parsePack = (value: string, date: string, dailyMinutes: number): LearningP
     if (!['listen', 'read', 'speak', 'recall', 'review', 'write'].includes(candidate.kind)) throw new Error('模型返回了不支持的学习任务');
     return { id: `${id}:ai-${index}`, kind: candidate.kind, title: candidate.title, instruction: candidate.instruction, minutes: Math.max(1, Math.min(dailyMinutes, Math.round(candidate.minutes))) };
   });
-  const tasks = fitGeneratedTasks(normalizedTasks, dailyMinutes, id);
+  const tasks = addExercises(fitGeneratedTasks(normalizedTasks, dailyMinutes, id), parsed.originalText);
   if (tasks.length === 0) throw new Error('模型没有返回可执行的学习任务');
   const sourceUrl = safeHttpsUrl(parsed.sourceUrl);
   const audio = normalizeAudio(parsed.audio);
@@ -236,9 +225,12 @@ const readModelText = async (profile: ProviderProfile, prompt: string): Promise<
   throw new ModelRequestError(profile.name);
 };
 
-export const generateLearningPack = async (profile: ProviderProfile | undefined, dailyMinutes: number, date = todayKey(), planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>): Promise<LearningPack> => {
+export const generateLearningPack = async (profile: ProviderProfile | undefined, dailyMinutes: number, date = todayKey(), planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>, material?: OpenLearningMaterial): Promise<LearningPack> => {
   const normalizedMinutes = clampDailyMinutes(dailyMinutes);
-  if (!isLearningModel(profile)) return createCuratedPack(date, normalizedMinutes, planDay);
+  if (!isLearningModel(profile)) {
+    if (!material) throw new Error('没有可用的开放学习资料');
+    return createOpenLearningPack(date, normalizedMinutes, material, planDay);
+  }
   const prompt = profile.prompt?.trim() ? `${profile.prompt.trim()}\n\n${learningPrompt(normalizedMinutes, date, planDay)}` : learningPrompt(normalizedMinutes, date, planDay);
   const response = await readModelText(profile, prompt);
   return parsePack(response, date, normalizedMinutes);

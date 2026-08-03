@@ -463,3 +463,46 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
   .learning-app { min-height: 100svh; overflow-x: clip; }
   .learning-app .primary-navigation, .learning-app[data-route='reader'] .primary-navigation { position: fixed !important; right: 0; bottom: 0; left: 0; transform: translate3d(0, 0, 0); contain: layout paint style; isolation: isolate; will-change: transform; backface-visibility: hidden; -webkit-backface-visibility: hidden; backdrop-filter: none; }
 }
+
+.translation-empty, .vocabulary-empty { display: flex; align-items: flex-start; gap: .45rem; margin: .85rem 0 .1rem; color: #657b82; font-size: .76rem; line-height: 1.6; }
+.translation-empty svg { flex: none; color: var(--learning-blue); }
+.learning-task { grid-template-columns: 2.35rem minmax(0, 1fr); }
+.learning-task__body { min-width: 0; }
+.learning-task--complete { opacity: 1; }
+.learning-task__done { display: flex; align-items: center; gap: .3rem; color: #3e8068 !important; font-weight: 720; }
+.learning-task__done svg { flex: none; }
+.learning-exercise { margin-top: .72rem; border-top: 1px solid #dbe8e7; padding-top: .72rem; }
+.learning-exercise h4 { margin: 0; color: #24414b; font-size: .86rem; }
+.learning-exercise p { margin-top: .38rem; }
+.learning-exercise__title { display: flex; align-items: center; justify-content: space-between; gap: .65rem; }
+.exercise-choice-list, .exercise-word-bank { display: grid; gap: .5rem; margin-top: .7rem; }
+.exercise-choice, .exercise-word-bank button, .exercise-order-answer button { border: 1px solid #cbdedd; border-radius: .7rem; padding: .62rem .68rem; background: #fff; color: #34545d; cursor: pointer; font: inherit; font-size: .8rem; line-height: 1.45; text-align: left; }
+.exercise-choice:hover, .exercise-word-bank button:hover, .exercise-order-answer button:hover { border-color: #8db5c1; background: #f0f8f8; }
+.exercise-choice--selected { border-color: #4d8f70; background: #eaf6ef; color: #2d6a58; }
+.exercise-field { display: grid; gap: .35rem; margin-top: .7rem; color: #688087; font-size: .7rem; font-weight: 720; }
+.exercise-field input, .exercise-field textarea { width: 100%; border: 1px solid #cbdedd; border-radius: .7rem; padding: .65rem .7rem; background: #fff; color: #24414b; font: inherit; font-size: 16px; line-height: 1.5; outline: 0; resize: vertical; }
+.exercise-field input:focus, .exercise-field textarea:focus { border-color: #78aebb; box-shadow: 0 0 0 3px rgb(120 174 187 / 18%); }
+.exercise-submit { min-height: 2.45rem; margin-top: .7rem; font-size: .75rem; }
+.exercise-feedback { margin-top: .55rem !important; color: #39795f !important; font-size: .74rem !important; font-weight: 700; }
+.exercise-quote { border-left: 3px solid #b7d7df; padding-left: .7rem; color: #254b57 !important; font-family: Georgia, 'Times New Roman', serif; font-size: .95rem !important; line-height: 1.7 !important; }
+.exercise-recording { display: block; width: 100%; height: 2.25rem; margin-top: .7rem; }
+.exercise-footer { display: flex; align-items: center; justify-content: space-between; gap: .65rem; margin-top: .15rem; color: #72848a; font-size: .7rem; }
+.exercise-footer .exercise-submit { margin-top: .55rem; }
+.exercise-order-answer { display: flex; min-height: 2.7rem; flex-wrap: wrap; align-items: center; gap: .35rem; margin-top: .7rem; border: 1px dashed #bed4d3; border-radius: .7rem; padding: .45rem; background: #fbfdfc; }
+.exercise-order-answer > span { color: #87979a; font-size: .73rem; }
+.exercise-order-answer button { padding: .3rem .48rem; background: #eaf6ef; font-size: .75rem; }
+.exercise-word-bank { display: flex; flex-wrap: wrap; }
+.exercise-word-bank button { padding: .42rem .55rem; text-align: center; }
+
+@media (max-width: 42rem) {
+  .learning-app input, .learning-app select, .learning-app textarea { font-size: 16px !important; }
+  .learning-task { grid-template-columns: 2.15rem minmax(0, 1fr); gap: .6rem; padding: .75rem; }
+  .learning-task__icon { width: 2.15rem; height: 2.15rem; }
+  .learning-task h3 { font-size: .9rem; }
+  .learning-exercise__title { align-items: flex-start; }
+  .learning-exercise__title .learning-icon-button { min-height: 2.2rem; }
+  .learning-exercise { margin-top: .6rem; padding-top: .6rem; }
+  .exercise-choice, .exercise-word-bank button, .exercise-order-answer button { font-size: .78rem; }
+  .exercise-footer { align-items: flex-end; }
+  .exercise-footer .exercise-submit { flex: none; }
+}

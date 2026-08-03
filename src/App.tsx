@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { CalendarDays, Clock3, Home, Settings2, Target } from 'lucide-react';
 
 import { ProviderProfileStore } from './domain/ai/providerStore';
-import { createCuratedPack, generateLearningPack, isLearningModel } from './domain/learning/learningGenerator';
-import { completePack, completeTask, dueReviewCards, loadLearningState, reviewCard, rotatePlan, saveLearningState, savePack, todayKey, updateDailyMinutes } from './domain/learning/learningStore';
+import { generateLearningPack, isLearningModel } from './domain/learning/learningGenerator';
+import { fetchOpenLearningMaterial } from './domain/learning/openContent';
+import { completePack, completeTask, dueReviewCards, loadLearningState, reviewCard, rotatePlan, saveLearningState, savePack, saveTaskResponse, todayKey, updateDailyMinutes } from './domain/learning/learningStore';
 import type { LearningState } from './domain/learning/learningTypes';
 import { LearningSettingsPage } from './features/learning/LearningSettingsPage';
 import { PlanPage, TodayPage } from './features/learning/LearningPages';
@@ -41,19 +42,11 @@ const clearTodayLearning = (state: LearningState): LearningState => {
     packs: remainingPacks,
     completedPackIds: state.completedPackIds.filter((id) => !packIds.has(id)),
     completedTaskIds: state.completedTaskIds.filter((id) => ![...packIds].some((packId) => id.startsWith(`${packId}:`))),
+    taskResponses: Object.fromEntries(Object.entries(state.taskResponses).filter(([id]) => ![...packIds].some((packId) => id.startsWith(`${packId}:`)))),
   };
 };
 
-const bootstrapLearningState = (): LearningState => {
-  const state = loadLearningState();
-  if (state.packs[todayKey()]) return state;
-  const configuredModel = state.selectedModelId ? providerStore.get(state.selectedModelId) : providerStore.selected();
-  if (isLearningModel(configuredModel)) return state;
-  const planDay = state.plan.days.find((day) => day.date === todayKey());
-  const seeded = savePack(state, createCuratedPack(todayKey(), state.plan.dailyMinutes, planDay));
-  saveLearningState(seeded);
-  return seeded;
-};
+const bootstrapLearningState = (): LearningState => loadLearningState();
 
 function clearPointerControlFocus(event: ReactMouseEvent<HTMLDivElement>) {
   if (event.detail === 0 || !(event.target instanceof Element)) return;
@@ -90,13 +83,11 @@ export default function App() {
     setGenerating(true);
     setGenerationError(undefined);
     try {
-      const pack = await generateLearningPack(selectedModel, learningState.plan.dailyMinutes, todayKey(), todayPlanDay);
+      const material = selectedModel ? undefined : await fetchOpenLearningMaterial(todayKey(), todayPlanDay);
+      const pack = await generateLearningPack(selectedModel, learningState.plan.dailyMinutes, todayKey(), todayPlanDay, material);
       persist(savePack(learningState, pack), setLearningState);
     } catch {
-      if (!learningState.packs[todayKey()]) {
-        persist(savePack(learningState, createCuratedPack(todayKey(), learningState.plan.dailyMinutes, todayPlanDay)), setLearningState);
-      }
-      setGenerationError('模型暂时无法连接，已为你准备本地练习包。');
+      setGenerationError(selectedModel ? '模型暂时无法连接，请检查模型设置后重试。' : '暂时无法获取开放英语资料，请检查网络；配置模型后也可以生成 AI 学习内容。');
     } finally {
       setGenerating(false);
     }
@@ -104,11 +95,7 @@ export default function App() {
 
   useEffect(() => {
     if (todayPack || generating) return;
-    if (!selectedModel) {
-      persist(savePack(learningState, createCuratedPack(todayKey(), learningState.plan.dailyMinutes, todayPlanDay)), setLearningState);
-      return;
-    }
-    const generationKey = `${todayKey()}:${selectedModel.id}:${learningState.plan.dailyMinutes}:${learningState.plan.themeSetIndex}`;
+    const generationKey = `${todayKey()}:${selectedModel?.id ?? 'open-source'}:${learningState.plan.dailyMinutes}:${learningState.plan.themeSetIndex}`;
     if (automaticGenerationRef.current === generationKey) return;
     automaticGenerationRef.current = generationKey;
     void handleGenerate();
@@ -139,7 +126,7 @@ export default function App() {
   } else if (location.route === 'settings') {
     content = <LearningSettingsPage store={providerStore} dailyMinutes={learningState.plan.dailyMinutes} selectedModelId={learningState.selectedModelId} onMinutesChange={handleMinutesChange} onModelChange={handleModelChange} />;
   } else {
-    content = <TodayPage pack={todayPack} dueReviewCards={dueReviewCards(learningState)} completedTaskIds={learningState.completedTaskIds} completedPackIds={learningState.completedPackIds} generating={generating} generationError={generationError} onGenerate={() => { void handleGenerate(); }} onReview={(cardId, remembered) => persist(reviewCard(learningState, cardId, remembered), setLearningState)} onCompleteTask={(taskId) => persist(completeTask(learningState, taskId), setLearningState)} onCompletePack={() => todayPack && persist(completePack(learningState, todayPack), setLearningState)} />;
+    content = <TodayPage pack={todayPack} dueReviewCards={dueReviewCards(learningState)} completedTaskIds={learningState.completedTaskIds} taskResponses={learningState.taskResponses} completedPackIds={learningState.completedPackIds} generating={generating} generationError={generationError} onGenerate={() => { void handleGenerate(); }} onReview={(cardId, remembered) => persist(reviewCard(learningState, cardId, remembered), setLearningState)} onSaveTaskResponse={(taskId, response) => persist(saveTaskResponse(learningState, taskId, response), setLearningState)} onCompleteTask={(taskId) => persist(completeTask(learningState, taskId), setLearningState)} onCompletePack={() => todayPack && persist(completePack(learningState, todayPack), setLearningState)} />;
   }
 
   return <div className="app-shell learning-app" data-route={location.route} onClickCapture={clearPointerControlFocus}>

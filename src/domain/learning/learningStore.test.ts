@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPlan, completePack, createInitialLearningState, dueReviewCards, reviewCard, rotatePlan, savePack, updateDailyMinutes } from './learningStore';
-import { createCuratedPack } from './learningGenerator';
+import { buildPlan, completePack, createInitialLearningState, dueReviewCards, loadLearningState, reviewCard, rotatePlan, savePack, updateDailyMinutes } from './learningStore';
+import { createOpenLearningPack } from './learningGenerator';
 
 describe('learning store', () => {
   it('builds a seven-day plan from the only user-controlled setting', () => {
@@ -14,7 +14,16 @@ describe('learning store', () => {
   });
 
   it('clamps daily time and schedules new vocabulary for review', () => {
-    const pack = createCuratedPack('2026-08-03', 15);
+    const pack = {
+      ...createOpenLearningPack('2026-08-03', 15, {
+      title: 'City library',
+      text: 'The city library opens early on weekdays. Visitors can borrow books and use computers. Staff members can help people find information.',
+      sourceLabel: 'Simple English Wikipedia（开放资料）',
+      sourceUrl: 'https://simple.wikipedia.org/wiki/Library',
+      license: 'CC BY-SA 4.0',
+      }),
+      vocabulary: [{ term: 'open early', meaning: '早早开放', example: 'The library opens early.', dueAt: '2026-08-04', intervalDays: 1, repetitions: 0 }],
+    };
     const saved = savePack(createInitialLearningState(), pack);
     expect(saved.reviewCards).toHaveLength(0);
     const completed = completePack(saved, pack);
@@ -44,5 +53,29 @@ describe('learning store', () => {
     expect(rotated.plan.dailyMinutes).toBe(20);
     expect(rotated.plan.themeSetIndex).toBe(1);
     expect(rotated.plan.days[0].theme).not.toBe(state.plan.days[0].theme);
+  });
+
+  it('removes the retired fixed lesson instead of showing it after refresh', () => {
+    const storage = window.localStorage;
+    storage.clear();
+    const legacyPack = {
+      id: 'pack-2026-08-03',
+      date: '2026-08-03',
+      title: '旧练习',
+      theme: '旧主题',
+      level: '旧难度',
+      estimatedMinutes: 15,
+      originalText: 'Old fixed lesson.',
+      sourceLabel: 'AirRead 练习样例',
+      audioNote: 'system-tts',
+      vocabulary: [],
+      tasks: [],
+      generatedBy: 'curated',
+      createdAt: Date.now(),
+    };
+    storage.setItem('airread.learning.v1', JSON.stringify({ ...createInitialLearningState(), packs: { '2026-08-03': legacyPack } }));
+
+    expect(loadLearningState(storage).packs).toEqual({});
+    storage.clear();
   });
 });
