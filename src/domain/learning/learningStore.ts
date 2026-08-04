@@ -1,4 +1,4 @@
-import type { LearningPack, LearningPlan, LearningPlanDay, LearningReviewCard, LearningState } from './learningTypes';
+import type { LearningPack, LearningPlan, LearningPlanDay, LearningReviewCard, LearningState, LearningStoryMemory } from './learningTypes';
 import { buildTaskExercise } from './taskExercises';
 
 const STORAGE_KEY = 'airread.learning.v1';
@@ -99,11 +99,29 @@ export const createInitialLearningState = (): LearningState => ({
   completedTaskIds: [],
   taskResponses: {},
   reviewCards: [],
+  storyProfile: { premise: '', createdAt: Date.now() },
+  storyMemoryHistory: [],
 });
 
-const isLegacySamplePack = (pack: LearningPack): boolean => {
+const isRetiredPack = (pack: LearningPack): boolean => {
   const generatedBy = (pack as { generatedBy?: unknown }).generatedBy;
-  return generatedBy === 'curated' || pack.sourceLabel === 'AirRead 练习样例';
+  return generatedBy !== 'ai' || !pack.story || typeof pack.story.storyId !== 'string' || typeof pack.story.chapterNumber !== 'number';
+};
+
+const isStoryMemory = (value: unknown): value is LearningStoryMemory => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<LearningStoryMemory>;
+  return typeof candidate.storyId === 'string'
+    && typeof candidate.title === 'string'
+    && typeof candidate.genre === 'string'
+    && typeof candidate.premise === 'string'
+    && Array.isArray(candidate.worldRules)
+    && Array.isArray(candidate.characters)
+    && Array.isArray(candidate.timeline)
+    && Array.isArray(candidate.openThreads)
+    && typeof candidate.chapterNumber === 'number'
+    && typeof candidate.latestSummary === 'string'
+    && typeof candidate.nextHook === 'string';
 };
 
 const hydratePackExercises = (pack: LearningPack): LearningPack => ({
@@ -130,11 +148,16 @@ export const loadLearningState = (storage: Storage = window.localStorage): Learn
           days: Array.isArray(parsed.plan.days) && parsed.plan.days.every((day) => typeof day.practicePattern === 'string') ? parsed.plan.days : buildPlan(parsed.plan.dailyMinutes, todayKey(), parsed.plan.themeSetIndex).days,
         }
         : buildPlan(parsed.plan.dailyMinutes),
-      packs: Object.fromEntries(Object.entries(parsed.packs ?? {}).filter(([, pack]) => !isLegacySamplePack(pack)).map(([date, pack]) => [date, hydratePackExercises(pack)])),
+      packs: Object.fromEntries(Object.entries(parsed.packs ?? {}).filter(([, pack]) => !isRetiredPack(pack)).map(([date, pack]) => [date, hydratePackExercises(pack)])),
       completedPackIds: parsed.completedPackIds ?? [],
       completedTaskIds: parsed.completedTaskIds ?? [],
       taskResponses: parsed.taskResponses ?? {},
       reviewCards: parsed.reviewCards ?? [],
+      storyProfile: parsed.storyProfile && typeof parsed.storyProfile.premise === 'string'
+        ? { premise: parsed.storyProfile.premise, createdAt: typeof parsed.storyProfile.createdAt === 'number' ? parsed.storyProfile.createdAt : Date.now() }
+        : initial.storyProfile,
+      storyMemory: isStoryMemory(parsed.storyMemory) ? parsed.storyMemory : undefined,
+      storyMemoryHistory: Array.isArray(parsed.storyMemoryHistory) ? parsed.storyMemoryHistory.filter(isStoryMemory).slice(-10) : [],
     };
   } catch {
     return createInitialLearningState();
@@ -158,6 +181,45 @@ export const rotatePlan = (state: LearningState): LearningState => ({
 export const savePack = (state: LearningState, pack: LearningPack): LearningState => ({
   ...state,
   packs: { ...state.packs, [pack.date]: pack },
+});
+
+export const saveGeneratedStory = (state: LearningState, pack: LearningPack, storyMemory: LearningStoryMemory): LearningState => {
+  const previous = state.storyMemory;
+  const history = previous && previous.storyId === storyMemory.storyId && previous.chapterNumber < storyMemory.chapterNumber
+    ? [...state.storyMemoryHistory, previous].slice(-10)
+    : state.storyMemoryHistory;
+  return {
+    ...savePack(state, pack),
+    storyMemory,
+    storyMemoryHistory: history,
+  };
+};
+
+export const rewindStoryForPack = (state: LearningState, pack?: LearningPack): LearningState => {
+  if (!pack?.story || state.storyMemory?.storyId !== pack.story.storyId || state.storyMemory.chapterNumber !== pack.story.chapterNumber) return state;
+  const historyIndex = [...state.storyMemoryHistory].map((memory) => memory.storyId).lastIndexOf(pack.story.storyId);
+  if (historyIndex < 0) return { ...state, storyMemory: undefined };
+  const prior = state.storyMemoryHistory[historyIndex];
+  return {
+    ...state,
+    storyMemory: prior,
+    storyMemoryHistory: state.storyMemoryHistory.filter((_, index) => index !== historyIndex),
+  };
+};
+
+export const updateStoryProfile = (state: LearningState, premise: string): LearningState => ({
+  ...state,
+  storyProfile: { premise: premise.trim().slice(0, 1_000), createdAt: Date.now() },
+});
+
+export const startNewStory = (state: LearningState): LearningState => ({
+  ...state,
+  packs: {},
+  completedPackIds: [],
+  completedTaskIds: [],
+  taskResponses: {},
+  storyMemory: undefined,
+  storyMemoryHistory: [],
 });
 
 export const completeTask = (state: LearningState, taskId: string): LearningState => ({

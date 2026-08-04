@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { buildPlan, completePack, createInitialLearningState, dueReviewCards, loadLearningState, reviewCard, rotatePlan, savePack, updateDailyMinutes } from './learningStore';
-import { createOpenLearningPack } from './learningGenerator';
+import { buildPlan, completePack, createInitialLearningState, dueReviewCards, loadLearningState, reviewCard, rewindStoryForPack, rotatePlan, saveGeneratedStory, savePack, startNewStory, updateDailyMinutes } from './learningStore';
+import { createStoryMemoryFixture, createStoryPackFixture } from '../../test/learningFixture';
 
 describe('learning store', () => {
   afterEach(() => vi.useRealTimers());
@@ -19,13 +19,7 @@ describe('learning store', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-03T12:00:00+08:00'));
     const pack = {
-      ...createOpenLearningPack('2026-08-03', 15, {
-      title: 'City library',
-      text: 'The city library opens early on weekdays. Visitors can borrow books and use computers. Staff members can help people find information.',
-      sourceLabel: 'Simple English Wikipedia（开放资料）',
-      sourceUrl: 'https://simple.wikipedia.org/wiki/Library',
-      license: 'CC BY-SA 4.0',
-      }),
+      ...createStoryPackFixture('2026-08-03', 15),
       vocabulary: [{ term: 'open early', meaning: '早早开放', example: 'The library opens early.', dueAt: '2026-08-04', intervalDays: 1, repetitions: 0 }],
     };
     const saved = savePack(createInitialLearningState(), pack);
@@ -59,7 +53,7 @@ describe('learning store', () => {
     expect(rotated.plan.days[0].theme).not.toBe(state.plan.days[0].theme);
   });
 
-  it('removes the retired fixed lesson instead of showing it after refresh', () => {
+  it('removes pre-serial learning packs instead of mixing them into an original story', () => {
     const storage = window.localStorage;
     storage.clear();
     const legacyPack = {
@@ -81,5 +75,36 @@ describe('learning store', () => {
 
     expect(loadLearningState(storage).packs).toEqual({});
     storage.clear();
+  });
+
+  it('keeps a short compressed memory history so today can be regenerated without skipping a chapter', () => {
+    const firstMemory = createStoryMemoryFixture();
+    const firstPack = createStoryPackFixture('2026-08-03');
+    const secondMemory = createStoryMemoryFixture({ chapterNumber: 2, latestSummary: '第二章推进。', nextHook: '第三章钩子。' });
+    const secondPack = { ...createStoryPackFixture('2026-08-04'), story: { ...createStoryPackFixture('2026-08-04').story, chapterNumber: 2, chapterTitle: 'The Blue Door' } };
+    const state = saveGeneratedStory(saveGeneratedStory(createInitialLearningState(), firstPack, firstMemory), secondPack, secondMemory);
+
+    const rewound = rewindStoryForPack(state, secondPack);
+
+    expect(rewound.storyMemory).toMatchObject({ chapterNumber: 1, latestSummary: firstMemory.latestSummary });
+    expect(rewound.storyMemoryHistory).toEqual([]);
+  });
+
+  it('starts a new story without discarding spaced-repetition cards', () => {
+    const pack = createStoryPackFixture();
+    const state = {
+      ...completePack(savePack(createInitialLearningState(), pack), pack),
+      storyMemory: createStoryMemoryFixture(),
+      storyMemoryHistory: [createStoryMemoryFixture({ chapterNumber: 0 })],
+      completedTaskIds: [pack.tasks[0].id],
+      taskResponses: { [pack.tasks[0].id]: 'done' },
+    };
+
+    const restarted = startNewStory(state);
+
+    expect(restarted.packs).toEqual({});
+    expect(restarted.storyMemory).toBeUndefined();
+    expect(restarted.storyMemoryHistory).toEqual([]);
+    expect(restarted.reviewCards).toHaveLength(1);
   });
 });

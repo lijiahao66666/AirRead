@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react';
-import { Check, KeyRound, Pencil, Plus, Save, Trash2, Volume2, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { BookOpenText, Check, Download, KeyRound, Pencil, Plus, Save, Trash2, Volume2, X } from 'lucide-react';
 
 import { isMaskedSecret, maskProviderProfile, type ProviderKind, type ProviderProfile } from '../../domain/ai/providerProfile';
 import { ProviderProfileStore } from '../../domain/ai/providerStore';
 import { isLearningModel } from '../../domain/learning/learningGenerator';
+import { connectAutomaticStoryArchive, supportsAutomaticStoryArchive } from '../../domain/learning/storyArchive';
+import { downloadStoryEpub } from '../../domain/learning/storyEpub';
+import type { LearningPack, LearningStoryMemory, LearningStoryProfile } from '../../domain/learning/learningTypes';
 import { DailyMinutesInput } from './DailyMinutesInput';
 
 const modelKinds: Array<{ value: ProviderKind; label: string }> = [
@@ -18,18 +21,27 @@ export type LearningSettingsPageProps = {
   store: ProviderProfileStore;
   dailyMinutes: number;
   selectedModelId?: string;
+  storyProfile: LearningStoryProfile;
+  storyMemory?: LearningStoryMemory;
+  packs: Record<string, LearningPack>;
   onMinutesChange: (minutes: number) => void;
   onModelChange: (id: string | undefined) => void;
+  onStoryProfileChange: (premise: string) => void;
+  onStartNewStory: (premise: string) => void;
 };
 
-export function LearningSettingsPage({ store, dailyMinutes, selectedModelId, onMinutesChange, onModelChange }: LearningSettingsPageProps) {
+export function LearningSettingsPage({ store, dailyMinutes, selectedModelId, storyProfile, storyMemory, packs, onMinutesChange, onModelChange, onStoryProfileChange, onStartNewStory }: LearningSettingsPageProps) {
   const [profiles, setProfiles] = useState(() => store.list().filter(isLearningModel));
   const [editing, setEditing] = useState<ProviderProfile>();
   const [editingOriginal, setEditingOriginal] = useState<ProviderProfile>();
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
+  const [storyPremise, setStoryPremise] = useState(storyProfile.premise);
+  const [storySaved, setStorySaved] = useState(false);
+  const [archiveConnected, setArchiveConnected] = useState(false);
   const selected = useMemo(() => profiles.find((profile) => profile.id === selectedModelId), [profiles, selectedModelId]);
 
+  useEffect(() => setStoryPremise(storyProfile.premise), [storyProfile.premise]);
 
   const refresh = () => setProfiles(store.list().filter(isLearningModel));
   const closeEditor = () => { setEditing(undefined); setEditingOriginal(undefined); setError(undefined); };
@@ -56,11 +68,38 @@ export function LearningSettingsPage({ store, dailyMinutes, selectedModelId, onM
     refresh();
     if (selectedModelId === profile.id) onModelChange(undefined);
   };
+  const saveStoryProfile = () => {
+    onStoryProfileChange(storyPremise);
+    setStorySaved(true);
+  };
+  const beginNewStory = () => {
+    if (storyMemory && !window.confirm('开始新故事会清空当前故事的浏览器内章节和训练进度。请先导出 EPUB 存档，是否继续？')) return;
+    onStartNewStory(storyPremise);
+    setStorySaved(false);
+  };
+  const exportStory = () => {
+    if (!storyMemory) return;
+    try {
+      downloadStoryEpub(storyMemory, packs);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'EPUB 导出失败，请稍后重试');
+    }
+  };
+  const connectArchive = async () => {
+    if (!storyMemory) return;
+    try {
+      await connectAutomaticStoryArchive(storyMemory, packs);
+      setArchiveConnected(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '自动存档连接失败，请改用 EPUB 导出');
+    }
+  };
   return <section className="learning-page" aria-labelledby="learning-settings-title">
     <header className="learning-page__header"><div><p className="eyebrow">只保留必要设置</p><h2 id="learning-settings-title">学习设置</h2><p className="page-lede">学习目标固定。这里只调整每日时间、模型和系统朗读说明。</p></div></header>
     <section className="settings-section learning-time-setting"><div><span className="learning-settings-icon"><ClockIcon /></span><div><p className="eyebrow">学习节奏</p><h3>每日可用时间</h3><p>变更后会重排七天计划，并重新准备今天的学习包。</p></div></div><label><DailyMinutesInput value={dailyMinutes} onChange={onMinutesChange} /><span>分钟</span></label></section>
+    <section className="settings-section story-setting"><div className="learning-settings-section-heading"><div><p className="eyebrow">原创连载</p><h3>故事设定</h3><p>可留空，AI 会自行选择适合长期连载的原创题材。设定只会在开始新故事时生效，不会篡改正在连载的世界观。</p></div><BookOpenText size={23} /></div>{storyMemory ? <div className="story-setting__current"><div><span>当前连载</span><strong>{storyMemory.title}</strong><small>{storyMemory.genre} · 已完成第 {storyMemory.chapterNumber} 章</small></div><div className="story-setting__archive-actions"><button type="button" className="secondary-button" onClick={exportStory}><Download size={16} /> 导出 EPUB</button>{supportsAutomaticStoryArchive() && <button type="button" className="secondary-button" onClick={() => { void connectArchive(); }}>{archiveConnected ? '自动存档已连接' : '连接自动存档'}</button>}</div></div> : <p className="story-setting__empty">还没有开始连载。配置模型后，打开“今日学习”即可生成第一章。</p>}<label className="story-setting__field"><span>你的大概设定（可选）</span><textarea value={storyPremise} onChange={(event) => { setStoryPremise(event.target.value); setStorySaved(false); }} rows={4} maxLength={1000} placeholder="例如：一个在上海通勤的产品经理，偶然收到来自未来的英文语音；希望是轻科幻、悬疑、有成长线。" /></label><div className="story-setting__actions"><button type="button" className="secondary-button" onClick={saveStoryProfile}><Save size={16} /> 保存设定</button><button type="button" className="primary-action" onClick={beginNewStory}>开始新故事</button></div>{storySaved && <p className="settings-saved" role="status">故事设定已保存</p>}<p className="story-setting__note">章节和长期记忆会保存在当前浏览器；定期导出 EPUB 到“文件/下载”后，即使清除浏览器数据也能保留已写内容。支持的 Chrome/安卓浏览器可连接一个 EPUB 文件，之后新章节会自动更新它。</p></section>
     <section className="settings-section"><div className="learning-settings-section-heading"><div><p className="eyebrow">AI 内容生成</p><h3>模型服务</h3><p className="settings-service-note"><span>API Key 只保存在当前浏览器。</span><span>AirRead 不提供模型额度。</span></p></div><button type="button" className="secondary-button" onClick={startCreate}><Plus size={16} /> 添加模型</button></div>{profiles.length === 0 ? <div className="settings-empty"><KeyRound size={20} /><p>还没有可用模型。添加一个模型后，系统可以按你的学习时间生成个性化学习包。</p></div> : <div className="model-list">{profiles.map((profile) => <article className={`model-row${selected?.id === profile.id ? ' model-row--selected' : ''}`} key={profile.id}><button type="button" className="model-row__select" onClick={() => { store.select(profile.id); onModelChange(profile.id); }}><span className="model-row__radio" aria-hidden="true">{selected?.id === profile.id && <Check size={14} />}</span><span><strong>{profile.name}</strong><small>{modelKinds.find((kind) => kind.value === profile.kind)?.label}</small></span></button><div><button type="button" className="icon-button" onClick={() => startEdit(profile)} aria-label={`编辑 ${profile.name}`}><Pencil size={16} /></button><button type="button" className="icon-button" onClick={() => removeModel(profile)} aria-label={`删除 ${profile.name}`}><Trash2 size={16} /></button></div></article>)}</div>}</section>
-    <section className="settings-section"><div className="learning-settings-section-heading"><div><p className="eyebrow">声音</p><h3>学习资料音频</h3><p>有原版录音时优先播放原音；没有原版录音时，朗读按钮使用系统 TTS 辅助，不调用模型生成语音。</p></div><Volume2 size={23} /></div></section>
+    <section className="settings-section"><div className="learning-settings-section-heading"><div><p className="eyebrow">声音</p><h3>学习资料音频</h3><p>AI 原创连载没有原版录音；朗读按钮使用系统 TTS 辅助，不调用模型生成语音，也不会伪装成真人录音。</p></div><Volume2 size={23} /></div></section>
     {saved && <p className="settings-saved" role="status">设置已保存</p>}
     {editing && <ModelEditor profile={editing} error={error} onChange={updateEditing} onSave={saveModel} onCancel={closeEditor} onKindChange={changeKind} />}
   </section>;

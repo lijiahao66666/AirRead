@@ -211,24 +211,26 @@ export function TodayPage({ pack, dueReviewCards, completedTaskIds, taskResponse
   if (!pack) return <section className="learning-page learning-page--today" aria-labelledby="today-title">
     <header className="learning-page__header"><div><p className="eyebrow">每日英语学习包</p><h2 id="today-title">今天，学一点真的能用上的英语。</h2><p className="page-lede">系统会根据你设置的可用时间，安排输入、回忆、跟读和复习。</p></div></header>
     <PwaInstallPrompt />
-    <section className="learning-empty-card"><span><SparkleMark /></span><h3>今天的学习资料还没准备好</h3><p>联网时会从开放许可资料中获取英文原文；配置模型后还会生成译文、词块和个性化训练。</p><button className="primary-action" type="button" onClick={onGenerate} disabled={generating}>{generating ? '正在获取资料…' : '获取今天的资料'} <ChevronRight size={17} /></button>{generationError && <p className="learning-error" role="alert">{generationError}</p>}</section>
+    <section className="learning-empty-card"><span><SparkleMark /></span><h3>今天的连载章节还没准备好</h3><p>配置一个可用语言模型后，AirRead 会按你的时间生成原创英文连载、中文译文、词块和训练；故事设定可以留空。</p><button className="primary-action" type="button" onClick={onGenerate} disabled={generating}>{generating ? '正在创作章节…' : '创作今天的章节'} <ChevronRight size={17} /></button>{generationError && <p className="learning-error" role="alert">{generationError}</p>}</section>
   </section>;
 
   return <section className="learning-page learning-page--today" aria-labelledby="today-title">
-    <header className="learning-page__header learning-page__header--compact"><div><p className="eyebrow">{formatDate(pack.date)}</p><h2 id="today-title">{pack.title}</h2><p className="page-lede">{pack.theme} · {pack.level}</p></div><div className="today-duration"><Clock3 size={18} /><strong>{pack.estimatedMinutes}</strong><span>分钟</span></div></header>
+    <header className="learning-page__header learning-page__header--compact"><div><p className="eyebrow">{formatDate(pack.date)} · {pack.story.storyTitle}</p><h2 id="today-title">第 {pack.story.chapterNumber} 章 · {pack.story.chapterTitle}</h2><p className="page-lede">{pack.theme} · {pack.level}</p></div><div className="today-duration"><Clock3 size={18} /><strong>{pack.estimatedMinutes}</strong><span>分钟</span></div></header>
     <PwaInstallPrompt />
     {generationError && <p className="learning-inline-notice" role="status">{generationError}</p>}
     <section className="today-progress" aria-label="今日完成进度"><div><span>今日训练</span><strong>{completedCount} / {pack.tasks.length}</strong></div><span className="today-progress__track"><i style={{ width: `${pack.tasks.length ? (completedCount / pack.tasks.length) * 100 : 0}%` }} /></span><p>{pendingReviewCount > 0 ? `先完成 ${pendingReviewCount} 项到期复习，再开始今天的新材料。` : '到期复习已完成，可以开始今天的新材料。'}</p></section>
+
+    <section className="story-recap" aria-labelledby="story-recap-title"><div className="story-recap__heading"><div><p className="eyebrow">继续阅读</p><h3 id="story-recap-title">前情回顾</h3></div><span>第 {pack.story.chapterNumber} 章</span></div><p>{pack.story.previousSummary}</p></section>
 
     <section className="learning-section learning-review-section" aria-labelledby="today-review-title"><div className="learning-section__heading"><div><p className="eyebrow">间隔重复</p><h3 id="today-review-title">今日复习</h3></div><span>{pendingReviewCount > 0 ? `${pendingReviewCount} 项待完成` : '已完成'}</span></div>{pendingReviewCount > 0 ? <div className="review-list review-list--today">{dueReviewCards.map((card) => <ReviewCard key={card.id} card={card} compact onReview={(remembered) => onReview(card.id, remembered)} />)}</div> : <p className="today-review-empty"><CircleCheck size={17} /> 今天没有到期内容，新的词块会在完成学习后加入队列。</p>}</section>
 
     <section className="learning-reader" aria-labelledby="lesson-content-title">
       <div className="learning-reader__meta"><span>{pack.sourceLabel}</span><span className={`audio-label audio-label--${pack.audioNote}`}>{pack.audioNote === 'original' ? '原版音频' : '系统朗读辅助'}</span></div>
-      <div className="learning-reader__heading"><div><p className="eyebrow">今日材料</p><h3 id="lesson-content-title">先理解，再翻译</h3></div>{pack.audio ? <audio className="source-audio" controls preload="metadata" src={pack.audio.url}>你的浏览器暂不支持播放原版音频。</audio> : <SystemSpeechButton text={pack.originalText} />}</div>
+      <div className="learning-reader__heading"><div><p className="eyebrow">英文原章</p><h3 id="lesson-content-title">先理解，再翻译</h3></div>{pack.audio ? <audio className="source-audio" controls preload="metadata" src={pack.audio.url}>你的浏览器暂不支持播放原版音频。</audio> : <SystemSpeechButton text={pack.originalText} />}</div>
       <p className="learning-reader__text">{pack.originalText}</p>
-      {pack.translation ? <div className="translation-toggle"><button type="button" onClick={() => setTranslationVisible((visible) => !visible)} aria-expanded={translationVisible}><Languages size={16} /> {translationVisible ? '收起中文解释' : '查看中文解释'}</button>{translationVisible && <p>{pack.translation}</p>}</div> : <p className="translation-empty"><Languages size={16} /> 当前开放资料没有可靠的中文解释和词块，训练仍会直接围绕这篇英文原文生成。</p>}
+      {pack.translation ? <div className="translation-toggle"><button type="button" onClick={() => setTranslationVisible((visible) => !visible)} aria-expanded={translationVisible}><Languages size={16} /> {translationVisible ? '收起中文译文' : '查看中文译文'}</button>{translationVisible && <p>{pack.translation}</p>}</div> : <p className="translation-empty"><Languages size={16} /> 当前章节还没有中文译文，请重新生成本章。</p>}
       <footer className="learning-source-note">
-        <span>{pack.audioNote === 'original' ? `音频：${pack.audio?.label}${pack.audio?.accent ? ` · ${pack.audio.accent}` : ''}` : '这份内容暂无原版录音，可用系统朗读辅助理解与跟读。'}</span>
+        <span>{pack.audioNote === 'original' ? `音频：${pack.audio?.label}${pack.audio?.accent ? ` · ${pack.audio.accent}` : ''}` : '这是 AI 原创章节，暂无原版录音；可用系统朗读辅助理解与跟读。'}</span>
         {pack.license && <span>{pack.license}</span>}
         {(pack.audio?.sourceUrl ?? pack.sourceUrl) && <a href={pack.audio?.sourceUrl ?? pack.sourceUrl} target="_blank" rel="noreferrer">{pack.audio?.sourceUrl ? '查看音频来源' : '查看来源'}</a>}
       </footer>

@@ -3,8 +3,8 @@ import { CalendarDays, Clock3, Home, Settings2, Target } from 'lucide-react';
 
 import { ProviderProfileStore } from './domain/ai/providerStore';
 import { generateLearningPack, isLearningModel } from './domain/learning/learningGenerator';
-import { fetchOpenLearningMaterial } from './domain/learning/openContent';
-import { completePack, completeTask, dueReviewCards, loadLearningState, reviewCard, rotatePlan, saveLearningState, savePack, saveTaskResponse, todayKey, updateDailyMinutes } from './domain/learning/learningStore';
+import { persistAutomaticStoryArchive } from './domain/learning/storyArchive';
+import { completePack, completeTask, dueReviewCards, loadLearningState, reviewCard, rewindStoryForPack, rotatePlan, saveGeneratedStory, saveLearningState, saveTaskResponse, startNewStory, todayKey, updateDailyMinutes, updateStoryProfile } from './domain/learning/learningStore';
 import type { LearningState } from './domain/learning/learningTypes';
 import { LearningSettingsPage } from './features/learning/LearningSettingsPage';
 import { PlanPage, TodayPage } from './features/learning/LearningPages';
@@ -34,11 +34,13 @@ const persist = (next: LearningState, setState: (state: LearningState) => void):
 
 const clearTodayLearning = (state: LearningState): LearningState => {
   const date = todayKey();
-  const existingPackId = state.packs[date]?.id;
+  const existingPack = state.packs[date];
+  const rewound = rewindStoryForPack(state, existingPack);
+  const existingPackId = existingPack?.id;
   const packIds = new Set([`pack-${date}`, existingPackId].filter((id): id is string => Boolean(id)));
-  const { [date]: _today, ...remainingPacks } = state.packs;
+  const { [date]: _today, ...remainingPacks } = rewound.packs;
   return {
-    ...state,
+    ...rewound,
     packs: remainingPacks,
     completedPackIds: state.completedPackIds.filter((id) => !packIds.has(id)),
     completedTaskIds: state.completedTaskIds.filter((id) => ![...packIds].some((packId) => id.startsWith(`${packId}:`))),
@@ -83,23 +85,25 @@ export default function App() {
     setGenerating(true);
     setGenerationError(undefined);
     try {
-      const material = selectedModel ? undefined : await fetchOpenLearningMaterial(todayKey(), todayPlanDay);
-      const pack = await generateLearningPack(selectedModel, learningState.plan.dailyMinutes, todayKey(), todayPlanDay, material);
-      persist(savePack(learningState, pack), setLearningState);
-    } catch {
-      setGenerationError(selectedModel ? '模型暂时无法连接，请检查模型设置后重试。' : '暂时无法获取开放英语资料，请检查网络；配置模型后也可以生成 AI 学习内容。');
+      const generated = await generateLearningPack(selectedModel, learningState.plan.dailyMinutes, todayKey(), todayPlanDay, learningState.storyProfile, learningState.storyMemory);
+      const nextState = saveGeneratedStory(learningState, generated.pack, generated.storyMemory);
+      persist(nextState, setLearningState);
+      void persistAutomaticStoryArchive(generated.storyMemory, nextState.packs);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : '';
+      setGenerationError(message.includes('请先在学习设置中') ? message : '模型暂时无法连接或返回内容不完整，请检查模型设置后重试。');
     } finally {
       setGenerating(false);
     }
   };
 
   useEffect(() => {
-    if (todayPack || generating) return;
-    const generationKey = `${todayKey()}:${selectedModel?.id ?? 'open-source'}:${learningState.plan.dailyMinutes}:${learningState.plan.themeSetIndex}`;
+    if (todayPack || generating || !selectedModel) return;
+    const generationKey = `${todayKey()}:${selectedModel.id}:${learningState.plan.dailyMinutes}:${learningState.plan.themeSetIndex}:${learningState.storyMemory?.storyId ?? 'new'}:${learningState.storyMemory?.chapterNumber ?? 0}`;
     if (automaticGenerationRef.current === generationKey) return;
     automaticGenerationRef.current = generationKey;
     void handleGenerate();
-  }, [generating, learningState.plan.dailyMinutes, learningState.plan.themeSetIndex, selectedModel, todayPack, todayPlanDay?.focus, todayPlanDay?.theme]);
+  }, [generating, learningState.plan.dailyMinutes, learningState.plan.themeSetIndex, learningState.storyMemory?.chapterNumber, learningState.storyMemory?.storyId, selectedModel, todayPack, todayPlanDay?.focus, todayPlanDay?.theme]);
 
   const handleMinutesChange = (minutes: number) => {
     const next = clearTodayLearning(updateDailyMinutes(learningState, minutes));
@@ -120,11 +124,21 @@ export default function App() {
     setModelVersion((version) => version + 1);
   };
 
+  const handleStoryProfileChange = (premise: string) => {
+    persist(updateStoryProfile(learningState, premise), setLearningState);
+  };
+
+  const handleStartNewStory = (premise: string) => {
+    automaticGenerationRef.current = undefined;
+    setGenerationError(undefined);
+    persist(startNewStory(updateStoryProfile(learningState, premise)), setLearningState);
+  };
+
   let content: ReactNode;
   if (location.route === 'plan') {
     content = <PlanPage plan={learningState.plan} onMinutesChange={handleMinutesChange} onRefreshPlan={handlePlanRefresh} />;
   } else if (location.route === 'settings') {
-    content = <LearningSettingsPage store={providerStore} dailyMinutes={learningState.plan.dailyMinutes} selectedModelId={learningState.selectedModelId} onMinutesChange={handleMinutesChange} onModelChange={handleModelChange} />;
+    content = <LearningSettingsPage store={providerStore} dailyMinutes={learningState.plan.dailyMinutes} selectedModelId={learningState.selectedModelId} storyProfile={learningState.storyProfile} storyMemory={learningState.storyMemory} packs={learningState.packs} onMinutesChange={handleMinutesChange} onModelChange={handleModelChange} onStoryProfileChange={handleStoryProfileChange} onStartNewStory={handleStartNewStory} />;
   } else {
     content = <TodayPage pack={todayPack} dueReviewCards={dueReviewCards(learningState)} completedTaskIds={learningState.completedTaskIds} taskResponses={learningState.taskResponses} completedPackIds={learningState.completedPackIds} generating={generating} generationError={generationError} onGenerate={() => { void handleGenerate(); }} onReview={(cardId, remembered) => persist(reviewCard(learningState, cardId, remembered), setLearningState)} onSaveTaskResponse={(taskId, response) => persist(saveTaskResponse(learningState, taskId, response), setLearningState)} onCompleteTask={(taskId) => persist(completeTask(learningState, taskId), setLearningState)} onCompletePack={() => todayPack && persist(completePack(learningState, todayPack), setLearningState)} />;
   }

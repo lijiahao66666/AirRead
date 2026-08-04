@@ -37,6 +37,43 @@ export type LearningAudio = {
   sourceUrl?: string;
 };
 
+export type LearningStoryProfile = {
+  premise: string;
+  createdAt: number;
+};
+
+export type LearningStoryCharacter = {
+  name: string;
+  role: string;
+  traits: string;
+  currentState: string;
+};
+
+export type LearningStoryMemory = {
+  storyId: string;
+  title: string;
+  genre: string;
+  premise: string;
+  worldRules: string[];
+  characters: LearningStoryCharacter[];
+  timeline: string[];
+  openThreads: string[];
+  chapterNumber: number;
+  latestSummary: string;
+  nextHook: string;
+  updatedAt: number;
+};
+
+export type LearningStoryChapter = {
+  storyId: string;
+  storyTitle: string;
+  chapterNumber: number;
+  chapterTitle: string;
+  previousSummary: string;
+  chapterSummary: string;
+  nextHook: string;
+};
+
 export type LearningPack = {
   id: string;
   date: string;
@@ -53,8 +90,14 @@ export type LearningPack = {
   audioNote: 'original' | 'system-tts';
   vocabulary: LearningVocabulary[];
   tasks: LearningTask[];
-  generatedBy: 'public' | 'ai';
+  generatedBy: 'ai';
+  story: LearningStoryChapter;
   createdAt: number;
+};
+
+export type GeneratedLearningPack = {
+  pack: LearningPack;
+  storyMemory: LearningStoryMemory;
 };
 
 export type LearningPlanDay = {
@@ -90,4 +133,7 @@ export type LearningState = {
   taskResponses: Record<string, string>;
   reviewCards: LearningReviewCard[];
   selectedModelId?: string;
+  storyProfile: LearningStoryProfile;
+  storyMemory?: LearningStoryMemory;
+  storyMemoryHistory: LearningStoryMemory[];
 };

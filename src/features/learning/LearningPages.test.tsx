@@ -1,18 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { createOpenLearningPack } from '../../domain/learning/learningGenerator';
 import { buildPlan } from '../../domain/learning/learningStore';
+import { createStoryPackFixture } from '../../test/learningFixture';
 import { PlanPage, TodayPage } from './LearningPages';
 
 describe('TodayPage', () => {
-  const pack = createOpenLearningPack('2026-08-03', 15, {
-    title: 'City library',
-    text: 'The city library opens early on weekdays. Visitors can borrow books and use computers. Staff members can help people find information.',
-    sourceLabel: 'Simple English Wikipedia（开放资料）',
-    sourceUrl: 'https://simple.wikipedia.org/wiki/Library',
-    license: 'CC BY-SA 4.0',
-  });
+  const pack = createStoryPackFixture('2026-08-03', 15);
 
   it('clearly distinguishes original source audio from system read-aloud', () => {
     const audioPack = {
@@ -96,13 +90,7 @@ describe('TodayPage', () => {
 
   it('requires a real written response before completing a writing task', () => {
     const onCompleteTask = vi.fn();
-    const longPack = createOpenLearningPack('2026-08-03', 30, {
-      title: 'City library',
-      text: 'The city library opens early on weekdays. Visitors can borrow books and use computers. Staff members can help people find information.',
-      sourceLabel: 'Simple English Wikipedia（开放资料）',
-      sourceUrl: 'https://simple.wikipedia.org/wiki/Library',
-      license: 'CC BY-SA 4.0',
-    });
+    const longPack = createStoryPackFixture('2026-08-03', 30);
     const writeTask = longPack.tasks.find((task) => task.kind === 'write')!;
 
     render(<TodayPage pack={longPack} dueReviewCards={[]} completedTaskIds={[]} taskResponses={{}} completedPackIds={[]} onGenerate={vi.fn()} onReview={vi.fn()} onSaveTaskResponse={vi.fn()} onCompleteTask={onCompleteTask} onCompletePack={vi.fn()} />);
