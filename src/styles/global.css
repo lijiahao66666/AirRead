@@ -256,8 +256,6 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 .learning-page { width: min(100%, 54rem); margin: 0 auto; color: var(--learning-ink); }
 .learning-page__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.25rem; padding: .75rem 0 1.65rem; }
 .learning-page__header-main { min-width: 0; }
-.learning-page__back-link { display: inline-flex; min-height: 2.25rem; align-items: center; gap: .35rem; margin-bottom: .95rem; border: 1px solid #cadde3; border-radius: .7rem; padding: .4rem .65rem; background: #f7fbfc; color: var(--learning-blue-strong); font-size: .76rem; font-weight: 780; transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease; }
-.learning-page__back-link:hover { border-color: #9fc4ce; background: #edf7f8; color: var(--learning-ink); }
 .learning-page__header--compact { padding-bottom: 1.1rem; }
 .learning-page .eyebrow { color: var(--learning-blue); }
 .learning-page h2 { color: var(--learning-ink); }
@@ -469,7 +467,6 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 
 @media (max-width: 42rem) {
   .learning-page__header { display: block; padding-bottom: 1.2rem; }
-  .learning-page__back-link { margin-bottom: .8rem; }
   .learning-page__header h2 { max-width: none; font-size: 1.78rem; }
   .today-duration { padding: .5rem .55rem; }
   .learning-reader { border-radius: 1rem; padding: .9rem; }

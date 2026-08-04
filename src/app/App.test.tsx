@@ -59,6 +59,21 @@ describe('AirRead learning application shell', () => {
     expect(screen.getByRole('heading', { name: '今天的训练' })).toBeInTheDocument();
   });
 
+  it('toggles settings from the app shell utility', async () => {
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /第 1 章 · The Silver Umbrella/ })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('link', { name: '学习设置' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: '学习设置' })).toBeInTheDocument());
+    const closeSettings = screen.getByRole('link', { name: '关闭学习设置' });
+    expect(closeSettings).toHaveAttribute('href', '#today');
+    fireEvent.click(closeSettings);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: '今天的训练' })).toBeInTheDocument());
+    expect(window.location.hash).toBe('#today');
+  });
+
   it('requests the configured model and saves a serial chapter with persistent memory', async () => {
     const fetchSpy = globalThis.fetch as ReturnType<typeof vi.fn>;
     render(<App />);

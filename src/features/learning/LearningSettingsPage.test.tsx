@@ -36,7 +36,7 @@ describe('LearningSettingsPage serial story controls', () => {
     expect(screen.queryByRole('button', { name: '导出 EPUB' })).not.toBeInTheDocument();
   });
 
-  it('provides a clear route back to today learning', () => {
+  it('keeps settings navigation in the app shell', () => {
     render(<LearningSettingsPage
       store={new ProviderProfileStore(window.localStorage)}
       dailyMinutes={15}
@@ -49,7 +49,7 @@ describe('LearningSettingsPage serial story controls', () => {
       onStartNewStory={vi.fn()}
     />);
 
-    expect(screen.getByRole('link', { name: '今日学习' })).toHaveAttribute('href', '#today');
+    expect(screen.queryByRole('link', { name: '今日学习' })).not.toBeInTheDocument();
   });
 
   it('shows an inline confirmation before starting a new story', () => {

@@ -190,7 +190,7 @@ export default function App() {
 
   return <div className="app-shell learning-app" data-route={location.route} onClickCapture={clearPointerControlFocus}>
     <aside className="app-rail">
-      <header className="brand"><a className="brand-lockup" href="#today" aria-label="AirRead 英语学习"><span className="brand-mark" aria-hidden="true"><img src="/icons/airread-mark.svg" alt="" /></span><h1 className="brand-copy"><strong>AirRead</strong><em>英语学习</em><small>每天学一点，真的听得懂</small></h1></a><a className="brand-utility" href="#settings" aria-label="学习设置" title="学习设置" aria-current={location.route === 'settings' ? 'page' : undefined}><Settings2 size={17} /></a></header>
+      <header className="brand"><a className="brand-lockup" href="#today" aria-label="AirRead 英语学习"><span className="brand-mark" aria-hidden="true"><img src="/icons/airread-mark.svg" alt="" /></span><h1 className="brand-copy"><strong>AirRead</strong><em>英语学习</em><small>每天学一点，真的听得懂</small></h1></a><a className="brand-utility" href={location.route === 'settings' ? '#today' : '#settings'} aria-label={location.route === 'settings' ? '关闭学习设置' : '学习设置'} title={location.route === 'settings' ? '关闭学习设置' : '学习设置'} aria-current={location.route === 'settings' ? 'page' : undefined}><Settings2 size={17} /></a></header>
       <div className="learning-goal-card"><Target size={17} /><div><strong>固定学习目标</strong><span>听懂 · 交流 · 阅读 · 应试</span></div></div>
       <div className="rail-footer"><Clock3 size={16} /> 每天 {learningState.plan.dailyMinutes} 分钟 · 本地保存</div>
     </aside>
