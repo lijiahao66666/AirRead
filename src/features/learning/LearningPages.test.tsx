@@ -64,7 +64,7 @@ describe('TodayPage', () => {
     expect(screen.getByRole('heading', { name: '听辨训练' })).toBeInTheDocument();
     const listeningTask = packWithVocabulary.tasks.find((task) => task.kind === 'listen')!;
     fireEvent.click(screen.getByRole('button', { name: listeningTask.exercise!.answer! }));
-    expect(screen.getByRole('heading', { name: '阅读填空' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '阅读检测' })).toBeInTheDocument();
   });
 
   it('uses an answerable mobile listening exercise instead of a completion check', () => {
@@ -79,18 +79,18 @@ describe('TodayPage', () => {
     expect(screen.queryByRole('button', { name: `完成 ${listeningTask.title}` })).not.toBeInTheDocument();
   });
 
-  it('checks a reading answer before completing the task', () => {
+  it('checks reading comprehension before completing the task', () => {
     const onCompleteTask = vi.fn();
     const readTask = pack.tasks.find((task) => task.kind === 'read')!;
 
     render(<TodayPage pack={pack} dueReviewCards={[]} completedTaskIds={[]} taskResponses={{}} completedPackIds={[]} onGenerate={vi.fn()} onReview={vi.fn()} onSaveTaskResponse={vi.fn()} onCompleteTask={onCompleteTask} onCompletePack={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '查看全部训练' }));
     fireEvent.click(screen.getByRole('button', { name: new RegExp(readTask.title) }));
-    fireEvent.change(screen.getByRole('textbox', { name: '阅读填空答案' }), { target: { value: 'wrong' } });
-    fireEvent.click(screen.getByRole('button', { name: '检查答案' }));
+    expect(screen.getByRole('heading', { name: '阅读检测' })).toBeInTheDocument();
+    const wrongChoice = readTask.exercise?.choices?.find((choice) => choice !== readTask.exercise?.answer);
+    fireEvent.click(screen.getByRole('button', { name: wrongChoice! }));
     expect(onCompleteTask).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByRole('textbox', { name: '阅读填空答案' }), { target: { value: readTask.exercise?.answer ?? '' } });
-    fireEvent.click(screen.getByRole('button', { name: '检查答案' }));
+    fireEvent.click(screen.getByRole('button', { name: readTask.exercise?.answer! }));
     expect(onCompleteTask).toHaveBeenCalledWith(readTask.id);
   });
 

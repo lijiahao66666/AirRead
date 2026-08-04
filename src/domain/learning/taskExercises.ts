@@ -33,10 +33,6 @@ const practiceSentence = (text: string, sentenceIndex = 0): string | undefined =
   return candidates[Math.abs(sentenceIndex) % candidates.length];
 };
 
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-
-const vocabularyTermIn = (sentence: string, vocabulary: Pick<LearningVocabulary, 'term'>[] = []): string | undefined => vocabulary.map((item) => item.term.trim()).filter(Boolean).sort((left, right) => right.length - left.length).find((term) => new RegExp(`\\b${escapeRegExp(term)}\\b`, 'iu').test(sentence));
-
 export const buildTaskExercise = (kind: LearningTaskKind, text: string, taskId: string, context: TaskExerciseContext = {}): LearningTaskExercise | undefined => {
   const sentences = splitSentences(text);
   const sentence = practiceSentence(text, context.sentenceIndex ?? 0);
@@ -54,12 +50,12 @@ export const buildTaskExercise = (kind: LearningTaskKind, text: string, taskId: 
   }
 
   if (kind === 'read') {
-    const word = vocabularyTermIn(sentence, context.vocabulary) ?? wordsFrom(sentence).find((candidate) => candidate.length >= 5);
-    if (!word) return undefined;
+    const distractors = sentences.filter((candidate) => candidate !== sentence).slice(0, 2);
     return {
-      type: 'cloze',
-      prompt: `根据今日材料填入缺失表达：${sentence.replace(new RegExp(`\\b${escapeRegExp(word)}\\b`, 'iu'), '_____')}`,
-      answer: word.toLowerCase(),
+      type: 'reading-check',
+      prompt: '读完今日材料后，选择确实出现在文章中的句子。',
+      choices: shuffled([sentence, ...distractors], taskId),
+      answer: sentence,
     };
   }
 
@@ -87,6 +83,7 @@ export const buildTaskExercise = (kind: LearningTaskKind, text: string, taskId: 
     return {
       type: 'free-write',
       prompt: terms.length ? `使用今日材料中的一个表达（${terms.join('、')}），写 1-2 句：先复述材料中的一个信息，再联系你自己的经历。` : '根据今日材料写 1-2 句：先复述材料中的一个信息，再联系你自己的经历。',
+      referenceText: sentence,
       minimumWords: 10,
     };
   }

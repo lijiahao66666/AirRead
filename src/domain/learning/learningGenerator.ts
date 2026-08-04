@@ -94,9 +94,9 @@ const learningPrompt = (dailyMinutes: number, date: string, planDay?: Pick<Learn
   "sourceUrl":"可核验的 HTTPS 来源链接；无法确认时留空",
   "license":"来源授权信息；无法确认时留空",
   "audio":{"url":"可核验的 HTTPS 原版录音链接","label":"录音名称","language":"en-US","accent":"口音","license":"录音授权","sourceUrl":"录音来源链接"},
-  "tasks":[{"kind":"listen|read|speak|recall|write","title":"中文任务名","instruction":"具体中文操作提示","minutes":数字,"exercise":{"type":"listen-choice|cloze|shadowing|word-order|free-write","prompt":"直接围绕今日原文的操作提示","text":"原文中的完整句子（仅 listen/speak）","choices":["选项（listen/recall 使用）"],"answer":"原文中的答案","minimumWords":10}}]
+  "tasks":[{"kind":"listen|read|speak|recall|write","title":"中文任务名","instruction":"具体中文操作提示","minutes":数字,"exercise":{"type":"listen-choice|reading-check|cloze|shadowing|word-order|free-write","prompt":"直接围绕今日原文的操作提示","text":"原文中的完整句子（仅 listen/speak）","referenceText":"写作必须引用的原文句子","choices":["至少 3 个选项（listen/read 使用）"],"answer":"原文中的答案","minimumWords":10}}]
 }
-词汇不超过 6 个，任务总时长不超过 ${dailyMinutes} 分钟。每个任务必须围绕 originalText 中不同的句子或 vocabulary 中的词块；不要把多个任务都写成泛泛的“完成练习”。exercise 必须可直接在手机上完成：listen-choice 提供 3 个不同选项，cloze 的答案来自原文或词块，shadowing 的 text 必须是原文句子，word-order 的 choices 必须能还原原文句子，free-write 要求使用今日词块或复述材料信息。不要猜测来源或音频链接；无法确认时省略 source 和 audio。`;
+词汇不超过 6 个，任务总时长不超过 ${dailyMinutes} 分钟。每个任务必须围绕 originalText 中不同的句子或 vocabulary 中的词块；不要把多个任务都写成泛泛的“完成练习”。exercise 必须可直接在手机上完成：listen-choice 提供 3 个不同选项，reading-check 提供一个关于原文信息的理解问题和 3 个选项，cloze 的答案来自原文或词块，shadowing 的 text 必须是原文句子，word-order 的 choices 必须能还原原文句子，free-write 必须提供 referenceText 原文锚点句，并要求使用今日词块或复述材料信息。不要猜测来源或音频链接；无法确认时省略 source 和 audio。`;
 
 const stripCodeFence = (value: string): string => value.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '');
 
@@ -126,7 +126,7 @@ const normalizeAudio = (value: unknown): LearningPack['audio'] | undefined => {
   };
 };
 
-const exerciseTypes = new Set<LearningTaskExercise['type']>(['listen-choice', 'cloze', 'shadowing', 'word-order', 'free-write']);
+const exerciseTypes = new Set<LearningTaskExercise['type']>(['listen-choice', 'reading-check', 'cloze', 'shadowing', 'word-order', 'free-write']);
 
 const normalizedWords = (value: string): string[] => value.toLowerCase().match(/[a-z]+(?:'[a-z]+)?/gu) ?? [];
 
@@ -144,7 +144,7 @@ const normalizeGeneratedExercise = (value: unknown, kind: LearningTaskKind, sour
   if (typeof candidate.type !== 'string' || !exerciseTypes.has(candidate.type as LearningTaskExercise['type']) || typeof candidate.prompt !== 'string' || !candidate.prompt.trim()) return undefined;
   const prompt = candidate.prompt.trim();
   const expectedType: Partial<Record<LearningTaskKind, LearningTaskExercise['type']>> = {
-    listen: 'listen-choice', read: 'cloze', speak: 'shadowing', recall: 'word-order', write: 'free-write',
+    listen: 'listen-choice', read: 'reading-check', speak: 'shadowing', recall: 'word-order', write: 'free-write',
   };
   if (expectedType[kind] !== candidate.type) return undefined;
   if (candidate.type === 'listen-choice') {
@@ -152,6 +152,12 @@ const normalizeGeneratedExercise = (value: unknown, kind: LearningTaskKind, sour
     const choices = Array.isArray(candidate.choices) ? candidate.choices.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim()) : [];
     if (choices.length < 3 || new Set(choices).size !== choices.length || !choices.includes(candidate.answer)) return undefined;
     return { type: candidate.type, prompt, text: candidate.text.trim(), choices, answer: candidate.answer };
+  }
+  if (candidate.type === 'reading-check') {
+    if (typeof candidate.answer !== 'string' || !hasTextOverlap(candidate.answer, source)) return undefined;
+    const choices = Array.isArray(candidate.choices) ? candidate.choices.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim()) : [];
+    if (choices.length < 3 || new Set(choices).size !== choices.length || !choices.includes(candidate.answer)) return undefined;
+    return { type: candidate.type, prompt, choices, answer: candidate.answer };
   }
   if (candidate.type === 'cloze') {
     if (typeof candidate.answer !== 'string' || !candidate.answer.trim()) return undefined;
@@ -171,8 +177,8 @@ const normalizeGeneratedExercise = (value: unknown, kind: LearningTaskKind, sour
   }
   const minimumWords = typeof candidate.minimumWords === 'number' && Number.isFinite(candidate.minimumWords) ? Math.max(5, Math.min(80, Math.round(candidate.minimumWords))) : 10;
   const promptMentionsMaterial = /今日|材料|原文|词块|表达/iu.test(prompt) || vocabulary.some((item) => Boolean(item.term) && prompt.toLowerCase().includes(item.term.toLowerCase()));
-  if (!promptMentionsMaterial) return undefined;
-  return { type: candidate.type, prompt, minimumWords };
+  if (!promptMentionsMaterial || typeof candidate.referenceText !== 'string' || !hasTextOverlap(candidate.referenceText, source)) return undefined;
+  return { type: candidate.type, prompt, referenceText: candidate.referenceText.trim(), minimumWords };
 };
 
 const fitGeneratedTasks = (tasks: LearningTask[], dailyMinutes: number, packId: string): LearningTask[] => {

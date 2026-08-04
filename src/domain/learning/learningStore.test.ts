@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildPlan, completePack, createInitialLearningState, dueReviewCards, loadLearningState, reviewCard, rotatePlan, savePack, updateDailyMinutes } from './learningStore';
 import { createOpenLearningPack } from './learningGenerator';
 
 describe('learning store', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('builds a seven-day plan from the only user-controlled setting', () => {
     const plan = buildPlan(22, '2026-08-03');
 
@@ -14,6 +16,8 @@ describe('learning store', () => {
   });
 
   it('clamps daily time and schedules new vocabulary for review', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T12:00:00+08:00'));
     const pack = {
       ...createOpenLearningPack('2026-08-03', 15, {
       title: 'City library',

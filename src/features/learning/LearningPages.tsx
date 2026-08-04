@@ -82,10 +82,10 @@ function TaskExercisePanel({ task, exercise, response, onSaveResponse, onComplet
   const submitChoice = (choice: string) => {
     onSaveResponse(choice);
     if (choice === exercise.answer) {
-      setFeedback('答对了，这句话就是你刚才听到的内容。');
+      setFeedback(exercise.type === 'listen-choice' ? '答对了，这句话就是你刚才听到的内容。' : '理解正确，这个选项与今日材料一致。');
       onComplete();
     } else {
-      setFeedback('还不对，再播放一次，注意句子的开头和结尾。');
+      setFeedback(exercise.type === 'listen-choice' ? '还不对，再播放一次，注意句子的开头和结尾。' : '还不对。回到今日材料，找出文章明确表达的信息。');
     }
   };
 
@@ -140,6 +140,8 @@ function TaskExercisePanel({ task, exercise, response, onSaveResponse, onComplet
 
   if (exercise.type === 'listen-choice') return <div className="learning-exercise learning-exercise--listen"><div className="learning-exercise__title"><h4>听辨训练</h4><SystemSpeechButton text={exercise.text ?? ''} label="播放听力句子" /></div><p>{exercise.prompt}</p><div className="exercise-choice-list">{exercise.choices?.map((choice) => <button type="button" className={response === choice ? 'exercise-choice exercise-choice--selected' : 'exercise-choice'} key={choice} onClick={() => submitChoice(choice)}>{choice}</button>)}</div>{feedback && <p className="exercise-feedback" role="status">{feedback}</p>}</div>;
 
+  if (exercise.type === 'reading-check') return <div className="learning-exercise learning-exercise--reading"><div className="learning-exercise__title"><h4>阅读检测</h4><BookOpenText size={17} aria-hidden="true" /></div><p>{exercise.prompt}</p><div className="exercise-choice-list">{exercise.choices?.map((choice) => <button type="button" className={response === choice ? 'exercise-choice exercise-choice--selected' : 'exercise-choice'} key={choice} onClick={() => submitChoice(choice)}>{choice}</button>)}</div>{feedback && <p className="exercise-feedback" role="status">{feedback}</p>}</div>;
+
   if (exercise.type === 'cloze') return <div className="learning-exercise"><h4>阅读填空</h4><p>{exercise.prompt}</p><label className="exercise-field"><span>缺失单词</span><input aria-label="阅读填空答案" value={draft} onChange={(event) => { setDraft(event.target.value); onSaveResponse(event.target.value); }} autoCapitalize="none" autoCorrect="off" /></label><button type="button" className="primary-action exercise-submit" onClick={submitCloze}>检查答案</button>{feedback && <p className="exercise-feedback" role="status">{feedback}</p>}</div>;
 
   if (exercise.type === 'word-order') {
@@ -149,7 +151,7 @@ function TaskExercisePanel({ task, exercise, response, onSaveResponse, onComplet
 
   if (exercise.type === 'shadowing') return <div className="learning-exercise"><div className="learning-exercise__title"><h4>跟读录音</h4><SystemSpeechButton text={exercise.text ?? ''} label="播放跟读句子" /></div><p>{exercise.prompt}</p><p className="exercise-quote">{exercise.text}</p>{recordUrl && <audio className="exercise-recording" controls src={recordUrl}>你的浏览器不支持播放录音。</audio>}{recording ? <button type="button" className="secondary-button exercise-submit" onClick={stopRecording}>结束录音</button> : <button type="button" className="primary-action exercise-submit" onClick={() => { void startRecording(); }} disabled={!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined'}>{recordUrl ? '重新录一遍' : '开始录音'}</button>}{!navigator.mediaDevices?.getUserMedia && <p className="exercise-feedback">当前浏览器不支持录音，请完成跟读后再继续。</p>}</div>;
 
-  return <div className="learning-exercise"><h4>短写作</h4><p>{exercise.prompt}</p><label className="exercise-field"><span>你的英文回答</span><textarea aria-label="短写作回答" value={draft} onChange={(event) => { setDraft(event.target.value); onSaveResponse(event.target.value); }} rows={4} autoCapitalize="sentences" /></label><div className="exercise-footer"><span>{wordCount(draft)} / {exercise.minimumWords ?? 10} 个词</span><button type="button" className="primary-action exercise-submit" onClick={onComplete} disabled={wordCount(draft) < (exercise.minimumWords ?? 10)}>保存并完成</button></div></div>;
+  return <div className="learning-exercise"><h4>短写作</h4><p>{exercise.prompt}</p>{exercise.referenceText && <p className="exercise-quote"><span>材料锚点</span>{exercise.referenceText}</p>}<label className="exercise-field"><span>你的英文回答</span><textarea aria-label="短写作回答" value={draft} onChange={(event) => { setDraft(event.target.value); onSaveResponse(event.target.value); }} rows={4} autoCapitalize="sentences" /></label><div className="exercise-footer"><span>{wordCount(draft)} / {exercise.minimumWords ?? 10} 个词</span><button type="button" className="primary-action exercise-submit" onClick={onComplete} disabled={wordCount(draft) < (exercise.minimumWords ?? 10)}>保存并完成</button></div></div>;
 }
 
 function TaskRow({ task, completed, response, onSaveResponse, onComplete, pendingReviewCount }: { task: LearningTask; completed: boolean; response?: string; onSaveResponse: (response: string) => void; onComplete: () => void; pendingReviewCount: number }) {

@@ -1,10 +1,11 @@
 export type LearningTaskKind = 'review' | 'listen' | 'read' | 'speak' | 'recall' | 'write';
 
 export type LearningTaskExercise = {
-  type: 'listen-choice' | 'cloze' | 'shadowing' | 'word-order' | 'free-write';
+  type: 'listen-choice' | 'reading-check' | 'cloze' | 'shadowing' | 'word-order' | 'free-write';
   prompt: string;
   answer?: string;
   text?: string;
+  referenceText?: string;
   choices?: string[];
   minimumWords?: number;
 };

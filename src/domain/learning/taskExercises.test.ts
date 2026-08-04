@@ -13,8 +13,8 @@ describe('learning exercises', () => {
 
     expect(listening).toMatchObject({ type: 'listen-choice', answer: 'The city library opens early on weekdays.' });
     expect(listening?.choices).toContain('The city library opens early on weekdays.');
-    expect(reading).toMatchObject({ type: 'cloze', answer: 'library' });
-    expect(reading?.prompt).toContain('_____');
+    expect(reading).toMatchObject({ type: 'reading-check', answer: 'The city library opens early on weekdays.' });
+    expect(reading?.choices).toContain('The city library opens early on weekdays.');
     expect(recall).toMatchObject({ type: 'word-order', answer: 'The city library opens early on weekdays.' });
     expect(recall?.choices).not.toEqual(['The', 'city', 'library', 'opens', 'early', 'on', 'weekdays']);
     expect(speaking).toMatchObject({ type: 'shadowing', text: 'The city library opens early on weekdays.' });
@@ -37,8 +37,9 @@ describe('learning exercises', () => {
     const reading = buildTaskExercise('read', sourceText, 'pack-1:read', { sentenceIndex: 1, vocabulary });
     const writing = buildTaskExercise('write', sourceText, 'pack-1:write', { sentenceIndex: 1, vocabulary });
 
-    expect(reading).toMatchObject({ type: 'cloze', answer: 'borrow books' });
-    expect(reading?.prompt).toContain('Visitors can _____ and use computers.');
+    expect(reading).toMatchObject({ type: 'reading-check', answer: 'Visitors can borrow books and use computers.' });
+    expect(reading?.choices).toContain('Visitors can borrow books and use computers.');
     expect(writing?.prompt).toContain('borrow books');
+    expect(writing?.referenceText).toBe('Visitors can borrow books and use computers.');
   });
 });
