@@ -424,6 +424,7 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 .story-setting__confirm > div { display: flex; justify-content: flex-end; gap: .45rem; margin-top: .2rem; }
 .story-setting__confirm .primary-action, .story-setting__confirm .secondary-button { min-height: 2.25rem; font-size: .72rem; }
 .story-setting__status { margin: .55rem .1rem 0; color: #39795f; font-size: .76rem; line-height: 1.5; }
+.story-setting__status--error { color: #a24136; }
 .settings-empty { display: flex; align-items: center; gap: .55rem; margin-top: .9rem; border-radius: .75rem; padding: .75rem; background: #f0f6f4; color: #58716c; }
 .settings-empty svg { flex: none; color: #477866; }
 .settings-empty p { margin: 0; font-size: .75rem; line-height: 1.55; }

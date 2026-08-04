@@ -54,6 +54,15 @@ describe('learning generator', () => {
     expect(generated.pack.tasks.find((task) => task.kind === 'listen')?.exercise?.type).toBe('listen-choice');
   });
 
+  it('accepts a model response with a text content array and surrounding prose', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: [{ type: 'text', text: `Here is the JSON you requested:\n${JSON.stringify(firstChapter)}\n` }] } }] }), { status: 200 }));
+
+    const generated = await generateLearningPack(profile, 15, '2026-08-03', undefined, storyProfile);
+
+    expect(generated.pack.story.chapterNumber).toBe(1);
+    expect(generated.pack.originalText).toContain('Platform Seven');
+  });
+
   it('passes only compressed story memory into the next chapter and keeps its identity stable', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(responseFor(firstChapter))

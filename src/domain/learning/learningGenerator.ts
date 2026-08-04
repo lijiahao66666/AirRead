@@ -134,6 +134,22 @@ ${storyContext(storyProfile, storyMemory)}
 
 const stripCodeFence = (value: string): string => value.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '');
 
+const parseJsonPayload = (value: string): unknown => {
+  const cleaned = stripCodeFence(value);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start < 0 || end <= start) throw new Error('模型返回的内容不是有效 JSON');
+    try {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    } catch {
+      throw new Error('模型返回的内容不是有效 JSON');
+    }
+  }
+};
+
 const exerciseTypes = new Set<LearningTaskExercise['type']>(['listen-choice', 'reading-check', 'cloze', 'shadowing', 'word-order', 'free-write']);
 
 const normalizedWords = (value: string): string[] => value.toLowerCase().match(/[a-z]+(?:'[a-z]+)?/gu) ?? [];
@@ -264,7 +280,7 @@ const normalizeStoryMemory = (value: unknown, existing: LearningStoryMemory | un
 };
 
 const parsePack = (value: string, date: string, dailyMinutes: number, storyProfile: LearningStoryProfile, storyMemory?: LearningStoryMemory): GeneratedLearningPack => {
-  const parsed = JSON.parse(stripCodeFence(value)) as Partial<LearningPack> & { story?: unknown };
+  const parsed = parseJsonPayload(value) as Partial<LearningPack> & { story?: unknown };
   if (!parsed.title || !parsed.theme || !parsed.originalText || !parsed.translation || !Array.isArray(parsed.vocabulary) || !Array.isArray(parsed.tasks)) {
     throw new Error('模型返回的学习包不完整');
   }
@@ -334,15 +350,26 @@ const readModelText = async (profile: ProviderProfile, prompt: string, chapterWo
   }
   assertSuccessfulResponse(response, profile.name);
   const payload: unknown = await response.json();
+  const textFromUnknown = (value: unknown): string => {
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) return value.map(textFromUnknown).filter(Boolean).join('');
+    if (value && typeof value === 'object') {
+      const candidate = value as { text?: unknown; content?: unknown };
+      if (typeof candidate.text === 'string') return candidate.text;
+      if (candidate.content !== undefined) return textFromUnknown(candidate.content);
+    }
+    return '';
+  };
   const output = profile.kind === 'openai-compatible'
     ? (payload as { choices?: Array<{ message?: { content?: unknown } }> }).choices?.[0]?.message?.content
     : profile.kind === 'openai-responses'
       ? (() => {
-        const responsePayload = payload as { output_text?: unknown; output?: Array<{ content?: Array<{ type?: unknown; text?: unknown }> }> };
-        return responsePayload.output_text ?? responsePayload.output?.flatMap((item) => item.content ?? []).find((content) => content.type === 'output_text')?.text;
+        const responsePayload = payload as { output_text?: unknown; output?: unknown };
+        return responsePayload.output_text ?? responsePayload.output;
       })()
-      : (payload as { content?: Array<{ type?: unknown; text?: unknown }> }).content?.find((content) => content.type === 'text')?.text;
-  if (typeof output === 'string' && output.trim()) return output.trim();
+      : (payload as { content?: unknown }).content;
+  const text = textFromUnknown(output).trim();
+  if (text) return text;
   throw new ModelRequestError(profile.name);
 };
 
