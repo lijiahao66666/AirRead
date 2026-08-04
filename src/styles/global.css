@@ -418,6 +418,12 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 .story-setting__actions { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; margin-top: .75rem; }
 .story-setting__actions button { min-height: 2.4rem; font-size: .75rem; }
 .story-setting__note { margin: .75rem 0 0; color: #718787; font-size: .7rem; line-height: 1.55; }
+.story-setting__confirm { display: grid; gap: .4rem; margin-top: .8rem; border: 1px solid #e7c69b; border-radius: .82rem; padding: .75rem; background: #fff8ed; color: #725434; }
+.story-setting__confirm strong { font-size: .78rem; }
+.story-setting__confirm p { margin: 0; color: #806849; font-size: .72rem; line-height: 1.55; }
+.story-setting__confirm > div { display: flex; justify-content: flex-end; gap: .45rem; margin-top: .2rem; }
+.story-setting__confirm .primary-action, .story-setting__confirm .secondary-button { min-height: 2.25rem; font-size: .72rem; }
+.story-setting__status { margin: .55rem .1rem 0; color: #39795f; font-size: .76rem; line-height: 1.5; }
 .settings-empty { display: flex; align-items: center; gap: .55rem; margin-top: .9rem; border-radius: .75rem; padding: .75rem; background: #f0f6f4; color: #58716c; }
 .settings-empty svg { flex: none; color: #477866; }
 .settings-empty p { margin: 0; font-size: .75rem; line-height: 1.55; }
@@ -515,7 +521,8 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 @media (max-width: 59.999rem) {
   html, body { overscroll-behavior-y: none; }
   .learning-app { min-height: 100svh; overflow-x: clip; }
-  .learning-app .primary-navigation, .learning-app[data-route='reader'] .primary-navigation { position: fixed !important; right: 0; bottom: 0; left: 0; transform: translate3d(0, 0, 0); contain: layout paint style; isolation: isolate; will-change: transform; backface-visibility: hidden; -webkit-backface-visibility: hidden; backdrop-filter: none; }
+  .learning-app .primary-navigation, .learning-app[data-route='reader'] .primary-navigation { position: fixed !important; inset-inline: 0; bottom: 0; width: 100%; height: calc(4.1rem + env(safe-area-inset-bottom, 0px)); min-height: calc(4.1rem + env(safe-area-inset-bottom, 0px)); max-height: calc(4.1rem + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; transform: none; contain: layout paint; isolation: isolate; will-change: auto; backface-visibility: visible; -webkit-backface-visibility: visible; backdrop-filter: none; }
+  .learning-app .primary-navigation a, .learning-app[data-route='reader'] .primary-navigation a { flex: none; }
 }
 
 .translation-empty, .vocabulary-empty { display: flex; align-items: flex-start; gap: .45rem; margin: .85rem 0 .1rem; color: #657b82; font-size: .76rem; line-height: 1.6; }

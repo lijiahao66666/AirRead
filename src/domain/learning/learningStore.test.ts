@@ -53,6 +53,23 @@ describe('learning store', () => {
     expect(rotated.plan.days[0].theme).not.toBe(state.plan.days[0].theme);
   });
 
+  it('migrates a cached plan without a version to the current learning topics', () => {
+    const storage = window.localStorage;
+    storage.clear();
+    const initial = createInitialLearningState();
+    const { version: _legacyVersion, ...legacyPlan } = initial.plan;
+    storage.setItem('airread.learning.v1', JSON.stringify({
+      ...initial,
+      plan: { ...legacyPlan, days: legacyPlan.days.map((day) => ({ ...day, theme: '旧固定课程' })) },
+    }));
+
+    const migrated = loadLearningState(storage);
+
+    expect(migrated.plan.version).toBe(initial.plan.version);
+    expect(migrated.plan.days[0].theme).not.toBe('旧固定课程');
+    storage.clear();
+  });
+
   it('removes pre-serial learning packs instead of mixing them into an original story', () => {
     const storage = window.localStorage;
     storage.clear();

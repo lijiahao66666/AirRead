@@ -115,6 +115,7 @@ export type LearningPlanDay = {
 };
 
 export type LearningPlan = {
+  version: number;
   dailyMinutes: number;
   themeSetIndex: number;
   createdAt: number;

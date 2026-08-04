@@ -4,6 +4,7 @@ import { buildTaskExercise } from './taskExercises';
 const STORAGE_KEY = 'airread.learning.v1';
 const DEFAULT_MINUTES = 15;
 const DEFAULT_CHAPTER_WORD_COUNT = 180;
+const PLAN_VERSION = 2;
 const PLAN_THEME_SETS = [
   [
     ['Small talk at work', '听懂寒暄并自然回应'],
@@ -76,6 +77,7 @@ export const buildPlan = (dailyMinutes: number, startDate = todayKey(), themeSet
   const normalizedMinutes = clampDailyMinutes(dailyMinutes);
   const normalizedThemeSetIndex = normalizeThemeSetIndex(themeSetIndex);
   return {
+    version: PLAN_VERSION,
     dailyMinutes: normalizedMinutes,
     themeSetIndex: normalizedThemeSetIndex,
     createdAt: Date.now(),
@@ -149,17 +151,18 @@ export const loadLearningState = (storage: Storage = window.localStorage): Learn
     if (!isLearningState(parsed)) return createInitialLearningState();
     const initial = createInitialLearningState();
     const hasThemeSetIndex = typeof parsed.plan.themeSetIndex === 'number';
+    const hasCurrentPlanVersion = parsed.plan.version === PLAN_VERSION;
     return {
       ...initial,
       ...parsed,
-      plan: hasThemeSetIndex
+      plan: hasCurrentPlanVersion && hasThemeSetIndex
         ? {
           ...initial.plan,
           ...parsed.plan,
           themeSetIndex: normalizeThemeSetIndex(parsed.plan.themeSetIndex),
           days: Array.isArray(parsed.plan.days) && parsed.plan.days.every((day) => typeof day.practicePattern === 'string') ? parsed.plan.days : buildPlan(parsed.plan.dailyMinutes, todayKey(), parsed.plan.themeSetIndex).days,
         }
-        : buildPlan(parsed.plan.dailyMinutes),
+        : buildPlan(parsed.plan.dailyMinutes, todayKey(), hasThemeSetIndex ? parsed.plan.themeSetIndex : 0),
       packs: Object.fromEntries(Object.entries(parsed.packs ?? {}).filter(([, pack]) => !isRetiredPack(pack)).map(([date, pack]) => [date, hydratePackExercises(pack)])),
       completedPackIds: parsed.completedPackIds ?? [],
       completedTaskIds: parsed.completedTaskIds ?? [],

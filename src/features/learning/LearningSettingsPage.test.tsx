@@ -36,8 +36,7 @@ describe('LearningSettingsPage serial story controls', () => {
     expect(screen.queryByRole('button', { name: '导出 EPUB' })).not.toBeInTheDocument();
   });
 
-  it('requires confirmation before starting a new story', () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
+  it('shows an inline confirmation before starting a new story', () => {
     const onStartNewStory = vi.fn();
     render(<LearningSettingsPage
       store={new ProviderProfileStore(window.localStorage)}
@@ -54,7 +53,11 @@ describe('LearningSettingsPage serial story controls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '开始新故事' }));
 
-    expect(window.confirm).toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('当前章节、故事记忆和训练进度会清空');
     expect(onStartNewStory).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '确认开始' }));
+    expect(onStartNewStory).toHaveBeenCalledWith('旧设定');
+    expect(screen.getByRole('status')).toHaveTextContent('已开始新故事');
   });
 });
