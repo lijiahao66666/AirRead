@@ -335,7 +335,7 @@ const endpoint = (profile: ProviderProfile): string => {
 };
 
 const readModelText = async (profile: ProviderProfile, prompt: string, chapterWordCount: number): Promise<string> => {
-  const maxOutputTokens = Math.min(32_000, Math.max(4_000, Math.round(chapterWordCount * 16)));
+  const maxOutputTokens = 32_000;
   let response: Response;
   try {
     if (profile.kind === 'openai-compatible') {
