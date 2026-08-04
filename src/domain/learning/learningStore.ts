@@ -3,6 +3,7 @@ import { buildTaskExercise } from './taskExercises';
 
 const STORAGE_KEY = 'airread.learning.v1';
 const DEFAULT_MINUTES = 15;
+const DEFAULT_CHAPTER_WORD_COUNT = 180;
 const PLAN_THEME_SETS = [
   [
     ['Small talk at work', '听懂寒暄并自然回应'],
@@ -59,6 +60,8 @@ export const addDays = (dateKey: string, days: number): string => {
 
 export const clampDailyMinutes = (value: number): number => Math.min(180, Math.max(5, Math.round(value)));
 
+export const clampChapterWordCount = (value: number): number => Math.min(2_000, Math.max(80, Math.round(value / 10) * 10));
+
 const normalizeThemeSetIndex = (index: number): number => ((Math.trunc(index) % PLAN_THEME_SETS.length) + PLAN_THEME_SETS.length) % PLAN_THEME_SETS.length;
 
 const practicePatternFor = (dailyMinutes: number): string => {
@@ -99,7 +102,7 @@ export const createInitialLearningState = (): LearningState => ({
   completedTaskIds: [],
   taskResponses: {},
   reviewCards: [],
-  storyProfile: { premise: '', createdAt: Date.now() },
+  storyProfile: { premise: '', chapterWordCount: DEFAULT_CHAPTER_WORD_COUNT, createdAt: Date.now() },
   storyMemoryHistory: [],
 });
 
@@ -154,7 +157,7 @@ export const loadLearningState = (storage: Storage = window.localStorage): Learn
       taskResponses: parsed.taskResponses ?? {},
       reviewCards: parsed.reviewCards ?? [],
       storyProfile: parsed.storyProfile && typeof parsed.storyProfile.premise === 'string'
-        ? { premise: parsed.storyProfile.premise, createdAt: typeof parsed.storyProfile.createdAt === 'number' ? parsed.storyProfile.createdAt : Date.now() }
+        ? { premise: parsed.storyProfile.premise, chapterWordCount: clampChapterWordCount(typeof parsed.storyProfile.chapterWordCount === 'number' ? parsed.storyProfile.chapterWordCount : DEFAULT_CHAPTER_WORD_COUNT), createdAt: typeof parsed.storyProfile.createdAt === 'number' ? parsed.storyProfile.createdAt : Date.now() }
         : initial.storyProfile,
       storyMemory: isStoryMemory(parsed.storyMemory) ? parsed.storyMemory : undefined,
       storyMemoryHistory: Array.isArray(parsed.storyMemoryHistory) ? parsed.storyMemoryHistory.filter(isStoryMemory).slice(-10) : [],
@@ -183,13 +186,21 @@ export const savePack = (state: LearningState, pack: LearningPack): LearningStat
   packs: { ...state.packs, [pack.date]: pack },
 });
 
+export const packsForDate = (packs: Record<string, LearningPack>, date: string): LearningPack[] => Object.values(packs)
+  .filter((pack) => pack.date === date)
+  .sort((left, right) => left.story.chapterNumber - right.story.chapterNumber || left.createdAt - right.createdAt);
+
+export const latestPackForDate = (packs: Record<string, LearningPack>, date: string): LearningPack | undefined => packsForDate(packs, date).at(-1);
+
 export const saveGeneratedStory = (state: LearningState, pack: LearningPack, storyMemory: LearningStoryMemory): LearningState => {
   const previous = state.storyMemory;
   const history = previous && previous.storyId === storyMemory.storyId && previous.chapterNumber < storyMemory.chapterNumber
     ? [...state.storyMemoryHistory, previous].slice(-10)
     : state.storyMemoryHistory;
+  const packs = Object.fromEntries(Object.entries(state.packs).filter(([key, existing]) => !(key === pack.date && existing.story?.chapterNumber === pack.story.chapterNumber)));
   return {
-    ...savePack(state, pack),
+    ...state,
+    packs: { ...packs, [`${pack.date}#${pack.story.chapterNumber}`]: pack },
     storyMemory,
     storyMemoryHistory: history,
   };
@@ -209,7 +220,12 @@ export const rewindStoryForPack = (state: LearningState, pack?: LearningPack): L
 
 export const updateStoryProfile = (state: LearningState, premise: string): LearningState => ({
   ...state,
-  storyProfile: { premise: premise.trim().slice(0, 1_000), createdAt: Date.now() },
+  storyProfile: { ...state.storyProfile, premise: premise.trim().slice(0, 1_000), createdAt: Date.now() },
+});
+
+export const updateChapterWordCount = (state: LearningState, chapterWordCount: number): LearningState => ({
+  ...state,
+  storyProfile: { ...state.storyProfile, chapterWordCount: clampChapterWordCount(chapterWordCount) },
 });
 
 export const startNewStory = (state: LearningState): LearningState => ({

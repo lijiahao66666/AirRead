@@ -1,6 +1,6 @@
 import type { ProviderProfile } from '../ai/providerProfile';
 import { assertSuccessfulResponse, fetchWithTimeout, ModelConnectionError, ModelRequestError } from '../ai/modelRequest';
-import { addDays, clampDailyMinutes, todayKey } from './learningStore';
+import { addDays, clampChapterWordCount, clampDailyMinutes, todayKey } from './learningStore';
 import type { GeneratedLearningPack, LearningPack, LearningPlanDay, LearningStoryCharacter, LearningStoryMemory, LearningStoryProfile, LearningTask, LearningTaskExercise, LearningTaskKind, LearningVocabulary } from './learningTypes';
 import { buildTaskExercise } from './taskExercises';
 
@@ -55,13 +55,10 @@ const addExercises = (tasks: LearningTask[], text: string, vocabulary: Pick<Lear
   exercise: task.exercise ?? buildTaskExercise(task.kind, text, task.id, { sentenceIndex: index, vocabulary }),
 }));
 
-const chapterWordRange = (dailyMinutes: number): string => {
-  if (dailyMinutes <= 7) return '80 到 110 词';
-  if (dailyMinutes <= 11) return '100 到 145 词';
-  if (dailyMinutes <= 17) return '145 到 210 词';
-  if (dailyMinutes <= 23) return '210 到 290 词';
-  if (dailyMinutes <= 35) return '290 到 390 词';
-  return `${Math.min(620, 390 + Math.round((dailyMinutes - 35) * 3))} 到 ${Math.min(760, 470 + Math.round((dailyMinutes - 35) * 4))} 词`;
+const chapterWordRange = (chapterWordCount: number): string => {
+  const lower = Math.max(60, Math.round(chapterWordCount * 0.9));
+  const upper = Math.min(2_200, Math.round(chapterWordCount * 1.1));
+  return `${lower} 到 ${upper} 词`;
 };
 
 const compactText = (value: unknown, fallback = '', maxLength = MAX_MEMORY_TEXT): string => {
@@ -103,9 +100,9 @@ const storyContext = (profile: LearningStoryProfile, storyMemory?: LearningStory
   return `这是第 ${storyMemory.chapterNumber + 1} 章。不要重写、推翻或遗忘下列既定事实。\n\n故事圣经\n- 书名：${storyMemory.title}\n- 类型：${storyMemory.genre}\n- 核心设定：${storyMemory.premise}\n- 世界规则：${storyMemory.worldRules.map((item) => `「${item}」`).join('；')}\n\n人物卡\n${characters}\n\n压缩时间线\n${timeline}\n\n未解线索\n${openThreads}\n\n上一章回顾\n${storyMemory.latestSummary}\n\n上一章结尾钩子\n${storyMemory.nextHook}\n\n本章必须承接上述钩子，推进至少一个既有线索；若新增人物、规则或事件，必须写入本章后的记忆更新。`;
 };
 
-const learningPrompt = (dailyMinutes: number, date: string, storyProfile: LearningStoryProfile, storyMemory?: LearningStoryMemory, planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>): string => `你是面向中国成年英语学习者的原创英文连载作者和课程设计师。学习目标固定为：能与英语母语者自然交流、听懂日常英语、阅读常见英文内容，并逐步适应英语考试。用户每天只有 ${dailyMinutes} 分钟。请生成 ${date} 的下一章原创英文连载及其配套训练。
+const learningPrompt = (dailyMinutes: number, chapterWordCount: number, date: string, storyProfile: LearningStoryProfile, storyMemory?: LearningStoryMemory, planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>): string => `你是面向中国成年英语学习者的原创英文连载作者和课程设计师。学习目标固定为：能与英语母语者自然交流、听懂日常英语、阅读常见英文内容，并逐步适应英语考试。用户每天只有 ${dailyMinutes} 分钟。请生成 ${date} 的下一章原创英文连载及其配套训练。
 
-本日训练重点是“${planDay?.focus ?? '理解情节并使用自然表达'}”。章节英文正文应为 ${chapterWordRange(dailyMinutes)}，难度自然、可理解、故事性强，避免教材腔。人物、故事、场景和情节必须原创；不得模仿、翻译、续写或借用任何现有小说、影视、游戏或作者的受保护角色与情节。
+本日训练重点是“${planDay?.focus ?? '理解情节并使用自然表达'}”。用户已将每章目标字数设为 ${chapterWordCount} 词；章节英文正文应控制在 ${chapterWordRange(chapterWordCount)}，难度自然、可理解、故事性强，避免教材腔。人物、故事、场景和情节必须原创；不得模仿、翻译、续写或借用任何现有小说、影视、游戏或作者的受保护角色与情节。
 
 长篇连载规则：完整正文不会提供给下一章；你只能依赖下面的压缩长期记忆。因此每章结束后必须更新故事圣经、人物卡、时间线和未解线索。只保留稳定、可验证的事实，禁止编造与正文不一致的记忆。时间线不超过 10 条，人物卡不超过 10 人，世界规则不超过 8 条，未解线索不超过 10 条。不要把系统 TTS 写成原版音频，也不要提供来源或音频链接。
 
@@ -272,7 +269,7 @@ const parsePack = (value: string, date: string, dailyMinutes: number, storyProfi
     throw new Error('模型返回的学习包不完整');
   }
   const { memory, chapter } = normalizeStoryMemory(parsed.story, storyMemory, storyProfile, date);
-  const id = `pack-${date}`;
+  const id = `pack-${date}-chapter-${chapter.chapterNumber}`;
   const originalText = parsed.originalText;
   const vocabulary = parsed.vocabulary.slice(0, 6).map((item, index) => {
     const candidate = item as Partial<LearningVocabulary>;
@@ -321,15 +318,16 @@ const endpoint = (profile: ProviderProfile): string => {
   return baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
 };
 
-const readModelText = async (profile: ProviderProfile, prompt: string): Promise<string> => {
+const readModelText = async (profile: ProviderProfile, prompt: string, chapterWordCount: number): Promise<string> => {
+  const maxOutputTokens = Math.min(16_000, Math.max(3_600, Math.round(chapterWordCount * 8)));
   let response: Response;
   try {
     if (profile.kind === 'openai-compatible') {
-      response = await fetchWithTimeout(endpoint(profile), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.apiKey}` }, body: JSON.stringify({ model: profile.model, temperature: 0.45, messages: [{ role: 'user', content: prompt }] }) }, 40_000);
+      response = await fetchWithTimeout(endpoint(profile), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.apiKey}` }, body: JSON.stringify({ model: profile.model, temperature: 0.45, max_tokens: maxOutputTokens, messages: [{ role: 'user', content: prompt }] }) }, 600_000);
     } else if (profile.kind === 'openai-responses') {
-      response = await fetchWithTimeout(endpoint(profile), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.apiKey}` }, body: JSON.stringify({ model: profile.model, temperature: 0.45, input: prompt }) }, 40_000);
+      response = await fetchWithTimeout(endpoint(profile), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.apiKey}` }, body: JSON.stringify({ model: profile.model, temperature: 0.45, max_output_tokens: maxOutputTokens, input: prompt }) }, 600_000);
     } else {
-      response = await fetchWithTimeout(endpoint(profile), { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': profile.apiKey!, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify({ model: profile.model, max_tokens: 3_600, temperature: 0.45, messages: [{ role: 'user', content: prompt }] }) }, 40_000);
+      response = await fetchWithTimeout(endpoint(profile), { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': profile.apiKey!, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify({ model: profile.model, max_tokens: maxOutputTokens, temperature: 0.45, messages: [{ role: 'user', content: prompt }] }) }, 600_000);
     }
   } catch {
     throw new ModelConnectionError(profile.name);
@@ -348,12 +346,13 @@ const readModelText = async (profile: ProviderProfile, prompt: string): Promise<
   throw new ModelRequestError(profile.name);
 };
 
-export const generateLearningPack = async (profile: ProviderProfile | undefined, dailyMinutes: number, date = todayKey(), planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>, storyProfile: LearningStoryProfile = { premise: '', createdAt: Date.now() }, storyMemory?: LearningStoryMemory): Promise<GeneratedLearningPack> => {
+export const generateLearningPack = async (profile: ProviderProfile | undefined, dailyMinutes: number, date = todayKey(), planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>, storyProfile: LearningStoryProfile = { premise: '', chapterWordCount: 180, createdAt: Date.now() }, storyMemory?: LearningStoryMemory): Promise<GeneratedLearningPack> => {
   const normalizedMinutes = clampDailyMinutes(dailyMinutes);
+  const normalizedStoryProfile = { ...storyProfile, chapterWordCount: clampChapterWordCount(storyProfile.chapterWordCount) };
   if (!isLearningModel(profile)) throw new Error('请先在学习设置中配置并启用一个语言模型，才能生成原创连载。');
   const prompt = profile.prompt?.trim()
-    ? `${profile.prompt.trim()}\n\n${learningPrompt(normalizedMinutes, date, storyProfile, storyMemory, planDay)}`
-    : learningPrompt(normalizedMinutes, date, storyProfile, storyMemory, planDay);
-  const response = await readModelText(profile, prompt);
-  return parsePack(response, date, normalizedMinutes, storyProfile, storyMemory);
+    ? `${profile.prompt.trim()}\n\n${learningPrompt(normalizedMinutes, normalizedStoryProfile.chapterWordCount, date, normalizedStoryProfile, storyMemory, planDay)}`
+    : learningPrompt(normalizedMinutes, normalizedStoryProfile.chapterWordCount, date, normalizedStoryProfile, storyMemory, planDay);
+  const response = await readModelText(profile, prompt, normalizedStoryProfile.chapterWordCount);
+  return parsePack(response, date, normalizedMinutes, normalizedStoryProfile, storyMemory);
 };

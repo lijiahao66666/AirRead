@@ -39,6 +39,7 @@ export type LearningAudio = {
 
 export type LearningStoryProfile = {
   premise: string;
+  chapterWordCount: number;
   createdAt: number;
 };
 

@@ -8,7 +8,7 @@ import { LearningSettingsPage } from './LearningSettingsPage';
 describe('LearningSettingsPage serial story controls', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('saves an optional premise and exposes an EPUB archive for the current story', () => {
+  it('saves an optional premise and exposes chapter length controls', () => {
     const storage = window.localStorage;
     storage.clear();
     const onStoryProfileChange = vi.fn();
@@ -18,12 +18,13 @@ describe('LearningSettingsPage serial story controls', () => {
     render(<LearningSettingsPage
       store={new ProviderProfileStore(storage)}
       dailyMinutes={15}
-      storyProfile={{ premise: '', createdAt: 1 }}
+      storyProfile={{ premise: '', chapterWordCount: 180, createdAt: 1 }}
       storyMemory={memory}
       packs={{}}
       onMinutesChange={vi.fn()}
       onModelChange={vi.fn()}
       onStoryProfileChange={onStoryProfileChange}
+      onChapterWordCountChange={vi.fn()}
       onStartNewStory={onStartNewStory}
     />);
 
@@ -31,7 +32,8 @@ describe('LearningSettingsPage serial story controls', () => {
     fireEvent.change(premise, { target: { value: '轻科幻悬疑，主角在地铁里收到未来消息。' } });
     fireEvent.click(screen.getByRole('button', { name: '保存设定' }));
     expect(onStoryProfileChange).toHaveBeenCalledWith('轻科幻悬疑，主角在地铁里收到未来消息。');
-    expect(screen.getByRole('button', { name: '导出 EPUB' })).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: '每章英文词数' })).toHaveValue(180);
+    expect(screen.queryByRole('button', { name: '导出 EPUB' })).not.toBeInTheDocument();
   });
 
   it('requires confirmation before starting a new story', () => {
@@ -40,12 +42,13 @@ describe('LearningSettingsPage serial story controls', () => {
     render(<LearningSettingsPage
       store={new ProviderProfileStore(window.localStorage)}
       dailyMinutes={15}
-      storyProfile={{ premise: '旧设定', createdAt: 1 }}
+      storyProfile={{ premise: '旧设定', chapterWordCount: 180, createdAt: 1 }}
       storyMemory={createStoryMemoryFixture()}
       packs={{}}
       onMinutesChange={vi.fn()}
       onModelChange={vi.fn()}
       onStoryProfileChange={vi.fn()}
+      onChapterWordCountChange={vi.fn()}
       onStartNewStory={onStartNewStory}
     />);
 

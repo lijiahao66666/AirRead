@@ -407,7 +407,9 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 .story-setting__current span { color: #6b8583; font-size: .66rem; font-weight: 760; }
 .story-setting__current strong { overflow: hidden; color: #294b49; font-size: .86rem; text-overflow: ellipsis; white-space: nowrap; }
 .story-setting__current small { color: #708884; font-size: .69rem; }
-.story-setting__archive-actions { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+.story-setting__archive-actions { display: grid; grid-template-columns: minmax(0, 1fr); flex: none; justify-items: stretch; gap: .4rem; min-width: min(100%, 15rem); }
+.story-setting__archive-actions--connected { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.story-setting__archive-hint { align-self: center; max-width: 20rem; color: #718787; font-size: .68rem; line-height: 1.45; }
 .story-setting__current .secondary-button { min-height: 2.35rem; flex: none; font-size: .74rem; white-space: nowrap; }
 .story-setting__empty { margin: .85rem 0 0; color: #607a78; font-size: .76rem; line-height: 1.58; }
 .story-setting__field { display: grid; gap: .38rem; margin-top: .85rem; color: #4d676f; font-size: .75rem; font-weight: 760; }
@@ -501,8 +503,9 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
   .learning-time-setting > label { margin-left: 3.25rem; }
   .learning-settings-section-heading { align-items: flex-start; }
   .story-setting__current { align-items: flex-start; flex-direction: column; }
-  .story-setting__archive-actions { width: 100%; justify-content: stretch; }
-  .story-setting__archive-actions .secondary-button { width: 100%; }
+  .story-setting__archive-actions { width: 100%; min-width: 0; }
+  .story-setting__archive-actions--connected { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .story-setting__archive-actions .secondary-button { width: 100%; min-width: 0; padding-inline: .5rem; }
   .model-editor-backdrop { padding: .55rem; }
   .model-editor { border-radius: 1rem; padding: .9rem; }
   .model-editor__grid { grid-template-columns: 1fr; gap: .65rem; }

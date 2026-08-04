@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { buildPlan, completePack, createInitialLearningState, dueReviewCards, loadLearningState, reviewCard, rewindStoryForPack, rotatePlan, saveGeneratedStory, savePack, startNewStory, updateDailyMinutes } from './learningStore';
+import { buildPlan, completePack, createInitialLearningState, dueReviewCards, latestPackForDate, loadLearningState, packsForDate, reviewCard, rewindStoryForPack, rotatePlan, saveGeneratedStory, savePack, startNewStory, updateDailyMinutes } from './learningStore';
 import { createStoryMemoryFixture, createStoryPackFixture } from '../../test/learningFixture';
 
 describe('learning store', () => {
@@ -88,6 +88,15 @@ describe('learning store', () => {
 
     expect(rewound.storyMemory).toMatchObject({ chapterNumber: 1, latestSummary: firstMemory.latestSummary });
     expect(rewound.storyMemoryHistory).toEqual([]);
+  });
+
+  it('keeps multiple chapters generated on the same day and selects the latest one', () => {
+    const first = createStoryPackFixture('2026-08-03');
+    const second = { ...createStoryPackFixture('2026-08-03'), id: 'pack-2026-08-03-chapter-2', story: { ...first.story, chapterNumber: 2, chapterTitle: 'The Blue Door' } };
+    const state = saveGeneratedStory(saveGeneratedStory(createInitialLearningState(), first, createStoryMemoryFixture()), second, createStoryMemoryFixture({ chapterNumber: 2 }));
+
+    expect(packsForDate(state.packs, '2026-08-03')).toHaveLength(2);
+    expect(latestPackForDate(state.packs, '2026-08-03')?.story.chapterNumber).toBe(2);
   });
 
   it('starts a new story without discarding spaced-repetition cards', () => {

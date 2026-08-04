@@ -5,6 +5,7 @@ import type { LearningStoryProfile } from './learningTypes';
 
 const storyProfile: LearningStoryProfile = {
   premise: '一个在上海通勤的产品经理，收到来自未来的英文语音；希望是轻科幻悬疑。',
+  chapterWordCount: 180,
   createdAt: 1_754_000_000_000,
 };
 

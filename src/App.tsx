@@ -4,7 +4,7 @@ import { CalendarDays, Clock3, Home, Settings2, Target } from 'lucide-react';
 import { ProviderProfileStore } from './domain/ai/providerStore';
 import { generateLearningPack, isLearningModel } from './domain/learning/learningGenerator';
 import { persistAutomaticStoryArchive } from './domain/learning/storyArchive';
-import { completePack, completeTask, dueReviewCards, loadLearningState, reviewCard, rewindStoryForPack, rotatePlan, saveGeneratedStory, saveLearningState, saveTaskResponse, startNewStory, todayKey, updateDailyMinutes, updateStoryProfile } from './domain/learning/learningStore';
+import { completePack, completeTask, dueReviewCards, latestPackForDate, loadLearningState, packsForDate, reviewCard, rewindStoryForPack, rotatePlan, saveGeneratedStory, saveLearningState, saveTaskResponse, startNewStory, todayKey, updateChapterWordCount, updateDailyMinutes, updateStoryProfile } from './domain/learning/learningStore';
 import type { LearningState } from './domain/learning/learningTypes';
 import { LearningSettingsPage } from './features/learning/LearningSettingsPage';
 import { PlanPage, TodayPage } from './features/learning/LearningPages';
@@ -34,11 +34,10 @@ const persist = (next: LearningState, setState: (state: LearningState) => void):
 
 const clearTodayLearning = (state: LearningState): LearningState => {
   const date = todayKey();
-  const existingPack = state.packs[date];
-  const rewound = rewindStoryForPack(state, existingPack);
-  const existingPackId = existingPack?.id;
-  const packIds = new Set([`pack-${date}`, existingPackId].filter((id): id is string => Boolean(id)));
-  const { [date]: _today, ...remainingPacks } = rewound.packs;
+  const datePacks = packsForDate(state.packs, date).sort((left, right) => right.story.chapterNumber - left.story.chapterNumber);
+  const packIds = new Set(datePacks.map((pack) => pack.id));
+  const rewound = datePacks.reduce((current, pack) => rewindStoryForPack(current, pack), state);
+  const remainingPacks = Object.fromEntries(Object.entries(rewound.packs).filter(([, pack]) => pack.date !== date));
   return {
     ...rewound,
     packs: remainingPacks,
@@ -77,7 +76,7 @@ export default function App() {
 
   const modelProfiles = useMemo(() => providerStore.list().filter(isLearningModel), [modelVersion]);
   const selectedModel = useMemo(() => modelProfiles.find((profile) => profile.id === learningState.selectedModelId) ?? modelProfiles[0], [learningState.selectedModelId, modelProfiles]);
-  const todayPack = learningState.packs[todayKey()];
+  const todayPack = latestPackForDate(learningState.packs, todayKey());
   const todayPlanDay = learningState.plan.days.find((day) => day.date === todayKey());
 
   const handleGenerate = async () => {
@@ -124,6 +123,10 @@ export default function App() {
     setModelVersion((version) => version + 1);
   };
 
+  const handleChapterWordCountChange = (chapterWordCount: number) => {
+    persist(updateChapterWordCount(learningState, chapterWordCount), setLearningState);
+  };
+
   const handleStoryProfileChange = (premise: string) => {
     persist(updateStoryProfile(learningState, premise), setLearningState);
   };
@@ -138,9 +141,9 @@ export default function App() {
   if (location.route === 'plan') {
     content = <PlanPage plan={learningState.plan} onMinutesChange={handleMinutesChange} onRefreshPlan={handlePlanRefresh} />;
   } else if (location.route === 'settings') {
-    content = <LearningSettingsPage store={providerStore} dailyMinutes={learningState.plan.dailyMinutes} selectedModelId={learningState.selectedModelId} storyProfile={learningState.storyProfile} storyMemory={learningState.storyMemory} packs={learningState.packs} onMinutesChange={handleMinutesChange} onModelChange={handleModelChange} onStoryProfileChange={handleStoryProfileChange} onStartNewStory={handleStartNewStory} />;
+    content = <LearningSettingsPage store={providerStore} dailyMinutes={learningState.plan.dailyMinutes} selectedModelId={learningState.selectedModelId} storyProfile={learningState.storyProfile} storyMemory={learningState.storyMemory} packs={learningState.packs} onMinutesChange={handleMinutesChange} onModelChange={handleModelChange} onStoryProfileChange={handleStoryProfileChange} onChapterWordCountChange={handleChapterWordCountChange} onStartNewStory={handleStartNewStory} />;
   } else {
-    content = <TodayPage pack={todayPack} dueReviewCards={dueReviewCards(learningState)} completedTaskIds={learningState.completedTaskIds} taskResponses={learningState.taskResponses} completedPackIds={learningState.completedPackIds} generating={generating} generationError={generationError} onGenerate={() => { void handleGenerate(); }} onReview={(cardId, remembered) => persist(reviewCard(learningState, cardId, remembered), setLearningState)} onSaveTaskResponse={(taskId, response) => persist(saveTaskResponse(learningState, taskId, response), setLearningState)} onCompleteTask={(taskId) => persist(completeTask(learningState, taskId), setLearningState)} onCompletePack={() => todayPack && persist(completePack(learningState, todayPack), setLearningState)} />;
+    content = <TodayPage pack={todayPack} dueReviewCards={dueReviewCards(learningState)} completedTaskIds={learningState.completedTaskIds} taskResponses={learningState.taskResponses} completedPackIds={learningState.completedPackIds} generating={generating} generationError={generationError} onGenerate={() => { void handleGenerate(); }} onGenerateNextChapter={() => { void handleGenerate(); }} onReview={(cardId, remembered) => persist(reviewCard(learningState, cardId, remembered), setLearningState)} onSaveTaskResponse={(taskId, response) => persist(saveTaskResponse(learningState, taskId, response), setLearningState)} onCompleteTask={(taskId) => persist(completeTask(learningState, taskId), setLearningState)} onCompletePack={() => todayPack && persist(completePack(learningState, todayPack), setLearningState)} />;
   }
 
   return <div className="app-shell learning-app" data-route={location.route} onClickCapture={clearPointerControlFocus}>

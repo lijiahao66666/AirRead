@@ -67,6 +67,18 @@ export const connectAutomaticStoryArchive = async (story: LearningStoryMemory, p
   await saveHandle(story.storyId, handle);
 };
 
+export const isAutomaticStoryArchiveConnected = async (storyId: string): Promise<boolean> => {
+  if (!supportsAutomaticStoryArchive()) return false;
+  try {
+    const handle = await loadHandle(storyId);
+    if (!handle) return false;
+    if (handle.queryPermission && await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') return false;
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const persistAutomaticStoryArchive = async (story: LearningStoryMemory, packs: Record<string, LearningPack>): Promise<boolean> => {
   if (!supportsAutomaticStoryArchive()) return false;
   try {

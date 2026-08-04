@@ -16,6 +16,7 @@ export type TodayPageProps = {
   generating?: boolean;
   generationError?: string;
   onGenerate: () => void;
+  onGenerateNextChapter: () => void;
   onReview: (cardId: string, remembered: boolean) => void;
   onSaveTaskResponse: (taskId: string, response: string) => void;
   onCompleteTask: (taskId: string) => void;
@@ -168,7 +169,7 @@ function VocabularyCard({ item }: { item: LearningPack['vocabulary'][number] }) 
   return <button type="button" className={`vocabulary-card${revealed ? ' vocabulary-card--revealed' : ''}`} onClick={() => setRevealed((value) => !value)} aria-expanded={revealed}><strong>{item.term}</strong>{revealed ? <><span>{item.meaning}</span><small>{item.example}</small></> : <span className="vocabulary-card__hint">先在脑中回想释义，点击查看</span>}</button>;
 }
 
-export function TodayPage({ pack, dueReviewCards, completedTaskIds, taskResponses, completedPackIds, generating = false, generationError, onGenerate, onReview, onSaveTaskResponse, onCompleteTask, onCompletePack }: TodayPageProps) {
+export function TodayPage({ pack, dueReviewCards, completedTaskIds, taskResponses, completedPackIds, generating = false, generationError, onGenerate, onGenerateNextChapter, onReview, onSaveTaskResponse, onCompleteTask, onCompletePack }: TodayPageProps) {
   const [translationVisible, setTranslationVisible] = useState(false);
   const pendingReviewCount = dueReviewCards.length;
   const taskIsComplete = (task: LearningTask): boolean => completedTaskIds.includes(task.id) || (task.kind === 'review' && pendingReviewCount === 0);
@@ -240,7 +241,7 @@ export function TodayPage({ pack, dueReviewCards, completedTaskIds, taskResponse
 
     {trainingSection}
 
-    <section className={`learning-complete-card${complete ? ' learning-complete-card--done' : ''}`}><CircleCheck size={23} /><div><strong>{complete ? '今天的学习已完成' : readyToComplete ? '可以完成今天的学习了' : '完成训练和复习后再收尾'}</strong><p>{complete ? '词块已经加入后续复习队列。明天打开 AirRead 即可继续。' : pendingReviewCount > 0 ? `还有 ${pendingReviewCount} 项复习需要完成。` : `还有 ${Math.max(0, pack.tasks.length - completedCount)} 项训练需要完成。`}</p></div><button className={complete ? 'secondary-button' : 'primary-action'} type="button" onClick={onCompletePack} disabled={!complete && !readyToComplete}>{complete ? '已完成' : '完成今日学习'}</button></section>
+    <section className={`learning-complete-card${complete ? ' learning-complete-card--done' : ''}`}><CircleCheck size={23} /><div><strong>{complete ? '今天的学习已完成' : readyToComplete ? '可以完成今天的学习了' : '完成训练和复习后再收尾'}</strong><p>{complete ? '词块已经加入后续复习队列。你可以继续生成下一章，也可以明天再接着学。' : pendingReviewCount > 0 ? `还有 ${pendingReviewCount} 项复习需要完成。` : `还有 ${Math.max(0, pack.tasks.length - completedCount)} 项训练需要完成。`}</p></div>{complete ? <div className="learning-complete-card__actions"><button className="secondary-button" type="button" onClick={onCompletePack}>已完成</button><button className="primary-action" type="button" onClick={onGenerateNextChapter} disabled={generating}>{generating ? '正在创作下一章…' : '继续下一章'}</button></div> : <button className="primary-action" type="button" onClick={onCompletePack} disabled={!readyToComplete}>完成今日学习</button>}</section>
   </section>;
 }
 
