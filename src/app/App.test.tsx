@@ -72,6 +72,17 @@ describe('AirRead learning application shell', () => {
     expect(saved.storyMemory).toMatchObject({ title: 'The Signal Beyond Platform Seven', chapterNumber: 1 });
   });
 
+  it('prepares the next chapter in the background without replacing the current lesson', async () => {
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /第 1 章 · The Silver Umbrella/ })).toBeInTheDocument());
+    await waitFor(() => {
+      const saved = JSON.parse(window.localStorage.getItem('airread.learning.v1') ?? '{}') as { packs?: Record<string, { story?: { chapterNumber?: number } }>; prefetchedStory?: { pack?: { story?: { chapterNumber?: number } } } };
+      expect(Object.values(saved.packs ?? {})[0]?.story?.chapterNumber).toBe(1);
+      expect(saved.prefetchedStory?.pack?.story?.chapterNumber).toBe(2);
+    });
+  });
+
   it('does not substitute a fixed lesson when a configured model cannot connect', async () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network unavailable'));

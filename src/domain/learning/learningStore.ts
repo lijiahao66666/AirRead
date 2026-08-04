@@ -1,4 +1,4 @@
-import type { LearningPack, LearningPlan, LearningPlanDay, LearningReviewCard, LearningState, LearningStoryMemory } from './learningTypes';
+import type { GeneratedLearningPack, LearningPack, LearningPlan, LearningPlanDay, LearningReviewCard, LearningState, LearningStoryMemory, PrefetchedLearningStory } from './learningTypes';
 import { buildTaskExercise } from './taskExercises';
 
 const STORAGE_KEY = 'airread.learning.v1';
@@ -127,6 +127,15 @@ const isStoryMemory = (value: unknown): value is LearningStoryMemory => {
     && typeof candidate.nextHook === 'string';
 };
 
+const isPrefetchedStory = (value: unknown): value is PrefetchedLearningStory => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<PrefetchedLearningStory>;
+  return typeof candidate.sourcePackId === 'string'
+    && typeof candidate.preparedAt === 'number'
+    && Boolean(candidate.pack && typeof candidate.pack.id === 'string' && candidate.pack.story)
+    && isStoryMemory(candidate.storyMemory);
+};
+
 const hydratePackExercises = (pack: LearningPack): LearningPack => ({
   ...pack,
   tasks: pack.tasks.map((task, index) => task.exercise ? task : { ...task, exercise: buildTaskExercise(task.kind, pack.originalText, task.id, { sentenceIndex: index, vocabulary: pack.vocabulary }) }),
@@ -161,6 +170,7 @@ export const loadLearningState = (storage: Storage = window.localStorage): Learn
         : initial.storyProfile,
       storyMemory: isStoryMemory(parsed.storyMemory) ? parsed.storyMemory : undefined,
       storyMemoryHistory: Array.isArray(parsed.storyMemoryHistory) ? parsed.storyMemoryHistory.filter(isStoryMemory).slice(-10) : [],
+      prefetchedStory: isPrefetchedStory(parsed.prefetchedStory) ? parsed.prefetchedStory : undefined,
     };
   } catch {
     return createInitialLearningState();
@@ -174,11 +184,13 @@ export const saveLearningState = (state: LearningState, storage: Storage = windo
 export const updateDailyMinutes = (state: LearningState, dailyMinutes: number): LearningState => ({
   ...state,
   plan: buildPlan(dailyMinutes, todayKey(), state.plan.themeSetIndex),
+  prefetchedStory: undefined,
 });
 
 export const rotatePlan = (state: LearningState): LearningState => ({
   ...state,
   plan: buildPlan(state.plan.dailyMinutes, todayKey(), state.plan.themeSetIndex + 1),
+  prefetchedStory: undefined,
 });
 
 export const savePack = (state: LearningState, pack: LearningPack): LearningState => ({
@@ -203,7 +215,19 @@ export const saveGeneratedStory = (state: LearningState, pack: LearningPack, sto
     packs: { ...packs, [`${pack.date}#${pack.story.chapterNumber}`]: pack },
     storyMemory,
     storyMemoryHistory: history,
+    prefetchedStory: undefined,
   };
+};
+
+export const savePrefetchedStory = (state: LearningState, sourcePackId: string, generated: GeneratedLearningPack): LearningState => ({
+  ...state,
+  prefetchedStory: { sourcePackId, ...generated, preparedAt: Date.now() },
+});
+
+export const usePrefetchedStory = (state: LearningState, sourcePackId: string): LearningState => {
+  const prefetched = state.prefetchedStory;
+  if (!prefetched || prefetched.sourcePackId !== sourcePackId) return state;
+  return saveGeneratedStory(state, prefetched.pack, prefetched.storyMemory);
 };
 
 export const rewindStoryForPack = (state: LearningState, pack?: LearningPack): LearningState => {
@@ -226,6 +250,7 @@ export const updateStoryProfile = (state: LearningState, premise: string): Learn
 export const updateChapterWordCount = (state: LearningState, chapterWordCount: number): LearningState => ({
   ...state,
   storyProfile: { ...state.storyProfile, chapterWordCount: clampChapterWordCount(chapterWordCount) },
+  prefetchedStory: undefined,
 });
 
 export const startNewStory = (state: LearningState): LearningState => ({
@@ -236,6 +261,7 @@ export const startNewStory = (state: LearningState): LearningState => ({
   taskResponses: {},
   storyMemory: undefined,
   storyMemoryHistory: [],
+  prefetchedStory: undefined,
 });
 
 export const completeTask = (state: LearningState, taskId: string): LearningState => ({

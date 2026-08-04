@@ -4,8 +4,8 @@ import { CalendarDays, Clock3, Home, Settings2, Target } from 'lucide-react';
 import { ProviderProfileStore } from './domain/ai/providerStore';
 import { generateLearningPack, isLearningModel } from './domain/learning/learningGenerator';
 import { persistAutomaticStoryArchive } from './domain/learning/storyArchive';
-import { completePack, completeTask, dueReviewCards, latestPackForDate, loadLearningState, packsForDate, reviewCard, rewindStoryForPack, rotatePlan, saveGeneratedStory, saveLearningState, saveTaskResponse, startNewStory, todayKey, updateChapterWordCount, updateDailyMinutes, updateStoryProfile } from './domain/learning/learningStore';
-import type { LearningState } from './domain/learning/learningTypes';
+import { completePack, completeTask, dueReviewCards, latestPackForDate, loadLearningState, packsForDate, reviewCard, rewindStoryForPack, rotatePlan, saveGeneratedStory, saveLearningState, savePrefetchedStory, saveTaskResponse, startNewStory, todayKey, updateChapterWordCount, updateDailyMinutes, updateStoryProfile, usePrefetchedStory } from './domain/learning/learningStore';
+import type { LearningPack, LearningState, LearningStoryMemory } from './domain/learning/learningTypes';
 import { LearningSettingsPage } from './features/learning/LearningSettingsPage';
 import { PlanPage, TodayPage } from './features/learning/LearningPages';
 import './styles/global.css';
@@ -44,6 +44,7 @@ const clearTodayLearning = (state: LearningState): LearningState => {
     completedPackIds: state.completedPackIds.filter((id) => !packIds.has(id)),
     completedTaskIds: state.completedTaskIds.filter((id) => ![...packIds].some((packId) => id.startsWith(`${packId}:`))),
     taskResponses: Object.fromEntries(Object.entries(state.taskResponses).filter(([id]) => ![...packIds].some((packId) => id.startsWith(`${packId}:`)))),
+    prefetchedStory: undefined,
   };
 };
 
@@ -59,9 +60,12 @@ export default function App() {
   const [location, setLocation] = useState<AppLocation>(locationFromHash);
   const [learningState, setLearningState] = useState<LearningState>(bootstrapLearningState);
   const [generating, setGenerating] = useState(false);
+  const [prefetchingNextChapter, setPrefetchingNextChapter] = useState(false);
   const [generationError, setGenerationError] = useState<string>();
+  const [prefetchError, setPrefetchError] = useState<string>();
   const [modelVersion, setModelVersion] = useState(0);
   const automaticGenerationRef = useRef<string | undefined>(undefined);
+  const prefetchGenerationRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const onHashChange = () => setLocation(locationFromHash());
@@ -79,6 +83,33 @@ export default function App() {
   const todayPack = latestPackForDate(learningState.packs, todayKey());
   const todayPlanDay = learningState.plan.days.find((day) => day.date === todayKey());
 
+  const prefetchNextChapter = async (sourcePack: LearningPack, sourceMemory: LearningStoryMemory) => {
+    if (!selectedModel) return;
+    const prefetchKey = `${sourcePack.id}:${selectedModel.id}:${learningState.plan.dailyMinutes}:${learningState.storyProfile.chapterWordCount}`;
+    if (prefetchGenerationRef.current === prefetchKey) return;
+    prefetchGenerationRef.current = prefetchKey;
+    setPrefetchingNextChapter(true);
+    setPrefetchError(undefined);
+    try {
+      const generated = await generateLearningPack(selectedModel, learningState.plan.dailyMinutes, todayKey(), todayPlanDay, learningState.storyProfile, sourceMemory);
+      setLearningState((current) => {
+        if (current.storyMemory?.storyId !== sourceMemory.storyId
+          || current.storyMemory.chapterNumber !== sourceMemory.chapterNumber
+          || current.plan.dailyMinutes !== learningState.plan.dailyMinutes
+          || current.storyProfile.chapterWordCount !== learningState.storyProfile.chapterWordCount
+          || !Object.values(current.packs).some((pack) => pack.id === sourcePack.id)) return current;
+        const next = savePrefetchedStory(current, sourcePack.id, generated);
+        saveLearningState(next);
+        return next;
+      });
+    } catch {
+      prefetchGenerationRef.current = undefined;
+      setPrefetchError('下一章未能提前准备好，完成当前学习后仍可手动生成。');
+    } finally {
+      setPrefetchingNextChapter(false);
+    }
+  };
+
   const handleGenerate = async () => {
     if (generating) return;
     setGenerating(true);
@@ -88,6 +119,7 @@ export default function App() {
       const nextState = saveGeneratedStory(learningState, generated.pack, generated.storyMemory);
       persist(nextState, setLearningState);
       void persistAutomaticStoryArchive(generated.storyMemory, nextState.packs);
+      void prefetchNextChapter(generated.pack, generated.storyMemory);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : '';
       setGenerationError(message.includes('请先在学习设置中') ? message : '模型暂时无法连接或返回内容不完整，请检查模型设置后重试。');
@@ -107,24 +139,32 @@ export default function App() {
   const handleMinutesChange = (minutes: number) => {
     const next = clearTodayLearning(updateDailyMinutes(learningState, minutes));
     automaticGenerationRef.current = undefined;
+    prefetchGenerationRef.current = undefined;
     setGenerationError(undefined);
+    setPrefetchError(undefined);
     persist(next, setLearningState);
   };
 
   const handlePlanRefresh = () => {
     const next = clearTodayLearning(rotatePlan(learningState));
     automaticGenerationRef.current = undefined;
+    prefetchGenerationRef.current = undefined;
     setGenerationError(undefined);
+    setPrefetchError(undefined);
     persist(next, setLearningState);
   };
 
   const handleModelChange = (id: string | undefined) => {
-    persist({ ...learningState, selectedModelId: id }, setLearningState);
+    persist({ ...learningState, selectedModelId: id, prefetchedStory: undefined }, setLearningState);
+    prefetchGenerationRef.current = undefined;
+    setPrefetchError(undefined);
     setModelVersion((version) => version + 1);
   };
 
   const handleChapterWordCountChange = (chapterWordCount: number) => {
     persist(updateChapterWordCount(learningState, chapterWordCount), setLearningState);
+    prefetchGenerationRef.current = undefined;
+    setPrefetchError(undefined);
   };
 
   const handleStoryProfileChange = (premise: string) => {
@@ -133,8 +173,22 @@ export default function App() {
 
   const handleStartNewStory = (premise: string) => {
     automaticGenerationRef.current = undefined;
+    prefetchGenerationRef.current = undefined;
     setGenerationError(undefined);
+    setPrefetchError(undefined);
     persist(startNewStory(updateStoryProfile(learningState, premise)), setLearningState);
+  };
+
+  const handleContinueToNextChapter = () => {
+    if (todayPack && learningState.prefetchedStory?.sourcePackId === todayPack.id) {
+      const prepared = learningState.prefetchedStory;
+      const nextState = usePrefetchedStory(learningState, todayPack.id);
+      persist(nextState, setLearningState);
+      void persistAutomaticStoryArchive(prepared.storyMemory, nextState.packs);
+      void prefetchNextChapter(prepared.pack, prepared.storyMemory);
+      return;
+    }
+    void handleGenerate();
   };
 
   let content: ReactNode;
@@ -143,7 +197,7 @@ export default function App() {
   } else if (location.route === 'settings') {
     content = <LearningSettingsPage store={providerStore} dailyMinutes={learningState.plan.dailyMinutes} selectedModelId={learningState.selectedModelId} storyProfile={learningState.storyProfile} storyMemory={learningState.storyMemory} packs={learningState.packs} onMinutesChange={handleMinutesChange} onModelChange={handleModelChange} onStoryProfileChange={handleStoryProfileChange} onChapterWordCountChange={handleChapterWordCountChange} onStartNewStory={handleStartNewStory} />;
   } else {
-    content = <TodayPage pack={todayPack} dueReviewCards={dueReviewCards(learningState)} completedTaskIds={learningState.completedTaskIds} taskResponses={learningState.taskResponses} completedPackIds={learningState.completedPackIds} generating={generating} generationError={generationError} onGenerate={() => { void handleGenerate(); }} onGenerateNextChapter={() => { void handleGenerate(); }} onReview={(cardId, remembered) => persist(reviewCard(learningState, cardId, remembered), setLearningState)} onSaveTaskResponse={(taskId, response) => persist(saveTaskResponse(learningState, taskId, response), setLearningState)} onCompleteTask={(taskId) => persist(completeTask(learningState, taskId), setLearningState)} onCompletePack={() => todayPack && persist(completePack(learningState, todayPack), setLearningState)} />;
+    content = <TodayPage pack={todayPack} dueReviewCards={dueReviewCards(learningState)} completedTaskIds={learningState.completedTaskIds} taskResponses={learningState.taskResponses} completedPackIds={learningState.completedPackIds} generating={generating} generationError={generationError} nextChapterReady={learningState.prefetchedStory?.sourcePackId === todayPack?.id} prefetchingNextChapter={prefetchingNextChapter} prefetchError={prefetchError} onGenerate={() => { void handleGenerate(); }} onGenerateNextChapter={handleContinueToNextChapter} onReview={(cardId, remembered) => persist(reviewCard(learningState, cardId, remembered), setLearningState)} onSaveTaskResponse={(taskId, response) => persist(saveTaskResponse(learningState, taskId, response), setLearningState)} onCompleteTask={(taskId) => persist(completeTask(learningState, taskId), setLearningState)} onCompletePack={() => todayPack && persist(completePack(learningState, todayPack), setLearningState)} />;
   }
 
   return <div className="app-shell learning-app" data-route={location.route} onClickCapture={clearPointerControlFocus}>

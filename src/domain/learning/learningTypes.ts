@@ -101,6 +101,11 @@ export type GeneratedLearningPack = {
   storyMemory: LearningStoryMemory;
 };
 
+export type PrefetchedLearningStory = GeneratedLearningPack & {
+  sourcePackId: string;
+  preparedAt: number;
+};
+
 export type LearningPlanDay = {
   date: string;
   theme: string;
@@ -137,4 +142,5 @@ export type LearningState = {
   storyProfile: LearningStoryProfile;
   storyMemory?: LearningStoryMemory;
   storyMemoryHistory: LearningStoryMemory[];
+  prefetchedStory?: PrefetchedLearningStory;
 };

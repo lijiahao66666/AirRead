@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { buildPlan, completePack, createInitialLearningState, dueReviewCards, latestPackForDate, loadLearningState, packsForDate, reviewCard, rewindStoryForPack, rotatePlan, saveGeneratedStory, savePack, startNewStory, updateDailyMinutes } from './learningStore';
+import { buildPlan, completePack, createInitialLearningState, dueReviewCards, latestPackForDate, loadLearningState, packsForDate, reviewCard, rewindStoryForPack, rotatePlan, saveGeneratedStory, savePack, savePrefetchedStory, startNewStory, updateDailyMinutes, usePrefetchedStory } from './learningStore';
 import { createStoryMemoryFixture, createStoryPackFixture } from '../../test/learningFixture';
 
 describe('learning store', () => {
@@ -97,6 +97,22 @@ describe('learning store', () => {
 
     expect(packsForDate(state.packs, '2026-08-03')).toHaveLength(2);
     expect(latestPackForDate(state.packs, '2026-08-03')?.story.chapterNumber).toBe(2);
+  });
+
+  it('keeps a prepared next chapter separate until the learner chooses to enter it', () => {
+    const currentPack = createStoryPackFixture('2026-08-03');
+    const currentMemory = createStoryMemoryFixture();
+    const nextPack = { ...createStoryPackFixture('2026-08-03'), id: 'pack-2026-08-03-chapter-2', story: { ...currentPack.story, chapterNumber: 2, chapterTitle: 'The Blue Door' } };
+    const nextMemory = createStoryMemoryFixture({ chapterNumber: 2, latestSummary: '第二章推进。', nextHook: '第三章钩子。' });
+    const currentState = saveGeneratedStory(createInitialLearningState(), currentPack, currentMemory);
+    const prepared = savePrefetchedStory(currentState, currentPack.id, { pack: nextPack, storyMemory: nextMemory });
+
+    expect(latestPackForDate(prepared.packs, '2026-08-03')?.story.chapterNumber).toBe(1);
+    expect(prepared.prefetchedStory?.pack.story.chapterNumber).toBe(2);
+
+    const entered = usePrefetchedStory(prepared, currentPack.id);
+    expect(latestPackForDate(entered.packs, '2026-08-03')?.story.chapterNumber).toBe(2);
+    expect(entered.prefetchedStory).toBeUndefined();
   });
 
   it('starts a new story without discarding spaced-repetition cards', () => {
