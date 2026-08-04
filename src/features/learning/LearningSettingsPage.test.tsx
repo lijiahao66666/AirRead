@@ -36,6 +36,22 @@ describe('LearningSettingsPage serial story controls', () => {
     expect(screen.queryByRole('button', { name: '导出 EPUB' })).not.toBeInTheDocument();
   });
 
+  it('provides a clear route back to today learning', () => {
+    render(<LearningSettingsPage
+      store={new ProviderProfileStore(window.localStorage)}
+      dailyMinutes={15}
+      storyProfile={{ premise: '', chapterWordCount: 180, createdAt: 1 }}
+      packs={{}}
+      onMinutesChange={vi.fn()}
+      onModelChange={vi.fn()}
+      onStoryProfileChange={vi.fn()}
+      onChapterWordCountChange={vi.fn()}
+      onStartNewStory={vi.fn()}
+    />);
+
+    expect(screen.getByRole('link', { name: '今日学习' })).toHaveAttribute('href', '#today');
+  });
+
   it('shows an inline confirmation before starting a new story', () => {
     const onStartNewStory = vi.fn();
     render(<LearningSettingsPage
