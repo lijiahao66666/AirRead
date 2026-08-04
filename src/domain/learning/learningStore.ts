@@ -190,12 +190,6 @@ export const updateDailyMinutes = (state: LearningState, dailyMinutes: number): 
   prefetchedStory: undefined,
 });
 
-export const rotatePlan = (state: LearningState): LearningState => ({
-  ...state,
-  plan: buildPlan(state.plan.dailyMinutes, todayKey(), state.plan.themeSetIndex + 1),
-  prefetchedStory: undefined,
-});
-
 export const savePack = (state: LearningState, pack: LearningPack): LearningState => ({
   ...state,
   packs: { ...state.packs, [pack.date]: pack },

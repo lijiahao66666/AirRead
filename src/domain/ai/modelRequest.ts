@@ -6,8 +6,8 @@ export class ModelConnectionError extends Error {
 }
 
 export class ModelRequestError extends Error {
-  constructor(providerName: string, status?: number) {
-    super(`${providerName} 请求未成功${status ? `（HTTP ${status}）` : ''}，请检查模型配置后重试。`);
+  constructor(providerName: string, status?: number, detail?: string) {
+    super(detail ? `${providerName}：${detail}` : `${providerName} 请求未成功${status ? `（HTTP ${status}）` : ''}，请检查模型配置后重试。`);
     this.name = 'ModelRequestError';
   }
 }

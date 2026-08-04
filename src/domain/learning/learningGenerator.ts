@@ -335,7 +335,7 @@ const endpoint = (profile: ProviderProfile): string => {
 };
 
 const readModelText = async (profile: ProviderProfile, prompt: string, chapterWordCount: number): Promise<string> => {
-  const maxOutputTokens = Math.min(32_000, Math.max(4_000, Math.round(chapterWordCount * 8)));
+  const maxOutputTokens = Math.min(32_000, Math.max(4_000, Math.round(chapterWordCount * 16)));
   let response: Response;
   try {
     if (profile.kind === 'openai-compatible') {
@@ -349,7 +349,12 @@ const readModelText = async (profile: ProviderProfile, prompt: string, chapterWo
     throw new ModelConnectionError(profile.name);
   }
   assertSuccessfulResponse(response, profile.name);
-  const payload: unknown = await response.json();
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new ModelRequestError(profile.name, response.status, '返回内容不是有效 JSON。');
+  }
   const textFromUnknown = (value: unknown): string => {
     if (typeof value === 'string') return value;
     if (Array.isArray(value)) return value.map(textFromUnknown).filter(Boolean).join('');
@@ -370,7 +375,7 @@ const readModelText = async (profile: ProviderProfile, prompt: string, chapterWo
       : (payload as { content?: unknown }).content;
   const text = textFromUnknown(output).trim();
   if (text) return text;
-  throw new ModelRequestError(profile.name);
+  throw new ModelRequestError(profile.name, undefined, '模型返回为空，可能已达到输出上限；请降低章节字数或提高模型输出上限。');
 };
 
 export const generateLearningPack = async (profile: ProviderProfile | undefined, dailyMinutes: number, date = todayKey(), planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>, storyProfile: LearningStoryProfile = { premise: '', chapterWordCount: 2_000, createdAt: Date.now() }, storyMemory?: LearningStoryMemory): Promise<GeneratedLearningPack> => {

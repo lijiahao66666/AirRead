@@ -63,6 +63,14 @@ describe('learning generator', () => {
     expect(generated.pack.originalText).toContain('Platform Seven');
   });
 
+  it('allows reasoning models enough output budget and explains an empty final message', async () => {
+    const longChapterProfile = { ...storyProfile, chapterWordCount: 2_000 };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: '', reasoning_content: '模型思考过程', }, finish_reason: 'length' }] }), { status: 200 }));
+
+    await expect(generateLearningPack(profile, 15, '2026-08-03', undefined, longChapterProfile)).rejects.toThrow('模型返回为空，可能已达到输出上限');
+    expect((fetchMock.mock.calls[0][1] as RequestInit).body).toContain('"max_tokens":32000');
+  });
+
   it('passes only compressed story memory into the next chapter and keeps its identity stable', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(responseFor(firstChapter))

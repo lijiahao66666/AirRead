@@ -53,8 +53,7 @@ describe('AirRead learning application shell', () => {
 
     await waitFor(() => expect(screen.getByRole('heading', { name: /第 1 章 · The Silver Umbrella/ })).toBeInTheDocument());
     expect(screen.getByRole('heading', { name: /AirRead 英语学习/ })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '今日学习' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '学习计划' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: '主导航' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: '学习设置' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '前情回顾' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '今天的训练' })).toBeInTheDocument();
@@ -89,7 +88,7 @@ describe('AirRead learning application shell', () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('模型暂时无法连接或返回内容不完整，请检查模型设置后重试。'));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('连载模型：浏览器无法直接连接。请检查网络、CORS 设置和 Base URL。AirRead 不会代你转发请求。'));
     expect(screen.queryByRole('heading', { name: /第 1 章/ })).not.toBeInTheDocument();
     expect(window.localStorage.getItem('airread.learning.v1')).toBeNull();
   });
@@ -98,15 +97,15 @@ describe('AirRead learning application shell', () => {
     render(<App />);
     await waitFor(() => expect(screen.getByRole('heading', { name: /第 1 章 · The Silver Umbrella/ })).toBeInTheDocument());
     const action = screen.getByRole('button', { name: '使用系统朗读英文原文' });
-    const planLink = screen.getByRole('link', { name: '学习计划' });
+    const settingsLink = screen.getByRole('link', { name: '学习设置' });
 
     action.focus();
     fireEvent.click(action, { detail: 1 });
     expect(action).not.toHaveFocus();
 
-    planLink.focus();
-    fireEvent.click(planLink, { detail: 0 });
-    expect(planLink).toHaveFocus();
+    settingsLink.focus();
+    fireEvent.click(settingsLink, { detail: 0 });
+    expect(settingsLink).toHaveFocus();
   });
 
   it('rebuilds today after changing time without advancing the serial chapter', async () => {
@@ -116,7 +115,7 @@ describe('AirRead learning application shell', () => {
 
     const firstTask = screen.getAllByRole('button').find((button) => button.getAttribute('aria-label')?.startsWith('完成 '));
     if (firstTask) fireEvent.click(firstTask);
-    window.location.hash = '#plan';
+    window.location.hash = '#settings';
     fireEvent(window, new HashChangeEvent('hashchange'));
 
     const minutesInput = screen.getByRole('spinbutton', { name: '每日可用分钟数' });
@@ -131,5 +130,14 @@ describe('AirRead learning application shell', () => {
       expect(saved.completedTaskIds).toEqual([]);
       expect(saved.completedPackIds).toEqual([]);
     });
+  });
+
+  it('redirects the removed plan route to today', async () => {
+    window.location.hash = '#plan';
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /第 1 章 · The Silver Umbrella/ })).toBeInTheDocument());
+    expect(window.location.hash).toBe('#today');
   });
 });

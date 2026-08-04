@@ -360,30 +360,11 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 .learning-complete-card p { margin: .22rem 0 0; color: #55716a; font-size: .72rem; line-height: 1.5; }
 .learning-complete-card .primary-action { min-height: 2.45rem; flex: none; background: #3e8068; font-size: .75rem; }
 .learning-complete-card .secondary-button { min-height: 2.45rem; flex: none; font-size: .75rem; }
-.time-setting-card, .settings-section { border: 1px solid var(--learning-line); border-radius: 1.1rem; padding: 1rem; background: rgb(255 255 255 / 72%); }
-.time-setting-card { display: grid; grid-template-columns: 2.55rem minmax(0, 1fr) auto; align-items: center; gap: .75rem; }
-.time-setting-card__icon, .learning-settings-icon { display: grid; width: 2.55rem; height: 2.55rem; place-items: center; border-radius: .8rem; background: var(--learning-sky); color: var(--learning-blue-strong); }
-.time-setting-card h3, .settings-section h3 { margin: 0; color: var(--learning-ink); font-size: 1rem; }
-.time-setting-card .eyebrow { margin-bottom: .2rem; }
-.time-setting-card label, .learning-time-setting > label { display: flex; align-items: baseline; gap: .3rem; color: var(--learning-muted); font-size: .78rem; }
-.time-setting-card input, .learning-time-setting input { width: 4.25rem; border: 0; border-bottom: 2px solid #a9c7cf; padding: .15rem .12rem; background: transparent; color: var(--learning-blue-strong); font: inherit; font-size: 1.25rem !important; font-weight: 800; text-align: center; outline: 0; }
-.learning-plan-page__header { align-items: center; }
-.plan-refresh-button { display: inline-flex; min-height: 2.5rem; align-items: center; justify-content: center; gap: .35rem; flex: none; border: 1px solid #c8dde1; border-radius: .74rem; padding: .45rem .68rem; background: #f8fcfc; color: var(--learning-blue-strong); cursor: pointer; font: inherit; font-size: .76rem; font-weight: 780; white-space: nowrap; }
-.plan-refresh-button:hover { border-color: #95bbc4; background: var(--learning-sky); }
-.plan-refresh-button svg { flex: none; }
-.learning-plan-note { margin: .72rem .1rem 1rem; color: var(--learning-muted); font-size: .78rem; line-height: 1.6; }
-.learning-plan-list { display: grid; padding: 0; overflow: hidden; }
-.learning-plan-day { display: grid; grid-template-columns: 2.3rem minmax(0, 1fr) auto; align-items: center; gap: .8rem; padding: .94rem; border-bottom: 1px solid #e0e8e6; }
-.learning-plan-day:last-child { border-bottom: 0; }
-.learning-plan-day__index { display: grid; width: 2.15rem; height: 2.15rem; place-items: center; border-radius: .72rem; background: #edf1f0; color: #698087; font-size: .75rem; font-weight: 780; }
-.learning-plan-day small { color: #71858a; font-size: .67rem; }
-.learning-plan-day h3 { margin: .08rem 0 .14rem; color: #24414b; font-size: .92rem; }
-.learning-plan-day p { margin: 0; color: #62777d; font-size: .75rem; }
-.learning-plan-day__pattern { display: inline-block; margin-top: .45rem; color: #5f808a; font-size: .67rem; font-weight: 720; line-height: 1.45; }
-.learning-plan-day > strong { color: var(--learning-blue-strong); font-size: .98rem; }
-.learning-plan-day > strong small { margin-left: .12rem; font-size: .65rem; }
-.learning-plan-day--today { background: linear-gradient(90deg, #eaf5f6, #fbfdfc); }
-.learning-plan-day--today .learning-plan-day__index { background: var(--learning-blue); color: white; }
+.settings-section { border: 1px solid var(--learning-line); border-radius: 1.1rem; padding: 1rem; background: rgb(255 255 255 / 72%); }
+.learning-settings-icon { display: grid; width: 2.55rem; height: 2.55rem; place-items: center; border-radius: .8rem; background: var(--learning-sky); color: var(--learning-blue-strong); }
+.settings-section h3 { margin: 0; color: var(--learning-ink); font-size: 1rem; }
+.learning-time-setting > label { display: flex; align-items: baseline; gap: .3rem; color: var(--learning-muted); font-size: .78rem; }
+.learning-time-setting input { width: 4.25rem; border: 0; border-bottom: 2px solid #a9c7cf; padding: .15rem .12rem; background: transparent; color: var(--learning-blue-strong); font: inherit; font-size: 1.25rem !important; font-weight: 800; text-align: center; outline: 0; }
 .review-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
 .review-card { display: flex; min-height: 13rem; flex-direction: column; align-items: flex-start; border: 1px solid var(--learning-line); border-radius: 1rem; padding: 1rem; background: #fbfdfc; }
 .review-card > small { color: #7b8c90; font-size: .68rem; }
@@ -499,12 +480,6 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
   .learning-complete-card { align-items: flex-start; flex-wrap: wrap; }
   .learning-complete-card > div { min-width: calc(100% - 2.2rem); }
   .learning-complete-card button { width: 100%; }
-  .time-setting-card { grid-template-columns: 2.35rem minmax(0, 1fr); }
-  .time-setting-card label { grid-column: 2; justify-self: start; margin-top: .1rem; }
-  .learning-plan-day { grid-template-columns: 2.1rem minmax(0, 1fr) auto; gap: .6rem; padding: .82rem; }
-  .learning-plan-page__header { grid-template-columns: minmax(0, 1fr); gap: .8rem; }
-  .learning-plan-page__header .plan-refresh-button { justify-self: start; }
-  .learning-plan-page .page-lede { max-width: 23rem; }
   .review-list { grid-template-columns: 1fr; }
   .learning-time-setting { align-items: flex-start; flex-direction: column; }
   .learning-time-setting > label { margin-left: 3.25rem; }
@@ -522,6 +497,7 @@ select { appearance: none; -webkit-appearance: none; background-image: linear-gr
 @media (max-width: 59.999rem) {
   html, body { overscroll-behavior-y: none; }
   .learning-app { min-height: 100svh; overflow-x: clip; }
+  .learning-app main { padding-bottom: 2rem; }
   .learning-app .primary-navigation, .learning-app[data-route='reader'] .primary-navigation { position: fixed !important; inset-inline: 0; bottom: 0; width: 100%; height: calc(4.1rem + env(safe-area-inset-bottom, 0px)); min-height: calc(4.1rem + env(safe-area-inset-bottom, 0px)); max-height: calc(4.1rem + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; transform: none; contain: layout paint; isolation: isolate; will-change: auto; backface-visibility: visible; -webkit-backface-visibility: visible; backdrop-filter: none; }
   .learning-app .primary-navigation a, .learning-app[data-route='reader'] .primary-navigation a { flex: none; }
 }

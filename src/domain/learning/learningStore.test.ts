@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { buildPlan, completePack, createInitialLearningState, dueReviewCards, latestPackForDate, loadLearningState, packsForDate, reviewCard, rewindStoryForPack, rotatePlan, saveGeneratedStory, savePack, savePrefetchedStory, startNewStory, updateDailyMinutes, usePrefetchedStory } from './learningStore';
+import { buildPlan, completePack, createInitialLearningState, dueReviewCards, latestPackForDate, loadLearningState, packsForDate, reviewCard, rewindStoryForPack, saveGeneratedStory, savePack, savePrefetchedStory, startNewStory, updateDailyMinutes, usePrefetchedStory } from './learningStore';
 import { createStoryMemoryFixture, createStoryPackFixture } from '../../test/learningFixture';
 
 describe('learning store', () => {
@@ -42,15 +42,6 @@ describe('learning store', () => {
     expect(updated.plan.themeSetIndex).toBe(2);
     expect(updated.plan.days.map((day) => day.minutes)).toEqual(Array(7).fill(28));
     expect(updated.plan.days[0]).toMatchObject({ theme: state.plan.days[0].theme, practicePattern: '复习 · 听读 · 跟读 · 复述 · 短写作' });
-  });
-
-  it('rotates to a different seven-day topic batch without changing the available time', () => {
-    const state = { ...createInitialLearningState(), plan: buildPlan(20, '2026-08-03') };
-    const rotated = rotatePlan(state);
-
-    expect(rotated.plan.dailyMinutes).toBe(20);
-    expect(rotated.plan.themeSetIndex).toBe(1);
-    expect(rotated.plan.days[0].theme).not.toBe(state.plan.days[0].theme);
   });
 
   it('migrates a cached plan without a version to the current learning topics', () => {
