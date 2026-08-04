@@ -57,7 +57,7 @@ const addExercises = (tasks: LearningTask[], text: string, vocabulary: Pick<Lear
 
 const chapterWordRange = (chapterWordCount: number): string => {
   const lower = Math.max(60, Math.round(chapterWordCount * 0.9));
-  const upper = Math.min(2_200, Math.round(chapterWordCount * 1.1));
+  const upper = Math.min(3_300, Math.round(chapterWordCount * 1.1));
   return `${lower} 到 ${upper} 词`;
 };
 
@@ -335,7 +335,7 @@ const endpoint = (profile: ProviderProfile): string => {
 };
 
 const readModelText = async (profile: ProviderProfile, prompt: string, chapterWordCount: number): Promise<string> => {
-  const maxOutputTokens = Math.min(16_000, Math.max(3_600, Math.round(chapterWordCount * 8)));
+  const maxOutputTokens = Math.min(32_000, Math.max(4_000, Math.round(chapterWordCount * 8)));
   let response: Response;
   try {
     if (profile.kind === 'openai-compatible') {
@@ -373,7 +373,7 @@ const readModelText = async (profile: ProviderProfile, prompt: string, chapterWo
   throw new ModelRequestError(profile.name);
 };
 
-export const generateLearningPack = async (profile: ProviderProfile | undefined, dailyMinutes: number, date = todayKey(), planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>, storyProfile: LearningStoryProfile = { premise: '', chapterWordCount: 180, createdAt: Date.now() }, storyMemory?: LearningStoryMemory): Promise<GeneratedLearningPack> => {
+export const generateLearningPack = async (profile: ProviderProfile | undefined, dailyMinutes: number, date = todayKey(), planDay?: Pick<LearningPlanDay, 'theme' | 'focus'>, storyProfile: LearningStoryProfile = { premise: '', chapterWordCount: 2_000, createdAt: Date.now() }, storyMemory?: LearningStoryMemory): Promise<GeneratedLearningPack> => {
   const normalizedMinutes = clampDailyMinutes(dailyMinutes);
   const normalizedStoryProfile = { ...storyProfile, chapterWordCount: clampChapterWordCount(storyProfile.chapterWordCount) };
   if (!isLearningModel(profile)) throw new Error('请先在学习设置中配置并启用一个语言模型，才能生成原创连载。');

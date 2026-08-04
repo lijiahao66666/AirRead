@@ -3,7 +3,7 @@ import { buildTaskExercise } from './taskExercises';
 
 const STORAGE_KEY = 'airread.learning.v1';
 const DEFAULT_MINUTES = 15;
-const DEFAULT_CHAPTER_WORD_COUNT = 180;
+const DEFAULT_CHAPTER_WORD_COUNT = 2_000;
 const PLAN_VERSION = 2;
 const PLAN_THEME_SETS = [
   [
@@ -61,7 +61,7 @@ export const addDays = (dateKey: string, days: number): string => {
 
 export const clampDailyMinutes = (value: number): number => Math.min(180, Math.max(5, Math.round(value)));
 
-export const clampChapterWordCount = (value: number): number => Math.min(2_000, Math.max(80, Math.round(value / 10) * 10));
+export const clampChapterWordCount = (value: number): number => Math.min(3_000, Math.max(80, Math.round(value / 10) * 10));
 
 const normalizeThemeSetIndex = (index: number): number => ((Math.trunc(index) % PLAN_THEME_SETS.length) + PLAN_THEME_SETS.length) % PLAN_THEME_SETS.length;
 
